@@ -61,10 +61,17 @@ class DocumentUsage(BaseModel):
     local_note: Optional[str] = None
 
 
+class LastAttempt(BaseModel):
+    my_answer: Optional[str] = None
+    is_correct: bool
+    created_at: dt.datetime
+
+
 class DocumentStats(BaseModel):
     attempts: int = 0
     accuracy: float = 0.0
     recent: List[bool] = Field(default_factory=list)  # 최근 10회 풀이 정오, 오래된→최신 (S3)
+    last_attempt: Optional[LastAttempt] = None
 
 
 class DocumentDetail(BaseModel):

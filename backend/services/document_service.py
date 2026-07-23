@@ -17,6 +17,7 @@ from schemas.document import (
     DocumentStats,
     DocumentUsage,
     DocumentUpdate,
+    LastAttempt,
     LinkCreate,
 )
 from services.tag_service import get_or_create_tag
@@ -255,6 +256,22 @@ def get_document_detail(db: Session, document_id: int) -> DocumentDetail:
     ).scalars().all()
     recent = [bool(value) for value in reversed(recent_rows)]
 
+    last_attempt_row = db.execute(
+        select(models.Attempt)
+        .where(models.Attempt.document_id == document_id)
+        .order_by(models.Attempt.answered_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    last_attempt = (
+        LastAttempt(
+            my_answer=last_attempt_row.my_answer,
+            is_correct=bool(last_attempt_row.is_correct),
+            created_at=last_attempt_row.answered_at,
+        )
+        if last_attempt_row is not None
+        else None
+    )
+
     return DocumentDetail(
         id=document.id,
         doc_no=document.doc_no,
@@ -275,7 +292,12 @@ def get_document_detail(db: Session, document_id: int) -> DocumentDetail:
         usages=usages,
         relations=[],
         bookmarked=False,
-        stats=DocumentStats(attempts=attempts_count, accuracy=round(accuracy, 4), recent=recent),
+        stats=DocumentStats(
+            attempts=attempts_count,
+            accuracy=round(accuracy, 4),
+            recent=recent,
+            last_attempt=last_attempt,
+        ),
     )
 
 

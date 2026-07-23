@@ -38,11 +38,19 @@ export interface DocumentUsage {
   local_note: string | null
 }
 
+export interface DocumentStatsLastAttempt {
+  my_answer: string
+  is_correct: boolean
+  created_at: string
+}
+
 export interface DocumentStats {
   attempts: number
   accuracy: number | null
   // 최근 10회 풀이 정오 (오래된 → 최신). 설계 §5.3 풀이 이력 미니차트, stage-3에서 stats에 추가됨.
   recent: boolean[]
+  // 마지막 풀이 복원용 (설계 §5.5 완료 문제 재방문) — 과거 데이터는 null일 수 있음.
+  last_attempt: DocumentStatsLastAttempt | null
 }
 
 export interface DocumentDetail {

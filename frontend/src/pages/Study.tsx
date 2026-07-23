@@ -236,9 +236,12 @@ function StudyCard({
   const docQuery = useDocument(item.document_id)
   const submitAttempt = useSubmitAttempt()
   const [cardShownAt, setCardShownAt] = useState(() => Date.now())
+  // done 문제를 [다시 풀기]로 재도전하는 중인지 — 문서가 바뀌면 초기화(설계 §5.5).
+  const [retryMode, setRetryMode] = useState(false)
 
   useEffect(() => {
     setCardShownAt(Date.now())
+    setRetryMode(false)
   }, [item.document_id])
 
   if (docQuery.isLoading) {
@@ -250,11 +253,14 @@ function StudyCard({
 
   const doc = docQuery.data
   const question = isQuestionType(item.type)
-  // 이미 done인 문제를 [이전]으로 다시 이동 시 재제출 요구 없이 열람 모드로 표시.
-  const viewOnly = question && item.status === 'done' && answered == null
+  // 이미 done인 문제를 재방문한 경우(이번 세션 제출 없음) — [다시 풀기]를 누르기 전까지 잠금.
+  // last_attempt가 있으면 이전 풀이를 복원해 보여주고, 없으면(과거 데이터) 안내 문구만 표시.
+  const isDoneRevisit = question && item.status === 'done' && answered == null
+  const locked = isDoneRevisit && !retryMode
+  const lastAttempt = doc.stats.last_attempt
 
   function handleSelect(choiceIndex: number) {
-    if (answered || viewOnly) return
+    if (answered || locked) return
     const myAnswer = String(choiceIndex + 1)
     const timeSpent = Math.max(0, Math.round((Date.now() - cardShownAt) / 1000))
     submitAttempt.mutate(
@@ -290,10 +296,13 @@ function StudyCard({
         <div className="flex flex-col gap-2">
           {(doc.choices ?? []).map((choice, i) => {
             const value = String(i + 1)
-            const isMine = answered?.my_answer === value
-            const isCorrectChoice = answered != null && answered.result.answer === value
+            // 저장된 my_answer/answer는 공백이 섞였을 수 있다(서버는 정규화 비교로 채점) — trim 후 대조.
+            const isMine =
+              locked && lastAttempt ? lastAttempt.my_answer?.trim() === value : answered?.my_answer === value
+            const isCorrectChoice =
+              locked && lastAttempt ? doc.answer?.trim() === value : answered != null && answered.result.answer === value
             let stateClass = 'border-border bg-surface text-primary hover:bg-bg'
-            if (answered) {
+            if (answered || (locked && lastAttempt)) {
               if (isCorrectChoice) stateClass = 'border-correct bg-correct/10 text-correct'
               else if (isMine) stateClass = 'border-wrong bg-wrong/10 text-wrong'
             }
@@ -301,7 +310,7 @@ function StudyCard({
               <button
                 key={i}
                 type="button"
-                disabled={answered != null || viewOnly || submitAttempt.isPending}
+                disabled={answered != null || locked || submitAttempt.isPending}
                 onClick={() => handleSelect(i)}
                 className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-default ${stateClass}`}
               >
@@ -313,8 +322,39 @@ function StudyCard({
         </div>
       )}
 
-      {question && viewOnly && (
-        <p className="mt-3 text-sm text-muted">이미 완료한 문제입니다. 다음으로 진행하세요.</p>
+      {question && locked && lastAttempt && (
+        <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+          <p className="mb-2 text-xs font-medium text-muted">이미 완료한 문제 · 이전 풀이</p>
+          <p className={`mb-2 text-sm font-semibold ${lastAttempt.is_correct ? 'text-correct' : 'text-wrong'}`}>
+            {lastAttempt.is_correct ? '정답입니다' : '오답입니다'}
+          </p>
+          {doc.explanation != null && (
+            <div className="text-sm text-primary">
+              <span className="font-semibold">해설</span>
+              <MarkdownView content={doc.explanation} />
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setRetryMode(true)}
+            className="mt-3 w-full rounded border border-accent bg-accent-soft px-3 py-2 text-sm font-medium text-accent hover:opacity-90"
+          >
+            다시 풀기
+          </button>
+        </div>
+      )}
+
+      {question && locked && !lastAttempt && (
+        <div className="mt-3">
+          <p className="text-sm text-muted">이미 완료한 문제입니다. 다음으로 진행하세요.</p>
+          <button
+            type="button"
+            onClick={() => setRetryMode(true)}
+            className="mt-2 w-full rounded border border-accent bg-accent-soft px-3 py-2 text-sm font-medium text-accent hover:opacity-90"
+          >
+            다시 풀기
+          </button>
+        </div>
       )}
 
       {answered && (
