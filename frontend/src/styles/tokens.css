@@ -1,0 +1,67 @@
+/**
+ * Study Hub 디자인 토큰 (설계 §6)
+ * 컴포넌트는 이 토큰만 참조한다 — 색상 하드코딩 금지.
+ * 다크 모드는 <html class="dark"> 토글로 전환된다 (Tailwind darkMode:'class').
+ */
+
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --border: #e2e4e9;
+  --text: #14161a;
+  --text-muted: #6b7280;
+  --accent: #2563eb;
+  --accent-soft: #dbeafe;
+  --on-accent: #ffffff;
+  --correct: #16a34a;
+  --wrong: #dc2626;
+  --warning: #d97706;
+
+  /* 학습 히트맵 5단계 (약함 -> 강함) */
+  --heat-1: #e2e4e9;
+  --heat-2: #bfdbfe;
+  --heat-3: #93c5fd;
+  --heat-4: #60a5fa;
+  --heat-5: #2563eb;
+}
+
+.dark {
+  --bg: #0f1115;
+  --surface: #17191f;
+  --surface-raised: #1e2129;
+  --border: #2b2f38;
+  --text: #e7e9ee;
+  --text-muted: #9aa1ae;
+  --accent: #3b82f6;
+  --accent-soft: #1e3a8a;
+  --on-accent: #ffffff;
+  --correct: #22c55e;
+  --wrong: #ef4444;
+  --warning: #f59e0b;
+
+  --heat-1: #1e2129;
+  --heat-2: #1e3a5f;
+  --heat-3: #1d4e89;
+  --heat-4: #1d63b3;
+  --heat-5: #3b82f6;
+}
+
+/* 인쇄 뷰는 테마와 무관하게 항상 라이트 (설계 §6) */
+@media print {
+  :root,
+  .dark {
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --border: #d1d5db;
+    --text: #111111;
+    --text-muted: #444444;
+    --accent: #2563eb;
+    --accent-soft: #dbeafe;
+    --on-accent: #ffffff;
+    --correct: #16a34a;
+    --wrong: #dc2626;
+    --warning: #d97706;
+  }
+}

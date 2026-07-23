@@ -1,0 +1,12 @@
+study.db
+study.db-wal
+study.db-shm
+sources/
+TestSources/
+node_modules/
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+frontend/dist/
+*.pyc
+.env

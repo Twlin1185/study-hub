@@ -1,0 +1,355 @@
+"""문서 CRUD·연결·태그 비즈니스 로직."""
+from __future__ import annotations
+
+import json
+from typing import List, Optional, Tuple
+
+from sqlalchemy import cast, func, select, Integer
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+import models
+from exceptions import ConflictError, NotFoundError, ValidationAppError
+from schemas.document import (
+    DocumentCreate,
+    DocumentDetail,
+    DocumentListItem,
+    DocumentStats,
+    DocumentUsage,
+    DocumentUpdate,
+    LinkCreate,
+)
+from services.tag_service import get_or_create_tag
+
+DOC_NO_PREFIX = "DOC-"
+
+
+def get_document_or_404(db: Session, document_id: int) -> models.Document:
+    document = db.get(models.Document, document_id)
+    if document is None:
+        raise NotFoundError(
+            "문서를 찾을 수 없습니다", detail={"document_id": document_id}
+        )
+    return document
+
+
+def _generate_doc_no(db: Session) -> str:
+    max_no = db.execute(
+        select(
+            func.max(cast(func.substr(models.Document.doc_no, len(DOC_NO_PREFIX) + 1), Integer))
+        )
+    ).scalar()
+    next_no = (max_no or 0) + 1
+    return f"{DOC_NO_PREFIX}{next_no:04d}"
+
+
+def _collect_descendant_ids(db: Session, category_id: int) -> List[int]:
+    ids = [category_id]
+    frontier = [category_id]
+    while frontier:
+        children = db.execute(
+            select(models.Category.id).where(models.Category.parent_id.in_(frontier))
+        ).scalars().all()
+        if not children:
+            break
+        ids.extend(children)
+        frontier = children
+    return ids
+
+
+def _category_path(db: Session, category_id: int) -> str:
+    parts: List[str] = []
+    current: Optional[models.Category] = db.get(models.Category, category_id)
+    while current is not None:
+        parts.append(current.name)
+        current = db.get(models.Category, current.parent_id) if current.parent_id else None
+    return "/".join(reversed(parts))
+
+
+def _tags_for_document(db: Session, document_id: int) -> List[str]:
+    rows = db.execute(
+        select(models.Tag.name)
+        .join(models.DocumentTag, models.DocumentTag.tag_id == models.Tag.id)
+        .where(models.DocumentTag.document_id == document_id)
+        .order_by(models.Tag.name)
+    ).scalars().all()
+    return list(rows)
+
+
+def _usage_count(db: Session, document_id: int) -> int:
+    return db.execute(
+        select(func.count())
+        .select_from(models.CategoryDocument)
+        .where(models.CategoryDocument.document_id == document_id)
+    ).scalar_one()
+
+
+def list_documents(
+    db: Session,
+    *,
+    category_id: Optional[int] = None,
+    deep: bool = False,
+    doc_type: Optional[str] = None,
+    tag: Optional[str] = None,
+    orphan: bool = False,
+    include_inactive: bool = False,
+    page: int = 1,
+    size: int = 50,
+) -> Tuple[List[DocumentListItem], int]:
+    query = select(models.Document.id).distinct()
+
+    if not include_inactive:
+        query = query.where(models.Document.is_active == 1)
+
+    if doc_type:
+        query = query.where(models.Document.type == doc_type)
+
+    if category_id is not None:
+        category_ids = (
+            _collect_descendant_ids(db, category_id) if deep else [category_id]
+        )
+        query = query.join(
+            models.CategoryDocument,
+            models.CategoryDocument.document_id == models.Document.id,
+        ).where(models.CategoryDocument.category_id.in_(category_ids))
+
+    if tag:
+        query = query.join(
+            models.DocumentTag, models.DocumentTag.document_id == models.Document.id
+        ).join(models.Tag, models.Tag.id == models.DocumentTag.tag_id).where(
+            models.Tag.name == tag
+        )
+
+    if orphan:
+        linked_ids = select(models.CategoryDocument.document_id)
+        query = query.where(models.Document.id.notin_(linked_ids))
+
+    total = db.execute(select(func.count()).select_from(query.subquery())).scalar_one()
+
+    ids = db.execute(
+        query.order_by(models.Document.id.desc()).offset((page - 1) * size).limit(size)
+    ).scalars().all()
+
+    documents = []
+    if ids:
+        documents = db.execute(
+            select(models.Document)
+            .where(models.Document.id.in_(ids))
+            .order_by(models.Document.id.desc())
+        ).scalars().all()
+
+    items = [
+        DocumentListItem(
+            id=doc.id,
+            doc_no=doc.doc_no,
+            type=doc.type,
+            title=doc.title,
+            difficulty=doc.difficulty,
+            is_active=bool(doc.is_active),
+            tags=_tags_for_document(db, doc.id),
+            usage_count=_usage_count(db, doc.id),
+            bookmarked=False,
+            created_at=doc.created_at,
+            updated_at=doc.updated_at,
+        )
+        for doc in documents
+    ]
+    return items, total
+
+
+def create_document(db: Session, payload: DocumentCreate) -> models.Document:
+    is_question = payload.type in ("question", "past_question")
+    if is_question and not payload.answer:
+        raise ValidationAppError(
+            "문제 타입 문서는 정답(answer)이 필요합니다", detail={"type": payload.type}
+        )
+
+    for attempt in range(3):
+        doc_no = _generate_doc_no(db)
+        document = models.Document(
+            doc_no=doc_no,
+            type=payload.type,
+            title=payload.title,
+            content=payload.content,
+            choices=json.dumps(payload.choices, ensure_ascii=False) if payload.choices is not None else None,
+            answer=payload.answer,
+            explanation=payload.explanation,
+            difficulty=payload.difficulty,
+            source_id=payload.source_id,
+            source_detail=payload.source_detail,
+        )
+        db.add(document)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            if attempt == 2:
+                raise
+            continue
+        db.refresh(document)
+        return document
+    raise ConflictError("문서 번호 채번에 실패했습니다")  # pragma: no cover
+
+
+def update_document(
+    db: Session, document_id: int, payload: DocumentUpdate
+) -> models.Document:
+    document = get_document_or_404(db, document_id)
+    data = payload.model_dump(exclude_unset=True)
+    if "choices" in data:
+        data["choices"] = (
+            json.dumps(data["choices"], ensure_ascii=False)
+            if data["choices"] is not None
+            else None
+        )
+    for field, value in data.items():
+        setattr(document, field, value)
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+def soft_delete_document(db: Session, document_id: int) -> None:
+    document = get_document_or_404(db, document_id)
+    document.is_active = 0
+    db.commit()
+
+
+def get_document_detail(db: Session, document_id: int) -> DocumentDetail:
+    document = get_document_or_404(db, document_id)
+
+    usage_rows = db.execute(
+        select(models.CategoryDocument).where(
+            models.CategoryDocument.document_id == document_id
+        )
+    ).scalars().all()
+    usages = [
+        DocumentUsage(
+            category_id=row.category_id,
+            path=_category_path(db, row.category_id),
+            local_note=row.local_note,
+        )
+        for row in usage_rows
+    ]
+
+    attempts_count = db.execute(
+        select(func.count())
+        .select_from(models.Attempt)
+        .where(models.Attempt.document_id == document_id)
+    ).scalar_one()
+    correct_count = db.execute(
+        select(func.count())
+        .select_from(models.Attempt)
+        .where(
+            models.Attempt.document_id == document_id,
+            models.Attempt.is_correct == 1,
+        )
+    ).scalar_one()
+    accuracy = (correct_count / attempts_count) if attempts_count else 0.0
+
+    recent_rows = db.execute(
+        select(models.Attempt.is_correct)
+        .where(models.Attempt.document_id == document_id)
+        .order_by(models.Attempt.answered_at.desc())
+        .limit(10)
+    ).scalars().all()
+    recent = [bool(value) for value in reversed(recent_rows)]
+
+    return DocumentDetail(
+        id=document.id,
+        doc_no=document.doc_no,
+        type=document.type,
+        title=document.title,
+        content=document.content,
+        choices=json.loads(document.choices) if document.choices else None,
+        answer=document.answer,
+        explanation=document.explanation,
+        difficulty=document.difficulty,
+        source_id=document.source_id,
+        source_detail=document.source_detail,
+        is_active=bool(document.is_active),
+        forked_from=document.forked_from,
+        created_at=document.created_at,
+        updated_at=document.updated_at,
+        tags=_tags_for_document(db, document.id),
+        usages=usages,
+        relations=[],
+        bookmarked=False,
+        stats=DocumentStats(attempts=attempts_count, accuracy=round(accuracy, 4), recent=recent),
+    )
+
+
+def replace_tags(db: Session, document_id: int, tag_names: List[str]) -> List[str]:
+    document = get_document_or_404(db, document_id)
+
+    normalized = []
+    seen = set()
+    for name in tag_names:
+        clean = name.strip()
+        if not clean or clean in seen:
+            continue
+        seen.add(clean)
+        normalized.append(clean)
+
+    db.execute(
+        models.DocumentTag.__table__.delete().where(
+            models.DocumentTag.document_id == document.id
+        )
+    )
+    for name in normalized:
+        tag = get_or_create_tag(db, name)
+        db.add(models.DocumentTag(document_id=document.id, tag_id=tag.id))
+
+    db.commit()
+    return _tags_for_document(db, document.id)
+
+
+def add_link(db: Session, document_id: int, payload: LinkCreate) -> None:
+    """분류 연결 upsert.
+
+    이미 연결되어 있으면 요청 본문에 명시적으로 포함된 필드만 갱신한다
+    (local_note를 안 보내면 기존 값 유지 — 설계 §5.3 사용처 local_note 인라인 편집이
+    이 엔드포인트를 재사용하므로 그때 기존 값을 지우지 않기 위함).
+    연결이 없으면 새로 생성한다.
+    """
+    document = get_document_or_404(db, document_id)
+    category = db.get(models.Category, payload.category_id)
+    if category is None:
+        raise NotFoundError(
+            "분류를 찾을 수 없습니다", detail={"category_id": payload.category_id}
+        )
+
+    existing = db.get(
+        models.CategoryDocument, {"category_id": payload.category_id, "document_id": document.id}
+    )
+
+    if existing is not None:
+        updates = payload.model_dump(exclude_unset=True, exclude={"category_id"})
+        for field, value in updates.items():
+            if field == "sort_order" and value is None:
+                continue
+            setattr(existing, field, value)
+    else:
+        link = models.CategoryDocument(
+            category_id=payload.category_id,
+            document_id=document.id,
+            local_note=payload.local_note,
+            sort_order=payload.sort_order or 0,
+        )
+        db.add(link)
+
+    db.commit()
+
+
+def remove_link(db: Session, document_id: int, category_id: int) -> None:
+    get_document_or_404(db, document_id)
+    link = db.get(
+        models.CategoryDocument, {"category_id": category_id, "document_id": document_id}
+    )
+    if link is None:
+        raise NotFoundError(
+            "연결을 찾을 수 없습니다",
+            detail={"category_id": category_id, "document_id": document_id},
+        )
+    db.delete(link)
+    db.commit()
