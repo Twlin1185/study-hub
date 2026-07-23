@@ -12,45 +12,45 @@ D-Day 관리(시험 분류 + 임의 D-Day)와 오답노트 분류 계층 그룹�
 ## 작업 체크리스트
 
 ### 1. 백엔드 — 통계
-- [ ] `GET /api/stats/heatmap?from&to`: 일자별 학습량(attempts + 개념 완료 합산)
-- [ ] `GET /api/stats/weakness`: 문서·단원별 누적 정답률 하위 Top N (최소 시도 수 3 필터)
-- [ ] `GET /api/categories/{id}/stats`: 직계 자식별 진도·정답률·시도 수 (드릴다운)
-- [ ] dashboard 완성: recent(7일 정답률·풀이 수) 채우기
-- [ ] dashboard `ddays` 완성: 분류 `exam_date` + `settings:ddays.custom`(임의 D-Day) 병합 → `d_day` 계산, 날짜순·지난 날짜 제외 (설계 §4.8 — DDL 변경 없음)
+- [x] `GET /api/stats/heatmap?from&to`: 일자별 학습량(attempts + 개념 완료 합산)
+- [x] `GET /api/stats/weakness`: 문서·단원별 누적 정답률 하위 Top N (최소 시도 수 3 필터)
+- [x] `GET /api/categories/{id}/stats`: 직계 자식별 진도·정답률·시도 수 (드릴다운)
+- [x] dashboard 완성: recent(7일 정답률·풀이 수) 채우기
+- [x] dashboard `ddays` 완성: 분류 `exam_date` + `settings:ddays.custom`(임의 D-Day) 병합 → `d_day` 계산, 날짜순·지난 날짜 제외 (설계 §4.8 — DDL 변경 없음)
 
 ### 2. 백엔드 — 관계·북마크·배치
-- [ ] relations POST/DELETE (`explains`/`related`/`prerequisite`, 자기 참조 금지)
-- [ ] bookmark PUT/DELETE, documents 목록 `bookmarked=1` 필터
-- [ ] `GET /api/documents/batch?ids=` (인쇄 뷰용)
-- [ ] quiz/session에 `bookmarked` 모드 추가
-- [ ] review-notes 보강: `category_id` 필터 **하위 트리 포함** + 문서 요약에 분류 경로(`category_path`) 포함 (설계 §4.6)
+- [x] relations POST/DELETE (`explains`/`related`/`prerequisite`, 자기 참조 금지)
+- [x] bookmark PUT/DELETE, documents 목록 `bookmarked=1` 필터
+- [x] `GET /api/documents/batch?ids=` (인쇄 뷰용)
+- [x] quiz/session에 `bookmarked` 모드 추가
+- [x] review-notes 보강: `category_id` 필터 **하위 트리 포함** + 문서 요약에 분류 경로(`category_path`) 포함 (설계 §4.6)
 
 ### 3. 프론트엔드 — 대시보드·차트 (Chart.js)
-- [ ] 홈: 히트맵 12주(잔디, 토큰 5단계 색), 시험별 진도 도넛, 최근 정답률 추이 라인
-- [ ] 약점 위젯: "자꾸 틀리는 개념 Top 10" → 클릭 시 해당 문서/재도전
-- [ ] 시험 대시보드(커리큘럼 화면 상단 확장): 과목별 정답률 바 차트 — 시나리오 S3 "정답률 60% 미만 단원 집중"
-- [ ] 다크 모드에서 차트 색상 토큰 연동 확인
+- [x] 홈: 히트맵 12주(잔디, 토큰 5단계 색), 시험별 진도 도넛, 최근 정답률 추이 라인
+- [x] 약점 위젯: "자꾸 틀리는 개념 Top 10" → 클릭 시 해당 문서/재도전
+- [x] 시험 대시보드(커리큘럼 화면 상단 확장): 과목별 정답률 바 차트 — 시나리오 S3 "정답률 60% 미만 단원 집중"
+- [x] 다크 모드에서 차트 색상 토큰 연동 확인
 
 ### 4. 프론트엔드 — 관계·북마크
-- [ ] 문서 상세: 관련 문서 섹션(문제→"이 문제의 개념", 개념→"확인 문제"), 연결 추가 모달(문서 검색 선택)
-- [ ] 퀴즈 해설 영역에 관련 개념 바로가기 링크
-- [ ] 북마크 별: 탐색 카드·문서 상세·퀴즈 카드. 낙관적 업데이트
-- [ ] 홈 "북마크 모아보기" 진입 + 탐색 필터 + 퀴즈 "북마크만" 모드
+- [x] 문서 상세: 관련 문서 섹션(문제→"이 문제의 개념", 개념→"확인 문제"), 연결 추가 모달(문서 검색 선택)
+- [x] 퀴즈 해설 영역에 관련 개념 바로가기 링크
+- [x] 북마크 별: 탐색 카드·문서 상세·퀴즈 카드. 낙관적 업데이트
+- [x] 홈 "북마크 모아보기" 진입 + 탐색 필터 + 퀴즈 "북마크만" 모드
 
 ### 5. 인쇄 뷰 `/print` (설계 §5.10, 계획서 §12)
-- [ ] A4 인쇄 CSS 공통: `@page A4 15mm`, `break-inside: avoid`, UI 요소 print에서 숨김, 항상 라이트 테마
-- [ ] 3종: 개념 정리본(목차 자동 생성·doc_no 표시) / 문제집(문제 앞·정답해설 뒤 분리, 해설 제외 옵션, 풀이 여백) / 오답노트(기간·분류 필터, 내 메모 포함)
-- [ ] 옵션 패널(화면 전용) + 브라우저 인쇄 호출 버튼
+- [x] A4 인쇄 CSS 공통: `@page A4 15mm`, `break-inside: avoid`, UI 요소 print에서 숨김, 항상 라이트 테마
+- [x] 3종: 개념 정리본(목차 자동 생성·doc_no 표시) / 문제집(문제 앞·정답해설 뒤 분리, 해설 제외 옵션, 풀이 여백) / 오답노트(기간·분류 필터, 내 메모 포함)
+- [x] 옵션 패널(화면 전용) + 브라우저 인쇄 호출 버튼
 
 ### 6. 프론트엔드 — 커리큘럼 분류 관리 (설계 §5.4)
-- [ ] 커리큘럼 편집 모드 토글: `/curriculum` 카드 목록에 [+ 시험 추가], `/curriculum/:id` 각 행에 [하위 추가]·[수정(이름·시험일)]·[이동]·[삭제]
-- [ ] 탐색의 공용 모달(CategoryFormModal·MoveCategoryModal·ConfirmDialog)과 기존 categories API 재사용 — 새 API 없음. 변경 즉시 트리·진도 invalidate
+- [x] 커리큘럼 편집 모드 토글: `/curriculum` 카드 목록에 [+ 시험 추가], `/curriculum/:id` 각 행에 [하위 추가]·[수정(이름·시험일)]·[이동]·[삭제]
+- [x] 탐색의 공용 모달(CategoryFormModal·MoveCategoryModal·ConfirmDialog)과 기존 categories API 재사용 — 새 API 없음. 변경 즉시 트리·진도 invalidate
 
 ### 7. 프론트엔드 — D-Day 관리 · 오답노트 계층 그룹 (설계 §5.8, §5.11)
-- [ ] 설정 > D-Day 관리: 시험 분류 `exam_date` 추가/변경/제거(`PATCH /categories/{id}` 재사용) + 임의 D-Day(접수 마감·발표일 등) 추가/수정/삭제(`settings:ddays.custom`, settings GET/PUT 재사용)
-- [ ] 홈 D-Day 위젯: 병합된 배지 표시(시험/임의 구분)
-- [ ] 오답노트 분류 필터: 퀴즈 설정과 동일한 트리 범위 선택(하위 전체 포함) — 범위 선택 컴포넌트 공용화
-- [ ] 오답노트 리스트: 분류 경로 기준 그룹 섹션(상위 단위 헤더 → 하위 단위 소제목, 접기/펼치기, 헤더 건수 배지, 미분류 그룹)
+- [x] 설정 > D-Day 관리: 시험 분류 `exam_date` 추가/변경/제거(`PATCH /categories/{id}` 재사용) + 임의 D-Day(접수 마감·발표일 등) 추가/수정/삭제(`settings:ddays.custom`, settings GET/PUT 재사용)
+- [x] 홈 D-Day 위젯: 병합된 배지 표시(시험/임의 구분)
+- [x] 오답노트 분류 필터: 퀴즈 설정과 동일한 트리 범위 선택(하위 전체 포함) — 범위 선택 컴포넌트 공용화
+- [x] 오답노트 리스트: 분류 경로 기준 그룹 섹션(상위 단위 헤더 → 하위 단위 소제목, 접기/펼치기, 헤더 건수 배지, 미분류 그룹)
 
 ## 완료 기준 (DoD)
 

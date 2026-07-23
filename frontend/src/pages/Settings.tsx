@@ -3,6 +3,7 @@ import { useThemeStore } from '../stores/theme'
 import type { ThemeMode } from '../stores/theme'
 import { useSettings, useUpdateSettings } from '../api/settings'
 import { ApiError } from '../api/client'
+import DDayManager from '../components/DDayManager'
 
 const OPTIONS: { value: ThemeMode; label: string; icon: string }[] = [
   { value: 'light', label: '라이트', icon: '☀️' },
@@ -99,8 +100,10 @@ export default function SettingsPage() {
         {error && <p className="mt-2 text-sm text-wrong">{error}</p>}
       </section>
 
+      <DDayManager />
+
       <p className="mt-4 text-xs text-muted">
-        복습 큐 상한 · D-Day 관리· 백업/복원 · 태그 병합 도구는 이후 단계에서 추가됩니다.
+        복습 큐 상한 · 백업/복원 · 태그 병합 도구는 이후 단계에서 추가됩니다.
       </p>
     </div>
   )

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { DocumentListItem } from '../api/types'
 import TagChip from './TagChip'
+import BookmarkButton from './BookmarkButton'
 
 const TYPE_LABEL: Record<string, string> = {
   concept: '개념',
@@ -40,32 +41,35 @@ export default function DocCard({ doc, onRequestLink }: DocCardProps) {
           <h3 className="line-clamp-2 text-sm font-medium text-primary">{doc.title}</h3>
         </button>
 
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setMenuOpen((v) => !v)}
-            aria-label="더보기"
-            className="rounded p-1 text-muted hover:bg-bg hover:text-primary"
-          >
-            ⋯
-          </button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 z-20 mt-1 w-40 rounded-md border border-border bg-surface-raised py-1 shadow-lg">
-                <button
-                  type="button"
-                  className="block w-full px-3 py-1.5 text-left text-sm text-primary hover:bg-bg"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    onRequestLink(doc.id)
-                  }}
-                >
-                  분류에 연결
-                </button>
-              </div>
-            </>
-          )}
+        <div className="flex shrink-0 items-center gap-0.5">
+          <BookmarkButton documentId={doc.id} bookmarked={doc.bookmarked} size="sm" />
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label="더보기"
+              className="rounded p-1 text-muted hover:bg-bg hover:text-primary"
+            >
+              ⋯
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                <div className="absolute right-0 z-20 mt-1 w-40 rounded-md border border-border bg-surface-raised py-1 shadow-lg">
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-1.5 text-left text-sm text-primary hover:bg-bg"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      onRequestLink(doc.id)
+                    }}
+                  >
+                    분류에 연결
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

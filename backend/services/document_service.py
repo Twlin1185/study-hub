@@ -1,8 +1,8 @@
-"""문서 CRUD·연결·태그 비즈니스 로직."""
+"""문서 CRUD·연결·태그·관계·북마크 비즈니스 로직."""
 from __future__ import annotations
 
 import json
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import cast, func, select, Integer
 from sqlalchemy.exc import IntegrityError
@@ -14,11 +14,13 @@ from schemas.document import (
     DocumentCreate,
     DocumentDetail,
     DocumentListItem,
+    DocumentRelationOut,
     DocumentStats,
     DocumentUsage,
     DocumentUpdate,
     LastAttempt,
     LinkCreate,
+    RelationCreate,
 )
 from services.tag_service import get_or_create_tag
 
@@ -85,6 +87,21 @@ def _usage_count(db: Session, document_id: int) -> int:
     ).scalar_one()
 
 
+def _bookmarked_ids(db: Session, document_ids: List[int]) -> Set[int]:
+    if not document_ids:
+        return set()
+    rows = db.execute(
+        select(models.Bookmark.document_id).where(
+            models.Bookmark.document_id.in_(document_ids)
+        )
+    ).scalars().all()
+    return set(rows)
+
+
+def is_bookmarked(db: Session, document_id: int) -> bool:
+    return db.get(models.Bookmark, document_id) is not None
+
+
 def list_documents(
     db: Session,
     *,
@@ -93,6 +110,7 @@ def list_documents(
     doc_type: Optional[str] = None,
     tag: Optional[str] = None,
     orphan: bool = False,
+    bookmarked: bool = False,
     include_inactive: bool = False,
     page: int = 1,
     size: int = 50,
@@ -125,6 +143,10 @@ def list_documents(
         linked_ids = select(models.CategoryDocument.document_id)
         query = query.where(models.Document.id.notin_(linked_ids))
 
+    if bookmarked:
+        bookmarked_ids = select(models.Bookmark.document_id)
+        query = query.where(models.Document.id.in_(bookmarked_ids))
+
     total = db.execute(select(func.count()).select_from(query.subquery())).scalar_one()
 
     ids = db.execute(
@@ -139,6 +161,8 @@ def list_documents(
             .order_by(models.Document.id.desc())
         ).scalars().all()
 
+    bookmarked_set = _bookmarked_ids(db, [doc.id for doc in documents])
+
     items = [
         DocumentListItem(
             id=doc.id,
@@ -149,7 +173,7 @@ def list_documents(
             is_active=bool(doc.is_active),
             tags=_tags_for_document(db, doc.id),
             usage_count=_usage_count(db, doc.id),
-            bookmarked=False,
+            bookmarked=doc.id in bookmarked_set,
             created_at=doc.created_at,
             updated_at=doc.updated_at,
         )
@@ -290,8 +314,8 @@ def get_document_detail(db: Session, document_id: int) -> DocumentDetail:
         updated_at=document.updated_at,
         tags=_tags_for_document(db, document.id),
         usages=usages,
-        relations=[],
-        bookmarked=False,
+        relations=_relations_for_document(db, document.id),
+        bookmarked=is_bookmarked(db, document.id),
         stats=DocumentStats(
             attempts=attempts_count,
             accuracy=round(accuracy, 4),
@@ -299,6 +323,128 @@ def get_document_detail(db: Session, document_id: int) -> DocumentDetail:
             last_attempt=last_attempt,
         ),
     )
+
+
+def _relations_for_document(db: Session, document_id: int) -> List[DocumentRelationOut]:
+    """이 문서와 연결된 관계 전부 — 이 문서가 선언한 것(direction='from')과
+    상대가 선언한 것(direction='to') 둘 다 포함한다 (§5.3 "이 문제의 개념"/"확인 문제").
+    """
+    outgoing = db.execute(
+        select(models.DocumentRelation, models.Document)
+        .join(models.Document, models.Document.id == models.DocumentRelation.to_document_id)
+        .where(models.DocumentRelation.from_document_id == document_id)
+    ).all()
+    incoming = db.execute(
+        select(models.DocumentRelation, models.Document)
+        .join(models.Document, models.Document.id == models.DocumentRelation.from_document_id)
+        .where(models.DocumentRelation.to_document_id == document_id)
+    ).all()
+
+    items: List[DocumentRelationOut] = []
+    for relation, other in outgoing:
+        items.append(
+            DocumentRelationOut(
+                document_id=other.id,
+                doc_no=other.doc_no,
+                title=other.title,
+                type=other.type,
+                relation=relation.relation,
+                direction="from",
+            )
+        )
+    for relation, other in incoming:
+        items.append(
+            DocumentRelationOut(
+                document_id=other.id,
+                doc_no=other.doc_no,
+                title=other.title,
+                type=other.type,
+                relation=relation.relation,
+                direction="to",
+            )
+        )
+    return items
+
+
+def add_relation(db: Session, document_id: int, payload: RelationCreate) -> None:
+    document = get_document_or_404(db, document_id)
+    if payload.to_document_id == document.id:
+        raise ValidationAppError(
+            "자기 자신과 관계를 맺을 수 없습니다", detail={"document_id": document_id}
+        )
+    other = db.get(models.Document, payload.to_document_id)
+    if other is None:
+        raise NotFoundError(
+            "대상 문서를 찾을 수 없습니다", detail={"document_id": payload.to_document_id}
+        )
+
+    existing = db.get(
+        models.DocumentRelation,
+        {
+            "from_document_id": document.id,
+            "to_document_id": payload.to_document_id,
+            "relation": payload.relation,
+        },
+    )
+    if existing is None:
+        db.add(
+            models.DocumentRelation(
+                from_document_id=document.id,
+                to_document_id=payload.to_document_id,
+                relation=payload.relation,
+            )
+        )
+        db.commit()
+
+
+def remove_relation(db: Session, document_id: int, to_document_id: int) -> None:
+    get_document_or_404(db, document_id)
+    rows = db.execute(
+        select(models.DocumentRelation).where(
+            models.DocumentRelation.from_document_id == document_id,
+            models.DocumentRelation.to_document_id == to_document_id,
+        )
+    ).scalars().all()
+    if not rows:
+        raise NotFoundError(
+            "관계를 찾을 수 없습니다",
+            detail={"document_id": document_id, "to_document_id": to_document_id},
+        )
+    for row in rows:
+        db.delete(row)
+    db.commit()
+
+
+def add_bookmark(db: Session, document_id: int) -> None:
+    get_document_or_404(db, document_id)
+    if db.get(models.Bookmark, document_id) is None:
+        db.add(models.Bookmark(document_id=document_id))
+        db.commit()
+
+
+def remove_bookmark(db: Session, document_id: int) -> None:
+    get_document_or_404(db, document_id)
+    bookmark = db.get(models.Bookmark, document_id)
+    if bookmark is None:
+        raise NotFoundError(
+            "북마크를 찾을 수 없습니다", detail={"document_id": document_id}
+        )
+    db.delete(bookmark)
+    db.commit()
+
+
+def get_documents_batch(db: Session, ids: List[int]) -> List[DocumentDetail]:
+    """인쇄 뷰 등 다건 조회 (설계 §4.2) — 요청 순서를 유지하고, 없거나 비활성인 id는 건너뛴다."""
+    if not ids:
+        return []
+    rows = db.execute(
+        select(models.Document).where(
+            models.Document.id.in_(ids), models.Document.is_active == 1
+        )
+    ).scalars().all()
+    by_id: Dict[int, models.Document] = {doc.id: doc for doc in rows}
+    ordered_ids = [doc_id for doc_id in ids if doc_id in by_id]
+    return [get_document_detail(db, doc_id) for doc_id in ordered_ids]
 
 
 def replace_tags(db: Session, document_id: int, tag_names: List[str]) -> List[str]:

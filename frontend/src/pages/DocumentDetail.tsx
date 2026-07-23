@@ -2,18 +2,22 @@ import { useEffect, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
+  useAddRelation,
   useDeleteDocument,
+  useDeleteRelation,
   useDocument,
   useLinkDocument,
   useSetDocumentTags,
   useUnlinkDocument,
   useUpdateDocument,
 } from '../api/documents'
-import type { DocumentType } from '../api/types'
+import type { DocumentType, RelationType } from '../api/types'
 import MarkdownView from '../components/MarkdownView'
 import TagChip from '../components/TagChip'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MiniHistoryChart from '../components/MiniHistoryChart'
+import BookmarkButton from '../components/BookmarkButton'
+import AddRelationModal from '../components/AddRelationModal'
 import { ApiError } from '../api/client'
 
 const TYPE_LABEL: Record<DocumentType, string> = {
@@ -24,6 +28,16 @@ const TYPE_LABEL: Record<DocumentType, string> = {
 }
 
 const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
+
+const RELATION_LABEL: Record<RelationType, string> = {
+  explains: '설명',
+  related: '관련',
+  prerequisite: '선행 개념',
+}
+
+function isConceptType(type: DocumentType): boolean {
+  return type === 'concept' || type === 'flashcard'
+}
 
 function choiceMarker(index: number): string {
   return CIRCLED_DIGITS[index] ?? `${index + 1}.`
@@ -54,8 +68,12 @@ export default function DocumentDetailPage() {
   const setTags = useSetDocumentTags()
   const linkDocument = useLinkDocument()
   const unlinkDocument = useUnlinkDocument()
+  const addRelation = useAddRelation()
+  const deleteRelation = useDeleteRelation()
 
   const [editing, setEditing] = useState(false)
+  const [addRelationOpen, setAddRelationOpen] = useState(false)
+  const [relationError, setRelationError] = useState<string | null>(null)
   const [form, setForm] = useState({
     title: '',
     content: '',
@@ -168,6 +186,7 @@ export default function DocumentDetailPage() {
             {TYPE_LABEL[doc.type]}
           </span>
           <span className="text-xs text-muted">{doc.doc_no}</span>
+          <BookmarkButton documentId={doc.id} bookmarked={doc.bookmarked} />
         </div>
         <div className="flex gap-2">
           {!editing && (
@@ -370,6 +389,67 @@ export default function DocumentDetailPage() {
         )}
       </div>
 
+      {/* 관련 문서 — 문제면 "이 문제의 개념", 개념이면 "확인 문제" (설계 §5.3, F24) */}
+      <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-primary">
+            {isConceptType(doc.type) ? '확인 문제' : '이 문제의 개념'}
+            {doc.relations.length > 0 && ` (${doc.relations.length})`}
+          </h2>
+          <button
+            type="button"
+            onClick={() => {
+              setRelationError(null)
+              setAddRelationOpen(true)
+            }}
+            className="rounded border border-border px-2.5 py-1 text-xs text-primary hover:bg-bg"
+          >
+            + 연결 추가
+          </button>
+        </div>
+        {doc.relations.length === 0 ? (
+          <p className="text-sm text-muted">연결된 관련 문서가 없습니다.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {doc.relations.map((rel) => (
+              <li
+                key={`${rel.document_id}-${rel.relation}-${rel.direction}`}
+                className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-bg px-3 py-2 text-sm"
+              >
+                <button
+                  type="button"
+                  onClick={() => navigate(`/docs/${rel.document_id}`)}
+                  className="min-w-0 flex-1 truncate text-left text-primary hover:underline"
+                  title={rel.title}
+                >
+                  <span className="mr-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium text-accent">
+                    {RELATION_LABEL[rel.relation]}
+                  </span>
+                  <span className="mr-1 text-xs text-muted">{rel.doc_no}</span>
+                  {rel.title}
+                </button>
+                {/* 관계 해제는 이 문서가 선언한 관계(direction:'from')만 가능 — 백엔드 remove_relation
+                    이 from_document_id==현재 문서인 행만 대상으로 한다. 상대가 선언한 관계는
+                    해당 문서 상세에서 해제해야 한다. */}
+                {rel.direction === 'from' ? (
+                  <button
+                    type="button"
+                    onClick={() => deleteRelation.mutate({ id: doc.id, toDocumentId: rel.document_id })}
+                    className="shrink-0 rounded border border-border px-2 py-1 text-xs text-wrong hover:bg-surface"
+                  >
+                    연결 해제
+                  </button>
+                ) : (
+                  <span className="shrink-0 text-[11px] text-muted" title="상대 문서에서 선언한 관계">
+                    상대측 연결
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {/* 풀이 이력 미니차트 (설계 §5.3, S3) */}
       {isQuestionLike && (
         <div className="mt-4 rounded-lg border border-border bg-surface p-4">
@@ -395,6 +475,26 @@ export default function DocumentDetailPage() {
               onSuccess: () => navigate('/explore'),
             })
           }
+        />
+      )}
+
+      {addRelationOpen && (
+        <AddRelationModal
+          documentId={doc.id}
+          excludeIds={doc.relations.map((r) => r.document_id)}
+          submitting={addRelation.isPending}
+          errorMessage={relationError}
+          onClose={() => setAddRelationOpen(false)}
+          onSubmit={(toDocumentId, relation) => {
+            setRelationError(null)
+            addRelation.mutate(
+              { id: doc.id, toDocumentId, relation },
+              {
+                onSuccess: () => setAddRelationOpen(false),
+                onError: (e) => setRelationError(errMsg(e, '연결에 실패했습니다.')),
+              },
+            )
+          }}
         />
       )}
     </div>

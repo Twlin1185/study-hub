@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type Paginated } from './client'
 import { categoryKeys } from './categories'
-import type { DocumentDetail, DocumentListFilters, DocumentListItem, DocumentType } from './types'
+import type {
+  DocumentBatchResponse,
+  DocumentDetail,
+  DocumentListFilters,
+  DocumentListItem,
+  DocumentType,
+  RelationType,
+} from './types'
 
 export const documentKeys = {
   all: ['documents'] as const,
@@ -16,6 +23,7 @@ function buildQuery(filters: DocumentListFilters): string {
   if (filters.type) params.set('type', filters.type)
   if (filters.tag) params.set('tag', filters.tag)
   if (filters.orphan) params.set('orphan', '1')
+  if (filters.bookmarked) params.set('bookmarked', '1')
   params.set('page', String(filters.page ?? 1))
   params.set('size', String(filters.size ?? 50))
   return params.toString()
@@ -157,5 +165,86 @@ export function useUnlinkDocument() {
       qc.invalidateQueries({ queryKey: documentKeys.all })
       qc.invalidateQueries({ queryKey: categoryKeys.tree })
     },
+  })
+}
+
+// ---- 관계 Relations (설계 §4.2, F24) ----
+
+export function useAddRelation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, toDocumentId, relation }: { id: number; toDocumentId: number; relation: RelationType }) =>
+      api.post<DocumentDetail>(`/documents/${id}/relations`, { to_document_id: toDocumentId, relation }),
+    onSuccess: (data, variables) => {
+      qc.setQueryData(documentKeys.detail(variables.id), data)
+    },
+  })
+}
+
+export function useDeleteRelation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, toDocumentId }: { id: number; toDocumentId: number }) =>
+      api.delete<void>(`/documents/${id}/relations/${toDocumentId}`),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: documentKeys.detail(variables.id) })
+    },
+  })
+}
+
+// ---- 북마크 (설계 §4.2, F29 — 낙관적 업데이트 대상) ----
+
+interface ToggleBookmarkContext {
+  previousDetail?: DocumentDetail
+}
+
+// PUT/DELETE .../bookmark는 갱신된 DocumentDetail을 반환한다(백엔드 routers/documents.py 대조 완료).
+export function useToggleBookmark() {
+  const qc = useQueryClient()
+  return useMutation<DocumentDetail, unknown, { id: number; bookmarked: boolean }, ToggleBookmarkContext>({
+    mutationFn: ({ id, bookmarked }) =>
+      bookmarked ? api.put<DocumentDetail>(`/documents/${id}/bookmark`) : api.delete<DocumentDetail>(`/documents/${id}/bookmark`),
+    onMutate: async ({ id, bookmarked }) => {
+      await qc.cancelQueries({ queryKey: documentKeys.all })
+      const previousDetail = qc.getQueryData<DocumentDetail>(documentKeys.detail(id))
+
+      qc.getQueryCache()
+        .findAll({ queryKey: ['documents', 'list'] })
+        .forEach((query) => {
+          qc.setQueryData<Paginated<DocumentListItem>>(query.queryKey, (old) =>
+            old ? { ...old, items: old.items.map((d) => (d.id === id ? { ...d, bookmarked } : d)) } : old,
+          )
+        })
+
+      if (previousDetail) {
+        qc.setQueryData<DocumentDetail>(documentKeys.detail(id), { ...previousDetail, bookmarked })
+      }
+
+      return { previousDetail }
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previousDetail) {
+        qc.setQueryData(documentKeys.detail(variables.id), context.previousDetail)
+      }
+      qc.invalidateQueries({ queryKey: documentKeys.all })
+    },
+    onSuccess: (data, variables) => {
+      // 서버가 돌려준 최신 DocumentDetail을 그대로 반영해 재요청 없이 정확한 상태를 유지한다.
+      qc.setQueryData(documentKeys.detail(variables.id), data)
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: documentKeys.all })
+    },
+  })
+}
+
+// ---- 다건 조회 (설계 §4.2, 인쇄 뷰용) ----
+
+export function useDocumentsBatch(ids: number[]) {
+  const key = [...ids].sort((a, b) => a - b).join(',')
+  return useQuery({
+    queryKey: ['documents', 'batch', key],
+    queryFn: () => api.get<DocumentBatchResponse>(`/documents/batch?ids=${key}`),
+    enabled: ids.length > 0,
   })
 }

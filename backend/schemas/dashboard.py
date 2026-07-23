@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import List
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,7 +9,9 @@ from schemas.study import ContinueCard
 
 
 class DDayItem(BaseModel):
-    category_id: int
+    kind: Literal["category", "custom"] = "category"
+    category_id: Optional[int] = None
+    id: Optional[str] = None
     name: str
     exam_date: dt.date
     d_day: int

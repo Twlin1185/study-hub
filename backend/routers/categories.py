@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from schemas.category import CategoryCreate, CategoryMove, CategoryNode, CategoryOut, CategoryUpdate
+from schemas.stats import CategoryStatsItem
 from schemas.study import StudyTrackResponse
-from services import category_service, study_service
+from services import category_service, stats_service, study_service
 
 router = APIRouter(prefix="/api/categories", tags=["categories"])
 
@@ -52,3 +53,10 @@ def get_study_track(
     category_id: int, db: Session = Depends(get_db)
 ) -> StudyTrackResponse:
     return study_service.get_study_track(db, category_id)
+
+
+@router.get("/{category_id}/stats", response_model=List[CategoryStatsItem])
+def get_category_stats(
+    category_id: int, db: Session = Depends(get_db)
+) -> List[CategoryStatsItem]:
+    return stats_service.get_category_children_stats(db, category_id)

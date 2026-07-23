@@ -1,0 +1,28 @@
+/**
+ * 인쇄 뷰 공통 CSS (설계 §5.10, 계획 §12).
+ * 테마 오버라이드(라이트 강제)는 tokens.css의 @media print 규칙이 전 화면에 이미 적용한다.
+ * 여기서는 A4 페이지 규격 + 인쇄 전용 레이아웃 보정만 다룬다.
+ */
+
+@media print {
+  @page {
+    size: A4;
+    margin: 15mm;
+  }
+
+  /* Tailwind의 print:hidden으로 대부분의 UI(탭바·네비·옵션 패널)를 숨기지만,
+     라우터 레이아웃(Layout.tsx) 바깥 여백/스크롤 컨테이너도 인쇄에 방해되지 않도록 보정한다. */
+  html,
+  body {
+    background: #ffffff;
+  }
+
+  .print-page {
+    break-inside: avoid;
+    break-after: page;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid;
+  }
+}

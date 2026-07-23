@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
+from exceptions import ValidationAppError
 from schemas.common import Page
 from schemas.document import (
     DocumentCreate,
@@ -13,6 +14,7 @@ from schemas.document import (
     DocumentListItem,
     DocumentUpdate,
     LinkCreate,
+    RelationCreate,
     TagsReplace,
 )
 from services import document_service
@@ -27,6 +29,7 @@ def list_documents(
     type: Optional[str] = None,  # noqa: A002 - 설계 §4.2의 쿼리 파라미터명 그대로
     tag: Optional[str] = None,
     orphan: bool = False,
+    bookmarked: bool = False,
     include_inactive: bool = False,
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
@@ -39,11 +42,26 @@ def list_documents(
         doc_type=type,
         tag=tag,
         orphan=orphan,
+        bookmarked=bookmarked,
         include_inactive=include_inactive,
         page=page,
         size=size,
     )
     return Page[DocumentListItem](items=items, total=total, page=page, size=size)
+
+
+@router.get("/batch", response_model=List[DocumentDetail])
+def get_documents_batch(
+    ids: str = Query(..., description="콤마로 구분된 문서 id 목록"),
+    db: Session = Depends(get_db),
+) -> List[DocumentDetail]:
+    try:
+        id_list = [int(part) for part in ids.split(",") if part.strip() != ""]
+    except ValueError as exc:
+        raise ValidationAppError(
+            "ids는 콤마로 구분된 정수 목록이어야 합니다", detail={"ids": ids}
+        ) from exc
+    return document_service.get_documents_batch(db, id_list)
 
 
 @router.post("", response_model=DocumentDetail, status_code=status.HTTP_201_CREATED)
@@ -94,3 +112,30 @@ def remove_link(
     document_id: int, category_id: int, db: Session = Depends(get_db)
 ) -> None:
     document_service.remove_link(db, document_id, category_id)
+
+
+@router.post("/{document_id}/relations", response_model=DocumentDetail)
+def add_relation(
+    document_id: int, payload: RelationCreate, db: Session = Depends(get_db)
+) -> DocumentDetail:
+    document_service.add_relation(db, document_id, payload)
+    return document_service.get_document_detail(db, document_id)
+
+
+@router.delete("/{document_id}/relations/{to_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_relation(
+    document_id: int, to_id: int, db: Session = Depends(get_db)
+) -> None:
+    document_service.remove_relation(db, document_id, to_id)
+
+
+@router.put("/{document_id}/bookmark", response_model=DocumentDetail)
+def add_bookmark(document_id: int, db: Session = Depends(get_db)) -> DocumentDetail:
+    document_service.add_bookmark(db, document_id)
+    return document_service.get_document_detail(db, document_id)
+
+
+@router.delete("/{document_id}/bookmark", response_model=DocumentDetail)
+def remove_bookmark(document_id: int, db: Session = Depends(get_db)) -> DocumentDetail:
+    document_service.remove_bookmark(db, document_id)
+    return document_service.get_document_detail(db, document_id)

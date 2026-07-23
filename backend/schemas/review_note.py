@@ -11,6 +11,7 @@ class ReviewNoteDocSummary(BaseModel):
     doc_no: str
     title: str
     type: str
+    category_path: Optional[str] = None  # 미분류면 None (설계 §4.6/§5.8)
 
 
 class ReviewNoteOut(BaseModel):

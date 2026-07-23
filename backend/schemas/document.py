@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DOCUMENT_TYPES = {"concept", "question", "past_question", "flashcard"}
+RELATION_TYPES = {"explains", "related", "prerequisite"}
 
 
 def _validate_type(value: str) -> str:
@@ -74,6 +75,15 @@ class DocumentStats(BaseModel):
     last_attempt: Optional[LastAttempt] = None
 
 
+class DocumentRelationOut(BaseModel):
+    document_id: int
+    doc_no: str
+    title: str
+    type: str
+    relation: str
+    direction: Literal["from", "to"]  # from=이 문서가 관계를 선언(설명 등) / to=상대가 선언
+
+
 class DocumentDetail(BaseModel):
     id: int
     doc_no: str
@@ -92,7 +102,7 @@ class DocumentDetail(BaseModel):
     updated_at: dt.datetime
     tags: List[str] = Field(default_factory=list)
     usages: List[DocumentUsage] = Field(default_factory=list)
-    relations: List[dict] = Field(default_factory=list)
+    relations: List[DocumentRelationOut] = Field(default_factory=list)
     bookmarked: bool = False
     stats: DocumentStats = Field(default_factory=DocumentStats)
 
@@ -105,3 +115,15 @@ class LinkCreate(BaseModel):
     category_id: int
     local_note: Optional[str] = None
     sort_order: Optional[int] = 0
+
+
+class RelationCreate(BaseModel):
+    to_document_id: int
+    relation: str = "explains"
+
+    @field_validator("relation")
+    @classmethod
+    def _check_relation(cls, value: str) -> str:
+        if value not in RELATION_TYPES:
+            raise ValueError(f"relation은 {sorted(RELATION_TYPES)} 중 하나여야 합니다")
+        return value

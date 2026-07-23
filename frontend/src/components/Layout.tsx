@@ -22,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
 const DESKTOP_EXTRA_ITEMS: NavItem[] = [
   { to: '/explore', label: '탐색', icon: '🗂️' },
   { to: '/import', label: '반입', icon: '📥' },
+  { to: '/print', label: '인쇄', icon: '🖨️' },
 ]
 
 function NavButton({ item, compact }: { item: NavItem; compact?: boolean }) {
@@ -59,7 +60,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full min-h-screen bg-bg text-primary">
       {/* 데스크톱 사이드바 */}
-      <aside className="hidden w-48 shrink-0 flex-col border-r border-border bg-surface p-3 md:flex">
+      <aside className="hidden w-48 shrink-0 flex-col border-r border-border bg-surface p-3 md:flex print:hidden">
         <h1 className="mb-4 px-2 text-base font-semibold text-primary">Study Hub</h1>
         <nav className="flex flex-col gap-1">
           {NAV_ITEMS.map((item) => (
@@ -76,7 +77,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       <div className="flex min-h-screen flex-1 flex-col">
         {/* 모바일 상단 헤더 */}
-        <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-3 md:hidden">
+        <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-3 md:hidden print:hidden">
           <h1 className="text-base font-semibold text-primary">Study Hub</h1>
           <NavLink
             to="/settings"
@@ -87,10 +88,10 @@ export default function Layout({ children }: { children: ReactNode }) {
           </NavLink>
         </header>
 
-        <main className="flex-1 overflow-y-auto pb-16 md:pb-0">{children}</main>
+        <main className="flex-1 overflow-y-auto pb-16 md:pb-0 print:overflow-visible print:pb-0">{children}</main>
 
         {/* 모바일 하단 탭바 */}
-        <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface md:hidden">
+        <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface md:hidden print:hidden">
           {NAV_ITEMS.map((item) => (
             <NavButton key={item.to} item={item} compact />
           ))}

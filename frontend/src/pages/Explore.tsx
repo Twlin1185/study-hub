@@ -45,6 +45,7 @@ export default function ExplorePage() {
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('')
   const [tagFilter, setTagFilter] = useState(searchParams.get('tag') ?? '')
   const [orphanOnly, setOrphanOnly] = useState(false)
+  const [bookmarkedOnly, setBookmarkedOnly] = useState(searchParams.get('bookmarked') === '1')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [modal, setModal] = useState<ModalState>({ kind: 'none' })
   const [modalError, setModalError] = useState<string | null>(null)
@@ -58,12 +59,21 @@ export default function ExplorePage() {
     }
   }, [searchParams, tagFilter])
 
+  // 홈 "북마크 모아보기" 진입(?bookmarked=1) 반영
+  useEffect(() => {
+    if (searchParams.get('bookmarked') === '1' && !bookmarkedOnly) {
+      setBookmarkedOnly(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
+
   const documentsQuery = useDocuments({
     category_id: selectedCategoryId ?? undefined,
     deep: selectedCategoryId != null ? deep : undefined,
     type: typeFilter || undefined,
     tag: tagFilter || undefined,
     orphan: orphanOnly || undefined,
+    bookmarked: bookmarkedOnly || undefined,
     page: 1,
     size: 100,
   })
@@ -199,6 +209,15 @@ export default function ExplorePage() {
               onChange={(e) => setOrphanOnly(e.target.checked)}
             />
             단일 문서만
+          </label>
+
+          <label className="flex items-center gap-1 text-sm text-primary">
+            <input
+              type="checkbox"
+              checked={bookmarkedOnly}
+              onChange={(e) => setBookmarkedOnly(e.target.checked)}
+            />
+            ★ 북마크만
           </label>
 
           {selectedCategoryId != null && (

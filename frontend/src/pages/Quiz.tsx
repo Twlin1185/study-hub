@@ -46,10 +46,6 @@ export default function QuizPage() {
 
   function handleStart() {
     setError(null)
-    if (mode === 'bookmarked') {
-      setError('북마크만 모드는 아직 지원되지 않습니다 (S4).')
-      return
-    }
     createSession.mutate(
       { category_id: categoryId ?? undefined, mode, count: effectiveCount },
       {

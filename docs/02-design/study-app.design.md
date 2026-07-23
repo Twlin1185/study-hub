@@ -174,6 +174,7 @@ study-hub/
 | `GET /api/dashboard` | 홈 요약 (아래 예시) | S3 최소 / S4 완성 |
 | `GET /api/stats/heatmap?from&to` | `[{date, count}]` — attempts + 개념 완료 합산 | S4 |
 | `GET /api/stats/weakness?category_id&limit=10` | 누적 정답률 낮은 문서/단원 Top N | S4 |
+| `GET /api/stats/accuracy-trend?days=30` | `[{date, attempts, correct, accuracy}]` — 일자별 정답률 시계열(풀이 있는 날만). 홈 "최근 정답률 추이 라인"용 | S4 |
 | `GET /api/stats/export?format=csv` | 학습 기록 내보내기 (F17) | S6 |
 
 `dashboard` 응답:

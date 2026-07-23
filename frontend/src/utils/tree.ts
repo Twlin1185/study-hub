@@ -51,3 +51,18 @@ export function collectDescendantIds(node: CategoryNode): Set<number> {
   }
   return ids
 }
+
+export interface LeafGroup {
+  id: number
+  name: string
+  path: string
+}
+
+// 선택한 분류 노드 아래의 "리프"(하위가 없는) 분류들을 트리 순서 그대로 수집한다.
+// 인쇄 뷰(§5.10)에서 study-track(챕터 단위 정렬)을 리프별로 호출해 목차·섹션을 구성하는 데 사용.
+// 노드 자신이 리프면 자기 자신 1건을 반환한다.
+export function collectLeafGroups(node: CategoryNode, parentPath = ''): LeafGroup[] {
+  const path = parentPath ? `${parentPath} / ${node.name}` : node.name
+  if (node.children.length === 0) return [{ id: node.id, name: node.name, path }]
+  return node.children.flatMap((child) => collectLeafGroups(child, path))
+}

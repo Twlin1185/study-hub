@@ -12,7 +12,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 import models
-from exceptions import ValidationAppError
 from schemas.quiz import QuizQuestionOut, QuizSessionRequest, QuizSessionResponse
 from services import category_service, settings_service
 from services.tree_utils import collect_descendant_ids
@@ -52,7 +51,11 @@ def _sequential_order(
 
 
 def _eligible_ids(
-    db: Session, *, category_ids: Optional[List[int]], wrong_only: bool
+    db: Session,
+    *,
+    category_ids: Optional[List[int]],
+    wrong_only: bool,
+    bookmarked_only: bool = False,
 ) -> List[int]:
     stmt = select(models.Document.id).where(
         models.Document.is_active == 1, models.Document.type.in_(QUESTION_TYPES)
@@ -61,6 +64,10 @@ def _eligible_ids(
         stmt = stmt.join(
             models.ReviewNote, models.ReviewNote.document_id == models.Document.id
         ).where(models.ReviewNote.is_resolved == 0)
+    if bookmarked_only:
+        stmt = stmt.join(
+            models.Bookmark, models.Bookmark.document_id == models.Document.id
+        )
     if category_ids is not None:
         stmt = stmt.join(
             models.CategoryDocument,
@@ -70,19 +77,16 @@ def _eligible_ids(
 
 
 def build_quiz_session(db: Session, payload: QuizSessionRequest) -> QuizSessionResponse:
-    if payload.mode == "bookmarked":
-        raise ValidationAppError(
-            "bookmarked 모드는 아직 지원하지 않습니다 (S4 예정)",
-            detail={"mode": payload.mode},
-        )
-
     category_ids: Optional[List[int]] = None
     if payload.category_id is not None:
         category_service.get_category_or_404(db, payload.category_id)
         category_ids = collect_descendant_ids(db, payload.category_id)
 
     doc_ids = _eligible_ids(
-        db, category_ids=category_ids, wrong_only=(payload.mode == "wrong_only")
+        db,
+        category_ids=category_ids,
+        wrong_only=(payload.mode == "wrong_only"),
+        bookmarked_only=(payload.mode == "bookmarked"),
     )
 
     if payload.document_ids is not None:

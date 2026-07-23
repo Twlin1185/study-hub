@@ -11,6 +11,7 @@ import QuizPage from './pages/Quiz'
 import QuizRunPage from './pages/QuizRun'
 import ReviewNotesPage from './pages/ReviewNotes'
 import StudyPage from './pages/Study'
+import PrintPage from './pages/Print'
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
         <Route path="/study/:categoryId" element={<StudyPage />} />
         <Route path="/docs/:id" element={<DocumentDetailPage />} />
         <Route path="/import" element={<ImportPage />} />
+        <Route path="/print" element={<PrintPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

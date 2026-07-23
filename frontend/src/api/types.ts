@@ -38,6 +38,22 @@ export interface DocumentUsage {
   local_note: string | null
 }
 
+// ---- 관계 Relations (설계 §4.2, §5.3, F24) ----
+// direction: 'from' = 이 문서가 관계를 선언(예: 개념이 "explains") / 'to' = 상대가 선언.
+// DELETE /documents/{id}/relations/{to_id}는 direction:'from'인 관계만 해제 가능(백엔드
+// remove_relation이 from_document_id==현재 문서인 행만 대상으로 함) — UI에서 구분해야 한다.
+export type RelationType = 'explains' | 'related' | 'prerequisite'
+export type RelationDirection = 'from' | 'to'
+
+export interface RelatedDocument {
+  document_id: number
+  doc_no: string
+  type: DocumentType
+  title: string
+  relation: RelationType
+  direction: RelationDirection
+}
+
 export interface DocumentStatsLastAttempt {
   my_answer: string
   is_correct: boolean
@@ -71,7 +87,7 @@ export interface DocumentDetail {
   updated_at: string
   tags: string[]
   usages: DocumentUsage[]
-  relations: unknown[]
+  relations: RelatedDocument[]
   bookmarked: boolean
   stats: DocumentStats
 }
@@ -88,6 +104,7 @@ export interface DocumentListFilters {
   type?: DocumentType
   tag?: string
   orphan?: boolean
+  bookmarked?: boolean
   page?: number
   size?: number
 }
@@ -223,6 +240,8 @@ export interface QuizSessionRequest {
 }
 
 // 정답·해설은 절대 포함하지 않는다 (서버 채점 원칙, 설계 §8) — 타입에도 필드를 두지 않음.
+// 백엔드 QuizQuestionOut(backend/schemas/quiz.py)과 대조 완료 — bookmarked 필드는 없다.
+// §5.6 "퀴즈 카드" 북마크 별은 document_id로 별도 조회(useDocument)해 표시한다.
 export interface QuizQuestion {
   document_id: number
   doc_no: string
@@ -230,11 +249,13 @@ export interface QuizQuestion {
   title: string
   content: string | null
   choices: string[] | null
+  difficulty: number | null
 }
 
-// 응답 형태가 명세에 없어(단지 "문제 목록"으로만 서술) §3의 목록 규약(items 래핑)을 따르는
-// 것으로 추정. 최종 보고에서 확인 필요.
+// 백엔드 QuizSessionResponse와 대조 완료 — mode·category_id도 함께 내려온다.
 export interface QuizSessionResponse {
+  mode: QuizMode
+  category_id: number | null
   items: QuizQuestion[]
 }
 
@@ -266,12 +287,15 @@ export interface AttemptResponse {
 export type WrongReason = '개념부족' | '실수' | '함정' | '시간부족'
 
 // "문서 요약 포함"(§4.6)의 구체 필드는 명세에 없어 문제 카드 표시에 필요한 최소 필드로 추정.
+// category_path(§4.6 S4 보강 — 계층 그룹핑 근거)는 서버가 선택 범위 내 경로를 우선,
+// 없으면 첫 연결 경로 기준으로 1개만 계산해 내려준다고 가정. 분류 연결이 없으면 null(미분류).
 export interface ReviewNoteDocument {
   id: number
   doc_no: string
   type: DocumentType
   title: string
   content: string | null
+  category_path: string | null
 }
 
 export interface ReviewNote {
@@ -301,8 +325,14 @@ export interface ReviewNotePatch {
 
 // ---- 대시보드 (설계 §4.8) ----
 
+// S4 완성: 분류 exam_date + settings:ddays.custom 병합. kind로 구분(§5.11 배지 시험/임의 표시).
+// custom 항목은 category_id가 null이고 settings 저장용 id(string)를 그대로 내려준다고 가정.
+export type DDayKind = 'category' | 'custom'
+
 export interface DDayItem {
-  category_id: number
+  kind: DDayKind
+  category_id: number | null
+  id?: string
   name: string
   exam_date: string
   d_day: number
@@ -322,12 +352,63 @@ export interface DashboardResponse {
 
 // ---- 설정 (설계 §4.10, 계획 §6.2 settings 테이블 — key/value) ----
 
+// 임의 D-Day(§4.10, §5.11) — settings.ddays.custom = [{id, label, date}]
+export interface CustomDDay {
+  id: string
+  label: string
+  date: string
+}
+
 // settings는 key-value 저장이라 응답 스키마가 고정되어 있지 않음. 현재 알려진 키만 타입에 반영.
 export interface SettingsResponse {
   'srs.daily_limit'?: number
   'quiz.default_count'?: number
   'backup.auto'?: boolean
+  'ddays.custom'?: CustomDDay[]
   [key: string]: unknown
 }
 
 export type SettingsPatch = Partial<SettingsResponse>
+
+// ---- 통계 · 대시보드 확장 (설계 §4.8, S4) ----
+
+export interface HeatmapEntry {
+  date: string // YYYY-MM-DD
+  count: number
+}
+
+// 홈 "최근 정답률 추이 라인" (설계 §4.8, S4 보강) — 풀이가 있었던 날만, 날짜 오름차순.
+// accuracy는 0~1 스케일(다른 accuracy 필드들과 동일 컨벤션).
+export interface AccuracyTrendEntry {
+  date: string // YYYY-MM-DD
+  attempts: number
+  correct: number
+  accuracy: number
+}
+
+// 누적 정답률 하위 Top N — 백엔드 WeaknessItem(backend/schemas/stats.py)과 대조 완료.
+// 최소 시도 수 3 필터는 서버가 적용. accuracy는 0~1 스케일.
+export interface WeaknessItem {
+  document_id: number
+  doc_no: string
+  title: string
+  type: DocumentType
+  category_path: string | null
+  accuracy: number
+  attempts: number
+}
+
+// 커리큘럼 드릴다운 — 직계 자식별 진도·정답률·시도 수 (§4.1).
+// 백엔드 routers/categories.py get_category_stats(response_model=List[CategoryStatsItem])와
+// 대조 완료 — 배열을 그대로 반환한다(래핑 없음).
+export interface CategoryChildStat {
+  category_id: number
+  name: string
+  progress: number | null
+  accuracy: number | null
+  attempt_count: number
+}
+
+// ---- 문서 배치 조회 (설계 §4.2, 인쇄 뷰용) ----
+// 백엔드 routers/documents.py get_documents_batch(response_model=List[DocumentDetail])와 대조 완료.
+export type DocumentBatchResponse = DocumentDetail[]

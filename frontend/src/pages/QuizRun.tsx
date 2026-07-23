@@ -3,11 +3,55 @@ import { useNavigate } from 'react-router-dom'
 import MarkdownView from '../components/MarkdownView'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ProgressBar from '../components/ProgressBar'
+import BookmarkButton from '../components/BookmarkButton'
 import { useQuizSessionStore } from '../stores/quizSession'
 import type { QuizAnswerRecord } from '../stores/quizSession'
 import { useSubmitAttempt } from '../api/quiz'
 import { useUpdateReviewNote } from '../api/reviewNotes'
+import { useDocument } from '../api/documents'
 import type { QuizQuestion } from '../api/types'
+
+const RELATION_LABEL: Record<string, string> = {
+  explains: '설명',
+  related: '관련',
+  prerequisite: '선행 개념',
+}
+
+// 해설 영역의 "관련 개념 바로가기" — quiz/session 응답엔 relations가 없어(서버 채점 원칙, §8)
+// 정답 공개 이후 문서 상세를 조회해 relations를 가져온다 (설계 §5.6).
+function RelatedConceptLinks({ documentId }: { documentId: number }) {
+  const navigate = useNavigate()
+  const docQuery = useDocument(documentId)
+  const relations = docQuery.data?.relations ?? []
+  if (relations.length === 0) return null
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <p className="mb-1.5 text-xs font-semibold text-muted">관련 개념</p>
+      <div className="flex flex-wrap gap-1.5">
+        {relations.map((rel) => (
+          <button
+            key={`${rel.document_id}-${rel.relation}-${rel.direction}`}
+            type="button"
+            onClick={() => navigate(`/docs/${rel.document_id}`)}
+            className="rounded-full bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent hover:opacity-80"
+            title={rel.title}
+          >
+            {RELATION_LABEL[rel.relation] ?? rel.relation} · {rel.title}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// 퀴즈 카드 북마크 별 — QuizQuestionOut(quiz/session 응답)엔 bookmarked 필드가 없어(백엔드
+// schemas/quiz.py와 대조 완료) 문서 상세를 조회해 실제 상태를 표시한다. 낙관적 업데이트는
+// useToggleBookmark가 documents 상세 캐시를 직접 갱신하므로 이 조회에도 즉시 반영된다.
+function QuizCardBookmark({ documentId }: { documentId: number }) {
+  const docQuery = useDocument(documentId)
+  return <BookmarkButton documentId={documentId} bookmarked={docQuery.data?.bookmarked ?? false} size="sm" />
+}
 
 const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
 
@@ -122,9 +166,12 @@ export default function QuizRunPage() {
       </div>
 
       <div className="mb-4 rounded-lg border border-border bg-surface p-4">
-        <span className="mb-2 inline-block rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
-          {question.doc_no}
-        </span>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="inline-block rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
+            {question.doc_no}
+          </span>
+          <QuizCardBookmark documentId={question.document_id} />
+        </div>
         <MarkdownView content={question.content} />
       </div>
 
@@ -162,6 +209,7 @@ export default function QuizRunPage() {
             <span className="font-semibold">해설</span>
             <MarkdownView content={answered.result.explanation} />
           </div>
+          <RelatedConceptLinks documentId={question.document_id} />
         </div>
       )}
 
