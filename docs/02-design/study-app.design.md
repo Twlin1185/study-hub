@@ -1,9 +1,9 @@
 # Study Hub — 상세 설계 (API 명세 · 화면 상세)
 
-> 상태: **Design v1.1** — v1.0 대비: 문서 재생성 API(F30, §4.10)·오답노트 계층 그룹(§4.6·§5.8)·D-Day 병합(§4.8·§5.11) 반영
-> 작성일: 2026-07-22 · 갱신: 2026-07-23
-> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.5)
-> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-6-automation.plan.md`
+> 상태: **Design v1.2** — v1.1 대비: 홈 커스터마이즈·레이아웃 UX(F31~F33, S7) 반영 — `home.layout` 설정 키(§4.10), 홈 편집 모드·D-Day 팝업(§5.1), 사이드바 접힘(§5 도입부·§7). **새 API·DDL 변경 없음**
+> 작성일: 2026-07-22 · 갱신: 2026-07-24
+> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.6)
+> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-7-home-layout.plan.md`
 
 ---
 
@@ -31,7 +31,7 @@ study-hub/
 │     ├─ api/               # client.ts(fetch 래퍼), 리소스별 React Query 훅
 │     ├─ components/        # 공용: Tree, DocCard, MarkdownView, ProgressBar, TagChip, …
 │     ├─ pages/             # 화면 11개 (§5)
-│     ├─ stores/            # zustand: quizSession, flashcardSession, theme
+│     ├─ stores/            # zustand: quizSession, flashcardSession, theme, sidebar(S7)
 │     ├─ styles/tokens.css  # 디자인 토큰 (§6)
 │     └─ App.tsx            # React Router 라우트
 ├─ sources/                 # 원본 파일 (불변)
@@ -55,7 +55,7 @@ study-hub/
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S6] = stage 1~6에서 구현.
+구현 단계 표기: [S1]~[S7] = stage 1~7에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
 
 ### 4.1 분류 Categories
 
@@ -206,7 +206,7 @@ study-hub/
 
 | 메서드/경로 | 설명 | 단계 |
 |---|---|---|
-| `GET /api/settings` · `PUT /api/settings` | 키-값 일괄 조회/저장. 키: `srs.daily_limit`, `quiz.default_count`, `backup.auto`, `ddays.custom`(S4 — 임의 D-Day JSON 배열 `[{id, label, date}]`) | S3 |
+| `GET /api/settings` · `PUT /api/settings` | 키-값 일괄 조회/저장. 키: `srs.daily_limit`, `quiz.default_count`, `backup.auto`, `ddays.custom`(S4 — 임의 D-Day JSON 배열 `[{id, label, date}]`), `home.layout`(S7 — 홈 위젯 레이아웃 JSON, 아래 규격) | S3 |
 | `POST /api/convert` | `{source_path or upload}` → claude CLI headless 변환 잡 시작 (F23). `{job_id}` 반환 | S6 |
 | `GET /api/convert/{job_id}` | `{status: running/done/error, result_preview_id?}` — 완료 시 곧장 반입 preview로 연결 | S6 |
 | `POST /api/documents/{id}/regenerate` | `{reason}` — 문제 오류 신고 → claude CLI로 해당 문서만 재생성 잡 시작 (F30). convert 잡 큐 재사용(동시 1개). `{job_id}` 반환 | S6 |
@@ -215,15 +215,36 @@ study-hub/
 | `POST /api/backups` · `GET /api/backups` · `POST /api/backups/{id}/restore` | 백업 스냅샷 (F27). restore는 확인 문구 필수 | S6 |
 
 - 재생성(F30) 프롬프트 구성: **현재 문서 내용 + 신고 사유(reason) + (source_detail 있으면) 원본 출처 정보** — 원본 대조가 가능하도록(R7). 엔진은 R9 결정 그대로 claude CLI 서브프로세스(F23 인프라).
+- `home.layout`(S7, F31) 규격 — **새 API·DDL 없음**, settings GET/PUT 재사용:
+  ```json
+  { "columns": "auto",
+    "widgets": [ { "id": "continue", "visible": true, "order": 0, "col": 0 } ] }
+  ```
+  - `columns`: `'auto' | 1 | 2 | 3`. `widgets[].id`: §5.1 위젯 레지스트리 9종. `col`: 다열일 때 열 배정(0부터, 생략 시 0).
+  - 전방 호환: 서버는 값을 검증 없이 문자열로 저장(키-값 원칙 유지). 프론트가 파싱 시 **알 수 없는 id 무시, 누락 id는 기본값(표시·마지막 순서)으로 보충**, 키 부재 = 기본 레이아웃.
+  - 서버 저장이므로 홈 레이아웃은 **전 기기 공통**. (기기별 선호인 사이드바 접힘·테마는 localStorage — §5 도입부·§6.)
 
 ## 5. 화면 상세 (11개)
 
 라우팅: React Router. 모바일(<768px)은 하단 탭바(홈/커리큘럼/퀴즈/오답노트) + 트리 드로어.
 
+**공통 레이아웃 — 사이드바 접힘(S7, F33)**: 태블릿·PC(≥768px)의 좌측 사이드바에 접힘 토글(« / »).
+- 접으면 **아이콘 전용 레일**(라벨 숨김, `title` 툴팁 유지) — 완전 숨김이 아니라 레일 유지: 다시 펼칠 진입점이 항상 보이고, 내비게이션은 한 번의 클릭 거리를 유지.
+- 상태: zustand `sidebar` 스토어 + **localStorage `sidebar`**(`'expanded' | 'collapsed'`) — 기기별 UI 선호이므로 서버 settings가 아닌 localStorage(theme 관례, §6).
+- 저장값 없을 때 기본: **768~1023px(태블릿) = collapsed, ≥1024px(PC) = expanded.** 모바일(<768px)은 사이드바 자체가 없으므로 토글 미노출(하단 탭바 유지).
+
 ### 5.1 홈 대시보드 — `/`
 - **구성(우선순위 순)**: ① 이어하기 카드(최대 3, 탭하면 `/study/:categoryId`로 즉시 복귀) ② "오늘의 복습 N개" 버튼(S5) ③ 학습 히트맵 12주(S4) ④ D-Day 배지들(시험 분류 + 임의 D-Day 병합 — §4.8, S4 완성) ⑤ 북마크 모아보기 진입(S4)
 - **API**: `GET /api/dashboard`
 - **엣지**: 데이터 0건이면 온보딩 카드("기출 JSON을 반입해 시작하세요" → `/import`).
+- **위젯 레지스트리(S7, F31)** — 홈 섹션을 9개 위젯 컴포넌트로 분리, id 고정:
+  `continue`(이어하기) · `today_review`(오늘의 복습) · `dday`(D-Day) · `heatmap`(학습 히트맵 12주) · `exam_progress`(시험별 진도 도넛) · `recent7d`(최근 7일 풀이/정답률) · `accuracy_trend`(최근 정답률 추이) · `weakness`(자꾸 틀리는 개념 Top 10) · `bookmarks`(북마크 모아보기 진입).
+  기존 "데이터 0건이면 위젯 미표시" 관례는 유지하되, 사용자 숨김(`visible:false`)이 우선하며 숨긴 위젯은 **데이터 쿼리도 실행하지 않는다**(`enabled:false`). 온보딩 카드는 위젯이 아님(편집 대상 제외).
+- **편집 모드(S7, F31)**: 홈 헤더 [편집] → 위젯마다 드래그 핸들(≡)·숨김(눈) 토글, 상단 열 수 세그먼트(자동/1/2/3), 하단 "숨긴 위젯" 목록(탭하면 복귀), [기본값 복원], [완료]=`PUT /api/settings`(`home.layout`, §4.10 — 저장은 완료 시 1회, 취소 시 드래프트 폐기).
+  - 드래그는 **Pointer Events 직접 구현**(pointerdown/move/up + setPointerCapture, 핸들 `touch-action:none`) — **외부 D&D 라이브러리 금지**. 같은 열 내 순서 변경 + 열 간 이동(col 배정), 드래그 중 자리표시자 표시.
+  - 폴백: 핸들 옆 ▲▼(순서)·◀▶(열 이동) 버튼 — 터치 스크롤 충돌·접근성 대비. 모바일은 이 버튼만으로도 전체 편집 가능.
+- **다열 렌더(S7, F31)**: `columns:'auto'` = 뷰포트 기준(모바일 1열 · ≥768px 2열 · ≥1280px 3열), 고정 1/2/3. **<640px는 항상 1열 강등**(col 값은 보존, order·col 순으로 평탄화). 열 수 축소 시 초과 col은 마지막 열로 클램프. 다열 시 컨테이너 폭 확장: 1열 `max-w-2xl` · 2열 `max-w-5xl` · 3열 `max-w-7xl`.
+- **D-Day 즉석 편집(S7, F32)**: D-Day 위젯 헤더의 연필 아이콘 → 모달로 **설정 §5.11의 D-Day 관리(DDayManager) 컴포넌트 재사용**(시험 분류 `exam_date` + 임의 D-Day 추가·수정·삭제 — 기존 categories PATCH·`settings:ddays.custom` 경로 그대로, 새 로직 없음). D-Day 위젯만은 데이터 0건이어도(visible이면) "등록된 D-Day 없음 + [추가]"로 표시 — 홈에서 첫 등록 가능. 저장 시 dashboard invalidate → 배지 즉시 갱신.
 
 ### 5.2 탐색 — `/explore`
 - **구성**: 좌측 분류 트리(노드별 진도바·문서수, 우클릭/⋯ 메뉴로 추가·이름변경·이동·삭제), 우측 문서 카드 그리드(제목·타입 배지·태그 칩·"N곳에서 사용 중" 배지·북마크 별).
@@ -299,7 +320,8 @@ study-hub/
 ## 7. 프론트 상태 관리
 
 - **서버 상태**: TanStack Query — 캐시 키 = 리소스 경로. 변경(mutation) 후 관련 쿼리 invalidate.
-- **로컬 상태**: zustand 3개 — `quizSession`(문항·답안·타이머), `flashcardSession`, `theme`.
+- **로컬 상태**: zustand 4개 — `quizSession`(문항·답안·타이머), `flashcardSession`, `theme`, `sidebar`(S7 — `'expanded'|'collapsed'`, localStorage `sidebar` persist, 기본값 규칙은 §5 도입부).
+- 홈 레이아웃(S7)은 스토어를 두지 않는다: 저장본은 서버 `settings:home.layout`(TanStack Query), 편집 중 드래프트는 홈 컴포넌트 로컬 상태 — [완료] 시에만 PUT, 취소 시 폐기.
 - 낙관적 업데이트는 북마크·진도 완료(체감 속도 중요)에만 적용, 나머지는 단순 invalidate.
 
 ## 8. 비고
