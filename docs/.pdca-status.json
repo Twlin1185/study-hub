@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-07-23T12:52:39.363Z",
+  "lastUpdated": "2026-07-23T13:12:09.851Z",
   "activeFeatures": [
     "frontend",
     "stores",
@@ -24,9 +24,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-22T11:36:34.314Z",
-        "lastUpdated": "2026-07-23T12:52:39.362Z"
+        "lastUpdated": "2026-07-23T13:11:36.677Z"
       },
-      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\frontend\\src\\pages\\Home.tsx"
+      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\frontend\\src\\components\\WeaknessWidget.tsx"
     },
     "stores": {
       "phase": "do",
@@ -63,9 +63,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-22T11:38:48.917Z",
-        "lastUpdated": "2026-07-23T12:51:18.789Z"
+        "lastUpdated": "2026-07-23T13:12:09.851Z"
       },
-      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\backend\\routers\\stats.py"
+      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\backend\\services\\stats_service.py"
     },
     "alembic": {
       "phase": "do",
@@ -154,7 +154,7 @@
   "session": {
     "startedAt": "2026-07-22T10:24:42.547Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-07-23T12:52:39.363Z"
+    "lastActivity": "2026-07-23T13:12:09.851Z"
   },
   "history": [
     {
@@ -1768,6 +1768,54 @@
     {
       "timestamp": "2026-07-23T12:52:39.362Z",
       "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:11:13.705Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:11:20.461Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:11:30.633Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:11:36.677Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:11:49.711Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:11:54.380Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:12:02.048Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:12:09.851Z",
+      "feature": "backend",
       "phase": "do",
       "action": "updated"
     }

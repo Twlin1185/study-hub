@@ -14,6 +14,8 @@ function errMsg(e: unknown, fallback: string) {
 }
 
 // 설계 §5.1, 계획 체크리스트 — "자꾸 틀리는 개념 Top 10". 클릭=문서 상세, [재도전]=해당 문서만 미니 퀴즈.
+// 특정 문서를 지목하는 재도전은 sequential + document_ids(설계 §5.8) — wrong_only는 미해결
+// 오답노트 조인이라 오답노트가 없는 문서(약점 위젯의 근거는 attempts 누적 정답률)는 0문항이 된다.
 export default function WeaknessWidget({ items }: WeaknessWidgetProps) {
   const navigate = useNavigate()
   const start = useQuizSessionStore((s) => s.start)
@@ -27,14 +29,14 @@ export default function WeaknessWidget({ items }: WeaknessWidgetProps) {
   function retry(documentId: number) {
     setError(null)
     createSession.mutate(
-      { mode: 'wrong_only', count: 1, document_ids: [documentId] },
+      { mode: 'sequential', count: 1, document_ids: [documentId] },
       {
         onSuccess: (data) => {
           if (data.items.length === 0) {
             setError('재도전할 문제를 찾지 못했습니다.')
             return
           }
-          start(data.items, 'wrong_only', null)
+          start(data.items, 'sequential', null)
           navigate('/quiz/run')
         },
         onError: (e) => setError(errMsg(e, '재도전을 시작하지 못했습니다.')),

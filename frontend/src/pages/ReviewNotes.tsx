@@ -19,7 +19,9 @@ function errMsg(e: unknown, fallback: string) {
 // 설계 §5.8 — 오답노트. 필터(분류 범위·틀린이유·해결여부) + 분류 계층 그룹 리스트 —
 // 카드 = 문제 요약, 내 메모 인라인 편집, 틀린이유 태그 선택, [극복] 토글, [재도전].
 // 상단 일괄 [재도전] = quiz/session{mode:'wrong_only'} (현재 필터 분류 전체).
-// 카드별 개별 [재도전] = quiz/session{mode:'wrong_only', document_ids:[해당 문서]} — 누른 그 문제만 출제.
+// 카드별 개별 [재도전] = quiz/session{mode:'sequential', document_ids:[해당 문서]} — 누른 그 문제만 출제.
+// wrong_only는 미해결 오답노트 조인이라 극복(resolved) 처리된 문제·오답노트 없는 문서는 0문항이
+// 되므로, 특정 문서를 지목하는 재도전(오답노트 개별·약점 위젯)은 sequential + document_ids로 지정한다.
 export default function ReviewNotesPage() {
   const navigate = useNavigate()
   const treeQuery = useCategoryTree()
@@ -195,15 +197,17 @@ function ReviewNoteCard({ note, onUpdate }: { note: ReviewNote; onUpdate: Return
 
   function handleRetryOne() {
     setError(null)
+    // 특정 문서 지목 재도전은 sequential + document_ids (설계 §5.8) — wrong_only는 미해결
+    // 오답노트 조인이라 극복 처리된 문제는 0문항이 되어버린다.
     createSession.mutate(
-      { mode: 'wrong_only', count: 1, document_ids: [note.document_id] },
+      { mode: 'sequential', count: 1, document_ids: [note.document_id] },
       {
         onSuccess: (data) => {
           if (data.items.length === 0) {
             setError('재도전할 문제를 찾지 못했습니다.')
             return
           }
-          start(data.items, 'wrong_only', null)
+          start(data.items, 'sequential', null)
           navigate('/quiz/run')
         },
         onError: () => setError('재도전을 시작하지 못했습니다.'),

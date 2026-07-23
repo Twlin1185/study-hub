@@ -18,6 +18,21 @@ from services.tree_utils import category_path, collect_descendant_ids
 
 HEATMAP_DEFAULT_WEEKS = 12
 
+# 저장 컬럼(answered_at 등)은 SQLite CURRENT_TIMESTAMP(UTC) 기준으로 쌓인다.
+# 날짜 경계 집계(히트맵·정답률 추이·최근 N일)는 설계 §3 "서버 로컬(Asia/Seoul)" 기준이어야
+# 하므로, SQL 쪽 날짜 추출은 SQLite `date(col, 'localtime')`으로, 파이썬 쪽 경계 계산은
+# 로컬 자정을 UTC naive로 환산해서 비교한다. 저장 자체(UTC)는 건드리지 않는다.
+
+
+def _local_midnight_to_utc_naive(local_date: dt.date) -> dt.datetime:
+    """로컬 자정(해당 날짜 00:00, 서버 시스템 tz)을 UTC naive datetime으로 변환.
+
+    Python은 naive datetime에 astimezone()을 호출하면 시스템 로컬 tz로 간주해
+    변환한다(3.6+) — 서버가 Asia/Seoul로 설정돼 있다는 전제(설계 §3)와 일치.
+    """
+    local_naive = dt.datetime.combine(local_date, dt.time.min)
+    return local_naive.astimezone(dt.timezone.utc).replace(tzinfo=None)
+
 
 def _category_ddays(db: Session, today: dt.date) -> list[DDayItem]:
     rows = db.execute(
@@ -77,7 +92,9 @@ def _ddays(db: Session) -> list[DDayItem]:
 
 
 def _recent(db: Session) -> RecentStats:
-    since = dt.datetime.utcnow() - dt.timedelta(days=7)
+    # 로컬 오늘 포함 최근 7일(달력 기준) — 로컬 자정을 UTC로 환산해 answered_at(UTC)과 비교.
+    today_local = dt.date.today()
+    since = _local_midnight_to_utc_naive(today_local - dt.timedelta(days=6))
     total = db.execute(
         select(func.count())
         .select_from(models.Attempt)
@@ -112,26 +129,28 @@ def get_heatmap(
 
     counts: dict[str, int] = {}
 
+    attempt_date = func.date(models.Attempt.answered_at, "localtime")
     attempt_rows = db.execute(
-        select(func.date(models.Attempt.answered_at), func.count())
+        select(attempt_date, func.count())
         .where(
-            func.date(models.Attempt.answered_at) >= start.isoformat(),
-            func.date(models.Attempt.answered_at) <= end.isoformat(),
+            attempt_date >= start.isoformat(),
+            attempt_date <= end.isoformat(),
         )
-        .group_by(func.date(models.Attempt.answered_at))
+        .group_by(attempt_date)
     ).all()
     for date_str, count in attempt_rows:
         counts[date_str] = counts.get(date_str, 0) + count
 
+    completed_date = func.date(models.StudyProgress.completed_at, "localtime")
     completed_rows = db.execute(
-        select(func.date(models.StudyProgress.completed_at), func.count())
+        select(completed_date, func.count())
         .where(
             models.StudyProgress.status == "done",
             models.StudyProgress.completed_at.is_not(None),
-            func.date(models.StudyProgress.completed_at) >= start.isoformat(),
-            func.date(models.StudyProgress.completed_at) <= end.isoformat(),
+            completed_date >= start.isoformat(),
+            completed_date <= end.isoformat(),
         )
-        .group_by(func.date(models.StudyProgress.completed_at))
+        .group_by(completed_date)
     ).all()
     for date_str, count in completed_rows:
         counts[date_str] = counts.get(date_str, 0) + count
@@ -147,18 +166,19 @@ def get_accuracy_trend(db: Session, days: int = 30) -> list[AccuracyTrendItem]:
     end = dt.date.today()
     start = end - dt.timedelta(days=days - 1)
 
+    attempt_date = func.date(models.Attempt.answered_at, "localtime")
     rows = db.execute(
         select(
-            func.date(models.Attempt.answered_at).label("date"),
+            attempt_date.label("date"),
             func.count().label("attempts"),
             func.sum(models.Attempt.is_correct).label("correct"),
         )
         .where(
-            func.date(models.Attempt.answered_at) >= start.isoformat(),
-            func.date(models.Attempt.answered_at) <= end.isoformat(),
+            attempt_date >= start.isoformat(),
+            attempt_date <= end.isoformat(),
         )
-        .group_by(func.date(models.Attempt.answered_at))
-        .order_by(func.date(models.Attempt.answered_at))
+        .group_by(attempt_date)
+        .order_by(attempt_date)
     ).all()
 
     return [
