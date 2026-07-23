@@ -1,8 +1,8 @@
 # Study Hub — 상세 설계 (API 명세 · 화면 상세)
 
-> 상태: **Design v1.0**
-> 작성일: 2026-07-22
-> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.4)
+> 상태: **Design v1.1** — v1.0 대비: 문서 재생성 API(F30, §4.10)·오답노트 계층 그룹(§4.6·§5.8)·D-Day 병합(§4.8·§5.11) 반영
+> 작성일: 2026-07-22 · 갱신: 2026-07-23
+> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.5)
 > 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-6-automation.plan.md`
 
 ---
@@ -155,7 +155,7 @@ study-hub/
 
 | 메서드/경로 | 설명 | 단계 |
 |---|---|---|
-| `GET /api/review-notes` | 필터: `resolved`, `wrong_reason`, `category_id`. 문서 요약 포함 | S3 |
+| `GET /api/review-notes` | 필터: `resolved`, `wrong_reason`, `category_id`(**하위 트리 포함**). 문서 요약에 분류 경로(`category_path`) 포함 — §5.8 계층 그룹핑의 근거 | S3 기본 / S4 하위 포함·경로 |
 | `PATCH /api/review-notes/{id}` | `{note?, wrong_reason?, is_resolved?}` | S3 |
 
 ### 4.7 복습 SRS
@@ -182,10 +182,12 @@ study-hub/
   "today_review": 12,
   "continue": [ { "category_id": 42, "path": "정보처리기사/필기/2과목/Ch.3",
                   "document_id": 317, "done": 7, "total": 12 } ],
-  "ddays": [ { "category_id": 3, "name": "정보처리기사 필기", "exam_date": "2026-08-30", "d_day": 39 } ],
+  "ddays": [ { "kind": "category", "category_id": 3, "name": "정보처리기사 필기", "exam_date": "2026-08-30", "d_day": 39 },
+             { "kind": "custom", "id": "dd_1", "category_id": null, "name": "실기 접수 마감", "exam_date": "2026-08-05", "d_day": 13 } ],
   "recent": { "attempts_7d": 143, "accuracy_7d": 0.78 }
 }
 ```
+- `ddays`(S4 완성): 분류의 `exam_date` + `settings:ddays.custom`(임의 D-Day — 접수 마감·발표일 등 분류와 무관한 날짜)을 서버가 **병합**해 `d_day` 계산, 날짜순 정렬. 지난 날짜는 제외. 날짜 필드명은 두 종류 모두 `exam_date`로 통일(S3 응답과 호환 — DDL 변경 없음).
 
 ### 4.9 검색·태그·제안함
 
@@ -203,17 +205,22 @@ study-hub/
 
 | 메서드/경로 | 설명 | 단계 |
 |---|---|---|
-| `GET /api/settings` · `PUT /api/settings` | 키-값 일괄 조회/저장. 키: `srs.daily_limit`, `quiz.default_count`, `backup.auto` | S3 |
+| `GET /api/settings` · `PUT /api/settings` | 키-값 일괄 조회/저장. 키: `srs.daily_limit`, `quiz.default_count`, `backup.auto`, `ddays.custom`(S4 — 임의 D-Day JSON 배열 `[{id, label, date}]`) | S3 |
 | `POST /api/convert` | `{source_path or upload}` → claude CLI headless 변환 잡 시작 (F23). `{job_id}` 반환 | S6 |
 | `GET /api/convert/{job_id}` | `{status: running/done/error, result_preview_id?}` — 완료 시 곧장 반입 preview로 연결 | S6 |
+| `POST /api/documents/{id}/regenerate` | `{reason}` — 문제 오류 신고 → claude CLI로 해당 문서만 재생성 잡 시작 (F30). convert 잡 큐 재사용(동시 1개). `{job_id}` 반환 | S6 |
+| `GET /api/documents/{id}/regenerate/{job_id}` | `{status: running/done/error, draft?}` — 완료 시 재생성 초안(기존/신규 나란히 비교용 문서 필드 전체) | S6 |
+| `POST /api/documents/{id}/regenerate/{job_id}/apply` | 초안 승인 → 기존 문서를 PATCH 방식으로 교체. **같은 문서 id·doc_no 유지** — attempts·오답노트·SRS 이력 보존. 미승인 초안은 폐기 가능(잡 TTL 만료 시 자동 폐기). 자동 덮어쓰기 금지(R7) | S6 |
 | `POST /api/backups` · `GET /api/backups` · `POST /api/backups/{id}/restore` | 백업 스냅샷 (F27). restore는 확인 문구 필수 | S6 |
+
+- 재생성(F30) 프롬프트 구성: **현재 문서 내용 + 신고 사유(reason) + (source_detail 있으면) 원본 출처 정보** — 원본 대조가 가능하도록(R7). 엔진은 R9 결정 그대로 claude CLI 서브프로세스(F23 인프라).
 
 ## 5. 화면 상세 (11개)
 
 라우팅: React Router. 모바일(<768px)은 하단 탭바(홈/커리큘럼/퀴즈/오답노트) + 트리 드로어.
 
 ### 5.1 홈 대시보드 — `/`
-- **구성(우선순위 순)**: ① 이어하기 카드(최대 3, 탭하면 `/study/:categoryId`로 즉시 복귀) ② "오늘의 복습 N개" 버튼(S5) ③ 학습 히트맵 12주(S4) ④ D-Day 배지들 ⑤ 북마크 모아보기 진입(S4)
+- **구성(우선순위 순)**: ① 이어하기 카드(최대 3, 탭하면 `/study/:categoryId`로 즉시 복귀) ② "오늘의 복습 N개" 버튼(S5) ③ 학습 히트맵 12주(S4) ④ D-Day 배지들(시험 분류 + 임의 D-Day 병합 — §4.8, S4 완성) ⑤ 북마크 모아보기 진입(S4)
 - **API**: `GET /api/dashboard`
 - **엣지**: 데이터 0건이면 온보딩 카드("기출 JSON을 반입해 시작하세요" → `/import`).
 
@@ -227,7 +234,8 @@ study-hub/
 - **구성**: 제목+doc_no+타입, 본문 Markdown 렌더(코드 하이라이트, 이미지), 태그 칩(클릭=탐색 필터), 사용처 목록(분류 경로 + local_note 인라인 편집), 관련 문서(relations — 문제면 "이 문제의 개념", 개념이면 "확인 문제")(S4), 풀이 이력 미니차트(최근 10회 ○×, S3), 북마크 별(S4).
 - **문제 타입 뷰 모드**: 지문(content) → 보기 목록(①~④ 각각 별도 행) → **정답·해설은 기본 가림** — "정답·해설 보기" 토글(스포일러)로만 펼침. 문서를 열람만 해도 정답이 눈에 들어오지 않게 한다.
 - **편집 모드**: 본문·보기·정답·해설 필드 폼. 문제 타입이면 미리보기 탭(실제 퀴즈 카드 모양).
-- **API**: `documents/{id}`, PATCH, tags PUT, relations, bookmark.
+- **오류 신고·재생성(S6, F30)**: [오류 신고] 버튼(진입점: 문서 상세·학습 모드 §5.5·퀴즈 해설 §5.6) → 사유 입력 모달 → 재생성 잡 생성(진행 중 배지 표시) → 완료 시 **문서 상세에서 기존 vs 신규 나란히 비교** → [교체](apply — 같은 문서 유지) / [폐기]. 자동 덮어쓰기 없음.
+- **API**: `documents/{id}`, PATCH, tags PUT, relations, bookmark, regenerate(S6, §4.10).
 
 ### 5.4 커리큘럼 — `/curriculum`, `/curriculum/:categoryId`
 - `/curriculum`: 최상위(자격증) 카드 목록 → 시험 선택.
@@ -240,11 +248,12 @@ study-hub/
 - **챕터 완료 화면**: 정답률 요약 + 틀린 문제 목록("지금 다시 풀기" = wrong_only 미니 퀴즈) + [다음 챕터 ▶].
 - **엣지**: 챕터에 문서 0개면 "문서를 연결하세요" 안내. 마지막 챕터 완료 시 과목 완료 화면.
 - **완료 문제 재방문**: 이미 done인 문제로 돌아가면 마지막 풀이를 복원해 표시 — 내가 고른 보기(정오 색상)·정답·해설을 그대로 보여주고, [다시 풀기] 버튼으로 재제출 가능(새 attempt 누적, 이력 미니차트에 반영). 데이터는 `documents/{id}`의 `stats.last_attempt {my_answer, is_correct, created_at}`.
+- **오류 신고(S6)**: 문제 카드에 [오류 신고] 버튼 → §5.3의 재생성 흐름으로 진입.
 - **API**: `categories/{id}/study-track`, `study/events`, `attempts`.
 
 ### 5.6 퀴즈 — `/quiz` (설정) → `/quiz/run`
 - **설정 화면**: 범위(트리 선택), 모드(순차/랜덤/오답만/북마크만), 문항 수(기본 `settings:quiz.default_count`).
-- **런 화면**: 문제 카드(지문 Markdown + 보기 4개 버튼), 선택 즉시 제출 → 정오 색상 + 해설 펼침 + 관련 개념 링크(S4) → [다음]. 상단 진행바 + 경과 시간.
+- **런 화면**: 문제 카드(지문 Markdown + 보기 4개 버튼), 선택 즉시 제출 → 정오 색상 + 해설 펼침 + 관련 개념 링크(S4) + [오류 신고](S6 — §5.3 재생성 흐름) → [다음]. 상단 진행바 + 경과 시간.
 - **종료 요약**: 정답률, 소요 시간, 틀린 문제 리스트(각각 오답노트 메모 바로 입력).
 - **상태**: 세션은 zustand 스토어(새로고침 시 세션 종료 확인 모달). 문항별 `time_spent`는 카드 표시~제출 시각.
 - **API**: `quiz/session`, `attempts`.
@@ -254,9 +263,11 @@ study-hub/
 - **API**: `srs/today`(flashcard 타입 필터) 또는 범위 선택, `srs/answer`.
 
 ### 5.8 오답노트 — `/review-notes`
-- **구성**: 필터(틀린이유·분류·해결여부) + 리스트(문제 요약, 내 메모 인라인 편집, 틀린이유 태그 선택, [극복] 토글, [재도전]).
+- **구성**: 필터(분류 범위·틀린이유·해결여부) + 분류 계층 그룹 리스트(아래) — 카드 = 문제 요약, 내 메모 인라인 편집, 틀린이유 태그 선택, [극복] 토글, [재도전].
+- **분류 범위 필터(S4)**: 평면 셀렉트가 아니라 퀴즈 설정(§5.6)의 범위 트리 선택과 동일 패턴(공용 컴포넌트화) — 선택한 범위의 **하위 전체 포함**(§4.6 하위 트리 필터).
+- **계층 그룹 보기(S4)**: 리스트를 분류 경로(`category_path`) 기준 그룹 섹션으로 표시 — 상위 단위(대단위) 헤더 → 하위 단위(중/소/하위 단위) 소제목, 접기/펼치기, 그룹 헤더에 건수 배지. 여러 분류에 연결된 문서는 선택 범위 안의 경로를 우선, 없으면 첫 연결 경로 기준 1곳에만 표시. 어느 분류에도 연결 안 된 문서는 "미분류" 그룹.
 - [재도전] = 해당 문서들로 `quiz/session{mode:wrong_only}`. 카드별 개별 [재도전] = `quiz/session{mode:wrong_only, document_ids:[해당 문서]}` — 누른 그 문제만 출제.
-- **API**: `review-notes`, PATCH, `quiz/session`.
+- **API**: `review-notes`(S4: 하위 포함·경로), PATCH, `quiz/session`.
 
 ### 5.9 반입 — `/import`
 - **3단계 위저드**: ① 파일 선택(JSON + 원본 선택) → ② 미리보기 표(항목별 상태 배지: 정상/중복 의심/오류. 중복은 기존 문서와 나란히 비교, 라디오: 건너뛰기/새로 추가/병합. 분류·관계 제안 체크박스) → ③ 반입 실행 → 결과 요약(생성 N, 병합 N, 건너뜀 N + 새 문서 바로가기).
@@ -269,8 +280,12 @@ study-hub/
 - **API**: `study-track`·`documents/batch`·`review-notes` 조합 (전용 API 없음).
 
 ### 5.11 설정 — `/settings`
-- 테마(라이트/다크/시스템 — localStorage, §6), 복습 큐 상한, 기본 문항 수, D-Day 관리(시험 분류에 날짜 부여), 백업/복원(S6), 태그 병합 도구(S6).
-- **API**: `settings`, `backups`(S6).
+- 테마(라이트/다크/시스템 — localStorage, §6), 복습 큐 상한, 기본 문항 수, D-Day 관리(S4, 아래), 백업/복원(S6), 태그 병합 도구(S6).
+- **D-Day 관리(S4)** — DDL 변경 없이 두 종류:
+  - 시험 분류 D-Day: 트리에서 시험 분류 선택 → `exam_date` 추가/변경/제거 (`PATCH /api/categories/{id}` 재사용).
+  - 임의 D-Day(접수 마감·발표일 등 분류와 무관): 라벨+날짜 추가/수정/삭제 — `settings:ddays.custom = [{id, label, date}]` (settings GET/PUT 재사용).
+  - 홈 D-Day 배지는 두 종류를 병합한 `dashboard.ddays`(§4.8) 사용.
+- **API**: `settings`, `categories` PATCH, `backups`(S6).
 
 ## 6. 테마 · 디자인 토큰 (F28)
 

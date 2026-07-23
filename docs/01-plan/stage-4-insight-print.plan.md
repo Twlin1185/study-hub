@@ -1,12 +1,13 @@
 # Stage 4 — 시각화 · 인쇄 · 북마크 (M4)
 
-> 상위: `study-app.plan.md` v0.4 · 설계: `../02-design/study-app.design.md` §4.1(stats), §4.2(relations·bookmark·batch), §4.8, §5.1, §5.10
+> 상위: `study-app.plan.md` v0.5 · 설계: `../02-design/study-app.design.md` §4.1(stats), §4.2(relations·bookmark·batch), §4.6(오답노트 보강), §4.8, §5.1, §5.8, §5.10, §5.11(D-Day 관리)
 > 선행: Stage 3 (풀이 데이터가 쌓여야 의미 있음) · 포함 기능: F08, F11, F22, F24, F29
 
 ## 목표
 
 쌓인 기록을 "약점이 한눈에 보이는" 형태로 시각화하고, 문제집을 A4 PDF로 뽑는다.
 문제↔개념 연결과 북마크로 탐색 동선을 완성한다.
+D-Day 관리(시험 분류 + 임의 D-Day)와 오답노트 분류 계층 그룹으로 홈·오답 동선을 완성한다.
 
 ## 작업 체크리스트
 
@@ -15,12 +16,14 @@
 - [ ] `GET /api/stats/weakness`: 문서·단원별 누적 정답률 하위 Top N (최소 시도 수 3 필터)
 - [ ] `GET /api/categories/{id}/stats`: 직계 자식별 진도·정답률·시도 수 (드릴다운)
 - [ ] dashboard 완성: recent(7일 정답률·풀이 수) 채우기
+- [ ] dashboard `ddays` 완성: 분류 `exam_date` + `settings:ddays.custom`(임의 D-Day) 병합 → `d_day` 계산, 날짜순·지난 날짜 제외 (설계 §4.8 — DDL 변경 없음)
 
 ### 2. 백엔드 — 관계·북마크·배치
 - [ ] relations POST/DELETE (`explains`/`related`/`prerequisite`, 자기 참조 금지)
 - [ ] bookmark PUT/DELETE, documents 목록 `bookmarked=1` 필터
 - [ ] `GET /api/documents/batch?ids=` (인쇄 뷰용)
 - [ ] quiz/session에 `bookmarked` 모드 추가
+- [ ] review-notes 보강: `category_id` 필터 **하위 트리 포함** + 문서 요약에 분류 경로(`category_path`) 포함 (설계 §4.6)
 
 ### 3. 프론트엔드 — 대시보드·차트 (Chart.js)
 - [ ] 홈: 히트맵 12주(잔디, 토큰 5단계 색), 시험별 진도 도넛, 최근 정답률 추이 라인
@@ -39,6 +42,12 @@
 - [ ] 3종: 개념 정리본(목차 자동 생성·doc_no 표시) / 문제집(문제 앞·정답해설 뒤 분리, 해설 제외 옵션, 풀이 여백) / 오답노트(기간·분류 필터, 내 메모 포함)
 - [ ] 옵션 패널(화면 전용) + 브라우저 인쇄 호출 버튼
 
+### 6. 프론트엔드 — D-Day 관리 · 오답노트 계층 그룹 (설계 §5.8, §5.11)
+- [ ] 설정 > D-Day 관리: 시험 분류 `exam_date` 추가/변경/제거(`PATCH /categories/{id}` 재사용) + 임의 D-Day(접수 마감·발표일 등) 추가/수정/삭제(`settings:ddays.custom`, settings GET/PUT 재사용)
+- [ ] 홈 D-Day 위젯: 병합된 배지 표시(시험/임의 구분)
+- [ ] 오답노트 분류 필터: 퀴즈 설정과 동일한 트리 범위 선택(하위 전체 포함) — 범위 선택 컴포넌트 공용화
+- [ ] 오답노트 리스트: 분류 경로 기준 그룹 섹션(상위 단위 헤더 → 하위 단위 소제목, 접기/펼치기, 헤더 건수 배지, 미분류 그룹)
+
 ## 완료 기준 (DoD)
 
 1. 히트맵에 실제 학습일이 칠해지고, 과목별 정답률 차트에서 60% 미만 단원 식별 가능
@@ -46,7 +55,9 @@
 3. 문제집 인쇄 뷰 → 브라우저 "PDF로 저장" → 문제가 페이지 경계에서 잘리지 않는 A4 PDF
 4. 북마크한 문서만으로 퀴즈 세션 실행
 5. 반입 시 `suggest_relations` 승인분이 문서 상세 관련 문서에 표시됨
+6. 설정에서 임의 D-Day(예: "실기 접수 마감") 추가·수정·삭제 가능, 홈 배지에 시험 D-Day와 병합 표시
+7. 오답노트가 분류 계층(대/중/소/하위 단위) 그룹으로 표시되고, 상위 범위 선택 시 하위 전체가 포함됨
 
 ## 이 단계에서 하지 않는 것
 
-SM-2·플래시카드(S5), 검색·태그 규칙(S6), 서버 사이드 PDF(WeasyPrint — v2), 통계 CSV(S6).
+SM-2·플래시카드(S5), 검색·태그 규칙(S6), 서버 사이드 PDF(WeasyPrint — v2), 통계 CSV(S6), D-Day 기반 복습 강도 조절(F16 — v1.x).
