@@ -10,3 +10,6 @@ backend/**/__pycache__/
 frontend/dist/
 *.pyc
 .env
+
+.bkit/
+backend/.bkit/
