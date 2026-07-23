@@ -52,6 +52,15 @@ def submit_attempt(db: Session, payload: AttemptCreate) -> AttemptResult:
         )
     ).scalar()
 
+    # 직전 시도(이번 제출 제외, answered_at 최신 1건)의 정오답 — E안 '회복 정답' 판정용.
+    prev_is_correct = db.execute(
+        select(models.Attempt.is_correct)
+        .where(models.Attempt.document_id == document.id)
+        .order_by(models.Attempt.answered_at.desc(), models.Attempt.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    prev_incorrect = prev_is_correct == 0
+
     try:
         attempt = models.Attempt(
             document_id=document.id,
@@ -92,7 +101,7 @@ def submit_attempt(db: Session, payload: AttemptCreate) -> AttemptResult:
         # SM-2 갱신 — 첫 풀이면 카드 자동 생성. 같은 트랜잭션에서 처리(불변 규칙 2).
         q = sm2.quality_for_attempt(
             is_correct=is_correct,
-            mode=payload.mode,
+            prev_incorrect=prev_incorrect,
             time_spent=payload.time_spent,
             avg_time=avg_time,
         )

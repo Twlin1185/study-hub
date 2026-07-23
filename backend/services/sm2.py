@@ -63,28 +63,27 @@ def update(card: Card, q: int) -> Card:
 
 def quality_for_attempt(
     is_correct: bool,
-    mode: str | None,
+    prev_incorrect: bool,
     time_spent: int | None,
     avg_time: float | None,
 ) -> int:
-    """풀이(attempts) 1건의 품질점수 q 산출 (계획서 §10 매핑).
+    """풀이(attempts) 1건의 품질점수 q 산출 (계획서 §10 — E안: 직전 결과 분기).
 
     - 오답 → 1
-    - 오답노트 재도전(복습 세션, mode='review') 정답 → 3
-    - 플래시카드 정답 → 4
-    - 퀴즈 정답: 문항 평균시간 이하면 5, 초과(또는 판단 불가)면 4
+    - 회복 정답: 그 문서의 **직전 시도가 오답**(prev_incorrect=True)이었으면 화면(mode) 무관
+      정답 시 q=3 ("간신히 회복" 신호)
+    - 그 외 정답: 문항 평균시간 이하면 5, 초과(또는 판단 불가)면 4. 첫 풀이 정답(직전 시도
+      없음 → prev_incorrect=False)도 여기 해당
 
-    '오답노트 재도전'은 attempts 요청의 mode='review'로 식별한다(설계 §4.5의 mode
-    'quiz'|'review'|'flashcard' 중 review = wrong_only 복습 세션). 평균시간 자료가 없는
-    첫 풀이는 '빠름'을 단정할 수 없으므로 보수적으로 4(느림)로 둔다.
+    화면 종류(mode)가 아니라 직전 attempt 결과로 판정한다(경로 무관 일관성, 2026-07 결정).
+    "복습 세션 정답=무조건 q3" 방식은 잘 아는 카드의 EF가 복습할수록 감소하는 역설을 만들어
+    폐기됐다. 플래시카드 자가판정(안다=4/모른다=1)은 srs/answer가 q를 직접 전달하므로 이
+    함수를 거치지 않는다. 평균시간 자료가 없는 첫 풀이는 '빠름'을 단정할 수 없어 보수적으로 4.
     """
     if not is_correct:
         return 1
-    if mode == "review":
+    if prev_incorrect:
         return 3
-    if mode == "flashcard":
-        return 4
-    # quiz / study / 기타 정답
     if time_spent is not None and avg_time is not None and time_spent <= avg_time:
         return 5
     return 4

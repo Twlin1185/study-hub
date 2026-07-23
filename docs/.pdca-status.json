@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-07-23T13:30:04.686Z",
+  "lastUpdated": "2026-07-23T15:37:19.917Z",
   "activeFeatures": [
     "frontend",
     "stores",
@@ -64,9 +64,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-22T11:38:48.917Z",
-        "lastUpdated": "2026-07-23T13:21:27.916Z"
+        "lastUpdated": "2026-07-23T15:37:07.779Z"
       },
-      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\backend\\services\\document_service.py"
+      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\backend\\services\\attempt_service.py"
     },
     "alembic": {
       "phase": "do",
@@ -155,7 +155,7 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-23T13:19:13.673Z",
-        "lastUpdated": "2026-07-23T13:19:13.673Z"
+        "lastUpdated": "2026-07-23T15:37:19.917Z"
       },
       "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\backend\\tests\\test_sm2.py"
     }
@@ -168,7 +168,7 @@
   "session": {
     "startedAt": "2026-07-22T10:24:42.547Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-07-23T13:30:04.686Z"
+    "lastActivity": "2026-07-23T15:37:19.917Z"
   },
   "history": [
     {
@@ -2112,6 +2112,30 @@
     {
       "timestamp": "2026-07-23T13:30:04.686Z",
       "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T15:36:55.626Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T15:37:03.833Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T15:37:07.779Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T15:37:19.917Z",
+      "feature": "tests",
       "phase": "do",
       "action": "updated"
     }

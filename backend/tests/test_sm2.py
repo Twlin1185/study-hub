@@ -105,17 +105,21 @@ def test_invalid_q_raises(bad_q):
 
 
 @pytest.mark.parametrize(
-    "is_correct,mode,time_spent,avg_time,expected",
+    "is_correct,prev_incorrect,time_spent,avg_time,expected",
     [
-        (False, "quiz", 5, 10.0, 1),        # 오답
-        (False, "review", 5, 10.0, 1),      # 오답 (모드 무관)
-        (True, "review", 5, 10.0, 3),       # 오답노트 재도전 정답
-        (True, "flashcard", None, None, 4), # 플래시카드 정답(안다)
-        (True, "quiz", 5, 10.0, 5),         # 정답 · 평균 이하 → 빠름
-        (True, "quiz", 15, 10.0, 4),        # 정답 · 평균 초과 → 느림
-        (True, "quiz", 10, 10.0, 5),        # 정답 · 평균과 동일(이하) → 빠름
-        (True, "quiz", 5, None, 4),         # 정답 · 평균 자료 없음 → 보수적 4
+        (False, False, 5, 10.0, 1),   # 오답 (직전 정답)
+        (False, True, 5, 10.0, 1),    # 오답 (직전도 오답) — 여전히 1
+        (True, True, 5, 10.0, 3),     # 회복 정답: 직전 오답 → 빨라도 q3 (시간 무시)
+        (True, True, 15, 10.0, 3),    # 회복 정답: 직전 오답 → 느려도 q3
+        (True, False, 5, 10.0, 5),    # 직전 정답 · 평균 이하 → 빠름
+        (True, False, 15, 10.0, 4),   # 직전 정답 · 평균 초과 → 느림
+        (True, False, 10, 10.0, 5),   # 직전 정답 · 평균과 동일(이하) → 빠름
+        (True, False, 5, None, 4),    # 첫 풀이 정답(자료 없음) → 보수적 4
+        (True, False, None, None, 4), # 첫 풀이 정답(시간·평균 없음) → 4
     ],
 )
-def test_quality_for_attempt(is_correct, mode, time_spent, avg_time, expected):
-    assert sm2.quality_for_attempt(is_correct, mode, time_spent, avg_time) == expected
+def test_quality_for_attempt(is_correct, prev_incorrect, time_spent, avg_time, expected):
+    assert (
+        sm2.quality_for_attempt(is_correct, prev_incorrect, time_spent, avg_time)
+        == expected
+    )
