@@ -21,9 +21,15 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [dailyLimit, setDailyLimit] = useState('')
+  const [srsSaved, setSrsSaved] = useState(false)
+  const [srsError, setSrsError] = useState<string | null>(null)
+
   useEffect(() => {
     const value = settingsQuery.data?.['quiz.default_count']
     if (value != null) setDefaultCount(String(value))
+    const limit = settingsQuery.data?.['srs.daily_limit']
+    if (limit != null) setDailyLimit(String(limit))
   }, [settingsQuery.data])
 
   function handleSave() {
@@ -41,6 +47,25 @@ export default function SettingsPage() {
           window.setTimeout(() => setSaved(false), 1500)
         },
         onError: (e) => setError(e instanceof ApiError ? e.message : '저장에 실패했습니다.'),
+      },
+    )
+  }
+
+  function handleSaveSrs() {
+    const num = Number(dailyLimit)
+    if (!Number.isInteger(num) || num <= 0) {
+      setSrsError('1 이상의 정수를 입력하세요.')
+      return
+    }
+    setSrsError(null)
+    updateSettings.mutate(
+      { 'srs.daily_limit': num },
+      {
+        onSuccess: () => {
+          setSrsSaved(true)
+          window.setTimeout(() => setSrsSaved(false), 1500)
+        },
+        onError: (e) => setSrsError(e instanceof ApiError ? e.message : '저장에 실패했습니다.'),
       },
     )
   }
@@ -100,10 +125,36 @@ export default function SettingsPage() {
         {error && <p className="mt-2 text-sm text-wrong">{error}</p>}
       </section>
 
+      <section className="mb-4 rounded-lg border border-border bg-surface p-4">
+        <h2 className="mb-1 text-sm font-semibold text-primary">복습 상한</h2>
+        <p className="mb-3 text-xs text-muted">
+          하루에 "오늘의 복습" 큐에 나타나는 최대 항목 수입니다 (기본 30).
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={200}
+            value={dailyLimit}
+            onChange={(e) => setDailyLimit(e.target.value)}
+            className="w-24 rounded border border-border bg-bg px-3 py-2 text-sm text-primary outline-none focus:border-accent"
+          />
+          <button
+            type="button"
+            onClick={handleSaveSrs}
+            disabled={updateSettings.isPending}
+            className="rounded bg-accent px-3 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
+          >
+            {srsSaved ? '저장됨' : '저장'}
+          </button>
+        </div>
+        {srsError && <p className="mt-2 text-sm text-wrong">{srsError}</p>}
+      </section>
+
       <DDayManager />
 
       <p className="mt-4 text-xs text-muted">
-        복습 큐 상한 · 백업/복원 · 태그 병합 도구는 이후 단계에서 추가됩니다.
+        백업/복원 · 태그 병합 도구는 이후 단계에서 추가됩니다.
       </p>
     </div>
   )

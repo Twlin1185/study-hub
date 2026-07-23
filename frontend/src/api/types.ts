@@ -60,6 +60,15 @@ export interface DocumentStatsLastAttempt {
   created_at: string
 }
 
+// 문서 상세 SRS 상태 (설계 §5.7 지원 · stage-5) — 카드가 아직 없으면(첫 attempts/판정 전) null.
+// due_date·ease_factor·interval_days가 stats.srs로 추가될 예정(태스크 노트 — 백엔드 병렬 구현).
+export interface DocumentSrs {
+  due_date: string | null
+  ease_factor: number | null
+  interval_days: number | null
+  repetitions?: number | null
+}
+
 export interface DocumentStats {
   attempts: number
   accuracy: number | null
@@ -67,6 +76,8 @@ export interface DocumentStats {
   recent: boolean[]
   // 마지막 풀이 복원용 (설계 §5.5 완료 문제 재방문) — 과거 데이터는 null일 수 있음.
   last_attempt: DocumentStatsLastAttempt | null
+  // SRS 상태(stage-5). 카드 미생성 시 null/undefined.
+  srs?: DocumentSrs | null
 }
 
 export interface DocumentDetail {
@@ -280,6 +291,45 @@ export interface AttemptResponse {
   explanation: string | null
   review_note_id: number | null
   srs: AttemptSrs | null
+}
+
+// ---- 복습 SRS (설계 §4.7, stage-5) ----
+//
+// GET /api/srs/today 실계약(설계 §4.7 명문화). 순수 배열. 큐 항목이 카드 렌더에 필요한 콘텐츠를
+// 직접 싣는다 — question/past_question은 content·choices 포함(answer·explanation은 null, 채점은
+// attempts), flashcard는 answer·explanation 포함(뒤집기 뒷면용). 오답노트 미해결 여부는
+// has_review_note(우선순위 배지용). 기한 초과 여부(is_overdue)는 서버가 안 주므로 프론트에서 계산.
+export interface SrsQueueItem {
+  document_id: number
+  doc_no: string
+  type: DocumentType
+  title: string
+  content: string | null
+  choices: string[] | null
+  difficulty: number | null
+  due_date: string
+  ease_factor: number
+  interval_days: number
+  repetitions: number
+  has_review_note: boolean
+  answer: string | null
+  explanation: string | null
+}
+
+// today는 상한(settings:srs.daily_limit)으로 이미 잘려 내려오므로 페이지네이션 없이 배열로 받는다
+// (heatmap·weakness 등 다른 배열 응답과 동일 관례).
+export type SrsTodayResponse = SrsQueueItem[]
+
+// 플래시카드(풀이 기록 없는 판정)용. q 매핑(계획 §10): 안다=4·모른다=1.
+export interface SrsAnswerRequest {
+  document_id: number
+  q: number
+}
+
+export interface SrsAnswerResponse {
+  ease_factor: number
+  interval_days: number
+  due_date: string
 }
 
 // ---- 오답노트 (설계 §4.6, 계획 §6.2 review_notes 테이블) ----

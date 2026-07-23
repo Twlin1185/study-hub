@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 import models
 from schemas.dashboard import DashboardResponse, DDayItem, RecentStats
 from schemas.stats import AccuracyTrendItem, CategoryStatsItem, HeatmapItem, WeaknessItem
-from services import category_service, settings_service, study_service
+from services import category_service, settings_service, srs_service, study_service
 from services.tree_utils import category_path, collect_descendant_ids
 
 HEATMAP_DEFAULT_WEEKS = 12
@@ -111,7 +111,7 @@ def _recent(db: Session) -> RecentStats:
 
 def get_dashboard(db: Session) -> DashboardResponse:
     return DashboardResponse(
-        today_review=0,  # S5부터 채움
+        today_review=srs_service.count_due_today(db),
         continue_=study_service.get_continue_cards(db, limit=3),
         ddays=_ddays(db),
         recent=_recent(db),

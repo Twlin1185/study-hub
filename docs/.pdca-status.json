@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-07-23T13:12:09.851Z",
+  "lastUpdated": "2026-07-23T13:30:04.686Z",
   "activeFeatures": [
     "frontend",
     "stores",
@@ -11,7 +11,8 @@
     "scratchpad",
     "Project_Study",
     "tmp",
-    "print"
+    "print",
+    "tests"
   ],
   "primaryFeature": "frontend",
   "features": {
@@ -24,9 +25,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-22T11:36:34.314Z",
-        "lastUpdated": "2026-07-23T13:11:36.677Z"
+        "lastUpdated": "2026-07-23T13:30:04.686Z"
       },
-      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\frontend\\src\\components\\WeaknessWidget.tsx"
+      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\frontend\\src\\pages\\Flashcards.tsx"
     },
     "stores": {
       "phase": "do",
@@ -37,9 +38,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-22T11:37:17.252Z",
-        "lastUpdated": "2026-07-22T11:37:17.252Z"
+        "lastUpdated": "2026-07-23T13:29:33.394Z"
       },
-      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\frontend\\src\\stores\\theme.ts"
+      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\frontend\\src\\stores\\flashcardSession.ts"
     },
     "api": {
       "phase": "do",
@@ -50,9 +51,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-22T11:37:27.857Z",
-        "lastUpdated": "2026-07-23T12:51:49.781Z"
+        "lastUpdated": "2026-07-23T13:28:13.947Z"
       },
-      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\frontend\\src\\api\\stats.ts"
+      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\frontend\\src\\api\\types.ts"
     },
     "backend": {
       "phase": "do",
@@ -63,9 +64,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-22T11:38:48.917Z",
-        "lastUpdated": "2026-07-23T13:12:09.851Z"
+        "lastUpdated": "2026-07-23T13:21:27.916Z"
       },
-      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\backend\\services\\stats_service.py"
+      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\backend\\services\\document_service.py"
     },
     "alembic": {
       "phase": "do",
@@ -89,9 +90,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-22T11:42:29.162Z",
-        "lastUpdated": "2026-07-23T12:50:52.765Z"
+        "lastUpdated": "2026-07-23T13:21:12.089Z"
       },
-      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\backend\\schemas\\stats.py"
+      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\backend\\schemas\\document.py"
     },
     "scratchpad": {
       "phase": "do",
@@ -144,6 +145,19 @@
         "lastUpdated": "2026-07-23T12:40:34.383Z"
       },
       "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\frontend\\src\\components\\print\\WrongNotePrintView.tsx"
+    },
+    "tests": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-23T13:19:13.673Z",
+        "lastUpdated": "2026-07-23T13:19:13.673Z"
+      },
+      "lastFile": "C:\\Users\\rlawh\\Desktop\\Project_Study\\backend\\tests\\test_sm2.py"
     }
   },
   "pipeline": {
@@ -154,7 +168,7 @@
   "session": {
     "startedAt": "2026-07-22T10:24:42.547Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-07-23T13:12:09.851Z"
+    "lastActivity": "2026-07-23T13:30:04.686Z"
   },
   "history": [
     {
@@ -1816,6 +1830,288 @@
     {
       "timestamp": "2026-07-23T13:12:09.851Z",
       "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:18:18.369Z",
+      "feature": "api",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:18:32.961Z",
+      "feature": "api",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:18:45.454Z",
+      "feature": "api",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:18:49.025Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:18:52.433Z",
+      "feature": "api",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:19:04.052Z",
+      "feature": "stores",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:19:13.673Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:19:32.167Z",
+      "feature": "schemas",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:19:41.557Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:20:13.270Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:20:23.403Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:20:28.998Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:20:36.307Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:20:44.160Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:20:48.854Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:20:50.268Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:20:52.150Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:20:56.184Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:21:00.108Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:21:04.209Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:21:12.089Z",
+      "feature": "schemas",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:21:17.668Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:21:23.869Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:21:27.916Z",
+      "feature": "backend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:22:32.847Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:22:38.668Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:22:46.145Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:22:57.631Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:23:11.506Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:23:20.944Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:23:35.875Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:23:42.884Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:24:00.911Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:25:19.009Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:28:13.947Z",
+      "feature": "api",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:28:22.671Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:28:40.177Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:28:44.932Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:28:49.868Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:28:54.546Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:29:05.863Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:29:23.828Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:29:33.394Z",
+      "feature": "stores",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:29:42.884Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:29:52.573Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:29:58.001Z",
+      "feature": "frontend",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T13:30:04.686Z",
+      "feature": "frontend",
       "phase": "do",
       "action": "updated"
     }

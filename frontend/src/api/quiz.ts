@@ -18,6 +18,8 @@ export function useSubmitAttempt() {
       qc.invalidateQueries({ queryKey: ['review-notes'] })
       qc.invalidateQueries({ queryKey: ['documents', 'detail', variables.document_id] })
       qc.invalidateQueries({ queryKey: ['dashboard'] })
+      // stage-5: attempts 트랜잭션이 서버 내부에서 SM-2를 갱신하므로 오늘의 복습 큐도 무효화한다.
+      qc.invalidateQueries({ queryKey: ['srs', 'today'] })
       // category_id를 실은 제출은 서버가 study_progress를 done 처리한다(attempt_service).
       // 학습 모드 문제 카드의 진행바·트리 진도를 최신화하려면 관련 캐시를 무효화한다.
       if (variables.category_id != null) {

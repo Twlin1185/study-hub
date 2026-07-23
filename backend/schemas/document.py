@@ -68,11 +68,21 @@ class LastAttempt(BaseModel):
     created_at: dt.datetime
 
 
+class DocumentSrs(BaseModel):
+    """문서 상세에 노출하는 SRS 상태 (다음 복습일·EF·간격) — 카드가 있을 때만 (S5)."""
+
+    due_date: Optional[dt.date] = None
+    ease_factor: float
+    interval_days: int
+    repetitions: int
+
+
 class DocumentStats(BaseModel):
     attempts: int = 0
     accuracy: float = 0.0
     recent: List[bool] = Field(default_factory=list)  # 최근 10회 풀이 정오, 오래된→최신 (S3)
     last_attempt: Optional[LastAttempt] = None
+    srs: Optional[DocumentSrs] = None  # 첫 풀이/판정 전에는 null (S5)
 
 
 class DocumentRelationOut(BaseModel):

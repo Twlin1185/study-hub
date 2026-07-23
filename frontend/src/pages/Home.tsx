@@ -104,11 +104,22 @@ export default function HomePage() {
 
       {data.today_review > 0 && (
         <section className="mb-5">
-          <div className="flex items-center justify-between rounded-lg border border-border bg-surface p-3 opacity-60">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface p-3">
             <span className="text-sm text-primary">오늘의 복습 {data.today_review}개</span>
-            <span className="text-xs text-muted" title="플래시카드/복습 큐는 S5에서 연결됩니다">
-              준비 중
-            </span>
+            <div className="flex gap-2">
+              <Link
+                to="/flashcards"
+                className="rounded border border-border px-3 py-1.5 text-sm font-medium text-primary hover:bg-bg"
+              >
+                플래시카드
+              </Link>
+              <Link
+                to="/review"
+                className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90"
+              >
+                복습 시작
+              </Link>
+            </div>
           </div>
         </section>
       )}

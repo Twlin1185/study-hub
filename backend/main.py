@@ -22,6 +22,7 @@ from routers import (
     quiz,
     review_notes,
     settings,
+    srs,
     stats,
     study,
     tags,
@@ -36,6 +37,7 @@ app.include_router(tags.router)
 app.include_router(study.router)
 app.include_router(quiz.router)
 app.include_router(review_notes.router)
+app.include_router(srs.router)
 app.include_router(stats.router)
 app.include_router(settings.router)
 

@@ -10,6 +10,8 @@ import CurriculumDetailPage from './pages/CurriculumDetail'
 import QuizPage from './pages/Quiz'
 import QuizRunPage from './pages/QuizRun'
 import ReviewNotesPage from './pages/ReviewNotes'
+import ReviewPage from './pages/Review'
+import FlashcardsPage from './pages/Flashcards'
 import StudyPage from './pages/Study'
 import PrintPage from './pages/Print'
 
@@ -23,6 +25,8 @@ function App() {
         <Route path="/curriculum/:id" element={<CurriculumDetailPage />} />
         <Route path="/quiz" element={<QuizPage />} />
         <Route path="/quiz/run" element={<QuizRunPage />} />
+        <Route path="/review" element={<ReviewPage />} />
+        <Route path="/flashcards" element={<FlashcardsPage />} />
         <Route path="/review-notes" element={<ReviewNotesPage />} />
         <Route path="/study/:categoryId" element={<StudyPage />} />
         <Route path="/docs/:id" element={<DocumentDetailPage />} />

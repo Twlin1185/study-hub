@@ -57,6 +57,17 @@ function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
 }
 
+// 다음 복습일 표시 — 오늘 기준 D-day를 함께 붙인다 (예: "2026-07-25 (D-2)").
+function formatDueDate(due: string): string {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const dueDate = new Date(`${due}T00:00:00`)
+  if (Number.isNaN(dueDate.getTime())) return due
+  const diff = Math.round((dueDate.getTime() - today.getTime()) / 86400000)
+  if (diff === 0) return `${due} (오늘)`
+  return diff > 0 ? `${due} (D-${diff})` : `${due} (D+${-diff})`
+}
+
 export default function DocumentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const documentId = id ? Number(id) : null
@@ -459,6 +470,31 @@ export default function DocumentDetailPage() {
               ` (${doc.stats.attempts}회, 정답률 ${doc.stats.accuracy != null ? Math.round(doc.stats.accuracy * 100) : '-'}%)`}
           </h2>
           <MiniHistoryChart recent={doc.stats.recent} />
+        </div>
+      )}
+
+      {/* SRS 복습 상태 (설계 §5.7, stage-5) — 카드가 생성된 경우에만 표시 */}
+      {doc.stats.srs && doc.stats.srs.due_date && (
+        <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+          <h2 className="mb-2 text-sm font-semibold text-primary">복습 상태 (SRS)</h2>
+          <dl className="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <dd className="text-base font-semibold text-primary">{formatDueDate(doc.stats.srs.due_date)}</dd>
+              <dt className="text-xs text-muted">다음 복습일</dt>
+            </div>
+            <div>
+              <dd className="text-base font-semibold text-primary">
+                {doc.stats.srs.ease_factor != null ? doc.stats.srs.ease_factor.toFixed(2) : '-'}
+              </dd>
+              <dt className="text-xs text-muted">난이도 계수 (EF)</dt>
+            </div>
+            <div>
+              <dd className="text-base font-semibold text-primary">
+                {doc.stats.srs.interval_days != null ? `${doc.stats.srs.interval_days}일` : '-'}
+              </dd>
+              <dt className="text-xs text-muted">복습 간격</dt>
+            </div>
+          </dl>
         </div>
       )}
 

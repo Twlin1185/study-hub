@@ -11,7 +11,7 @@ import models
 
 DEFAULTS: Dict[str, Any] = {
     "quiz.default_count": 20,
-    "srs.daily_limit": 20,
+    "srs.daily_limit": 30,  # 계획서 §10 · stage-5 기본값
     "backup.auto": False,
 }
 

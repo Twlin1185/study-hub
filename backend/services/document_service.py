@@ -15,6 +15,7 @@ from schemas.document import (
     DocumentDetail,
     DocumentListItem,
     DocumentRelationOut,
+    DocumentSrs,
     DocumentStats,
     DocumentUsage,
     DocumentUpdate,
@@ -296,6 +297,18 @@ def get_document_detail(db: Session, document_id: int) -> DocumentDetail:
         else None
     )
 
+    srs_card = db.get(models.SrsCard, document_id)
+    srs_info = (
+        DocumentSrs(
+            due_date=srs_card.due_date,
+            ease_factor=srs_card.ease_factor,
+            interval_days=srs_card.interval_days,
+            repetitions=srs_card.repetitions,
+        )
+        if srs_card is not None
+        else None
+    )
+
     return DocumentDetail(
         id=document.id,
         doc_no=document.doc_no,
@@ -321,6 +334,7 @@ def get_document_detail(db: Session, document_id: int) -> DocumentDetail:
             accuracy=round(accuracy, 4),
             recent=recent,
             last_attempt=last_attempt,
+            srs=srs_info,
         ),
     )
 
