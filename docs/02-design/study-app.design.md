@@ -238,9 +238,10 @@ study-hub/
 - **API**: `documents/{id}`, PATCH, tags PUT, relations, bookmark, regenerate(S6, §4.10).
 
 ### 5.4 커리큘럼 — `/curriculum`, `/curriculum/:categoryId`
-- `/curriculum`: 최상위(자격증) 카드 목록 → 시험 선택.
+- `/curriculum`: 최상위(자격증) 카드 목록 → 시험 선택. 카드 목록에 [+ 시험 추가].
 - `/curriculum/:id`: 과목→챕터 아코디언. 각 행 = 이름 + 진도바(done/total) + [이어하기|여기서 시작] 버튼. 완료 챕터는 ✓.
-- **API**: `categories/tree`(진도 포함), `study/continue`.
+- **분류 관리(S4)**: 분류 편집이 탐색 §5.2 전용이 아니라 커리큘럼에서도 가능해야 한다 — 편집 모드 토글(연필 아이콘) 시 각 행/카드에 [추가(하위 분류)] [이름·시험일 수정] [이동(순서·부모 변경)] [삭제] 노출. 탐색과 동일한 공용 모달(CategoryFormModal·MoveCategoryModal·ConfirmDialog)과 기존 categories API를 재사용하며, 삭제 규칙(§4.1 — 하위·연결 문서 있으면 409)도 동일. 변경 즉시 트리·진도 invalidate.
+- **API**: `categories/tree`(진도 포함), `study/continue`, categories POST/PATCH/move/DELETE(S4 확장).
 
 ### 5.5 학습 모드 — `/study/:categoryId` (핵심 UX)
 - **구성**: 상단 챕터 진행바(7/12), 본문 영역(개념=Markdown / 문제=퀴즈 카드 인라인), 하단 [◀ 이전] [다음 ▶].
