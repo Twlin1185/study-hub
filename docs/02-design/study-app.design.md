@@ -1,9 +1,9 @@
 # Study Hub — 상세 설계 (API 명세 · 화면 상세)
 
-> 상태: **Design v1.6** — v1.5 대비: 홈 다열 렌더 기준을 뷰포트에서 **콘텐츠 영역 실측 폭**으로 변경(§5.1 — 사이드바 접힘·창 크기 변화에 실시간 반응, 가운데 정렬 보장. 사용자 피드백 반영)
+> 상태: **Design v1.7** — v1.6 대비: **S8(M8 LLM 인프라) API 계약 신설**(§4.11 — 엔진 진단·API 키 관리·이중 엔진 convert·오류 구조화·URL 반입). v1.6: 홈 다열 렌더를 콘텐츠 실측 폭 기준으로 변경(§5.1)
 > 작성일: 2026-07-22 · 갱신: 2026-07-24
 > 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.6)
-> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-7-home-layout.plan.md`
+> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-8-llm-infra.plan.md`
 
 ---
 
@@ -223,7 +223,22 @@ study-hub/
 | `POST /api/documents/{id}/regenerate/{job_id}/apply` | 초안 승인 → 기존 문서를 PATCH 방식으로 교체. **같은 문서 id·doc_no 유지** — attempts·오답노트·SRS 이력 보존. 미승인 초안은 폐기 가능(잡 TTL 만료 시 자동 폐기). 자동 덮어쓰기 금지(R7) | S6 |
 | `POST /api/backups` · `GET /api/backups` · `POST /api/backups/{id}/restore` | 백업 스냅샷 (F27). `id`는 타임스탬프 문자열. restore는 확인 문구 필수 — body `{confirm: "RESTORE"}` 고정 문자열, 복원 전 자동 스냅샷 1개 생성 | S6 |
 
-- 재생성(F30) 프롬프트 구성: **현재 문서 내용 + 신고 사유(reason) + (source_detail 있으면) 원본 출처 정보** — 원본 대조가 가능하도록(R7). 엔진은 R9 결정 그대로 claude CLI 서브프로세스(F23 인프라).
+- 재생성(F30) 프롬프트 구성: **현재 문서 내용 + 신고 사유(reason) + (source_detail 있으면) 원본 출처 정보** — 원본 대조가 가능하도록(R7). 엔진은 R9 결정 그대로 claude CLI 서브프로세스(F23 인프라). S8부터는 §4.11의 이중 엔진 정책을 따른다.
+
+### 4.11 LLM 엔진 관리 (S8 — F34 + F35 1단계)
+
+| 메서드/경로 | 설명 | 단계 |
+|---|---|---|
+| `GET /api/llm/status` | 엔진 진단: `{cli: {installed, logged_in, last_success_at, last_error_kind}, api: {key_registered, key_suffix, last_success_at}, limit: {kind, resets_at} \| null, priority, fallback_policy}` | S8 |
+| `POST /api/llm/api-key` | `{key}` — **즉석 연결 테스트**(초경량 호출) 성공 시에만 저장. 저장처는 루트 `secrets.json`(**DB/settings 금지** — 백업(F27)·git 제외 대상). 응답은 `{key_suffix}`(마지막 4자리)만 — 원문 키는 어떤 응답에도 미포함(write-only) | S8 |
+| `DELETE /api/llm/api-key` | 키 삭제 | S8 |
+| `POST /api/convert` 확장 | `{file 업로드}` **또는 `{url}`** (F35-1): url이면 서버가 다운로드(공개 자료, 크기 상한·content-type 화이트리스트·**사설/로컬 IP 차단(SSRF 방지)**) 후 동일 파이프라인. `engine` 선택 파라미터(`'auto'\|'cli'\|'api'`, 기본 auto=우선순위) — 폴백 "물어보기" 시 프론트가 `engine:'api'`로 재요청하는 계약 | S8 |
+
+- **엔진 설정은 settings 재사용**: `llm.priority`(`'cli'\|'api'`, 기본 cli) · `llm.fallback`(`'auto'\|'ask'\|'off'`, 기본 **ask** — auto는 과금 동의 UI 통과 시에만 설정 가능) · `llm.api_model`(기본 `claude-sonnet-5` — 과금 부담 고려, 변경 가능).
+- **API 엔진**: anthropic Python SDK 직접 호출(키는 secrets.json→환경변수→`ant` 프로필 순 해석). convert/regenerate 프롬프트는 CLI 경로와 동일 템플릿.
+- **오류 구조화**: convert/regenerate 잡 상태 응답에 `error_info` 추가 — `{kind: 'rate_limit'\|'auth'\|'not_installed'\|'timeout'\|'other', limit_kind?: 'session'\|'daily'\|'weekly'\|'model'\|'overall', resets_at?, message(사람이 읽는 한국어), action(다음 행동 안내), fallback_available: bool}`. **CLI/API 원문 JSON은 사용자에게 노출 금지.** CLI 429의 `result` 문자열에서 한도 종류·리셋 시각을 파싱한다.
+- **한도 기억**: 최근 429의 `{kind, resets_at}`을 settings `llm.last_limit`에 기록 — status 응답에 포함하고, 리셋 전 변환 시도 시 실행 전에 경고(폴백 정책 적용). 리셋 시각 경과 시 자동 무효화.
+- CLI 로그인은 앱이 대행 불가(대화형) — status의 `logged_in:false`일 때 프론트가 "터미널에서 `claude` 실행해 로그인" 안내 + [다시 확인] 재진단.
 - `home.layout`(S7, F31) 규격 — **새 API·DDL 없음**, settings GET/PUT 재사용:
   ```json
   { "columns": "auto",
