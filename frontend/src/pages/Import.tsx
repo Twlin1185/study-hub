@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useImportCommit, useImportPreview } from '../api/import'
+import { useConvertedPreview, useConvertJob, useStartConvert } from '../api/convert'
 import { ApiError } from '../api/client'
 import type {
   ImportAction,
@@ -57,6 +58,7 @@ function buildInitialDecisions(items: ImportItem[]): Record<number, ItemDecision
 }
 
 export default function ImportPage() {
+  const [entryMode, setEntryMode] = useState<'json' | 'convert'>('json')
   const [step, setStep] = useState<WizardStep>('select')
   const [jsonFile, setJsonFile] = useState<File | null>(null)
   const [sourceFile, setSourceFile] = useState<File | null>(null)
@@ -71,6 +73,7 @@ export default function ImportPage() {
 
   function resetWizard() {
     setStep('select')
+    setEntryMode('json')
     setJsonFile(null)
     setSourceFile(null)
     setPreview(null)
@@ -79,18 +82,18 @@ export default function ImportPage() {
     setErroredCount(0)
   }
 
+  function applyPreview(data: ImportPreviewResponse) {
+    setPreview(data)
+    setDecisions(buildInitialDecisions(data.items))
+    setStep('preview')
+  }
+
   function handlePreviewSubmit() {
     if (!jsonFile) return
     setExpiredNotice(null)
     previewMutation.mutate(
       { jsonFile, sourceFile },
-      {
-        onSuccess: (data) => {
-          setPreview(data)
-          setDecisions(buildInitialDecisions(data.items))
-          setStep('preview')
-        },
-      },
+      { onSuccess: applyPreview },
     )
   }
 
@@ -168,15 +171,42 @@ export default function ImportPage() {
       )}
 
       {step === 'select' && (
-        <SelectStep
-          jsonFile={jsonFile}
-          sourceFile={sourceFile}
-          onJsonFileChange={setJsonFile}
-          onSourceFileChange={setSourceFile}
-          onSubmit={handlePreviewSubmit}
-          submitting={previewMutation.isPending}
-          errorMessage={previewMutation.isError ? errMsg(previewMutation.error, '미리보기에 실패했습니다.') : null}
-        />
+        <>
+          <div className="mb-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setEntryMode('json')}
+              className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                entryMode === 'json' ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:bg-bg'
+              }`}
+            >
+              반입 JSON 파일 선택
+            </button>
+            <button
+              type="button"
+              onClick={() => setEntryMode('convert')}
+              className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                entryMode === 'convert' ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:bg-bg'
+              }`}
+            >
+              원본 파일로 시작 (자동 변환)
+            </button>
+          </div>
+
+          {entryMode === 'json' ? (
+            <SelectStep
+              jsonFile={jsonFile}
+              sourceFile={sourceFile}
+              onJsonFileChange={setJsonFile}
+              onSourceFileChange={setSourceFile}
+              onSubmit={handlePreviewSubmit}
+              submitting={previewMutation.isPending}
+              errorMessage={previewMutation.isError ? errMsg(previewMutation.error, '미리보기에 실패했습니다.') : null}
+            />
+          ) : (
+            <ConvertStep onPreviewReady={applyPreview} onFallbackToManual={() => setEntryMode('json')} />
+          )}
+        </>
       )}
 
       {step === 'preview' && preview && (
@@ -221,6 +251,133 @@ function StepIndicator({ step }: { step: WizardStep }) {
           {s.label}
         </span>
       ))}
+    </div>
+  )
+}
+
+interface ConvertStepProps {
+  onPreviewReady: (data: ImportPreviewResponse) => void
+  onFallbackToManual: () => void
+}
+
+// 설계 §4.10, §5.9(S6) — "원본 파일로 시작". claude CLI 변환 잡을 시작하고 폴링, 완료 시 곧장
+// 반입 미리보기 단계로 넘어간다. CLI 부재/실패 시 명확한 에러 + 수동 반입(JSON 선택) 안내로
+// 폴백한다.
+function ConvertStep({ onPreviewReady, onFallbackToManual }: ConvertStepProps) {
+  const [file, setFile] = useState<File | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const startConvert = useStartConvert()
+  const jobQuery = useConvertJob(jobId)
+  const previewFetch = useConvertedPreview(
+    jobQuery.data?.status === 'done' ? (jobQuery.data.result_preview_id ?? null) : null,
+  )
+
+  useEffect(() => {
+    if (previewFetch.data) {
+      onPreviewReady(previewFetch.data)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewFetch.data])
+
+  function handleStart() {
+    if (!file) return
+    startConvert.mutate(file, {
+      onSuccess: (data) => setJobId(data.job_id),
+    })
+  }
+
+  const running = jobId != null && (jobQuery.data == null || jobQuery.data.status === 'running')
+  const jobFailed = jobQuery.data?.status === 'error'
+  const done = jobQuery.data?.status === 'done'
+  const previewFetchFailed = done && (previewFetch.isError || !jobQuery.data?.result_preview_id)
+  // preview_id가 TTL(1시간)로 만료되면 GET /import/preview/{id}가 404(NOT_FOUND)를 반환한다(§4.3).
+  const previewExpired = previewFetch.isError && previewFetch.error instanceof ApiError && previewFetch.error.status === 404
+
+  return (
+    <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
+      <p className="text-sm text-muted">
+        PDF·이미지 등 기출 원본 파일을 올리면 Claude Code(CLI)가 반입 JSON으로 변환한 뒤 곧바로
+        미리보기 단계로 이어집니다.
+      </p>
+
+      <label className="flex flex-col gap-1 text-sm">
+        원본 파일
+        <input
+          type="file"
+          disabled={jobId != null}
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary disabled:opacity-50"
+        />
+        {file && <span className="text-xs text-muted">선택됨: {file.name}</span>}
+      </label>
+
+      {startConvert.isError && (
+        <p className="text-sm text-wrong">
+          {errMsg(startConvert.error, '변환 시작에 실패했습니다. Claude CLI가 설치·인증되어 있는지 확인하세요.')}
+        </p>
+      )}
+
+      {running && (
+        <div className="flex items-center gap-2 rounded border border-accent bg-accent-soft px-3 py-2 text-sm text-accent">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" aria-hidden />
+          변환 처리 중… (최대 10분 정도 걸릴 수 있습니다)
+        </div>
+      )}
+
+      {jobFailed && (
+        <div className="rounded border border-wrong bg-surface px-3 py-2 text-sm">
+          <p className="font-medium text-wrong">변환에 실패했습니다.</p>
+          <p className="mt-1 text-muted">
+            {jobQuery.data?.error ?? 'Claude CLI 실행 중 오류가 발생했습니다 (CLI 미설치일 수 있습니다).'}
+          </p>
+          <p className="mt-2 text-muted">
+            대신 Claude Code로 직접 JSON을 만든 뒤 "반입 JSON 파일 선택" 탭에서 반입하세요.
+          </p>
+          <button
+            type="button"
+            onClick={onFallbackToManual}
+            className="mt-2 rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+          >
+            JSON 파일 직접 선택하기
+          </button>
+        </div>
+      )}
+
+      {previewFetchFailed && (
+        <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">
+          {previewExpired ? (
+            <p>미리보기가 만료되었습니다 (1시간 TTL). 파일을 다시 업로드해 변환을 다시 시작하세요.</p>
+          ) : (
+            <p>
+              변환은 완료됐지만 미리보기를 자동으로 불러오지 못했습니다
+              {jobQuery.data?.result_preview_id ? ` (preview_id: ${jobQuery.data.result_preview_id})` : ''}. 반입
+              JSON 파일이 있다면 직접 선택해 반입하세요.
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setFile(null)
+              setJobId(null)
+              if (!previewExpired) onFallbackToManual()
+            }}
+            className="mt-2 rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+          >
+            {previewExpired ? '다시 업로드' : 'JSON 파일 직접 선택하기'}
+          </button>
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          disabled={!file || jobId != null || startConvert.isPending}
+          onClick={handleStart}
+          className="rounded bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
+        >
+          {startConvert.isPending ? '시작 중…' : '변환 시작'}
+        </button>
+      </div>
     </div>
   )
 }

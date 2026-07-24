@@ -1,0 +1,15 @@
+{
+  "name": "Study Hub",
+  "short_name": "Study Hub",
+  "description": "개인 학습 허브 — 기출문제·학습자료 관리, 풀이·오답관리·복습 루프",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f1115",
+  "theme_color": "#7e14ff",
+  "lang": "ko",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

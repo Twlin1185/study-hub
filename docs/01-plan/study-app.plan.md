@@ -1,6 +1,6 @@
 # Study Hub — 종합 학습 관리 시스템 기획/설계 초안
 
-> 상태: **확정 준비 (Draft v0.6)** — v0.5 대비: 홈 커스터마이즈·레이아웃 UX(F31~F33) 추가, Stage 7(M7) 신설 — **순수 프론트 단계, 새 API 없음**. v1 완성 지점을 M6→M7로 이동(사용자 확정). **스키마(§6.2) 변경 없음**
+> 상태: **확정 준비 (Draft v0.7)** — v0.6 대비: §6.2에 M6(태그 자동분류) 저장처 확정 — `suggestions` 테이블 신설(제안함), `category_documents`에 연결 출처 컬럼(`linked_by`·`linked_rule_id`) 추가(§11 원칙 "출처 표시"의 구현 확정). 그 외 변경 없음
 > 작성일: 2026-07-22 · 갱신: 2026-07-24
 > 레벨: Dynamic (로컬 웹앱, Python 백엔드 + 웹 프론트엔드)
 
@@ -165,6 +165,8 @@ CREATE TABLE category_documents (
   sort_order  INTEGER DEFAULT 0,
   local_note  TEXT,                        -- 이 시험 맥락에서만 붙는 메모
   linked_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  linked_by   TEXT DEFAULT 'manual',       -- 'manual'|'import'|'rule' — 연결 출처 (M6, §11 원칙)
+  linked_rule_id INTEGER REFERENCES tag_rules(id),  -- linked_by='rule'일 때 만든 규칙 → "이 규칙이 연결한 것" 일괄 해제
   PRIMARY KEY (category_id, document_id)
 );
 
@@ -229,6 +231,18 @@ CREATE TABLE tag_rules (
   tag_query   TEXT NOT NULL,               -- 예: '정규화' 또는 '데이터베이스 AND 기출'
   mode        TEXT DEFAULT 'suggest',      -- 'suggest'(제안 후 승인) | 'auto'(즉시 연결)
   created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 태그 규칙 연결 제안함 (F21, M6): 규칙이 만든 "문서→분류 연결" 제안의 저장처
+CREATE TABLE suggestions (
+  id          INTEGER PRIMARY KEY,
+  document_id INTEGER NOT NULL REFERENCES documents(id),
+  category_id INTEGER NOT NULL REFERENCES categories(id),
+  tag_rule_id INTEGER REFERENCES tag_rules(id),   -- 발생 규칙 (규칙 삭제 시 SET NULL)
+  status      TEXT DEFAULT 'pending',             -- 'pending'|'approved'|'rejected'
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  decided_at  DATETIME,
+  UNIQUE (document_id, category_id)               -- 같은 문서-분류 쌍 제안은 1건 — rejected가 남아 있으면 재제안 안 함(거절 기억)
 );
 
 -- 학습 진도: 분류 맥락별 문서 학습 상태
@@ -486,6 +500,7 @@ CREATE TABLE bookmarks (
 | **M7. 홈 커스터마이즈·레이아웃 UX** | 홈 위젯 편집 모드(드래그 재배치·숨김·열 수), D-Day 홈 팝업 편집, 사이드바 접힘(F31~F33) — **순수 프론트, 새 API·DDL 없음**(settings 재사용) | 내 위젯 배치가 저장돼 어느 기기에서든 재현 — **v1 완성** |
 
 > v1.x 후보 (M7 이후, 실사용 피드백 확인 후): F25 실전 모의고사 모드, F26 학습 목표·스트릭. 특히 F25는 시험 4주 전 시점에 가치가 커지므로 실제 시험 일정에 맞춰 착수.
+> M6 검토에서 기록된 v1.x 개선 후보 2건: ① 한국어 부분어 검색 recall 개선(FTS5 trigram/토크나이저 검토 — "제3정규형"에서 "정규형" 미매칭), ② 백업 복원 후 서버 재시작 강제 UX(구동 중 커넥션 stale 방지). F34 LLM 엔진 설정(엔진 상태 진단 + C안 전환 — 인증은 환경변수/`ant` 프로필 우선, 키 입력 UI 없음)도 후보로 검토.
 
 ## 15. 리스크 & 미결 논점 (같이 고민할 것)
 

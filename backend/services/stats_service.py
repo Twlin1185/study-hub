@@ -5,7 +5,9 @@ weakness + 분류 드릴다운(stats) 완성.
 """
 from __future__ import annotations
 
+import csv
 import datetime as dt
+import io
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -260,6 +262,65 @@ def get_weakness(
             )
         )
     return items
+
+
+def export_attempts_csv(db: Session) -> str:
+    """attempts 원본 + 문서/분류 메타 조인 CSV (F17, 설계 §4.8)."""
+    rows = db.execute(
+        select(
+            models.Attempt.id,
+            models.Attempt.answered_at,
+            models.Attempt.document_id,
+            models.Document.doc_no,
+            models.Document.title,
+            models.Document.type,
+            models.Attempt.category_id,
+            models.Attempt.my_answer,
+            models.Attempt.is_correct,
+            models.Attempt.time_spent,
+            models.Attempt.mode,
+        )
+        .join(models.Document, models.Document.id == models.Attempt.document_id)
+        .order_by(models.Attempt.answered_at)
+    ).all()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "attempt_id",
+            "answered_at",
+            "document_id",
+            "doc_no",
+            "title",
+            "type",
+            "category_id",
+            "category_path",
+            "my_answer",
+            "is_correct",
+            "time_spent",
+            "mode",
+        ]
+    )
+    for row in rows:
+        path = category_path(db, row.category_id) if row.category_id else ""
+        writer.writerow(
+            [
+                row.id,
+                row.answered_at.isoformat(sep=" "),
+                row.document_id,
+                row.doc_no,
+                row.title,
+                row.type,
+                row.category_id or "",
+                path,
+                row.my_answer or "",
+                row.is_correct,
+                row.time_spent if row.time_spent is not None else "",
+                row.mode or "",
+            ]
+        )
+    return buf.getvalue()
 
 
 def get_category_children_stats(db: Session, category_id: int) -> list[CategoryStatsItem]:

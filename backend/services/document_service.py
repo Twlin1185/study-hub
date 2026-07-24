@@ -23,6 +23,7 @@ from schemas.document import (
     LinkCreate,
     RelationCreate,
 )
+from services import tag_rule_service
 from services.tag_service import get_or_create_tag
 
 DOC_NO_PREFIX = "DOC-"
@@ -461,9 +462,8 @@ def get_documents_batch(db: Session, ids: List[int]) -> List[DocumentDetail]:
     return [get_document_detail(db, doc_id) for doc_id in ordered_ids]
 
 
-def replace_tags(db: Session, document_id: int, tag_names: List[str]) -> List[str]:
-    document = get_document_or_404(db, document_id)
-
+def _apply_tag_replacement(db: Session, document: models.Document, tag_names: List[str]) -> None:
+    """태그 전체 교체(커밋하지 않음) — replace_tags·재생성 승인 등에서 공용으로 쓴다."""
     normalized = []
     seen = set()
     for name in tag_names:
@@ -481,7 +481,14 @@ def replace_tags(db: Session, document_id: int, tag_names: List[str]) -> List[st
     for name in normalized:
         tag = get_or_create_tag(db, name)
         db.add(models.DocumentTag(document_id=document.id, tag_id=tag.id))
+    db.flush()
 
+
+def replace_tags(db: Session, document_id: int, tag_names: List[str]) -> List[str]:
+    document = get_document_or_404(db, document_id)
+    _apply_tag_replacement(db, document, tag_names)
+    # 트리거 2: 태그 변경 시 — 태그 자동 분류 규칙 스캔 (설계 §4.9, 계획서 §11)
+    tag_rule_service.scan_document(db, document.id)
     db.commit()
     return _tags_for_document(db, document.id)
 

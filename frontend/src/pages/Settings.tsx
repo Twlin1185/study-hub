@@ -4,6 +4,9 @@ import type { ThemeMode } from '../stores/theme'
 import { useSettings, useUpdateSettings } from '../api/settings'
 import { ApiError } from '../api/client'
 import DDayManager from '../components/DDayManager'
+import TagRuleManager from '../components/TagRuleManager'
+import BackupManager from '../components/BackupManager'
+import TagMergeTool from '../components/TagMergeTool'
 
 const OPTIONS: { value: ThemeMode; label: string; icon: string }[] = [
   { value: 'light', label: '라이트', icon: '☀️' },
@@ -153,9 +156,25 @@ export default function SettingsPage() {
 
       <DDayManager />
 
-      <p className="mt-4 text-xs text-muted">
-        백업/복원 · 태그 병합 도구는 이후 단계에서 추가됩니다.
-      </p>
+      <TagRuleManager />
+
+      <TagMergeTool />
+
+      <section className="mb-4 rounded-lg border border-border bg-surface p-4">
+        <h2 className="mb-1 text-sm font-semibold text-primary">학습 기록 내보내기</h2>
+        <p className="mb-3 text-xs text-muted">
+          풀이 기록(attempts)과 문서·분류 메타를 CSV로 내보냅니다.
+        </p>
+        <a
+          href="/api/stats/export?format=csv"
+          download
+          className="inline-block rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
+        >
+          CSV 다운로드
+        </a>
+      </section>
+
+      <BackupManager />
     </div>
   )
 }

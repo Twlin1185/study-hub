@@ -9,6 +9,7 @@ import type { QuizAnswerRecord } from '../stores/quizSession'
 import { useSubmitAttempt } from '../api/quiz'
 import { useUpdateReviewNote } from '../api/reviewNotes'
 import { useDocument } from '../api/documents'
+import ReportErrorButton from '../components/ReportErrorButton'
 import type { QuizQuestion } from '../api/types'
 
 const RELATION_LABEL: Record<string, string> = {
@@ -202,9 +203,12 @@ export default function QuizRunPage() {
 
       {answered && (
         <div className="mt-4 rounded-lg border border-border bg-surface p-4">
-          <p className={`mb-2 text-sm font-semibold ${answered.result.is_correct ? 'text-correct' : 'text-wrong'}`}>
-            {answered.result.is_correct ? '정답입니다' : '오답입니다'}
-          </p>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className={`text-sm font-semibold ${answered.result.is_correct ? 'text-correct' : 'text-wrong'}`}>
+              {answered.result.is_correct ? '정답입니다' : '오답입니다'}
+            </p>
+            <ReportErrorButton documentId={question.document_id} variant="inline" />
+          </div>
           <div className="text-sm text-primary">
             <span className="font-semibold">해설</span>
             <MarkdownView content={answered.result.explanation} />

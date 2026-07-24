@@ -1,0 +1,828 @@
+<title>Study Hub 사용 설명서</title>
+<style>
+  /* ── Study Hub 토큰 이어받기 (frontend/src/styles/tokens.css) ───────── */
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --border: #e2e4e9;
+    --text: #14161a;
+    --text-muted: #6b7280;
+    --accent: #2563eb;
+    --accent-soft: #dbeafe;
+    --on-accent: #ffffff;
+    --correct: #16a34a;
+    --wrong: #dc2626;
+    --warning: #d97706;
+    --code-bg: #eef0f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --surface: #17191f;
+      --surface-raised: #1e2129;
+      --border: #2b2f38;
+      --text: #e7e9ee;
+      --text-muted: #9aa1ae;
+      --accent: #3b82f6;
+      --accent-soft: #1e3a8a;
+      --correct: #22c55e;
+      --wrong: #ef4444;
+      --warning: #f59e0b;
+      --code-bg: #1e2129;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1115;
+    --surface: #17191f;
+    --surface-raised: #1e2129;
+    --border: #2b2f38;
+    --text: #e7e9ee;
+    --text-muted: #9aa1ae;
+    --accent: #3b82f6;
+    --accent-soft: #1e3a8a;
+    --correct: #22c55e;
+    --wrong: #ef4444;
+    --warning: #f59e0b;
+    --code-bg: #1e2129;
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --border: #e2e4e9;
+    --text: #14161a;
+    --text-muted: #6b7280;
+    --accent: #2563eb;
+    --accent-soft: #dbeafe;
+    --correct: #16a34a;
+    --wrong: #dc2626;
+    --warning: #d97706;
+    --code-bg: #eef0f4;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif;
+    font-size: 15.5px;
+    line-height: 1.75;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .shell { display: flex; max-width: 1080px; margin: 0 auto; gap: 0; }
+
+  /* ── 좌측 목차 레일 (앱 사이드바 오마주) ───────────────────────────── */
+  nav.toc {
+    width: 232px; flex: none;
+    position: sticky; top: 0; align-self: flex-start;
+    max-height: 100vh; overflow-y: auto;
+    padding: 28px 16px 40px 20px;
+    border-right: 1px solid var(--border);
+  }
+  nav.toc .brand {
+    font-weight: 800; font-size: 17px; letter-spacing: -0.02em;
+    margin: 0 0 2px; color: var(--text);
+  }
+  nav.toc .brand-sub {
+    font-size: 11.5px; color: var(--text-muted); letter-spacing: 0.08em;
+    text-transform: uppercase; margin: 0 0 18px;
+  }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 0; }
+  nav.toc a {
+    display: block; padding: 5px 10px; border-radius: 6px;
+    color: var(--text-muted); text-decoration: none; font-size: 13.5px;
+  }
+  nav.toc a:hover { background: var(--surface); color: var(--text); }
+  nav.toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  nav.toc .toc-group {
+    margin: 14px 0 4px; padding: 0 10px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+    color: var(--text-muted); text-transform: uppercase;
+  }
+
+  main {
+    flex: 1; min-width: 0;
+    padding: 34px 36px 96px;
+    max-width: 760px;
+  }
+
+  @media (max-width: 860px) {
+    .shell { display: block; }
+    nav.toc {
+      position: static; width: auto; max-height: none;
+      border-right: none; border-bottom: 1px solid var(--border);
+      padding: 20px 20px 14px;
+    }
+    nav.toc ol { display: flex; flex-wrap: wrap; gap: 2px 4px; }
+    nav.toc .toc-group { width: 100%; margin: 8px 0 2px; }
+    main { padding: 24px 20px 80px; }
+  }
+
+  /* ── 타이포그래피 ──────────────────────────────────────────────── */
+  h1 {
+    font-size: 30px; font-weight: 800; letter-spacing: -0.03em;
+    line-height: 1.25; margin: 0 0 6px; text-wrap: balance;
+  }
+  .lede { color: var(--text-muted); margin: 0 0 8px; font-size: 16px; }
+  .doc-meta { font-size: 12.5px; color: var(--text-muted); margin-bottom: 36px; }
+  .doc-meta code { font-size: 12px; }
+
+  section { margin-top: 52px; }
+  h2 {
+    font-size: 21px; font-weight: 800; letter-spacing: -0.02em;
+    margin: 0 0 4px; padding-top: 8px; text-wrap: balance;
+  }
+  .h2-line { height: 3px; width: 34px; background: var(--accent); border-radius: 2px; margin: 6px 0 18px; }
+  h3 { font-size: 16px; font-weight: 700; margin: 26px 0 8px; }
+  p { margin: 0 0 12px; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 5px; }
+  strong { font-weight: 700; }
+  a { color: var(--accent); }
+
+  code, kbd, pre {
+    font-family: Consolas, "D2Coding", "Nanum Gothic Coding", monospace;
+  }
+  code {
+    background: var(--code-bg); border-radius: 4px;
+    padding: 1.5px 6px; font-size: 13px;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 13px 16px; overflow-x: auto;
+    font-size: 13px; line-height: 1.65; margin: 10px 0 16px;
+  }
+  pre code { background: none; padding: 0; }
+  kbd {
+    display: inline-block; min-width: 20px; text-align: center;
+    background: var(--surface-raised); border: 1px solid var(--border);
+    border-bottom-width: 2px; border-radius: 5px;
+    padding: 0 6px; font-size: 12px; line-height: 1.7;
+  }
+
+  /* 화면 경로 칩 */
+  .path {
+    display: inline-block; background: var(--accent-soft); color: var(--text);
+    border-radius: 99px; padding: 0 10px; font-size: 12.5px;
+    font-family: Consolas, monospace; line-height: 1.8; white-space: nowrap;
+  }
+
+  /* 상태 배지 */
+  .badge {
+    display: inline-block; vertical-align: 2px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em;
+    border-radius: 99px; padding: 1px 8px; margin-left: 6px;
+  }
+  .badge.new { background: var(--accent); color: var(--on-accent); }
+  .badge.soon { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+
+  /* ── 절차(스텝) ────────────────────────────────────────────────── */
+  ol.steps { list-style: none; counter-reset: step; padding: 0; margin: 14px 0 18px; }
+  ol.steps > li {
+    counter-increment: step; position: relative;
+    padding: 0 0 16px 44px; margin: 0;
+  }
+  ol.steps > li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 1px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent); color: var(--on-accent);
+    font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    font-variant-numeric: tabular-nums;
+  }
+  ol.steps > li:not(:last-child)::after {
+    content: ""; position: absolute; left: 12.5px; top: 30px; bottom: 2px;
+    width: 1px; background: var(--border);
+  }
+  ol.steps > li > strong:first-child { display: block; margin-bottom: 2px; }
+  ol.steps p { margin-bottom: 6px; }
+  ol.steps pre { margin: 8px 0; }
+
+  /* ── 콜아웃 ───────────────────────────────────────────────────── */
+  .note, .warn, .tip {
+    border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    background: var(--surface); border-radius: 8px;
+    padding: 11px 16px; margin: 14px 0 18px; font-size: 14px;
+  }
+  .warn { border-left-color: var(--wrong); }
+  .tip  { border-left-color: var(--correct); }
+  .note .label, .warn .label, .tip .label {
+    font-weight: 700; font-size: 12px; letter-spacing: 0.06em;
+    display: block; margin-bottom: 3px; text-transform: uppercase;
+  }
+  .warn .label { color: var(--wrong); }
+  .tip .label { color: var(--correct); }
+  .note .label { color: var(--accent); }
+  .note p:last-child, .warn p:last-child, .tip p:last-child { margin-bottom: 0; }
+
+  /* ── 표 ───────────────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; margin: 12px 0 18px; }
+  table {
+    border-collapse: collapse; width: 100%; min-width: 480px;
+    font-size: 13.5px; line-height: 1.6;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th {
+    font-size: 12px; letter-spacing: 0.04em; color: var(--text-muted);
+    font-weight: 700; background: var(--bg);
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* 핵심 루프 도식 */
+  .loop {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    margin: 16px 0 20px;
+  }
+  .loop .node {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 14px; font-size: 13.5px; font-weight: 600;
+  }
+  .loop .node small { display: block; font-weight: 400; font-size: 11.5px; color: var(--text-muted); }
+  .loop .arrow { color: var(--text-muted); font-size: 14px; }
+  .loop .node.back { border-style: dashed; color: var(--text-muted); font-weight: 400; }
+
+  footer {
+    margin-top: 72px; padding-top: 18px; border-top: 1px solid var(--border);
+    font-size: 12.5px; color: var(--text-muted);
+  }
+</style>
+
+<div class="shell">
+<nav class="toc" aria-label="목차">
+  <p class="brand">Study Hub</p>
+  <p class="brand-sub">사용 설명서 · v1</p>
+  <ol>
+    <li class="toc-group">준비</li>
+    <li><a href="#intro">1. 이 앱은 무엇인가</a></li>
+    <li><a href="#setup">2. 설치와 실행</a></li>
+    <li><a href="#screens">3. 화면 한눈에 보기</a></li>
+    <li><a href="#concepts">4. 꼭 알아야 할 개념</a></li>
+    <li class="toc-group">일상 사용</li>
+    <li><a href="#import">5. 자료 넣기 (반입)</a></li>
+    <li><a href="#study">6. 학습하기</a></li>
+    <li><a href="#quiz">7. 퀴즈 풀기</a></li>
+    <li><a href="#review-notes">8. 오답노트</a></li>
+    <li><a href="#srs">9. 복습과 플래시카드</a></li>
+    <li><a href="#dashboard">10. 홈 대시보드 · D-Day</a></li>
+    <li><a href="#print">11. 인쇄 · PDF</a></li>
+    <li class="toc-group">자동화</li>
+    <li><a href="#search">12. 검색</a></li>
+    <li><a href="#tag-rules">13. 태그 자동 분류</a></li>
+    <li><a href="#regenerate">14. 문제 오류 신고</a></li>
+    <li><a href="#backup">15. 백업과 복원</a></li>
+    <li><a href="#pwa">16. 폰에서 쓰기 · PWA</a></li>
+    <li class="toc-group">참고</li>
+    <li><a href="#settings">17. 설정 모아보기</a></li>
+    <li><a href="#faq">18. 문제 해결 (FAQ)</a></li>
+    <li><a href="#embed">부록. 앱 내 탑재 메모</a></li>
+  </ol>
+</nav>
+
+<main>
+<h1>Study Hub 사용 설명서</h1>
+<p class="lede">기출문제와 학습자료를 쌓고, 학습 → 풀이 → 오답관리 → 복습의 루프를 돌리는 개인 학습 허브.</p>
+<p class="doc-meta">
+  이 문서 하나로 설치부터 일상 사용까지 따라 할 수 있게 쓰였습니다.
+  <span class="badge soon">예정</span> 표시는 다음 업데이트(Stage 7)에서 추가될 기능입니다. ·
+  문서 위치: <code>docs/manual/user-manual.html</code>
+</p>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="intro">
+  <h2>1. 이 앱은 무엇인가</h2>
+  <div class="h2-line"></div>
+  <p>
+    Study Hub는 <strong>내 PC에서만 도는 개인용 학습 웹앱</strong>입니다. 자격증 기출문제 PDF나 정리 노트를
+    구조화된 문서로 바꿔 쌓아두고, 시험별 커리큘럼으로 학습하고, 퀴즈로 풀고, 틀린 것은 오답노트와
+    간격반복(SM-2) 복습으로 되돌아옵니다. 서버는 집 안 네트워크에서만 접근하고, 데이터는 전부
+    로컬 파일(<code>study.db</code>)에 저장됩니다.
+  </p>
+  <div class="loop" role="img" aria-label="핵심 루프: 반입, 학습, 퀴즈, 오답노트, 복습이 순환한다">
+    <span class="node">반입<small>자료 → 문서</small></span><span class="arrow">→</span>
+    <span class="node">학습<small>커리큘럼 순서로</small></span><span class="arrow">→</span>
+    <span class="node">퀴즈<small>풀이 기록</small></span><span class="arrow">→</span>
+    <span class="node">오답노트<small>틀린 이유 관리</small></span><span class="arrow">→</span>
+    <span class="node">복습<small>SM-2가 날짜 결정</small></span><span class="arrow">→</span>
+    <span class="node back">다시 퀴즈로…</span>
+  </div>
+  <p>
+    한 번 세팅하면 매일 하는 일은 단순합니다 — <strong>홈에서 "이어하기"나 "오늘의 복습"을 누르는 것.</strong>
+    나머지는 앱이 골라줍니다.
+  </p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="setup">
+  <h2>2. 설치와 실행</h2>
+  <div class="h2-line"></div>
+
+  <h3>필요한 것</h3>
+  <ul>
+    <li><strong>Python 3.11+</strong> — 백엔드(FastAPI) 실행용</li>
+    <li><strong>Node.js 18+</strong> — 프론트엔드 빌드용 (빌드해 두면 평소엔 필요 없음)</li>
+    <li><strong>Claude Code</strong> (선택) — PDF·노트를 반입용 JSON으로 변환할 때 사용 (<a href="#import">5장</a>)</li>
+  </ul>
+
+  <h3>최초 1회 준비</h3>
+  <ol class="steps">
+    <li>
+      <strong>백엔드 의존성 설치</strong>
+      <pre><code>cd backend
+pip install -r requirements.txt</code></pre>
+    </li>
+    <li>
+      <strong>프론트엔드 빌드</strong>
+      <p>빌드 결과물(<code>frontend/dist</code>)을 백엔드가 함께 서빙하므로, 이후엔 서버 하나만 켜면 됩니다.</p>
+      <pre><code>cd frontend
+npm install
+npm run build</code></pre>
+    </li>
+  </ol>
+
+  <h3>매일 하는 실행</h3>
+  <ol class="steps">
+    <li>
+      <strong>서버 켜기</strong>
+      <pre><code>cd backend
+uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
+      <p>창을 닫지 말고 켜 둡니다. 끄려면 <kbd>Ctrl</kbd>+<kbd>C</kbd>.</p>
+    </li>
+    <li>
+      <strong>접속</strong>
+      <ul>
+        <li>PC: 브라우저에서 <code>http://localhost:8000</code></li>
+        <li>폰·태블릿: <strong>같은 와이파이</strong>에서 <code>http://&lt;PC의 IP&gt;:8000</code>
+          — PC의 IP는 명령창에서 <code>ipconfig</code>를 쳐서 "IPv4 주소"(예: 192.168.0.15)를 확인</li>
+      </ul>
+    </li>
+  </ol>
+
+  <div class="warn">
+    <span class="label">보안</span>
+    <p>이 앱은 로그인이 없습니다. <strong>공유기 포트포워딩으로 외부(인터넷)에 열지 마세요.</strong>
+    집 안 네트워크 전용입니다. 데이터가 소중하다면 <a href="#backup">15장 백업</a>을 먼저 읽어두세요.</p>
+  </div>
+
+  <div class="tip">
+    <span class="label">개발 모드</span>
+    <p>화면 코드를 고치면서 쓸 때만 <code>frontend</code>에서 <code>npm run dev</code>로 개발 서버(5173 포트)를
+    따로 띄웁니다. 일반 사용이라면 위의 빌드+8000 포트 하나면 충분합니다.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="screens">
+  <h2>3. 화면 한눈에 보기</h2>
+  <div class="h2-line"></div>
+  <p>왼쪽 사이드바(폰에서는 하단 탭바)로 오갑니다. 주소를 직접 칠 일은 거의 없지만, 이 설명서에서 화면을 가리킬 때 경로를 함께 적습니다.</p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>화면</th><th>경로</th><th>하는 일</th></tr>
+      <tr><td>홈</td><td><span class="path">/</span></td><td>이어하기 · 오늘의 복습 · 히트맵 · D-Day. 하루의 시작점</td></tr>
+      <tr><td>탐색</td><td><span class="path">/explore</span></td><td>분류 트리 + 문서 카드. 자료 정리·연결·필터</td></tr>
+      <tr><td>커리큘럼</td><td><span class="path">/curriculum</span></td><td>시험별 과목→챕터 진도. 학습의 지도</td></tr>
+      <tr><td>학습 모드</td><td><span class="path">/study/…</span></td><td>챕터를 순서대로 읽고 풀기 (커리큘럼에서 진입)</td></tr>
+      <tr><td>문서 상세</td><td><span class="path">/docs/…</span></td><td>문서 하나 열람·편집. 문제는 정답이 기본 가려짐</td></tr>
+      <tr><td>퀴즈</td><td><span class="path">/quiz</span></td><td>범위·모드를 골라 문제 풀기</td></tr>
+      <tr><td>오답노트</td><td><span class="path">/review-notes</span></td><td>틀린 문제 관리 — 메모 · 틀린 이유 · 재도전</td></tr>
+      <tr><td>복습 세션</td><td><span class="path">/review</span></td><td>"오늘의 복습" 큐를 순서대로 소화</td></tr>
+      <tr><td>플래시카드</td><td><span class="path">/flashcards</span></td><td>카드 뒤집기 · 스와이프 암기</td></tr>
+      <tr><td>반입</td><td><span class="path">/import</span></td><td>JSON/원본 파일을 문서로 들여오기</td></tr>
+      <tr><td>인쇄</td><td><span class="path">/print</span></td><td>개념 정리본 · 문제집 · 오답노트를 A4/PDF로</td></tr>
+      <tr><td>설정</td><td><span class="path">/settings</span></td><td>복습 상한 · D-Day · 백업 · 태그 병합 등</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="concepts">
+  <h2>4. 꼭 알아야 할 개념</h2>
+  <div class="h2-line"></div>
+
+  <h3>문서 — 모든 콘텐츠의 단위</h3>
+  <p>개념 정리든 기출문제든 전부 "문서"입니다. 문서마다 고유번호(<code>DOC-0001</code>)가 붙고, 타입은 4가지:</p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>타입</th><th>무엇</th><th>예</th></tr>
+      <tr><td><strong>concept</strong></td><td>개념 정리 (Markdown 본문)</td><td>"정규화란 무엇인가"</td></tr>
+      <tr><td><strong>question</strong></td><td>연습 문제 (보기·정답·해설)</td><td>직접 만든 확인 문제</td></tr>
+      <tr><td><strong>past_question</strong></td><td>기출 문제 + 출처</td><td>"2023년 2회 17번"</td></tr>
+      <tr><td><strong>flashcard</strong></td><td>암기 카드 (앞/뒤)</td><td>용어 → 정의</td></tr>
+    </table>
+  </div>
+
+  <h3>분류 — 문서를 담는 트리, 단 소유하지 않는다</h3>
+  <p>
+    분류는 <strong>자격증 → 시험 → 과목 → 단원</strong>처럼 자유롭게 만드는 트리입니다. 중요한 규칙 하나:
+    <strong>한 문서는 여러 분류에 동시에 연결될 수 있습니다.</strong> "정규화" 개념 문서 하나를
+    정보처리기사와 SQLD 두 시험에 모두 연결하는 식이죠. 그래서 분류에서 문서를 "삭제"하면
+    실제로는 <strong>연결만 끊깁니다</strong> — 문서 자체는 남아 있고, 다른 시험에서의 학습 기록도 무사합니다.
+  </p>
+
+  <h3>태그 · 원본 · 삭제</h3>
+  <ul>
+    <li><strong>태그</strong>(<code>#정규화</code>) — 분류와 별개의 가로 방향 라벨. 검색과 <a href="#tag-rules">자동 분류</a>의 재료.</li>
+    <li><strong>원본</strong> — 반입할 때 넣은 PDF 등은 <code>sources/</code> 폴더에 원본 그대로 보관되고, 앱은 절대 수정하지 않습니다.</li>
+    <li><strong>삭제는 보관</strong> — 문서 삭제는 숨김 처리(소프트 삭제)입니다. 풀이 기록·통계는 깨지지 않습니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="import">
+  <h2>5. 자료 넣기 (반입)</h2>
+  <div class="h2-line"></div>
+  <p>
+    반입은 "PDF나 노트를 → 문서 여러 개로" 바꿔 넣는 과정입니다. 두 가지 길이 있습니다.
+  </p>
+
+  <h3>방법 A — Claude Code로 변환해서 넣기 (기본)</h3>
+  <ol class="steps">
+    <li>
+      <strong>JSON으로 변환 요청</strong>
+      <p>Claude Code를 열고 변환 프롬프트 템플릿(<code>prompts/convert.md</code>)과 함께 파일을 건넵니다.
+      예: <em>"convert.md 규격대로 이 PDF를 반입 JSON으로 변환해서 import/ 폴더에 저장해줘"</em>.</p>
+    </li>
+    <li>
+      <strong>반입 화면에서 파일 선택</strong>
+      <p><span class="path">/import</span>에서 생성된 JSON을 선택합니다. 원본 PDF도 함께 첨부하면 <code>sources/</code>에 보관됩니다.</p>
+    </li>
+    <li>
+      <strong>미리보기에서 확인</strong>
+      <p>항목마다 상태 배지가 붙습니다 — <strong>정상 / 중복 의심 / 오류</strong>.
+      중복 의심은 기존 문서와 나란히 비교해 보고 <em>건너뛰기 · 새로 추가 · 병합</em> 중 선택.
+      분류 연결 제안과 문제↔개념 관계 제안도 체크박스로 고릅니다.</p>
+    </li>
+    <li>
+      <strong>반입 실행</strong>
+      <p>결과 요약(생성 N · 병합 N · 건너뜀 N)이 나오고, 새 문서로 바로 이동할 수 있습니다.</p>
+    </li>
+  </ol>
+
+  <h3>방법 B — 원본 파일만 던지기</h3>
+  <p>
+    <span class="path">/import</span>의 <strong>"원본 파일로 시작"</strong>을 누르면 앱이 로컬에 설치된
+    claude CLI를 직접 불러 변환부터 해 줍니다. 변환이 끝나면 위의 3단계(미리보기)로 자동 진입합니다.
+    변환은 수 분 걸릴 수 있고, 진행 상황이 화면에 표시됩니다.
+  </p>
+  <div class="note">
+    <span class="label">참고</span>
+    <p>방법 B는 PC에 Claude Code(claude CLI)가 설치되어 있어야 합니다. 없거나 실패하면
+    안내 메시지와 함께 방법 A로 하라고 알려줍니다.</p>
+  </div>
+  <div class="note">
+    <span class="label">참고</span>
+    <p>미리보기는 1시간 동안만 유지됩니다. 지나면 파일을 다시 선택하라는 안내가 나옵니다.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="study">
+  <h2>6. 학습하기</h2>
+  <div class="h2-line"></div>
+
+  <ol class="steps">
+    <li>
+      <strong>커리큘럼에서 시험 선택</strong>
+      <p><span class="path">/curriculum</span>에서 시험 카드를 고르면 과목→챕터 목록과 진도바가 보입니다.</p>
+    </li>
+    <li>
+      <strong>[이어하기] 또는 [여기서 시작]</strong>
+      <p>챕터 행의 버튼으로 학습 모드에 들어갑니다. 다음부터는 홈의 <strong>이어하기 카드</strong>가
+      마지막 위치로 한 번에 데려다 줍니다.</p>
+    </li>
+    <li>
+      <strong>순서대로 읽고 풀기</strong>
+      <p>개념 문서는 읽고 [다음 ▶]. 문제 문서는 <strong>풀어야 다음으로 넘어갈 수 있습니다</strong> —
+      보기를 고르면 즉시 채점되고 해설이 펼쳐집니다.</p>
+    </li>
+    <li>
+      <strong>챕터 완료 화면</strong>
+      <p>정답률 요약과 틀린 문제 목록이 나옵니다. <strong>[지금 다시 풀기]</strong>로 틀린 것만 즉시 재도전하거나 [다음 챕터 ▶]로 진행.</p>
+    </li>
+  </ol>
+
+  <ul>
+    <li>이미 완료한 문제로 돌아가면 <strong>내가 골랐던 보기와 정오·해설이 복원</strong>되어 보이고, [다시 풀기]로 새로 제출할 수 있습니다.</li>
+    <li>문서를 그냥 열람(<span class="path">/docs/…</span>)할 때 문제의 정답·해설은 기본으로 가려져 있습니다 — "정답·해설 보기"를 눌러야 보입니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="quiz">
+  <h2>7. 퀴즈 풀기</h2>
+  <div class="h2-line"></div>
+  <ol class="steps">
+    <li>
+      <strong>범위와 모드 고르기</strong>
+      <p><span class="path">/quiz</span>에서 분류 트리로 범위를 고르고(하위 분류 자동 포함), 모드를 선택:
+      <strong>순차 · 랜덤 · 오답만 · 북마크만</strong>. 문항 수 기본값은 설정에서 바꿀 수 있습니다.</p>
+    </li>
+    <li>
+      <strong>풀기</strong>
+      <p>보기를 누르는 순간 제출·채점됩니다(채점은 항상 서버에서). 정오 색상과 해설,
+      관련 개념 문서 링크가 나오고 [다음]으로 진행합니다. 상단에 진행바와 경과 시간.</p>
+    </li>
+    <li>
+      <strong>종료 요약</strong>
+      <p>정답률·소요 시간·틀린 문제 리스트. 틀린 문제에는 그 자리에서 오답노트 메모를 바로 적을 수 있습니다.</p>
+    </li>
+  </ol>
+  <div class="note">
+    <span class="label">알아두기</span>
+    <p>틀린 문제는 자동으로 <a href="#review-notes">오답노트</a>에 등록되고, 복습 스케줄(<a href="#srs">SM-2</a>)에도 반영됩니다.
+    별도로 할 일이 없습니다. 새로고침하면 세션이 끊기니 주의.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="review-notes">
+  <h2>8. 오답노트</h2>
+  <div class="h2-line"></div>
+  <p>
+    <span class="path">/review-notes</span>는 틀린 문제의 관리 장부입니다. 문제당 노트 1개가 자동 생성·갱신됩니다.
+  </p>
+  <ul>
+    <li><strong>메모</strong> — "왜 틀렸는지" 내 말로 기록 (인라인 편집)</li>
+    <li><strong>틀린 이유 태그</strong> — 개념부족 · 실수 · 함정 · 시간부족 중 선택</li>
+    <li><strong>[극복]</strong> — 이제 안다 싶으면 토글. 극복한 노트는 "오답만" 퀴즈에서 빠집니다</li>
+    <li><strong>[재도전]</strong> — 필터된 문제들로 즉석 퀴즈. 카드마다 있는 개별 [재도전]은 그 한 문제만 다시 풉니다</li>
+  </ul>
+  <p>
+    목록은 분류 경로별로 묶여 보이고(대단위 → 소단위, 접기/펼치기), 상단 필터로
+    범위 · 틀린 이유 · 해결 여부를 좁힐 수 있습니다.
+  </p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="srs">
+  <h2>9. 복습과 플래시카드</h2>
+  <div class="h2-line"></div>
+
+  <h3>"오늘의 복습"이 고르는 방법</h3>
+  <p>
+    문제를 처음 푸는 순간 그 문서에 보이지 않는 <strong>복습 카드</strong>가 생기고,
+    SM-2 알고리즘이 다음 복습 날짜를 정합니다. 직관만 기억하면 됩니다:
+  </p>
+  <ul>
+    <li><strong>틀리면</strong> → 내일 다시 나옵니다.</li>
+    <li><strong>맞을수록</strong> → 간격이 늘어납니다 (1일 → 6일 → 그 이후는 점점 크게).</li>
+    <li><strong>빠르고 정확하게 맞으면</strong> 간격이 더 빨리 벌어지고, 겨우 맞으면 천천히 벌어집니다.</li>
+  </ul>
+  <p>
+    홈의 <strong>"오늘의 복습 N개"</strong> 버튼이 오늘 기한이 된 카드를 모아줍니다.
+    우선순위는 <em>오답노트 미해결 → 기한을 오래 넘긴 순</em>이고, 하루 상한(기본 30개)을 넘는 분량은 다음 날로 밀립니다.
+    문서 상세에서 카드의 다음 복습일을 확인할 수 있습니다.
+  </p>
+
+  <h3>플래시카드</h3>
+  <p><span class="path">/flashcards</span> — 암기 카드 전용 화면입니다.</p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>동작</th><th>터치</th><th>키보드</th></tr>
+      <tr><td>카드 뒤집기</td><td>탭</td><td><kbd>Space</kbd></td></tr>
+      <tr><td>모른다 (내일 또)</td><td>왼쪽으로 스와이프</td><td><kbd>←</kbd></td></tr>
+      <tr><td>안다 (간격 늘리기)</td><td>오른쪽으로 스와이프</td><td><kbd>→</kbd></td></tr>
+    </table>
+  </div>
+  <p>복습 세션(<span class="path">/review</span>)에서는 문제와 카드가 섞여 나옵니다 — 문제는 퀴즈 카드로, 개념·암기 카드는 뒤집기로.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="dashboard">
+  <h2>10. 홈 대시보드 · D-Day</h2>
+  <div class="h2-line"></div>
+  <p>홈(<span class="path">/</span>)에는 위젯이 배치됩니다:</p>
+  <ul>
+    <li><strong>이어하기</strong> — 최근 학습 위치 최대 3개. 탭 한 번으로 복귀</li>
+    <li><strong>오늘의 복습 N개</strong> — 복습 세션 진입 버튼</li>
+    <li><strong>학습 히트맵</strong> — 날마다 얼마나 했는지 잔디밭. 색이 진할수록 많이 한 날</li>
+    <li><strong>D-Day 배지</strong> — 시험일까지 며칠 남았는지</li>
+    <li><strong>시험별 진도 도넛 · 최근 7일 · 정답률 추이 · 자꾸 틀리는 개념 Top 10 · 북마크</strong></li>
+  </ul>
+  <p>데이터가 없는 위젯은 표시되지 않으므로, 처음엔 홈이 단출한 게 정상입니다.</p>
+
+  <h3>D-Day 등록</h3>
+  <p>
+    두 종류가 있습니다. <strong>시험 분류의 시험일</strong>(분류 편집에서 날짜 지정 — 진도·통계와 연동)과
+    <strong>임의 D-Day</strong>(설정 화면에서 "접수 마감" 같은 자유 항목 추가). 홈 배지에는 둘이 합쳐져 가까운 순으로 보입니다.
+  </p>
+
+  <h3>북마크</h3>
+  <p>문서 상세·카드의 ★을 누르면 북마크. 홈에서 모아 보고, 퀴즈의 "북마크만" 모드, 탐색 필터로도 씁니다.</p>
+
+  <div class="note">
+    <span class="label">예정 (Stage 7)</span>
+    <p>홈 [편집] 모드가 추가됩니다 — 위젯 드래그 재배치·숨김·열 수(1~3열) 선택이 저장되어 어느 기기에서든
+    같은 배치로 보이고, D-Day는 홈에서 팝업으로 바로 추가·수정할 수 있게 됩니다. 사이드바 접힘(아이콘 레일)과
+    히트맵의 너비 반응형(폭에 맞춰 8~26주 표시)도 함께 들어옵니다.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="print">
+  <h2>11. 인쇄 · PDF</h2>
+  <div class="h2-line"></div>
+  <p><span class="path">/print</span>에서 3가지 인쇄 뷰를 만들 수 있습니다:</p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>종류</th><th>구성</th><th>주요 옵션</th></tr>
+      <tr><td>개념 정리본</td><td>선택 범위의 개념 문서 모음 + 목차</td><td>문서번호 표시</td></tr>
+      <tr><td>문제집</td><td>문제는 앞에, 정답·해설은 뒤에 분리</td><td>해설 제외(실전용) · 풀이 여백</td></tr>
+      <tr><td>오답노트</td><td>틀린 문제 + 내 메모 + 틀린 이유</td><td>기간 · 분류 필터</td></tr>
+    </table>
+  </div>
+  <ol class="steps">
+    <li><strong>종류·범위·옵션 선택</strong> — 화면에 A4 폭으로 미리 렌더됩니다.</li>
+    <li><strong>브라우저 인쇄</strong> — <kbd>Ctrl</kbd>+<kbd>P</kbd>.</li>
+    <li><strong>"PDF로 저장" 선택</strong> — 프린터 없이 PDF 파일로 확보. 문제가 페이지 경계에서 잘리지 않게 처리되어 있습니다.</li>
+  </ol>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="search">
+  <h2>12. 검색</h2>
+  <div class="h2-line"></div>
+  <ul>
+    <li>화면 상단 헤더의 검색창, 또는 아무 데서나 <kbd>/</kbd> 키를 누르면 검색창에 포커스가 갑니다.</li>
+    <li>제목·본문·해설 전체를 뒤져서, <strong>일치한 부분이 하이라이트된 스니펫</strong>과 함께 결과가 나옵니다.</li>
+    <li>결과에는 타입 배지(개념/기출 등)가 붙고, 클릭하면 문서 상세로 이동합니다. 태그로도 걸러볼 수 있습니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="tag-rules">
+  <h2>13. 태그 자동 분류</h2>
+  <div class="h2-line"></div>
+  <p>
+    "이런 태그가 붙은 문서는 이 분류에 넣어줘"를 규칙으로 등록해 두면, 반입할 때마다 앱이 분류 연결을 제안합니다.
+  </p>
+  <ol class="steps">
+    <li>
+      <strong>규칙 만들기</strong>
+      <p>설정의 규칙 관리에서 <em>대상 분류</em>와 <em>태그 조건</em>을 지정합니다.
+      조건은 단순하게 — 태그 하나(<code>정규화</code>) 또는 OR 결합(<code>정규화 OR 트랜잭션</code>)만 됩니다.</p>
+    </li>
+    <li>
+      <strong>제안 확인</strong>
+      <p>문서가 반입되거나 태그가 바뀔 때 조건이 맞으면 <strong>제안함</strong>에 쌓이고, 홈·탐색에 "제안 N건" 배지가 뜹니다.
+      제안함에서 문서·대상 분류를 보고 <strong>승인/거절</strong>합니다. 거절한 제안은 다시 올라오지 않습니다.</p>
+    </li>
+    <li>
+      <strong>기존 문서까지 훑기</strong>
+      <p>규칙을 만들거나 고친 뒤 [일괄 스캔]을 누르면 이미 들어와 있는 문서 전체를 검사해 제안을 만들어 줍니다.</p>
+    </li>
+  </ol>
+  <div class="warn">
+    <span class="label">auto 모드</span>
+    <p>규칙을 <strong>auto</strong>로 켜면 제안 없이 즉시 연결됩니다. 편하지만 오분류가 조용히 쌓일 수 있으니
+    확실한 규칙에만 쓰세요. 실수했다면 규칙 관리의 <strong>"이 규칙이 연결한 문서 일괄 해제"</strong>로 한 번에 되돌립니다.</p>
+  </div>
+  <p>오타로 갈라진 태그(<code>#정규화</code> / <code>#정규 화</code>)는 설정의 <strong>태그 병합 도구</strong>로 합칩니다.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="regenerate">
+  <h2>14. 문제 오류 신고</h2>
+  <div class="h2-line"></div>
+  <p>
+    변환 과정에서 보기 순서가 밀렸거나 정답이 이상한 문제를 발견하면, 그 자리에서 고칠 수 있습니다.
+  </p>
+  <ol class="steps">
+    <li><strong>[오류 신고] 버튼</strong> — 문서 상세·학습 모드·퀴즈 해설 어디서든 누르고, 무엇이 이상한지 적습니다.</li>
+    <li><strong>재생성 대기</strong> — 앱이 claude CLI로 그 문서만 다시 만듭니다(원본 출처 정보가 있으면 대조).
+      진행 중 배지가 문서 상세에 표시됩니다.</li>
+    <li><strong>나란히 비교</strong> — 완료되면 문서 상세에서 기존 vs 신규를 비교해 보고
+      <strong>[교체]</strong> 또는 <strong>[폐기]</strong>를 선택합니다.</li>
+  </ol>
+  <div class="tip">
+    <span class="label">안심</span>
+    <p>교체해도 문서 번호는 그대로라 <strong>풀이 이력·오답노트·복습 일정이 전부 유지</strong>됩니다.
+    승인 없이 자동으로 덮어쓰는 일은 없습니다.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="backup">
+  <h2>15. 백업과 복원</h2>
+  <div class="h2-line"></div>
+  <ul>
+    <li><strong>백업 만들기</strong> — 설정 화면의 [백업 생성]. DB 스냅샷과 원본 파일(<code>sources/</code>)이
+      <code>backups/</code> 폴더에 시각과 함께 저장됩니다.</li>
+    <li><strong>자동 백업</strong> — 설정에서 켜면, 마지막 백업 후 24시간이 지난 채로 서버가 켜질 때 자동 실행됩니다.</li>
+    <li><strong>복원</strong> — 백업 목록에서 선택 후, 실수 방지를 위해 <strong>확인 문구를 직접 타이핑</strong>해야 진행됩니다.
+      복원 직전 상태도 자동 스냅샷으로 한 벌 남깁니다.</li>
+  </ul>
+  <div class="tip">
+    <span class="label">수동 백업</span>
+    <p>앱이 꺼진 상태라면 프로젝트 루트의 <code>study.db</code> 파일을 다른 곳에 복사해 두는 것만으로도 백업이 됩니다.
+    학습 기록 CSV가 필요하면 설정의 <strong>통계 내보내기</strong>로 풀이 기록 전체를 내려받을 수 있습니다.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="pwa">
+  <h2>16. 폰에서 쓰기 · PWA</h2>
+  <div class="h2-line"></div>
+  <p>폰 브라우저로 <code>http://&lt;PC IP&gt;:8000</code>에 접속한 뒤, 홈 화면에 앱처럼 설치할 수 있습니다:</p>
+  <ul>
+    <li><strong>Android (Chrome)</strong> — 메뉴(⋮) → "홈 화면에 추가"</li>
+    <li><strong>iPhone (Safari)</strong> — 공유(□↑) → "홈 화면에 추가"</li>
+  </ul>
+  <p>
+    설치하면 주소창 없는 전체 화면으로 열리고 아이콘으로 바로 실행됩니다. 폰 화면에서는 하단 탭바(홈/커리큘럼/퀴즈/오답노트)로
+    오가고, 플래시카드 스와이프 등 터치 동작이 준비되어 있습니다.
+  </p>
+  <div class="note">
+    <span class="label">참고</span>
+    <p>서버가 PC에서 돌고 있어야 하므로, PC가 꺼져 있으면 폰에서도 열리지 않습니다. 오프라인 사용은 지원하지 않습니다.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="settings">
+  <h2>17. 설정 모아보기</h2>
+  <div class="h2-line"></div>
+  <div class="table-wrap">
+    <table>
+      <tr><th>항목</th><th>어디서</th><th>기본값 · 메모</th></tr>
+      <tr><td>테마 (라이트/다크/시스템)</td><td>설정</td><td>기기별로 따로 저장됨</td></tr>
+      <tr><td>하루 복습 상한</td><td>설정</td><td>30개 — 과부하 방지</td></tr>
+      <tr><td>퀴즈 기본 문항 수</td><td>설정</td><td>퀴즈 설정 화면의 초기값</td></tr>
+      <tr><td>D-Day 관리</td><td>설정</td><td>시험 분류 시험일 + 임의 D-Day</td></tr>
+      <tr><td>백업 · 복원 · 자동 백업</td><td>설정</td><td><a href="#backup">15장</a></td></tr>
+      <tr><td>태그 규칙 · 병합</td><td>설정</td><td><a href="#tag-rules">13장</a></td></tr>
+      <tr><td>통계 CSV 내보내기</td><td>설정</td><td>풀이 기록 + 문서·분류 정보</td></tr>
+      <tr><td>홈 위젯 배치 <span class="badge soon">예정</span></td><td>홈 [편집]</td><td>전 기기 공통 저장</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="faq">
+  <h2>18. 문제 해결 (FAQ)</h2>
+  <div class="h2-line"></div>
+
+  <h3>폰에서 접속이 안 돼요</h3>
+  <ol>
+    <li>폰과 PC가 <strong>같은 와이파이</strong>인지 확인 (모바일 데이터 꺼보기)</li>
+    <li>서버를 <code>--host 0.0.0.0</code>으로 켰는지 확인 (이 옵션이 없으면 PC 밖에서 못 들어옵니다)</li>
+    <li>IP가 맞는지 <code>ipconfig</code>로 다시 확인 — 공유기가 IP를 바꿨을 수 있습니다</li>
+    <li>그래도 안 되면 Windows 방화벽에서 Python(8000 포트) 인바운드를 허용 — 처음 실행 때 뜨는
+      방화벽 허용 창에서 "허용"을 눌렀는지 기억해 보세요</li>
+  </ol>
+
+  <h3>"포트가 이미 사용 중" 오류</h3>
+  <p>이전 서버가 아직 떠 있는 경우입니다. 기존 창을 <kbd>Ctrl</kbd>+<kbd>C</kbd>로 끄거나, 다른 포트로 켜세요:
+  <code>uvicorn main:app --host 0.0.0.0 --port 8001</code> (접속 주소도 8001로).</p>
+
+  <h3>변환(원본 파일로 시작)이 실패해요</h3>
+  <p>PC에 Claude Code가 설치되어 있고 터미널에서 <code>claude</code> 명령이 되는지 확인하세요.
+  안 되면 <a href="#import">방법 A</a>(Claude Code 대화로 JSON 생성)를 쓰면 됩니다. 결과는 같습니다.</p>
+
+  <h3>데이터는 어디에 있나요?</h3>
+  <p>전부 프로젝트 폴더 안입니다 — DB는 <code>study.db</code>, 원본은 <code>sources/</code>, 백업은 <code>backups/</code>.
+  이 폴더만 통째로 복사하면 다른 PC로 이사할 수 있습니다.</p>
+
+  <h3>화면이 이상하거나 옛날 화면이 보여요</h3>
+  <p>프론트를 새로 빌드한 직후라면 브라우저 캐시 문제일 수 있습니다. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>(강력 새로고침)을 해 보세요.
+  PWA로 설치한 폰에서는 앱을 완전히 닫았다 다시 여세요.</p>
+
+  <h3>복습이 갑자기 너무 많이 쌓였어요</h3>
+  <p>며칠 쉬면 기한 지난 카드가 몰립니다. 하루 상한(기본 30)이 있으니 오늘 치만 소화하면 됩니다 —
+  밀린 것은 우선순위 순으로 매일 조금씩 나옵니다. 상한은 설정에서 조절.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="embed">
+  <h2>부록. 앱 내 탑재 메모 (추후 결정)</h2>
+  <div class="h2-line"></div>
+  <p>이 문서를 앱 안에서 열 수 있게 하는 방안 — 아직 결정 전이며, 후보는:</p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>방안</th><th>내용</th><th>비용</th></tr>
+      <tr><td>A. 정적 서빙</td><td>FastAPI가 <code>docs/manual/</code>을 <code>/manual</code> 경로로 서빙, 설정 화면에 "사용 설명서" 링크 추가</td><td>백엔드 라우트 1개 + 링크 1개 — 가장 쌈</td></tr>
+      <tr><td>B. 도움말 화면</td><td>React 화면으로 포팅해 사이드바에 메뉴 추가, 화면별 ? 아이콘에서 해당 절로 딥링크</td><td>포팅·유지보수 비용 큼</td></tr>
+      <tr><td>C. 현행 유지</td><td>파일을 브라우저로 직접 열기 (더블클릭)</td><td>0 — 단 폰에서 보기 불편</td></tr>
+    </table>
+  </div>
+  <p>
+    권장은 <strong>A</strong> — 이 파일은 외부 의존성이 없는 단일 HTML이라 그대로 서빙만 하면 되고,
+    앱과 같은 디자인 토큰을 쓰므로 이질감도 없습니다. v1 완성(Stage 7) 후 결정하면 됩니다.
+  </p>
+</section>
+
+<footer>
+  Study Hub 사용 설명서 · 2026-07-24 기준 (Stage 6 구현 반영) ·
+  기능 계획·설계의 원본은 <code>docs/01-plan</code> · <code>docs/02-design</code> 문서를 참조하세요.
+</footer>
+</main>
+</div>

@@ -9,6 +9,7 @@ import { useSubmitAttempt, useCreateQuizSession } from '../api/quiz'
 import { useCategoryTree } from '../api/categories'
 import { useQuizSessionStore } from '../stores/quizSession'
 import { findNextSiblingId } from '../utils/tree'
+import ReportErrorButton from '../components/ReportErrorButton'
 import type { AttemptResponse, StudyTrackItem } from '../api/types'
 
 const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
@@ -279,11 +280,14 @@ function StudyCard({
 
   return (
     <div>
-      <div className="mb-2 flex items-center gap-2">
-        <span className="inline-block rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
-          {item.doc_no}
-        </span>
-        <span className="text-xs text-muted">{question ? '문제' : '개념'}</span>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="inline-block rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
+            {item.doc_no}
+          </span>
+          <span className="text-xs text-muted">{question ? '문제' : '개념'}</span>
+        </div>
+        <ReportErrorButton documentId={item.document_id} variant="inline" />
       </div>
 
       {/* 개념: 본문 Markdown. 문제: 지문만 렌더 — 정답·해설은 제출 후에만 노출(서버 채점 원칙). */}

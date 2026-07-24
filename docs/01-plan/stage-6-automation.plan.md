@@ -11,34 +11,34 @@
 ## 작업 체크리스트
 
 ### 1. 태그 자동 분류 (F21, 계획서 §11)
-- [ ] tag_query 파서: **단일 태그 + OR만** (R13 — AND/괄호는 하지 않음)
-- [ ] 트리거 3곳: 반입 커밋 시 / 태그 변경 시 / 규칙 생성·수정 시 일괄 스캔(`POST /tag-rules/{id}/scan`)
-- [ ] suggestions 저장·조회·apply(승인/거절). `mode='auto'` 규칙은 즉시 연결하되 연결 출처 기록
-- [ ] UI: 설정 또는 탐색 내 규칙 관리 + 홈/탐색에 "제안 N건" 배지 → 제안함 화면
-- [ ] "이 규칙이 연결한 문서들" 일괄 해제
+- [x] tag_query 파서: **단일 태그 + OR만** (R13 — AND/괄호는 하지 않음)
+- [x] 트리거 3곳: 반입 커밋 시 / 태그 변경 시 / 규칙 생성·수정 시 일괄 스캔(`POST /tag-rules/{id}/scan`)
+- [x] suggestions 저장·조회·apply(승인/거절). `mode='auto'` 규칙은 즉시 연결하되 연결 출처 기록
+- [x] UI: 설정 또는 탐색 내 규칙 관리 + 홈/탐색에 "제안 N건" 배지 → 제안함 화면
+- [x] "이 규칙이 연결한 문서들" 일괄 해제
 
 ### 2. 전문 검색 (F12)
-- [ ] FTS5 가상 테이블(title/content/explanation) + insert/update/delete 동기화 트리거 마이그레이션
-- [ ] `GET /api/search?q=&type=`: 스니펫(매칭 부분 하이라이트) 포함
-- [ ] UI: 헤더 검색창(단축키 `/`), 결과 화면 — 타입 배지·스니펫·태그 검색 통합
+- [x] FTS5 가상 테이블(title/content/explanation) + insert/update/delete 동기화 트리거 마이그레이션
+- [x] `GET /api/search?q=&type=`: 스니펫(매칭 부분 하이라이트) 포함
+- [x] UI: 헤더 검색창(단축키 `/`), 결과 화면 — 타입 배지·스니펫·태그 검색 통합
 
 ### 3. Claude CLI 변환 (F23, 계획서 §13-B)
-- [ ] `services/convert_service.py`: `claude -p` 서브프로세스 (`--output-format json`,
+- [x] `services/convert_service.py`: `claude -p` 서브프로세스 (`--output-format json`,
       프롬프트 = `prompts/convert.md` + 파일), 타임아웃(기본 10분)·에러 캡처, 잡 큐(동시 1개)
-- [ ] `POST /api/convert` → job_id / `GET /api/convert/{job_id}` 폴링 → 완료 시 반입 preview로 자동 연결
-- [ ] claude CLI 부재/실패 시 명확한 에러 + 수동 반입(A방식) 안내 폴백
-- [ ] 반입 화면에 "원본 파일로 시작" 업로드 경로 추가
-- [ ] 문제 오류 신고·재생성(F30) 백엔드: `POST /api/documents/{id}/regenerate {reason}` → convert 잡 큐 재사용(동시 1개). 프롬프트 = 현재 문서 내용 + 신고 사유 + (source_detail 있으면) 원본 출처 정보 (설계 §4.10)
-- [ ] 재생성 초안 조회(`GET .../regenerate/{job_id}`)·승인(`POST .../apply` — 기존 문서 PATCH 교체, **같은 문서 id·doc_no 유지 = attempts·오답노트 이력 보존**)·폐기(TTL 자동 폐기). 자동 덮어쓰기 금지(R7)
-- [ ] F30 프론트: 문서 상세·학습 모드·퀴즈 해설 영역 [오류 신고] 버튼 + 사유 입력 모달 + 잡 진행 중 표시 + 문서 상세 기존 vs 신규 비교 화면([교체]/[폐기]) (설계 §5.3)
+- [x] `POST /api/convert` → job_id / `GET /api/convert/{job_id}` 폴링 → 완료 시 반입 preview로 자동 연결
+- [x] claude CLI 부재/실패 시 명확한 에러 + 수동 반입(A방식) 안내 폴백
+- [x] 반입 화면에 "원본 파일로 시작" 업로드 경로 추가
+- [x] 문제 오류 신고·재생성(F30) 백엔드: `POST /api/documents/{id}/regenerate {reason}` → convert 잡 큐 재사용(동시 1개). 프롬프트 = 현재 문서 내용 + 신고 사유 + (source_detail 있으면) 원본 출처 정보 (설계 §4.10)
+- [x] 재생성 초안 조회(`GET .../regenerate/{job_id}`)·승인(`POST .../apply` — 기존 문서 PATCH 교체, **같은 문서 id·doc_no 유지 = attempts·오답노트 이력 보존**)·폐기(TTL 자동 폐기). 자동 덮어쓰기 금지(R7)
+- [x] F30 프론트: 문서 상세·학습 모드·퀴즈 해설 영역 [오류 신고] 버튼 + 사유 입력 모달 + 잡 진행 중 표시 + 문서 상세 기존 vs 신규 비교 화면([교체]/[폐기]) (설계 §5.3)
 
 ### 4. PWA · 백업 · 마무리
-- [ ] PWA(F18): manifest + 아이콘 + 최소 service worker(앱 셸 캐시. 데이터 캐시는 안 함 — 로컬 서버라 오프라인 의미 없음)
-- [ ] 백업(F27): `POST /api/backups`(study.db `VACUUM INTO` + sources/ zip, `backups/`에 타임스탬프 저장),
+- [x] PWA(F18): manifest + 아이콘 + 최소 service worker(앱 셸 캐시. 데이터 캐시는 안 함 — 로컬 서버라 오프라인 의미 없음)
+- [x] 백업(F27): `POST /api/backups`(study.db `VACUUM INTO` + sources/ zip, `backups/`에 타임스탬프 저장),
       목록, restore(확인 문구 타이핑 필수, 복원 전 자동 스냅샷 1개 생성)
-- [ ] 자동 백업 옵션(`backup.auto=daily` — 앱 기동 시 마지막 백업 24h 경과면 실행)
-- [ ] 통계 CSV 내보내기(F17): attempts 원본 + 문서/분류 메타 조인
-- [ ] 태그 병합 도구(`POST /api/tags/merge`) UI
+- [x] 자동 백업 옵션(`backup.auto=daily` — 앱 기동 시 마지막 백업 24h 경과면 실행)
+- [x] 통계 CSV 내보내기(F17): attempts 원본 + 문서/분류 메타 조인
+- [x] 태그 병합 도구(`POST /api/tags/merge`) UI
 
 ## 완료 기준 (DoD)
 
@@ -53,5 +53,7 @@
 
 Claude API 직접 호출(C안 — 원격 운영 필요 시), 유사도 기반 문서 감지 고도화(F14), 모의고사·스트릭(v1.x 별도 계획), 문서 일괄 재생성(배치 재검증 — 필요 확인 후 v1.x).
 
+---
+> **검토 기록 (2026-07-24, opus)**: 판정 통과. 치명 0 · 중요 1(자동 백업 `backup.auto` 계약값 불일치 — 수정 완료) · 경미 3 중 1(제안함 소프트 삭제 미필터 — 수정 완료). 나머지 경미 2건은 v1.x 기록: ① 한국어 부분어 검색 recall(FTS5 unicode61 한계), ② 백업 복원 후 서버 재시작 강제 UX. DoD 6/6 배선 — 폰 PWA 설치(DoD 3)와 실PDF 변환 전 과정(DoD 1)은 사용자 실기기 확인 항목.
 ---
 > 완료 후 Stage 7(홈 커스터마이즈·레이아웃 UX — 순수 프론트)로 이어진다. **v1 완성 지점은 Stage 7로 이동**(v0.6, 사용자 확정). 이후: 실사용 피드백 → v1.x 계획(F25 모의고사, F26 스트릭, F15 분기, F16 D-Day 강도) 수립.

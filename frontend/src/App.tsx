@@ -14,6 +14,8 @@ import ReviewPage from './pages/Review'
 import FlashcardsPage from './pages/Flashcards'
 import StudyPage from './pages/Study'
 import PrintPage from './pages/Print'
+import SearchPage from './pages/Search'
+import SuggestionsPage from './pages/Suggestions'
 
 function App() {
   return (
@@ -32,6 +34,8 @@ function App() {
         <Route path="/docs/:id" element={<DocumentDetailPage />} />
         <Route path="/import" element={<ImportPage />} />
         <Route path="/print" element={<PrintPage />} />
+        <Route path="/search" element={<SearchPage />} />
+        <Route path="/suggestions" element={<SuggestionsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

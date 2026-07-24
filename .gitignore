@@ -3,6 +3,8 @@ study.db-wal
 study.db-shm
 sources/
 TestSources/
+backups/
+backend/convert_tmp/
 node_modules/
 backend/.venv/
 backend/__pycache__/

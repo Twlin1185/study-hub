@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 from database import get_db
 from exceptions import ValidationAppError
 from schemas.common import Page
+from schemas.convert import (
+    RegenerateJobStart,
+    RegenerateJobStatus,
+    RegenerateRequest,
+)
 from schemas.document import (
     DocumentCreate,
     DocumentDetail,
@@ -17,7 +22,7 @@ from schemas.document import (
     RelationCreate,
     TagsReplace,
 )
-from services import document_service
+from services import convert_service, document_service
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -138,4 +143,31 @@ def add_bookmark(document_id: int, db: Session = Depends(get_db)) -> DocumentDet
 @router.delete("/{document_id}/bookmark", response_model=DocumentDetail)
 def remove_bookmark(document_id: int, db: Session = Depends(get_db)) -> DocumentDetail:
     document_service.remove_bookmark(db, document_id)
+    return document_service.get_document_detail(db, document_id)
+
+
+@router.post(
+    "/{document_id}/regenerate",
+    response_model=RegenerateJobStart,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_regenerate(
+    document_id: int, payload: RegenerateRequest, db: Session = Depends(get_db)
+) -> RegenerateJobStart:
+    """오류 신고 → 재생성 잡 시작 (F30). convert 잡 큐 재사용(동시 1개)."""
+    job_id = convert_service.start_regenerate_job(db, document_id, payload.reason)
+    return RegenerateJobStart(job_id=job_id)
+
+
+@router.get("/{document_id}/regenerate/{job_id}", response_model=RegenerateJobStatus)
+def get_regenerate_status(document_id: int, job_id: str) -> RegenerateJobStatus:
+    return RegenerateJobStatus(**convert_service.get_regenerate_job(document_id, job_id))
+
+
+@router.post("/{document_id}/regenerate/{job_id}/apply", response_model=DocumentDetail)
+def apply_regenerate(
+    document_id: int, job_id: str, db: Session = Depends(get_db)
+) -> DocumentDetail:
+    """초안 승인 — 같은 문서 id·doc_no 유지, attempts·오답노트·SRS 이력 보존(R7)."""
+    convert_service.apply_regenerate_job(db, document_id, job_id)
     return document_service.get_document_detail(db, document_id)

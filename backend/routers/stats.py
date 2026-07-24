@@ -4,10 +4,11 @@ from __future__ import annotations
 import datetime as dt
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
+from exceptions import ValidationAppError
 from schemas.dashboard import DashboardResponse
 from schemas.stats import AccuracyTrendItem, HeatmapItem, WeaknessItem
 from services import stats_service
@@ -44,3 +45,18 @@ def get_accuracy_trend(
     db: Session = Depends(get_db),
 ) -> List[AccuracyTrendItem]:
     return stats_service.get_accuracy_trend(db, days=days)
+
+
+@router.get("/api/stats/export")
+def export_stats(
+    format: str = Query(default="csv"),  # noqa: A002 - 설계 §4.8 쿼리 파라미터명 그대로
+    db: Session = Depends(get_db),
+) -> Response:
+    if format != "csv":
+        raise ValidationAppError("format은 'csv'만 지원합니다", detail={"format": format})
+    csv_text = stats_service.export_attempts_csv(db)
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=study_hub_attempts.csv"},
+    )

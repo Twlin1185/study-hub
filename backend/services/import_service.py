@@ -43,6 +43,7 @@ from schemas.import_schema import (
     SuggestCategoryResult,
     SuggestRelationResult,
 )
+from services import tag_rule_service
 from services.document_service import _generate_doc_no
 from services.tag_service import get_or_create_tag
 
@@ -443,18 +444,33 @@ def create_preview(
     )
 
     preview_id = f"imp_{uuid.uuid4().hex[:8]}"
-    _PREVIEW_CACHE[preview_id] = {
-        "created_at": dt.datetime.now(),
-        "source": source_state,
-        "items": cache_items,
-    }
-
-    return PreviewResponse(
+    response = PreviewResponse(
         preview_id=preview_id,
         source=preview_source,
         summary=summary,
         items=items,
     )
+    _PREVIEW_CACHE[preview_id] = {
+        "created_at": dt.datetime.now(),
+        "source": source_state,
+        "items": cache_items,
+        "response": response,
+    }
+
+    return response
+
+
+def get_preview(preview_id: str) -> PreviewResponse:
+    """캐시된 미리보기 재조회 (설계 §4.3, S6) — convert 잡 완료 시 `result_preview_id`로
+    반입 위저드에 연결하는 용도. TTL(1h) 만료·존재하지 않으면 404."""
+    _purge_expired()
+    state = _PREVIEW_CACHE.get(preview_id)
+    if state is None:
+        raise NotFoundError(
+            "미리보기를 찾을 수 없습니다(만료되었을 수 있습니다). 다시 미리보기를 실행하세요",
+            detail={"preview_id": preview_id},
+        )
+    return state["response"]
 
 
 # ---------------------------------------------------------------------------
@@ -675,6 +691,10 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
             for rel_doc_id in decision.approve_relations:
                 if _create_relation(db, rel_doc_id, target_id):
                     relations_created += 1
+
+            # 트리거 1: 반입 커밋 시 — 새로 생성·병합된 문서를 태그 자동 분류 규칙으로 스캔
+            # (설계 §4.9, 계획서 §11). commit_import 트랜잭션 안에서 함께 처리한다.
+            tag_rule_service.scan_document(db, target_id)
 
         db.commit()
     except Exception:

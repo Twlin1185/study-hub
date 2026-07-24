@@ -18,6 +18,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import MiniHistoryChart from '../components/MiniHistoryChart'
 import BookmarkButton from '../components/BookmarkButton'
 import AddRelationModal from '../components/AddRelationModal'
+import RegenerateJobPanel from '../components/RegenerateJobPanel'
 import { ApiError } from '../api/client'
 
 const TYPE_LABEL: Record<DocumentType, string> = {
@@ -229,6 +230,11 @@ export default function DocumentDetailPage() {
             삭제
           </button>
         </div>
+      </div>
+
+      {/* 오류 신고 · 재생성 (설계 §5.3, F30) — 진행 중 잡 배지 / 완료 시 기존·신규 비교 */}
+      <div className="mb-3">
+        <RegenerateJobPanel doc={doc} />
       </div>
 
       {!editing && <h1 className="mb-3 text-xl font-semibold text-primary">{doc.title}</h1>}

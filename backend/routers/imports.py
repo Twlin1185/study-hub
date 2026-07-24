@@ -38,3 +38,9 @@ async def preview(
 @router.post("/commit", response_model=CommitResult)
 def commit(req: CommitRequest, db: Session = Depends(get_db)) -> CommitResult:
     return import_service.commit_import(db, req)
+
+
+@router.get("/preview/{preview_id}", response_model=PreviewResponse)
+def get_preview(preview_id: str) -> PreviewResponse:
+    """캐시된 미리보기 재조회 (설계 §4.3, S6) — convert 잡의 result_preview_id로 접근."""
+    return import_service.get_preview(preview_id)

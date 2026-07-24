@@ -17,3 +17,11 @@ body {
   color: var(--text);
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
 }
+
+/* 검색 스니펫 하이라이트 (설계 §5, S6) — 토큰만 사용해 다크 모드에서도 자동 대응 */
+mark {
+  background-color: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 2px;
+  padding: 0 1px;
+}

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { useDashboard } from '../api/dashboard'
 import { useCategoryTree } from '../api/categories'
 import { useAccuracyTrend, useHeatmap, useWeakness } from '../api/stats'
+import { useSuggestions } from '../api/suggestions'
 import { ApiError } from '../api/client'
 import ProgressBar from '../components/ProgressBar'
 import DDayBadge from '../components/DDayBadge'
@@ -44,6 +45,8 @@ export default function HomePage() {
   const heatmapQuery = useHeatmap(range.from, range.to)
   const weaknessQuery = useWeakness(null, 10)
   const accuracyTrendQuery = useAccuracyTrend(30)
+  const suggestionsQuery = useSuggestions()
+  const suggestionCount = suggestionsQuery.data?.length ?? 0
 
   if (dashboardQuery.isLoading) {
     return <p className="p-4 text-sm text-muted">불러오는 중…</p>
@@ -73,6 +76,16 @@ export default function HomePage() {
           >
             반입하러 가기          </Link>
         </div>
+      )}
+
+      {suggestionCount > 0 && (
+        <Link
+          to="/suggestions"
+          className="mb-5 flex items-center justify-between rounded-lg border border-accent bg-accent-soft px-3 py-2.5 text-sm text-accent hover:opacity-90"
+        >
+          <span>📮 분류 제안 {suggestionCount}건 대기 중</span>
+          <span>제안함 열기 ›</span>
+        </Link>
       )}
 
       {data.continue.length > 0 && (

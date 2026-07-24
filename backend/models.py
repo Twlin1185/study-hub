@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     REAL,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -82,6 +83,8 @@ class CategoryDocument(Base):
     linked_at: Mapped[dt.datetime] = mapped_column(
         DateTime, server_default=func.current_timestamp()
     )
+    linked_by: Mapped[str] = mapped_column(Text, default="manual", server_default="manual")
+    linked_rule_id: Mapped[int | None] = mapped_column(ForeignKey("tag_rules.id"))
 
     __table_args__ = (Index("ix_category_documents_document_id", "document_id"),)
 
@@ -195,6 +198,26 @@ class TagRule(Base):
     mode: Mapped[str] = mapped_column(Text, default="suggest")
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, server_default=func.current_timestamp()
+    )
+
+
+class Suggestion(Base):
+    """태그 규칙 연결 제안함 (F21, M6) — 규칙이 만든 '문서→분류 연결' 제안의 저장처."""
+
+    __tablename__ = "suggestions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), nullable=False)
+    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
+    tag_rule_id: Mapped[int | None] = mapped_column(ForeignKey("tag_rules.id"))
+    status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending")
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+    decided_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+    __table_args__ = (
+        UniqueConstraint("document_id", "category_id", name="uq_suggestions_document_category"),
     )
 
 

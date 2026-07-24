@@ -413,7 +413,9 @@ export interface CustomDDay {
 export interface SettingsResponse {
   'srs.daily_limit'?: number
   'quiz.default_count'?: number
-  'backup.auto'?: boolean
+  // 설계 §4.10 — 값은 문자열 "daily"(자동 백업 활성) | ""(비활성). 백엔드 기동 훅이
+  // `auto != "daily"`면 early return하므로 boolean이 아닌 이 문자열 계약을 그대로 따라야 한다.
+  'backup.auto'?: string
   'ddays.custom'?: CustomDDay[]
   [key: string]: unknown
 }
@@ -462,3 +464,137 @@ export interface CategoryChildStat {
 // ---- 문서 배치 조회 (설계 §4.2, 인쇄 뷰용) ----
 // 백엔드 routers/documents.py get_documents_batch(response_model=List[DocumentDetail])와 대조 완료.
 export type DocumentBatchResponse = DocumentDetail[]
+
+// ---- 검색 (설계 §4.9, §5 검색 결과 화면, S6 — v1.5 확정) ----
+// GET /api/search?q=&type=&page=&size= 응답은 §3 페이지 봉투(Paginated<SearchResultItem>).
+// snippet은 매칭 부분을 <mark>...</mark>로 감싼 문자열 — 렌더 시 mark 태그만 허용하고 나머지는
+// 이스케이프해 XSS를 차단한다(utils/snippet.ts).
+export interface SearchResultItem {
+  document_id: number
+  doc_no: string
+  type: DocumentType
+  title: string
+  snippet: string
+}
+
+// ---- 태그 병합 (설계 §4.9, F21 인접) ----
+export interface MergeTagsRequest {
+  from_id: number
+  to_id: number
+}
+
+// 응답 형태는 명세에 없음 — 병합 후 목록을 invalidate하므로 값 자체는 크게 쓰이지 않는다고 보고
+// 최소한으로 가정. 최종 보고 참고.
+export interface MergeTagsResponse {
+  merged_into: number
+}
+
+// ---- 태그 자동 분류 규칙 (설계 §4.9, F21 — v1.5 확정) ----
+export type TagRuleMode = 'auto' | 'suggest'
+
+// tag_query 문법: 단일 태그 또는 "A OR B" 결합만 (R13 — AND/괄호/NOT 없음, 태그명은 정확 일치)
+// 응답 필드: {id, category_id, category_path, tag_query, mode, created_at}
+export interface TagRule {
+  id: number
+  tag_query: string
+  category_id: number
+  category_path?: string | null
+  mode: TagRuleMode
+  created_at?: string
+}
+
+export interface TagRuleInput {
+  tag_query: string
+  category_id: number
+  mode: TagRuleMode
+}
+
+export interface TagRuleScanResult {
+  created: number
+}
+
+export interface TagRuleUnlinkResult {
+  unlinked: number
+}
+
+// ---- 제안함 (설계 §4.9 제안 수명주기, S6 — v1.5 확정) ----
+// GET /api/suggestions는 대기 중(pending)만 내려주므로 응답에 status 필드가 없다.
+// item = {id, document_id, doc_no, title, category_id, category_path, tag_rule_id,
+// tag_rule_query, created_at} — tag_rule_query는 규칙 삭제 시 null.
+export interface Suggestion {
+  id: number
+  document_id: number
+  doc_no: string
+  title: string
+  category_id: number
+  category_path: string
+  tag_rule_id: number | null
+  tag_rule_query: string | null
+  created_at: string
+}
+
+export type SuggestionListResponse = Suggestion[]
+
+export interface ApplySuggestionsRequest {
+  approve: number[]
+  reject: number[]
+}
+
+export interface ApplySuggestionsResult {
+  approved: number
+  rejected: number
+}
+
+// ---- Claude CLI 변환 · 재생성 (설계 §4.10, F23·F30, S6) ----
+export type ConvertJobStatus = 'running' | 'done' | 'error'
+
+export interface ConvertJobStartResponse {
+  job_id: string
+}
+
+// "완료 시 곧장 반입 preview로 연결"(§4.10) — result_preview_id는 GET /api/import/preview/{id}로
+// 다시 조회한다(v1.5 확정 — 백엔드에 추가됨).
+export interface ConvertJobResponse {
+  status: ConvertJobStatus
+  result_preview_id?: string | null
+  error?: string | null
+}
+
+// 재생성 초안 — 기존 문서와 나란히 비교할 필드 전체(§4.10 확정: title/content/choices/answer/
+// explanation/difficulty/tags).
+export interface RegenerateDraft {
+  title: string
+  content: string | null
+  choices: string[] | null
+  answer: string | null
+  explanation: string | null
+  difficulty: number | null
+  tags: string[]
+}
+
+export interface RegenerateJobResponse {
+  status: ConvertJobStatus
+  draft?: RegenerateDraft | null
+  error?: string | null
+}
+
+// ---- 백업 (설계 §4.10, F27, S6 — v1.5 확정) ----
+// id는 타임스탬프 문자열(숫자 PK 아님). restore는 body {confirm: "RESTORE"} 고정 문자열 필요.
+export interface BackupItem {
+  id: string
+  created_at: string
+  filename: string
+  size_bytes: number | null
+}
+
+export type BackupListResponse = BackupItem[]
+
+export interface CreateBackupResult {
+  id: string
+  created_at: string
+}
+
+// restore 확인 문구는 고정 문자열 "RESTORE" (설계 §4.10 v1.5 확정)
+export interface RestoreBackupRequest {
+  confirm: 'RESTORE'
+}
