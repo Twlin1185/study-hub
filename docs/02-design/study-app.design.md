@@ -1,6 +1,6 @@
 # Study Hub — 상세 설계 (API 명세 · 화면 상세)
 
-> 상태: **Design v1.7** — v1.6 대비: **S8(M8 LLM 인프라) API 계약 신설**(§4.11 — 엔진 진단·API 키 관리·이중 엔진 convert·오류 구조화·URL 반입). v1.6: 홈 다열 렌더를 콘텐츠 실측 폭 기준으로 변경(§5.1)
+> 상태: **Design v1.7** — v1.6 대비: **S8(M8 LLM 인프라) API 계약 신설**(§4.11 — 엔진 진단·API 키 관리·이중 엔진 convert·오류 구조화·URL 반입·**잡 진행 가시화 `progress`**). v1.6: 홈 다열 렌더를 콘텐츠 실측 폭 기준으로 변경(§5.1 — 이후 같은 날 임계값 704/1344·컨테이너 4xl/6xl·자동 분배·auto 미리보기 전용까지 확정)
 > 작성일: 2026-07-22 · 갱신: 2026-07-24
 > 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.6)
 > 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-8-llm-infra.plan.md`
@@ -239,6 +239,11 @@ study-hub/
 - **오류 구조화**: convert/regenerate 잡 상태 응답에 `error_info` 추가 — `{kind: 'rate_limit'\|'auth'\|'not_installed'\|'timeout'\|'other', limit_kind?: 'session'\|'daily'\|'weekly'\|'model'\|'overall', resets_at?, message(사람이 읽는 한국어), action(다음 행동 안내), fallback_available: bool}`. **CLI/API 원문 JSON은 사용자에게 노출 금지.** CLI 429의 `result` 문자열에서 한도 종류·리셋 시각을 파싱한다.
 - **한도 기억**: 최근 429의 `{kind, resets_at}`을 settings `llm.last_limit`에 기록 — status 응답에 포함하고, 리셋 전 변환 시도 시 실행 전에 경고(폴백 정책 적용). 리셋 시각 경과 시 자동 무효화.
 - CLI 로그인은 앱이 대행 불가(대화형) — status의 `logged_in:false`일 때 프론트가 "터미널에서 `claude` 실행해 로그인" 안내 + [다시 확인] 재진단.
+- **잡 진행 가시화(S8 — "마냥 기다리다 새로고침" 방지)**: convert/regenerate 잡 상태 응답에 `progress` 추가 —
+  `{phase: 'downloading'|'preparing'|'llm_running'|'parsing'|'preview_building', detail?, elapsed_ms, last_activity_at, usage?: {input_tokens, output_tokens, cost_usd?}, eta_ms?}`.
+  - CLI는 `--output-format stream-json`으로 실행해 스트림 이벤트에서 **활동 신호와 누적 usage를 실시간 파싱** → 잡 상태에 반영(API 엔진은 SDK 스트리밍 동일). `last_activity_at`이 진짜 심장박동 — "살아있음"을 보증한다.
+  - `eta_ms`는 **대략치**: 과거 완료 잡들의 (파일 크기→소요 시간) 이동 평균으로 추정, 표본 없으면 생략. 정확성보다 "감"이 목적.
+  - 프론트: 단계 스텝 표시 + 경과 시간 + 토큰/예상 비용 라이브 카운터 + 대략 ETA + **"새로고침해도 작업은 서버에서 계속됩니다"** 안내(폴링은 새로고침 후 job_id로 재개 — 기존 계약 그대로).
 - `home.layout`(S7, F31) 규격 — **새 API·DDL 없음**, settings GET/PUT 재사용:
   ```json
   { "columns": "auto",
@@ -263,10 +268,10 @@ study-hub/
 - **엣지**: 데이터 0건이면 온보딩 카드("기출 JSON을 반입해 시작하세요" → `/import`).
 - **위젯 레지스트리(S7, F31)** — 홈 섹션을 9개 위젯 컴포넌트로 분리, id 고정:
   `continue`(이어하기) · `today_review`(오늘의 복습) · `dday`(D-Day) · `heatmap`(학습 히트맵 — 반응형 주 수) · `exam_progress`(시험별 진도 도넛) · `recent7d`(최근 7일 풀이/정답률) · `accuracy_trend`(최근 정답률 추이) · `weakness`(자꾸 틀리는 개념 Top 10) · `bookmarks`(북마크 모아보기 진입).
-  기존 "데이터 0건이면 위젯 미표시" 관례는 유지하되, 사용자 숨김(`visible:false`)이 우선하며 숨긴 위젯은 **데이터 쿼리도 실행하지 않는다**(`enabled:false`). 온보딩 카드는 위젯이 아님(편집 대상 제외).
+  기존 "데이터 0건이면 위젯 미표시" 관례는 유지하되, 사용자 숨김(`visible:false`)이 우선하며 숨긴 위젯은 **데이터 쿼리도 실행하지 않는다**(비마운트 또는 `enabled:false` — 쿼리 미실행이면 구현 방식 무관, S7 구현은 비마운트). 온보딩 카드는 위젯이 아님(편집 대상 제외).
 - **편집 모드(S7, F31)**: 홈 헤더 [편집] → 위젯마다 드래그 핸들(≡)·숨김(눈) 토글, 상단 열 수 세그먼트(자동/1/2/3), 하단 "숨긴 위젯" 목록(탭하면 복귀), [기본값 복원], [완료]=`PUT /api/settings`(`home.layout`, §4.10 — 저장은 완료 시 1회, 취소 시 드래프트 폐기).
   - 드래그는 **Pointer Events 직접 구현**(pointerdown/move/up + setPointerCapture, 핸들 `touch-action:none`) — **외부 D&D 라이브러리 금지**. 같은 열 내 순서 변경 + 열 간 이동(col 배정), 드래그 중 자리표시자 표시.
-  - 폴백: 핸들 옆 ▲▼(순서)·◀▶(열 이동) 버튼 — 터치 스크롤 충돌·접근성 대비. 모바일은 이 버튼만으로도 전체 편집 가능.
+  - 폴백: 핸들 옆 ▲▼(순서)·◀▶(열 이동) 버튼 — 터치 스크롤 충돌·접근성 대비. 모바일은 이 버튼만으로도 전체 편집 가능. **단 auto 모드에서는 배치 조작 전체가 비활성** — 아래 "편집 모드의 열 조작 규칙" 참조.
 - **다열 렌더(S7, F31)**: `columns:'auto'` = **콘텐츠 영역 실측 폭 기준**(사이드바 제외 가용 폭을 ResizeObserver로 관측 — 창 크기 변화와 사이드바 접힘/펼침에 실시간 반응): `<704px` 1열 · `704~1343px` 2열 · `≥1344px` 3열. 고정 1/2/3. **콘텐츠 폭 <640px는 항상 1열 강등**(col 값은 보존, order·col 순으로 평탄화). 열 수 축소 시 초과 col은 마지막 열로 클램프. 컨테이너 폭 1열 `max-w-2xl`(672) · 2열 `max-w-4xl`(896) · 3열 `max-w-6xl`(1152) + `mx-auto`.
   - **컨테이너 최대 폭은 그 열 수가 흔히 쓰이는 콘텐츠 폭보다 확실히 작게** 잡는다 — 일반 PC 폭(콘텐츠 ≥896px)에서 항상 수십~수백 px의 좌우 여백이 남아 **가운데 정렬이 눈에 보인다**. 검산: 콘텐츠 1088px(1280 창)→2열 여백 96px씩 · 1344px(1536 창)→3열 여백 96px씩 · 1728px(1920 창)→3열 여백 288px씩. (v1.6 초안 5xl/7xl은 현실적인 창 폭 대부분에서 컨테이너가 영역을 꽉 채워 여백 0~32px — 정렬 체감 불가. 2026-07-24 사용자 피드백 3차 반영.)
   - **자동 분배(3차 피드백 반영)**: 표시 위젯들의 col 값이 사실상 미지정(전원 동일 col — 기본 레이아웃이 이 상태)인데 렌더 열이 2~3열이면, 배열 순서대로 **라운드로빈 자동 분배**한다(0,1,2,0,1,…) — 우선순위 높은 위젯이 각 열 상단에 오고, 창이 넓어질 때 위젯이 자연스럽게 열로 퍼진다. 사용자가 편집 모드에서 열을 지정한(서로 다른 col 존재) 레이아웃은 자동 분배하지 않고 지정값 그대로. 편집 모드는 현재 화면과 동일한 분배로 렌더(WYSIWYG).
