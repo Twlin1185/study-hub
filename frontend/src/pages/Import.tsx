@@ -14,6 +14,7 @@ import type {
   ImportDecision,
   ImportItem,
   ImportPreviewResponse,
+  LlmErrorInfo,
 } from '../api/types'
 
 type WizardStep = 'select' | 'preview' | 'result'
@@ -37,6 +38,17 @@ const TYPE_LABEL: Record<string, string> = {
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
+}
+
+// 한도 기억(remembered-limit) 사전 차단 — 폴백 ask/off일 때 변환 시작 자체가 409로 거부되며
+// detail에 LlmErrorInfo가 실려 온다(설계 §4.11). 원문 판별은 과하지 않게 kind 필드 존재만 본다.
+function extractLlmErrorInfo(error: unknown): LlmErrorInfo | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null
+  const detail = error.detail
+  if (detail && typeof detail === 'object' && 'kind' in detail) {
+    return detail as LlmErrorInfo
+  }
+  return null
 }
 
 function toggleValue<T>(values: T[], value: T): T[] {
@@ -361,6 +373,8 @@ function ConvertStep({ sourceKind, onPreviewReady, onFallbackToManual }: Convert
   // 없어 새로고침 후 재시도하려면 파일을 다시 선택해야 한다.
   const canStart = sourceKind === 'url' ? url.trim().length > 0 : file != null
   const needsReselect = sourceKind === 'file' && jobFailed && !file
+  // 시작 요청 자체가 409(한도 기억 사전 차단)로 거부된 경우 — LlmErrorInfoView로 구조화 렌더.
+  const startErrorInfo = startConvert.isError ? extractLlmErrorInfo(startConvert.error) : null
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
@@ -403,9 +417,16 @@ function ConvertStep({ sourceKind, onPreviewReady, onFallbackToManual }: Convert
         </label>
       )}
 
-      {startConvert.isError && (
-        <p className="text-sm text-wrong">{errMsg(startConvert.error, '변환 시작에 실패했습니다.')}</p>
-      )}
+      {startConvert.isError &&
+        (startErrorInfo ? (
+          <LlmErrorInfoView
+            errorInfo={startErrorInfo}
+            onRetryWithApi={canStart ? () => startJob('api') : undefined}
+            retrying={startConvert.isPending}
+          />
+        ) : (
+          <p className="text-sm text-wrong">{errMsg(startConvert.error, '변환 시작에 실패했습니다.')}</p>
+        ))}
 
       {running && <LlmJobProgress progress={jobQuery.data?.progress} includeDownloading={sourceKind === 'url'} />}
 

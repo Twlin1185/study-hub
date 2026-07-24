@@ -1,8 +1,8 @@
 """LLM 엔진 진단 · API 키 관리 · 오류 구조화 공통 로직 (F34, 설계 §4.11).
 
-- 키 저장은 루트 `secrets.json` 전용 — **DB/settings 금지**(백업(F27) zip·git 추적 대상 아님).
-  키 해석 순서: secrets.json → 환경변수(`ANTHROPIC_API_KEY`) → `ant` 프로필
-  (`~/.anthropic/config.json`이 있으면 읽고, 없으면 조용히 건너뜀 — 없어도 오류 아님).
+- 키 저장은 루트 `secrets.json` **단일 출처** — **DB/settings 금지**(백업(F27) zip·git 추적
+  대상 아님). 설정 화면에서 사용자가 직접 입력·등록한 값만 사용한다(환경변수·외부 프로필
+  파일 등 다른 경로로의 폴백 없음 — 단순함·예측 가능성 우선, 사용자 결정).
 - CLI/API 오류 원문(JSON·스택트레이스)은 절대 사용자 응답에 노출하지 않는다 — 항상
   `classify_cli_failure`/`classify_api_exception`을 거쳐 사람이 읽는 `error_info`로 변환한다.
   원문은 서버 로그(`logging`)에만 남긴다.
@@ -13,12 +13,10 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-import os
 import re
 import shutil
 import subprocess
 import threading
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
@@ -30,7 +28,6 @@ from services import settings_service
 logger = logging.getLogger(__name__)
 
 SECRETS_PATH = BASE_DIR / "secrets.json"
-ANT_PROFILE_PATH = Path.home() / ".anthropic" / "config.json"
 
 DEFAULT_API_MODEL = "claude-sonnet-5"
 
@@ -84,38 +81,17 @@ def _save_secrets(data: Dict[str, Any]) -> None:
     SECRETS_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _ant_profile_key() -> Optional[str]:
-    """`ant` 프로필 — `~/.anthropic/config.json`이 있으면 읽는다(3순위, 없어도 오류 아님).
-
-    가정: Study Hub 자체 규약이 아니라 사용자 환경의 anthropic 설정 파일을 재사용하는
-    선택적 3순위이므로, 파일이 없거나 파싱 실패해도 조용히 None을 반환한다."""
-    if not ANT_PROFILE_PATH.exists():
-        return None
-    try:
-        data = json.loads(ANT_PROFILE_PATH.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    key = data.get("api_key") or data.get("ANTHROPIC_API_KEY")
-    return key if isinstance(key, str) and key.strip() else None
-
-
 def get_api_key() -> Optional[str]:
-    """키 해석 순서: secrets.json → 환경변수 → `ant` 프로필."""
+    """secrets.json의 `anthropic_api_key` 단일 출처 — 설정 화면에서 사용자가 등록한 값만
+    사용한다(환경변수·외부 프로필 폴백 없음)."""
     secrets = _load_secrets()
     key = secrets.get("anthropic_api_key")
-    if isinstance(key, str) and key.strip():
-        return key.strip()
-    env_key = os.environ.get("ANTHROPIC_API_KEY")
-    if env_key and env_key.strip():
-        return env_key.strip()
-    return _ant_profile_key()
+    return key.strip() if isinstance(key, str) and key.strip() else None
 
 
 def api_key_status() -> Dict[str, Any]:
-    """status 응답용 — 어느 경로로든(secrets.json/환경변수/ant 프로필) 키를 쓸 수 있으면
-    registered=True. 원문 키는 절대 반환하지 않는다(마지막 4자리만)."""
+    """status 응답용 — secrets.json에 등록된 키가 있으면 registered=True(단일 출처와 정확히
+    일치). 원문 키는 절대 반환하지 않는다(마지막 4자리만)."""
     key = get_api_key()
     if not key:
         return {"key_registered": False, "key_suffix": None}
@@ -534,11 +510,22 @@ def get_remembered_limit(db: Session) -> Optional[Dict[str, Any]]:
     return {"kind": raw.get("limit_kind"), "resets_at": raw.get("resets_at")}
 
 
-def check_remembered_limit_or_raise(db: Session, engine: str) -> None:
-    """리셋 전 같은 엔진으로 재시도하면 잡을 만들기 전에 즉시 경고 응답(409)으로 막는다."""
+def apply_remembered_limit(db: Session, engine: str) -> str:
+    """리셋 전 같은 엔진 재시도를 잡 생성 전에 처리한다.
+    - 기억된 한도가 없거나 다른 엔진 대상이면 engine을 그대로 반환한다.
+    - 폴백 정책이 'auto'이고 다른 엔진을 바로 쓸 수 있으면 **조용히 그 엔진으로 전환**해
+      반환한다(409 없음) — 호출부는 반환값이 engine과 다르면 사전 전환이 일어났다고 판단하면
+      된다(예: `job["_fallback_used"] = True`로 런타임 재전환 낭비를 막는다).
+    - 그 외(ask/off/대체 엔진 불가)는 기존과 동일하게 즉시 409 ConflictError로 경고한다."""
     raw = _get_remembered_limit_raw(db)
     if raw is None or raw.get("engine") != engine:
-        return
+        return engine
+
+    other = "api" if engine == "cli" else "cli"
+    fallback_policy = settings_service.get_setting(db, "llm.fallback", "ask")
+    if fallback_policy == "auto" and is_engine_available(other):
+        return other
+
     resets_at_str = raw.get("resets_at")
     resets_at = None
     if resets_at_str:
@@ -547,8 +534,6 @@ def check_remembered_limit_or_raise(db: Session, engine: str) -> None:
         except ValueError:
             resets_at = None
     message = _humanize_limit_message(raw.get("limit_kind"), resets_at)
-    other = "api" if engine == "cli" else "cli"
-    fallback_policy = settings_service.get_setting(db, "llm.fallback", "ask")
     raise ConflictError(
         message,
         detail={

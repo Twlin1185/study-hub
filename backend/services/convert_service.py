@@ -288,10 +288,23 @@ def _run_claude_cli_streaming(prompt: str, *, timeout_seconds: int, job_id: str)
                 state["is_error"] = bool(event.get("is_error"))
                 result = event.get("result")
                 state["result_text"] = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+                cost = event.get("total_cost_usd")
+                if cost is not None:
+                    _touch_activity(job_id, usage={"cost_usd": cost})
                 _touch_activity(job_id)
 
+    stderr_chunks: List[str] = []
+
+    def _stderr_reader() -> None:
+        if proc.stderr is None:
+            return
+        for line in proc.stderr:
+            stderr_chunks.append(line)
+
     reader_thread = threading.Thread(target=_reader, daemon=True)
+    stderr_thread = threading.Thread(target=_stderr_reader, daemon=True)
     reader_thread.start()
+    stderr_thread.start()
 
     try:
         proc.wait(timeout=timeout_seconds)
@@ -302,14 +315,11 @@ def _run_claude_cli_streaming(prompt: str, *, timeout_seconds: int, job_id: str)
             f"claude CLI 실행이 {timeout_seconds}초 내에 끝나지 않았습니다(타임아웃). "
             "파일이 너무 크거나 응답이 지연되고 있을 수 있습니다."
         ) from exc
+    # stdout·stderr 파이프를 각각 별도 스레드로 동시에 배수한다 — 한쪽만 읽으면 다른 쪽
+    # 버퍼가 가득 차 자식 프로세스가 블로킹되는 교착 상태를 원천 차단한다.
     reader_thread.join(timeout=5)
-
-    stderr_text = ""
-    if proc.stderr is not None:
-        try:
-            stderr_text = proc.stderr.read() or ""
-        except (OSError, ValueError):
-            stderr_text = ""
+    stderr_thread.join(timeout=5)
+    stderr_text = "".join(stderr_chunks)
 
     if state["result_text"] is None:
         if proc.returncode != 0:
@@ -645,7 +655,14 @@ def _process_job(job_id: str) -> None:
             job = _JOBS.get(job_id)
             if job is not None:
                 job["status"] = "error"
-                job["error"] = str(exc)
+                if isinstance(exc, (ClaudeCliError, llm_engine_service.ApiEngineError)):
+                    # 엔진 원문(CLI stderr·anthropic 예외 문자열)은 error_info로만 노출한다.
+                    job["error"] = None
+                elif isinstance(exc, AppError):
+                    # SSRF 차단·JSON 파싱 실패 등 이미 안전한 한국어 메시지는 그대로 보존.
+                    job["error"] = exc.message
+                else:
+                    job["error"] = None
                 if job.get("_error_info") is None:
                     job["_error_info"] = _fallback_error_info(exc)
     finally:
@@ -787,7 +804,9 @@ def start_convert_job(
             detail={"path": str(CONVERT_PROMPT_PATH)},
         )
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
-    llm_engine_service.check_remembered_limit_or_raise(db, resolved_engine)
+    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
+    pre_fallback = applied_engine != resolved_engine
+    resolved_engine = applied_engine
     api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
 
     CONVERT_TMP_DIR.mkdir(exist_ok=True)
@@ -796,6 +815,8 @@ def start_convert_job(
     tmp_path.write_bytes(upload_bytes)
 
     job = _new_job_base("convert", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    if pre_fallback:
+        job["_fallback_used"] = True  # 사전 자동 전환 — 런타임 재전환(원 엔진 복귀) 낭비 방지
     job.update(
         {
             "_timeout": timeout_seconds,
@@ -830,11 +851,15 @@ def start_convert_job_from_url(
     if not url or not url.strip():
         raise ValidationAppError("url이 비어 있습니다")
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
-    llm_engine_service.check_remembered_limit_or_raise(db, resolved_engine)
+    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
+    pre_fallback = applied_engine != resolved_engine
+    resolved_engine = applied_engine
     api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
 
     job_id = f"cvt_{uuid.uuid4().hex[:8]}"
     job = _new_job_base("convert", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    if pre_fallback:
+        job["_fallback_used"] = True
     job.update({"_timeout": timeout_seconds, "_url": url.strip(), "_phase": "downloading", "_phase_detail": url.strip()})
     with _JOBS_LOCK:
         _JOBS[job_id] = job
@@ -1008,13 +1033,17 @@ def start_regenerate_job(
         source_note = f"{source_note + chr(10) if source_note else ''}원본 위치: {document.source_detail}"
 
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
-    llm_engine_service.check_remembered_limit_or_raise(db, resolved_engine)
+    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
+    pre_fallback = applied_engine != resolved_engine
+    resolved_engine = applied_engine
     api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
 
     prompt = _build_regenerate_prompt(document, tags, choices, reason, source_note, engine=resolved_engine)
 
     job_id = f"rgn_{uuid.uuid4().hex[:8]}"
     job = _new_job_base("regenerate", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    if pre_fallback:
+        job["_fallback_used"] = True
     job.update(
         {
             "document_id": document_id,

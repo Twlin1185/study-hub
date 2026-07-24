@@ -13,7 +13,7 @@
 
 ### 1. 백엔드 — 엔진 진단·키 관리 (F34)
 - [x] `services/llm_engine_service.py`: CLI 진단(설치=`claude --version`, 로그인/호출 가능=초경량 호출), API 키 검증(초경량 SDK 호출), 진단 결과 캐시(연속 호출 방지)
-- [x] `secrets.json` 로더: 루트 저장, **.gitignore 추가 + 백업(F27) zip 제외** 확인. 키 해석 순서: secrets.json → 환경변수 → `ant` 프로필
+- [x] `secrets.json` 로더: 루트 저장, **.gitignore 추가 + 백업(F27) zip 제외** 확인. 키는 **설정 화면에서 사용자가 직접 입력·등록한 secrets.json 단일 출처**(환경변수·외부 프로필 자동 탐색 없음 — 2026-07-24 사용자 결정)
 - [x] `GET /api/llm/status` · `POST /api/llm/api-key`(즉석 연결 테스트 성공 시에만 저장, 응답은 `key_suffix`만) · `DELETE /api/llm/api-key` (설계 §4.11)
 - [x] settings 키: `llm.priority`(기본 cli) · `llm.fallback`(기본 ask) · `llm.api_model`(기본 claude-sonnet-5)
 
