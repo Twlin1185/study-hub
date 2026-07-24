@@ -155,7 +155,7 @@ def start_regenerate(
     document_id: int, payload: RegenerateRequest, db: Session = Depends(get_db)
 ) -> RegenerateJobStart:
     """오류 신고 → 재생성 잡 시작 (F30). convert 잡 큐 재사용(동시 1개)."""
-    job_id = convert_service.start_regenerate_job(db, document_id, payload.reason)
+    job_id = convert_service.start_regenerate_job(db, document_id, payload.reason, engine=payload.engine)
     return RegenerateJobStart(job_id=job_id)
 
 

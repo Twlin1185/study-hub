@@ -12,34 +12,34 @@
 ## 작업 체크리스트
 
 ### 1. 백엔드 — 엔진 진단·키 관리 (F34)
-- [ ] `services/llm_engine_service.py`: CLI 진단(설치=`claude --version`, 로그인/호출 가능=초경량 호출), API 키 검증(초경량 SDK 호출), 진단 결과 캐시(연속 호출 방지)
-- [ ] `secrets.json` 로더: 루트 저장, **.gitignore 추가 + 백업(F27) zip 제외** 확인. 키 해석 순서: secrets.json → 환경변수 → `ant` 프로필
-- [ ] `GET /api/llm/status` · `POST /api/llm/api-key`(즉석 연결 테스트 성공 시에만 저장, 응답은 `key_suffix`만) · `DELETE /api/llm/api-key` (설계 §4.11)
-- [ ] settings 키: `llm.priority`(기본 cli) · `llm.fallback`(기본 ask) · `llm.api_model`(기본 claude-sonnet-5)
+- [x] `services/llm_engine_service.py`: CLI 진단(설치=`claude --version`, 로그인/호출 가능=초경량 호출), API 키 검증(초경량 SDK 호출), 진단 결과 캐시(연속 호출 방지)
+- [x] `secrets.json` 로더: 루트 저장, **.gitignore 추가 + 백업(F27) zip 제외** 확인. 키 해석 순서: secrets.json → 환경변수 → `ant` 프로필
+- [x] `GET /api/llm/status` · `POST /api/llm/api-key`(즉석 연결 테스트 성공 시에만 저장, 응답은 `key_suffix`만) · `DELETE /api/llm/api-key` (설계 §4.11)
+- [x] settings 키: `llm.priority`(기본 cli) · `llm.fallback`(기본 ask) · `llm.api_model`(기본 claude-sonnet-5)
 
 ### 2. 백엔드 — 이중 엔진 convert/regenerate (F34)
-- [ ] API 엔진 경로: anthropic SDK 직접 호출 — convert/regenerate와 **동일 프롬프트 템플릿**, 기존 잡 큐(동시 1개) 공유
-- [ ] `POST /api/convert`·regenerate에 `engine` 파라미터(`auto|cli|api`, 기본 auto=우선순위 설정)
-- [ ] **오류 구조화**: 잡 실패 시 CLI/API 응답 파싱 → `error_info {kind, limit_kind?, resets_at?, message, action, fallback_available}` (설계 §4.11). CLI 429 `result` 문자열에서 한도 종류·리셋 시각 추출. **원문 JSON 노출 금지**
-- [ ] 한도 기억: 최근 429를 settings `llm.last_limit`에 기록, 리셋 전 시도 시 실행 전 경고 응답, 경과 시 자동 무효화
+- [x] API 엔진 경로: anthropic SDK 직접 호출 — convert/regenerate와 **동일 프롬프트 템플릿**, 기존 잡 큐(동시 1개) 공유
+- [x] `POST /api/convert`·regenerate에 `engine` 파라미터(`auto|cli|api`, 기본 auto=우선순위 설정)
+- [x] **오류 구조화**: 잡 실패 시 CLI/API 응답 파싱 → `error_info {kind, limit_kind?, resets_at?, message, action, fallback_available}` (설계 §4.11). CLI 429 `result` 문자열에서 한도 종류·리셋 시각 추출. **원문 JSON 노출 금지**
+- [x] 한도 기억: 최근 429를 settings `llm.last_limit`에 기록, 리셋 전 시도 시 실행 전 경고 응답, 경과 시 자동 무효화
 
 ### 2b. 백엔드 — 잡 진행 가시화 (F34, 설계 §4.11 `progress`)
-- [ ] CLI 실행을 `--output-format stream-json`으로 전환, 스트림 이벤트에서 활동·누적 usage 실시간 파싱 → 잡 `progress {phase, detail, elapsed_ms, last_activity_at, usage, eta_ms?}` 갱신 (API 엔진은 SDK 스트리밍 동일)
-- [ ] 단계 전이 기록: downloading(URL) → preparing → llm_running → parsing → preview_building
-- [ ] ETA 대략치: 과거 완료 잡의 (입력 크기→소요 시간) 이동 평균, 표본 없으면 생략
+- [x] CLI 실행을 `--output-format stream-json`으로 전환, 스트림 이벤트에서 활동·누적 usage 실시간 파싱 → 잡 `progress {phase, detail, elapsed_ms, last_activity_at, usage, eta_ms?}` 갱신 (API 엔진은 SDK 스트리밍 동일)
+- [x] 단계 전이 기록: downloading(URL) → preparing → llm_running → parsing → preview_building
+- [x] ETA 대략치: 과거 완료 잡의 (입력 크기→소요 시간) 이동 평균, 표본 없으면 생략
 
 ### 3. 백엔드 — URL 반입 (F35 1단계)
-- [ ] `POST /api/convert {url}`: 서버 다운로드 → 기존 변환 파이프라인. **안전장치 필수**: 크기 상한(예: 50MB), content-type 화이트리스트(pdf/html/이미지/md), **사설·로컬 IP 차단(SSRF)**, 타임아웃
-- [ ] 다운로드 원본은 sources/ 보관 관례 재사용(파일 반입과 동일)
+- [x] `POST /api/convert {url}`: 서버 다운로드 → 기존 변환 파이프라인. **안전장치 필수**: 크기 상한(예: 50MB), content-type 화이트리스트(pdf/html/이미지/md), **사설·로컬 IP 차단(SSRF)**, 타임아웃
+- [x] 다운로드 원본은 sources/ 보관 관례 재사용(파일 반입과 동일)
 
 ### 4. 프론트엔드
-- [ ] **설정 화면 카테고리 골격 선반영**(F38 선행분): 설정을 6그룹(학습/일정/태그·분류/LLM 엔진/데이터/화면)으로 나누고 좌측 목차(모바일 아코디언) 추가 — 기존 항목은 그룹으로 이동만, 세부 재구성·태그 관리자는 M9
-- [ ] 설정 "LLM 엔진" 섹션: **CLI 카드**(설치/로그인/정상 3상태 + 한도 상태·리셋 시각 + 미로그인 시 "터미널에서 `claude` 실행" 안내 마법사 + [다시 확인]) · **API 카드**(키 입력→연결 테스트→마스킹 표시·삭제)
-- [ ] 우선 엔진 세그먼트(CLI↔API) + 폴백 정책(자동/물어보기/끔) — **자동 선택 시 과금 발생 동의 확인** 필수
-- [ ] 반입 화면 "URL로 시작" 입력(기존 convert 폴링·미리보기 연결 재사용)
-- [ ] 잡 실패 시 `error_info` 렌더: 한도면 종류·리셋 시각 + `fallback_available`이면 [API로 재시도] 버튼(`engine:'api'` 재요청). 원문 JSON 미노출
-- [ ] 한도 기억 경고: 리셋 전 변환 시도 시 시작 전에 배너로 안내
-- [ ] **진행 패널**: 단계 스텝(다운로드→준비→LLM 작업 중→결과 정리→미리보기) + 경과 시간 + 토큰/예상 비용 라이브 카운터 + 대략 ETA + "새로고침해도 작업은 서버에서 계속됩니다" 안내. `last_activity_at`이 일정 시간 갱신 없으면 "응답 지연" 표시
+- [x] **설정 화면 카테고리 골격 선반영**(F38 선행분): 설정을 6그룹(학습/일정/태그·분류/LLM 엔진/데이터/화면)으로 나누고 좌측 목차(모바일 아코디언) 추가 — 기존 항목은 그룹으로 이동만, 세부 재구성·태그 관리자는 M9
+- [x] 설정 "LLM 엔진" 섹션: **CLI 카드**(설치/로그인/정상 3상태 + 한도 상태·리셋 시각 + 미로그인 시 "터미널에서 `claude` 실행" 안내 마법사 + [다시 확인]) · **API 카드**(키 입력→연결 테스트→마스킹 표시·삭제)
+- [x] 우선 엔진 세그먼트(CLI↔API) + 폴백 정책(자동/물어보기/끔) — **자동 선택 시 과금 발생 동의 확인** 필수
+- [x] 반입 화면 "URL로 시작" 입력(기존 convert 폴링·미리보기 연결 재사용)
+- [x] 잡 실패 시 `error_info` 렌더: 한도면 종류·리셋 시각 + `fallback_available`이면 [API로 재시도] 버튼(`engine:'api'` 재요청). 원문 JSON 미노출
+- [x] 한도 기억 경고: 리셋 전 변환 시도 시 시작 전에 배너로 안내
+- [x] **진행 패널**: 단계 스텝(다운로드→준비→LLM 작업 중→결과 정리→미리보기) + 경과 시간 + 토큰/예상 비용 라이브 카운터 + 대략 ETA + "새로고침해도 작업은 서버에서 계속됩니다" 안내. `last_activity_at`이 일정 시간 갱신 없으면 "응답 지연" 표시
 
 ## 완료 기준 (DoD)
 

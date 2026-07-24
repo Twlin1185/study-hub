@@ -417,6 +417,10 @@ export interface SettingsResponse {
   // `auto != "daily"`면 early return하므로 boolean이 아닌 이 문자열 계약을 그대로 따라야 한다.
   'backup.auto'?: string
   'ddays.custom'?: CustomDDay[]
+  // ---- LLM 엔진 설정 (설계 §4.11, S8) ----
+  'llm.priority'?: LlmPriority
+  'llm.fallback'?: LlmFallbackPolicy
+  'llm.api_model'?: string
   [key: string]: unknown
 }
 
@@ -545,7 +549,82 @@ export interface ApplySuggestionsResult {
   rejected: number
 }
 
-// ---- Claude CLI 변환 · 재생성 (설계 §4.10, F23·F30, S6) ----
+// ---- LLM 엔진 관리 (설계 §4.11, F34·F35 1단계, S8) ----
+
+// 파일 업로드/URL 반입 모두에서 선택 가능한 엔진 (POST /convert, POST .../regenerate 공통).
+// 'auto' = 우선순위 설정(llm.priority) 따름 — 기본값.
+export type LlmEngine = 'auto' | 'cli' | 'api'
+export type LlmPriority = 'cli' | 'api'
+export type LlmFallbackPolicy = 'auto' | 'ask' | 'off'
+
+export interface LlmCliStatus {
+  installed: boolean
+  logged_in: boolean
+  last_success_at: string | null
+  last_error_kind: string | null
+}
+
+export interface LlmApiStatus {
+  key_registered: boolean
+  key_suffix: string | null
+  last_success_at: string | null
+}
+
+// 최근 429 한도 기억 — resets_at 이전이면 재시도 전 경고 배너 대상 (설계 §4.11 "한도 기억").
+export interface LlmLimitInfo {
+  kind: string
+  resets_at: string
+}
+
+export interface LlmStatusResponse {
+  cli: LlmCliStatus
+  api: LlmApiStatus
+  limit: LlmLimitInfo | null
+  priority: LlmPriority
+  fallback_policy: LlmFallbackPolicy
+}
+
+export interface ApiKeyRequest {
+  key: string
+}
+
+// 키 원문은 어떤 응답에도 포함되지 않는다(write-only) — 응답은 마지막 4자리만.
+export interface ApiKeyResponse {
+  key_suffix: string
+}
+
+export type LlmErrorKind = 'rate_limit' | 'auth' | 'not_installed' | 'timeout' | 'other'
+export type LlmLimitKind = 'session' | 'daily' | 'weekly' | 'model' | 'overall'
+
+// convert/regenerate 잡 실패 시 구조화된 오류(설계 §4.11) — 원문 CLI/API JSON은 여기 담기지 않는다.
+export interface LlmErrorInfo {
+  kind: LlmErrorKind
+  limit_kind?: LlmLimitKind | null
+  resets_at?: string | null
+  message: string
+  action: string
+  fallback_available: boolean
+}
+
+export type JobPhase = 'downloading' | 'preparing' | 'llm_running' | 'parsing' | 'preview_building'
+
+export interface JobUsage {
+  input_tokens: number
+  output_tokens: number
+  cost_usd?: number | null
+}
+
+// 잡 진행 가시화(설계 §4.11) — last_activity_at이 진짜 심장박동. eta_ms는 표본 없으면 생략.
+export interface JobProgress {
+  phase: JobPhase
+  detail?: string | null
+  elapsed_ms: number
+  last_activity_at: string
+  usage?: JobUsage | null
+  eta_ms?: number | null
+}
+
+// ---- Claude CLI 변환 · 재생성 (설계 §4.10·§4.11, F23·F30·F34·F35, S6·S8) ----
 export type ConvertJobStatus = 'running' | 'done' | 'error'
 
 export interface ConvertJobStartResponse {
@@ -553,11 +632,13 @@ export interface ConvertJobStartResponse {
 }
 
 // "완료 시 곧장 반입 preview로 연결"(§4.10) — result_preview_id는 GET /api/import/preview/{id}로
-// 다시 조회한다(v1.5 확정 — 백엔드에 추가됨).
+// 다시 조회한다(v1.5 확정 — 백엔드에 추가됨). error_info·progress는 S8 신규(§4.11).
 export interface ConvertJobResponse {
   status: ConvertJobStatus
   result_preview_id?: string | null
   error?: string | null
+  error_info?: LlmErrorInfo | null
+  progress?: JobProgress | null
 }
 
 // 재생성 초안 — 기존 문서와 나란히 비교할 필드 전체(§4.10 확정: title/content/choices/answer/
@@ -576,6 +657,8 @@ export interface RegenerateJobResponse {
   status: ConvertJobStatus
   draft?: RegenerateDraft | null
   error?: string | null
+  error_info?: LlmErrorInfo | null
+  progress?: JobProgress | null
 }
 
 // ---- 백업 (설계 §4.10, F27, S6 — v1.5 확정) ----

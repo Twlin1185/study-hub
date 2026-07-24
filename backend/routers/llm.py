@@ -1,0 +1,35 @@
+"""LLM 엔진 관리 라우터 (F34, 설계 §4.11) — 진단·API 키 등록/삭제."""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from starlette import status
+
+from database import get_db
+from schemas.llm import ApiKeyRequest, ApiKeySaved, LlmStatus
+from services import llm_engine_service, settings_service
+
+router = APIRouter(prefix="/api/llm", tags=["llm"])
+
+
+@router.get("/status", response_model=LlmStatus)
+def get_status(
+    refresh: bool = Query(default=False, description="CLI 진단 캐시를 무시하고 다시 확인"),
+    db: Session = Depends(get_db),
+) -> LlmStatus:
+    if refresh:
+        llm_engine_service.diagnose_cli(force=True)
+    return LlmStatus(**llm_engine_service.get_status(db))
+
+
+@router.post("/api-key", response_model=ApiKeySaved)
+def register_api_key(payload: ApiKeyRequest, db: Session = Depends(get_db)) -> ApiKeySaved:
+    """즉석 연결 테스트 성공 시에만 저장(secrets.json, DB/settings 금지). 응답은 key_suffix만."""
+    model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+    suffix = llm_engine_service.save_api_key(payload.key, model=model)
+    return ApiKeySaved(key_suffix=suffix)
+
+
+@router.delete("/api-key", status_code=status.HTTP_204_NO_CONTENT)
+def remove_api_key() -> None:
+    llm_engine_service.delete_api_key()
