@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import SearchBar from './SearchBar'
 import SuggestionsNavBadge from './SuggestionsNavBadge'
+import { useSidebarStore } from '../stores/sidebar'
 
 interface NavItem {
   to: string
@@ -27,18 +28,22 @@ const DESKTOP_EXTRA_ITEMS: NavItem[] = [
   { to: '/print', label: '인쇄', icon: '🖨️' },
 ]
 
-function NavButton({ item, compact }: { item: NavItem; compact?: boolean }) {
+function NavButton({ item, compact, collapsed }: { item: NavItem; compact?: boolean; collapsed?: boolean }) {
   if (item.disabled) {
     return (
       <span
-        className={`flex select-none flex-col items-center justify-center gap-0.5 rounded px-2 py-1.5 text-muted opacity-40 ${
-          compact ? 'flex-1 text-[11px]' : 'flex-row justify-start gap-2 px-3 text-sm'
+        className={`flex select-none items-center gap-0.5 rounded text-muted opacity-40 ${
+          compact
+            ? 'flex-1 flex-col justify-center px-2 py-1.5 text-[11px]'
+            : collapsed
+              ? 'justify-center px-2 py-2 text-sm'
+              : 'flex-row justify-start gap-2 px-3 py-1.5 text-sm'
         }`}
         aria-disabled="true"
-        title="아직 구현되지 않았습니다"
+        title={collapsed ? `${item.label} (아직 구현되지 않았습니다)` : '아직 구현되지 않았습니다'}
       >
         <span aria-hidden>{item.icon}</span>
-        <span>{item.label}</span>
+        {!collapsed && <span>{item.label}</span>}
       </span>
     )
   }
@@ -46,38 +51,77 @@ function NavButton({ item, compact }: { item: NavItem; compact?: boolean }) {
     <NavLink
       to={item.to}
       end={item.end}
+      title={collapsed ? item.label : undefined}
       className={({ isActive }) =>
-        `flex flex-col items-center justify-center gap-0.5 rounded px-2 py-1.5 transition-colors ${
-          compact ? 'flex-1 text-[11px]' : 'flex-row justify-start gap-2 px-3 py-2 text-sm'
+        `flex items-center rounded transition-colors ${
+          compact
+            ? 'flex-1 flex-col justify-center gap-0.5 px-2 py-1.5 text-[11px]'
+            : collapsed
+              ? 'justify-center px-2 py-2 text-sm'
+              : 'flex-row justify-start gap-2 px-3 py-2 text-sm'
         } ${isActive ? 'text-accent bg-accent-soft' : 'text-muted hover:bg-bg hover:text-primary'}`
       }
     >
       <span aria-hidden>{item.icon}</span>
-      <span>{item.label}</span>
+      {!compact && !collapsed && <span>{item.label}</span>}
     </NavLink>
   )
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
+  const sidebar = useSidebarStore((s) => s.state)
+  const toggleSidebar = useSidebarStore((s) => s.toggle)
+  const setSidebar = useSidebarStore((s) => s.setState)
+  const collapsed = sidebar === 'collapsed'
+
   return (
     <div className="flex h-full min-h-screen bg-bg text-primary">
-      {/* 데스크톱 사이드바 */}
-      <aside className="hidden w-48 shrink-0 flex-col border-r border-border bg-surface p-3 md:flex print:hidden">
-        <h1 className="mb-3 px-2 text-base font-semibold text-primary">Study Hub</h1>
-        <div className="px-2">
-          <SearchBar variant="sidebar" />
+      {/* 데스크톱/태블릿 사이드바 (F33: 접힘 토글) */}
+      <aside
+        className={`hidden shrink-0 flex-col border-r border-border bg-surface p-3 md:flex print:hidden ${
+          collapsed ? 'w-16' : 'w-48'
+        }`}
+      >
+        <div className={`mb-3 flex items-center ${collapsed ? 'justify-center' : 'justify-between px-2'}`}>
+          {!collapsed && <h1 className="text-base font-semibold text-primary">Study Hub</h1>}
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            aria-label={collapsed ? '사이드바 펼치기' : '사이드바 접기'}
+            title={collapsed ? '사이드바 펼치기' : '사이드바 접기'}
+            className="rounded p-1 text-muted hover:bg-bg hover:text-primary"
+          >
+            {collapsed ? '»' : '«'}
+          </button>
         </div>
+
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={() => setSidebar('expanded')}
+            aria-label="검색"
+            title="검색"
+            className="mb-3 flex justify-center rounded px-2 py-2 text-muted hover:bg-bg hover:text-primary"
+          >
+            🔍
+          </button>
+        ) : (
+          <div className="px-2">
+            <SearchBar variant="sidebar" />
+          </div>
+        )}
+
         <nav className="flex flex-col gap-1">
           {NAV_ITEMS.map((item) => (
-            <NavButton key={item.to} item={item} />
+            <NavButton key={item.to} item={item} collapsed={collapsed} />
           ))}
           {DESKTOP_EXTRA_ITEMS.map((item) => (
-            <NavButton key={item.to} item={item} />
+            <NavButton key={item.to} item={item} collapsed={collapsed} />
           ))}
-          <SuggestionsNavBadge />
+          <SuggestionsNavBadge compact={collapsed} />
         </nav>
         <div className="mt-auto">
-          <NavButton item={{ to: '/settings', label: '설정', icon: '⚙️' }} />
+          <NavButton item={{ to: '/settings', label: '설정', icon: '⚙️' }} collapsed={collapsed} />
         </div>
       </aside>
 
