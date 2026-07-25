@@ -5,19 +5,29 @@ import type {
   ConvertJobResponse,
   ConvertJobStartResponse,
   ImportPreviewResponse,
+  LlmEngine,
   RegenerateJobResponse,
 } from './types'
 
 const POLL_INTERVAL_MS = 2000
 
-// 설계 §4.10, F23 — "원본 파일로 시작" 업로드. multipart 필드명은 명세에 없어 import/preview와
-// 동일 관례("file")로 가정 — 최종 보고 참고.
+// 설계 §4.10·§4.11, F23·F34·F35 — "원본 파일로 시작"(multipart) 또는 "URL로 시작"(JSON {url})
+// 업로드. multipart 필드명은 명세에 없어 import/preview와 동일 관례("file")로 가정 — 최종 보고 참고.
+// engine은 §4.11 신규 파라미터('auto'|'cli'|'api', 생략 시 서버 기본 auto=우선순위 설정).
+export type StartConvertInput =
+  | { kind: 'file'; file: File; engine?: LlmEngine }
+  | { kind: 'url'; url: string; engine?: LlmEngine }
+
 export function useStartConvert() {
   return useMutation({
-    mutationFn: (sourceFile: File) => {
-      const form = new FormData()
-      form.append('file', sourceFile)
-      return api.postForm<ConvertJobStartResponse>('/convert', form)
+    mutationFn: (input: StartConvertInput) => {
+      if (input.kind === 'file') {
+        const form = new FormData()
+        form.append('file', input.file)
+        if (input.engine) form.append('engine', input.engine)
+        return api.postForm<ConvertJobStartResponse>('/convert', form)
+      }
+      return api.post<ConvertJobStartResponse>('/convert', { url: input.url, engine: input.engine })
     },
   })
 }
@@ -44,11 +54,19 @@ export function useConvertedPreview(previewId: string | null) {
   })
 }
 
-// F30 — 문제 오류 신고 → 재생성 잡 시작 (convert 잡 큐 재사용, 동시 1개)
+// F30 — 문제 오류 신고 → 재생성 잡 시작 (convert 잡 큐 재사용, 동시 1개). engine은 §4.11 신규
+// 파라미터 — 한도 초과 후 [API로 재시도] 시 'api'로 재요청하는 계약.
 export function useRegenerate() {
   return useMutation({
-    mutationFn: ({ documentId, reason }: { documentId: number; reason: string }) =>
-      api.post<ConvertJobStartResponse>(`/documents/${documentId}/regenerate`, { reason }),
+    mutationFn: ({
+      documentId,
+      reason,
+      engine,
+    }: {
+      documentId: number
+      reason: string
+      engine?: LlmEngine
+    }) => api.post<ConvertJobStartResponse>(`/documents/${documentId}/regenerate`, { reason, engine }),
   })
 }
 

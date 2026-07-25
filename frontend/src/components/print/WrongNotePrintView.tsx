@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useReviewNotes } from '../../api/reviewNotes'
+import { useAllReviewNotes } from '../../api/reviewNotes'
 import { groupByCategoryPath } from '../../utils/reviewNoteGroups'
 import MarkdownView from '../MarkdownView'
 
@@ -12,11 +12,13 @@ interface WrongNotePrintViewProps {
 
 // 설계 §5.10 — 오답노트 인쇄: 기간·분류 필터 + 내 메모 포함 옵션.
 // review-notes API(§4.6)는 날짜 범위 파라미터가 없어 전체를 받아 created_at으로 클라이언트 필터링한다.
+// 인쇄는 완결된 전체 목록이 필요해 size=200(서버 상한) 이내로 전 페이지를 순회 수집한다
+// (size=500 단발 요청은 서버 상한 초과로 422 — 핫픽스, stage-4 결함).
 export default function WrongNotePrintView({ categoryId, dateFrom, dateTo, includeNotes }: WrongNotePrintViewProps) {
-  const notesQuery = useReviewNotes({ category_id: categoryId ?? undefined, page: 1, size: 500 })
+  const notesQuery = useAllReviewNotes({ category_id: categoryId ?? undefined })
 
   const filtered = useMemo(() => {
-    const items = notesQuery.data?.items ?? []
+    const items = notesQuery.data ?? []
     return items.filter((n) => {
       const created = n.created_at.slice(0, 10)
       if (dateFrom && created < dateFrom) return false

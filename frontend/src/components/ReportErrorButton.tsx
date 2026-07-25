@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useRegenerate } from '../api/convert'
 import { ApiError } from '../api/client'
-import { setStoredRegenerateJobId } from '../utils/regenerateJobs'
+import { setStoredRegenerateJob } from '../utils/regenerateJobs'
 import ReportErrorModal from './ReportErrorModal'
 
 function errMsg(e: unknown, fallback: string) {
@@ -33,7 +33,7 @@ export default function ReportErrorButton({
       { documentId, reason },
       {
         onSuccess: (data) => {
-          setStoredRegenerateJobId(documentId, data.job_id)
+          setStoredRegenerateJob(documentId, { jobId: data.job_id, reason })
           setOpen(false)
           if (variant === 'detail') {
             onSubmitted?.()

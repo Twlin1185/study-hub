@@ -23,6 +23,7 @@ from routers import (
     convert,
     documents,
     imports,
+    llm,
     quiz,
     review_notes,
     search,
@@ -53,6 +54,7 @@ app.include_router(suggestions.router)
 app.include_router(search.router)
 app.include_router(convert.router)
 app.include_router(backups.router)
+app.include_router(llm.router)
 
 
 @app.on_event("startup")

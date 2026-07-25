@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useApplyRegenerate, useRegenerateJob } from '../api/convert'
-import { clearStoredRegenerateJobId, getStoredRegenerateJobId } from '../utils/regenerateJobs'
+import { useApplyRegenerate, useRegenerate, useRegenerateJob } from '../api/convert'
+import { clearStoredRegenerateJob, getStoredRegenerateJob, setStoredRegenerateJob } from '../utils/regenerateJobs'
 import type { DocumentDetail } from '../api/types'
 import { ApiError } from '../api/client'
 import MarkdownView from './MarkdownView'
 import ReportErrorButton from './ReportErrorButton'
+import LlmJobProgress from './LlmJobProgress'
+import LlmErrorInfoView from './LlmErrorInfo'
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -14,19 +16,22 @@ interface RegenerateJobPanelProps {
   doc: DocumentDetail
 }
 
-// 설계 §5.3 — 문서 상세의 오류 신고 진입점 + 잡 진행 중 표시 + 기존/신규 비교([교체]/[폐기]).
-// job_id는 로컬(localStorage)에서 추적한다 — 백엔드에 "문서별 진행 중 잡 조회" 엔드포인트가
-// 명세돼 있지 않기 때문(utils/regenerateJobs.ts 참고, 명세 갭 — 최종 보고 필요).
+// 설계 §5.3, §4.11 — 문서 상세의 오류 신고 진입점 + 잡 진행 중 표시(단계·경과·토큰) + 실패 시
+// error_info 안내([API로 재시도]) + 기존/신규 비교([교체]/[폐기]). job_id·신고 사유는 로컬
+// (localStorage)에서 추적한다 — 백엔드에 "문서별 진행 중 잡 조회" 엔드포인트가 명세돼 있지
+// 않기 때문(utils/regenerateJobs.ts 참고, 명세 갭 — 최종 보고 필요).
 export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
-  const [jobId, setJobId] = useState<string | null>(() => getStoredRegenerateJobId(doc.id))
+  const [stored, setStored] = useState(() => getStoredRegenerateJob(doc.id))
   const [dismissed, setDismissed] = useState(false)
+  const jobId = stored?.jobId ?? null
   const active = jobId != null && !dismissed
   const jobQuery = useRegenerateJob(active ? doc.id : null, active ? jobId : null)
   const applyRegenerate = useApplyRegenerate()
+  const retryRegenerate = useRegenerate()
 
   // 다른 문서 상세로 이동했을 때 그 문서의 잡 상태를 다시 확인한다.
   useEffect(() => {
-    setJobId(getStoredRegenerateJobId(doc.id))
+    setStored(getStoredRegenerateJob(doc.id))
     setDismissed(false)
   }, [doc.id])
 
@@ -36,7 +41,7 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
         documentId={doc.id}
         variant="detail"
         onSubmitted={() => {
-          setJobId(getStoredRegenerateJobId(doc.id))
+          setStored(getStoredRegenerateJob(doc.id))
           setDismissed(false)
         }}
       />
@@ -44,6 +49,20 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
   }
 
   const job = jobQuery.data
+
+  function handleRetryWithApi() {
+    if (!stored) return
+    retryRegenerate.mutate(
+      { documentId: doc.id, reason: stored.reason, engine: 'api' },
+      {
+        onSuccess: (data) => {
+          const next = { jobId: data.job_id, reason: stored.reason }
+          setStoredRegenerateJob(doc.id, next)
+          setStored(next)
+        },
+      },
+    )
+  }
 
   if (jobQuery.isError) {
     return (
@@ -54,7 +73,7 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
         <button
           type="button"
           onClick={() => {
-            clearStoredRegenerateJobId(doc.id)
+            clearStoredRegenerateJob(doc.id)
             setDismissed(true)
           }}
           className="mt-2 rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
@@ -66,25 +85,22 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
   }
 
   if (!job || job.status === 'running') {
-    return (
-      <div className="flex items-center gap-2 rounded-lg border border-accent bg-accent-soft p-4 text-sm text-accent">
-        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" aria-hidden />
-        재생성 처리 중… (Claude CLI로 문서를 다시 만드는 중입니다. 완료되면 여기서 비교 화면이 나타납니다)
-      </div>
-    )
+    return <LlmJobProgress progress={job?.progress} includeDownloading={false} />
   }
 
   if (job.status === 'error') {
     return (
       <div className="rounded-lg border border-wrong bg-surface p-4">
-        <p className="text-sm font-medium text-wrong">재생성에 실패했습니다.</p>
-        <p className="mt-1 text-sm text-muted">
-          {job.error ?? 'Claude CLI 실행 중 오류가 발생했습니다 (CLI 미설치 등). 문제를 직접 편집하거나 다시 신고해 보세요.'}
-        </p>
+        <LlmErrorInfoView
+          errorInfo={job.error_info}
+          legacyError={job.error}
+          onRetryWithApi={stored ? handleRetryWithApi : undefined}
+          retrying={retryRegenerate.isPending}
+        />
         <button
           type="button"
           onClick={() => {
-            clearStoredRegenerateJobId(doc.id)
+            clearStoredRegenerateJob(doc.id)
             setDismissed(true)
           }}
           className="mt-3 rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
@@ -128,7 +144,7 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
         <button
           type="button"
           onClick={() => {
-            clearStoredRegenerateJobId(doc.id)
+            clearStoredRegenerateJob(doc.id)
             setDismissed(true)
           }}
           className="rounded border border-border px-3 py-2 text-sm text-primary hover:bg-bg"
@@ -144,7 +160,7 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
               { documentId: doc.id, jobId },
               {
                 onSuccess: () => {
-                  clearStoredRegenerateJobId(doc.id)
+                  clearStoredRegenerateJob(doc.id)
                   setDismissed(true)
                 },
               },

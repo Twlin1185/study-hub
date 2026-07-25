@@ -4,15 +4,23 @@ import { Link } from 'react-router-dom'
 import { useImportCommit, useImportPreview } from '../api/import'
 import { useConvertedPreview, useConvertJob, useStartConvert } from '../api/convert'
 import { ApiError } from '../api/client'
+import { clearStoredConvertJob, getStoredConvertJob, setStoredConvertJob } from '../utils/convertJob'
+import LlmJobProgress from '../components/LlmJobProgress'
+import LlmErrorInfoView from '../components/LlmErrorInfo'
+import LlmLimitBanner from '../components/LlmLimitBanner'
 import type {
   ImportAction,
   ImportCommitResult,
   ImportDecision,
   ImportItem,
   ImportPreviewResponse,
+  LlmErrorInfo,
 } from '../api/types'
 
 type WizardStep = 'select' | 'preview' | 'result'
+// 'convert' = 원본 파일 업로드 자동 변환 · 'url' = URL 반입(§4.11 F35 1단계) — 둘 다 ConvertStep을
+// 공유하고 sourceKind로 UI만 갈린다.
+type EntryMode = 'json' | 'convert' | 'url'
 
 interface ItemDecisionState {
   action: ImportAction
@@ -30,6 +38,17 @@ const TYPE_LABEL: Record<string, string> = {
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
+}
+
+// 한도 기억(remembered-limit) 사전 차단 — 폴백 ask/off일 때 변환 시작 자체가 409로 거부되며
+// detail에 LlmErrorInfo가 실려 온다(설계 §4.11). 원문 판별은 과하지 않게 kind 필드 존재만 본다.
+function extractLlmErrorInfo(error: unknown): LlmErrorInfo | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null
+  const detail = error.detail
+  if (detail && typeof detail === 'object' && 'kind' in detail) {
+    return detail as LlmErrorInfo
+  }
+  return null
 }
 
 function toggleValue<T>(values: T[], value: T): T[] {
@@ -57,8 +76,16 @@ function buildInitialDecisions(items: ImportItem[]): Record<number, ItemDecision
   return initial
 }
 
+// 새로고침해도 진행 중인 convert 잡의 폴링이 이어지도록, 마운트 시 localStorage에 남은 잡이
+// 있으면 해당 진입 모드로 초기화한다(설계 §4.11 진행 가시화 요구사항).
+function initialEntryMode(): EntryMode {
+  const stored = getStoredConvertJob()
+  if (!stored) return 'json'
+  return stored.sourceKind === 'url' ? 'url' : 'convert'
+}
+
 export default function ImportPage() {
-  const [entryMode, setEntryMode] = useState<'json' | 'convert'>('json')
+  const [entryMode, setEntryMode] = useState<EntryMode>(initialEntryMode)
   const [step, setStep] = useState<WizardStep>('select')
   const [jsonFile, setJsonFile] = useState<File | null>(null)
   const [sourceFile, setSourceFile] = useState<File | null>(null)
@@ -172,7 +199,7 @@ export default function ImportPage() {
 
       {step === 'select' && (
         <>
-          <div className="mb-3 flex gap-2">
+          <div className="mb-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setEntryMode('json')}
@@ -191,6 +218,15 @@ export default function ImportPage() {
             >
               원본 파일로 시작 (자동 변환)
             </button>
+            <button
+              type="button"
+              onClick={() => setEntryMode('url')}
+              className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                entryMode === 'url' ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:bg-bg'
+              }`}
+            >
+              URL로 시작
+            </button>
           </div>
 
           {entryMode === 'json' ? (
@@ -204,7 +240,11 @@ export default function ImportPage() {
               errorMessage={previewMutation.isError ? errMsg(previewMutation.error, '미리보기에 실패했습니다.') : null}
             />
           ) : (
-            <ConvertStep onPreviewReady={applyPreview} onFallbackToManual={() => setEntryMode('json')} />
+            <ConvertStep
+              sourceKind={entryMode === 'url' ? 'url' : 'file'}
+              onPreviewReady={applyPreview}
+              onFallbackToManual={() => setEntryMode('json')}
+            />
           )}
         </>
       )}
@@ -256,16 +296,25 @@ function StepIndicator({ step }: { step: WizardStep }) {
 }
 
 interface ConvertStepProps {
+  sourceKind: 'file' | 'url'
   onPreviewReady: (data: ImportPreviewResponse) => void
   onFallbackToManual: () => void
 }
 
-// 설계 §4.10, §5.9(S6) — "원본 파일로 시작". claude CLI 변환 잡을 시작하고 폴링, 완료 시 곧장
-// 반입 미리보기 단계로 넘어간다. CLI 부재/실패 시 명확한 에러 + 수동 반입(JSON 선택) 안내로
-// 폴백한다.
-function ConvertStep({ onPreviewReady, onFallbackToManual }: ConvertStepProps) {
+// 설계 §4.10·§4.11, §5.9(S6·S8) — "원본 파일로 시작" / "URL로 시작"(F35 1단계). 서버 변환 잡을
+// 시작하고 폴링, 완료 시 곧장 반입 미리보기 단계로 넘어간다. jobId는 localStorage에 영속해
+// 새로고침 후에도 폴링이 이어진다(§4.11 진행 가시화). 실패 시 error_info를 사람이 읽는 안내로
+// 렌더하고, fallback_available이면 [API로 재시도]로 engine:'api' 재요청한다. 그래도 안 되면
+// 수동 반입(JSON 선택)으로 폴백한다.
+function ConvertStep({ sourceKind, onPreviewReady, onFallbackToManual }: ConvertStepProps) {
+  const initialStored = getStoredConvertJob()
+  const resumed = initialStored && initialStored.sourceKind === sourceKind ? initialStored : null
+
   const [file, setFile] = useState<File | null>(null)
-  const [jobId, setJobId] = useState<string | null>(null)
+  const [url, setUrl] = useState(resumed?.url ?? '')
+  const [jobId, setJobId] = useState<string | null>(resumed?.jobId ?? null)
+  const [resumedFileName] = useState<string | null>(resumed?.fileName ?? null)
+
   const startConvert = useStartConvert()
   const jobQuery = useConvertJob(jobId)
   const previewFetch = useConvertedPreview(
@@ -274,16 +323,43 @@ function ConvertStep({ onPreviewReady, onFallbackToManual }: ConvertStepProps) {
 
   useEffect(() => {
     if (previewFetch.data) {
+      clearStoredConvertJob()
       onPreviewReady(previewFetch.data)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewFetch.data])
 
-  function handleStart() {
-    if (!file) return
-    startConvert.mutate(file, {
-      onSuccess: (data) => setJobId(data.job_id),
-    })
+  function startJob(engine?: 'api') {
+    if (sourceKind === 'file') {
+      if (!file) return
+      startConvert.mutate(
+        { kind: 'file', file, engine },
+        {
+          onSuccess: (data) => {
+            setJobId(data.job_id)
+            setStoredConvertJob({ jobId: data.job_id, sourceKind: 'file', fileName: file.name })
+          },
+        },
+      )
+    } else {
+      if (!url.trim()) return
+      startConvert.mutate(
+        { kind: 'url', url: url.trim(), engine },
+        {
+          onSuccess: (data) => {
+            setJobId(data.job_id)
+            setStoredConvertJob({ jobId: data.job_id, sourceKind: 'url', url: url.trim() })
+          },
+        },
+      )
+    }
+  }
+
+  function handleReset() {
+    clearStoredConvertJob()
+    setFile(null)
+    setUrl('')
+    setJobId(null)
   }
 
   const running = jobId != null && (jobQuery.data == null || jobQuery.data.status === 'running')
@@ -293,52 +369,89 @@ function ConvertStep({ onPreviewReady, onFallbackToManual }: ConvertStepProps) {
   // preview_id가 TTL(1시간)로 만료되면 GET /import/preview/{id}가 404(NOT_FOUND)를 반환한다(§4.3).
   const previewExpired = previewFetch.isError && previewFetch.error instanceof ApiError && previewFetch.error.status === 404
 
+  // URL 소스는 새로고침 후에도 url 문자열이 남아 재시도 가능. 파일 소스는 File 객체를 되살릴 수
+  // 없어 새로고침 후 재시도하려면 파일을 다시 선택해야 한다.
+  const canStart = sourceKind === 'url' ? url.trim().length > 0 : file != null
+  const needsReselect = sourceKind === 'file' && jobFailed && !file
+  // 시작 요청 자체가 409(한도 기억 사전 차단)로 거부된 경우 — LlmErrorInfoView로 구조화 렌더.
+  const startErrorInfo = startConvert.isError ? extractLlmErrorInfo(startConvert.error) : null
+
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
+      <LlmLimitBanner />
+
       <p className="text-sm text-muted">
-        PDF·이미지 등 기출 원본 파일을 올리면 Claude Code(CLI)가 반입 JSON으로 변환한 뒤 곧바로
-        미리보기 단계로 이어집니다.
+        {sourceKind === 'file'
+          ? 'PDF·이미지 등 기출 원본 파일을 올리면 LLM이 반입 JSON으로 변환한 뒤 곧바로 미리보기 단계로 이어집니다.'
+          : '공개 기출 자료 URL을 입력하면 서버가 다운로드부터 변환까지 처리합니다 (사설·로컬 네트워크 주소는 거부됩니다).'}
       </p>
 
-      <label className="flex flex-col gap-1 text-sm">
-        원본 파일
-        <input
-          type="file"
-          disabled={jobId != null}
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary disabled:opacity-50"
-        />
-        {file && <span className="text-xs text-muted">선택됨: {file.name}</span>}
-      </label>
-
-      {startConvert.isError && (
-        <p className="text-sm text-wrong">
-          {errMsg(startConvert.error, '변환 시작에 실패했습니다. Claude CLI가 설치·인증되어 있는지 확인하세요.')}
-        </p>
+      {sourceKind === 'file' ? (
+        <label className="flex flex-col gap-1 text-sm">
+          원본 파일
+          <input
+            type="file"
+            disabled={jobId != null}
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary disabled:opacity-50"
+          />
+          {file && <span className="text-xs text-muted">선택됨: {file.name}</span>}
+          {!file && resumedFileName && (
+            <span className="text-xs text-warning">
+              새로고침 전 "{resumedFileName}"을(를) 올렸습니다. 재시도하려면 파일을 다시 선택하세요
+              (진행 확인은 그대로 이어집니다).
+            </span>
+          )}
+        </label>
+      ) : (
+        <label className="flex flex-col gap-1 text-sm">
+          자료 URL
+          <input
+            type="url"
+            disabled={jobId != null}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://example.com/2023-기출.pdf"
+            className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary disabled:opacity-50"
+          />
+        </label>
       )}
 
-      {running && (
-        <div className="flex items-center gap-2 rounded border border-accent bg-accent-soft px-3 py-2 text-sm text-accent">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" aria-hidden />
-          변환 처리 중… (최대 10분 정도 걸릴 수 있습니다)
-        </div>
-      )}
+      {startConvert.isError &&
+        (startErrorInfo ? (
+          <LlmErrorInfoView
+            errorInfo={startErrorInfo}
+            onRetryWithApi={canStart ? () => startJob('api') : undefined}
+            retrying={startConvert.isPending}
+          />
+        ) : (
+          <p className="text-sm text-wrong">{errMsg(startConvert.error, '변환 시작에 실패했습니다.')}</p>
+        ))}
+
+      {running && <LlmJobProgress progress={jobQuery.data?.progress} includeDownloading={sourceKind === 'url'} />}
 
       {jobFailed && (
-        <div className="rounded border border-wrong bg-surface px-3 py-2 text-sm">
-          <p className="font-medium text-wrong">변환에 실패했습니다.</p>
-          <p className="mt-1 text-muted">
-            {jobQuery.data?.error ?? 'Claude CLI 실행 중 오류가 발생했습니다 (CLI 미설치일 수 있습니다).'}
-          </p>
-          <p className="mt-2 text-muted">
-            대신 Claude Code로 직접 JSON을 만든 뒤 "반입 JSON 파일 선택" 탭에서 반입하세요.
-          </p>
+        <div className="flex flex-col gap-2">
+          <LlmErrorInfoView
+            errorInfo={jobQuery.data?.error_info}
+            legacyError={jobQuery.data?.error}
+            onRetryWithApi={canStart ? () => startJob('api') : undefined}
+            retrying={startConvert.isPending}
+          />
+          {needsReselect && (
+            <p className="text-xs text-warning">
+              새로고침으로 파일 정보가 사라졌습니다. 파일을 다시 선택한 뒤 재시도하세요.
+            </p>
+          )}
           <button
             type="button"
-            onClick={onFallbackToManual}
-            className="mt-2 rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+            onClick={() => {
+              handleReset()
+              onFallbackToManual()
+            }}
+            className="w-fit rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
           >
-            JSON 파일 직접 선택하기
+            대신 JSON 파일 직접 선택하기
           </button>
         </div>
       )}
@@ -346,7 +459,7 @@ function ConvertStep({ onPreviewReady, onFallbackToManual }: ConvertStepProps) {
       {previewFetchFailed && (
         <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">
           {previewExpired ? (
-            <p>미리보기가 만료되었습니다 (1시간 TTL). 파일을 다시 업로드해 변환을 다시 시작하세요.</p>
+            <p>미리보기가 만료되었습니다 (1시간 TTL). 다시 시작하세요.</p>
           ) : (
             <p>
               변환은 완료됐지만 미리보기를 자동으로 불러오지 못했습니다
@@ -357,13 +470,12 @@ function ConvertStep({ onPreviewReady, onFallbackToManual }: ConvertStepProps) {
           <button
             type="button"
             onClick={() => {
-              setFile(null)
-              setJobId(null)
+              handleReset()
               if (!previewExpired) onFallbackToManual()
             }}
             className="mt-2 rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
           >
-            {previewExpired ? '다시 업로드' : 'JSON 파일 직접 선택하기'}
+            {previewExpired ? '다시 시작' : 'JSON 파일 직접 선택하기'}
           </button>
         </div>
       )}
@@ -371,8 +483,8 @@ function ConvertStep({ onPreviewReady, onFallbackToManual }: ConvertStepProps) {
       <div className="flex justify-end">
         <button
           type="button"
-          disabled={!file || jobId != null || startConvert.isPending}
-          onClick={handleStart}
+          disabled={!canStart || jobId != null || startConvert.isPending}
+          onClick={() => startJob()}
           className="rounded bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
         >
           {startConvert.isPending ? '시작 중…' : '변환 시작'}
