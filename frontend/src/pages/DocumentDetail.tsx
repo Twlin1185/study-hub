@@ -237,7 +237,7 @@ export default function DocumentDetailPage() {
                   </p>
                   <div className="text-sm text-primary">
                     <span className="font-semibold">해설</span>
-                    <MarkdownView content={doc.explanation} />
+                    <MarkdownView content={doc.explanation} scale={fontScale} />
                   </div>
                 </div>
               )}

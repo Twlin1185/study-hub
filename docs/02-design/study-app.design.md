@@ -260,7 +260,7 @@ study-hub/
 | 메서드/경로 | 설명 | 단계 |
 |---|---|---|
 | `GET /api/srs/summary` | `{today_due, tomorrow_due}` — today_due = 오늘 큐 잔여 수, tomorrow_due = 내일까지 due인 카드 수(오늘 미소화 이월 포함). 둘 다 `srs.daily_limit` 상한 규칙 동일 적용. 용처: 복습 완료 화면 "내일 N개 예정"(F36-③), 홈 daily_start 위젯(F36-①) | S9 |
-| `GET /api/dashboard` 확장 | 응답에 `today_review_minutes` 추가 — **대략치**: 큐 잔여 수 × 최근 30일 문항 풀이 시간 중앙값(표본 없으면 60초/문항). daily_start 분량 예고용("복습 12 + Ch.3 이어하기 · 예상 25분") | S9 확장 |
+| `GET /api/dashboard` 확장 | 응답에 `today_review_minutes` 추가 — **대략치**: 큐 잔여 수 × 최근 30일 문항 풀이 시간 중앙값(표본 없으면 60초/문항). 분 환산은 **올림**, 큐>0이면 최소 1분(0분 표기 방지 — S9 검토 반영). daily_start 분량 예고용("복습 12 + Ch.3 이어하기 · 예상 25분") | S9 확장 |
 | `GET /api/categories/tree?pipeline=1` | F37: 노드별 `stage_progress {concept:{done,total}, question:{done,total}, past_question:{done,total}}` 추가 — **노드+하위 트리 전체** 집계(§4.6 deep 원칙, 임의 깊이). 파라미터 없으면 기존 응답 그대로(불변). 커리큘럼 3단 진도·개수 칩의 데이터 원천 — **단일 패스 집계**(노드별 재귀 쿼리 금지) | S9 확장 |
 | `GET /api/categories/{id}/study-track` 확장 | `deep=1`(하위 트리 문서 포함 — 정렬: 트리 순회(분류 sort_order) → 링크 sort_order) · `types=concept,question`(타입 필터). F37 개념 트랙 = `deep=1&types=concept,question`(인터리브 유지, 기출 제외) | S9 확장 |
 | `POST /api/quiz/session` 확장 | `types` 파라미터(예: `["question"]`, `["past_question"]`) — 기존 mode·범위(하위 포함)와 교집합. F37 단계 ②③의 출제 경로. **채점·트랜잭션 불변 규칙 그대로**(정답·해설 미포함) | S9 확장 |

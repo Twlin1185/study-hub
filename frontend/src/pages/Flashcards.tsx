@@ -6,6 +6,7 @@ import ProgressBar from '../components/ProgressBar'
 import { useSrsToday } from '../api/srs'
 import { useSrsAnswer } from '../api/srs'
 import { useDocument, useDocuments } from '../api/documents'
+import { useFontScale } from '../hooks/useFontScale'
 import { ApiError } from '../api/client'
 import {
   FLASHCARD_Q_DONT_KNOW,
@@ -140,6 +141,7 @@ function FlashcardSession() {
   const reset = useFlashcardSessionStore((s) => s.reset)
 
   const srsAnswer = useSrsAnswer()
+  const fontScale = useFontScale()
   const [error, setError] = useState<string | null>(null)
 
   // 전송 지연 확정(설계 §4.12 F36-⑧) — 미전송 판정을 서버로 보낸다.
@@ -169,14 +171,22 @@ function FlashcardSession() {
     undo()
   }
 
-  // 마지막 카드 판정은 세션 종료 시 확정 전송(§5.7). finished 진입 시 남은 pending을 flush.
+  // 완료 화면 이탈 시 미확정 판정을 확정 전송한다 (검토 지시 2 — 완료 화면 진입 즉시 flush하지 않음).
+  function leaveHome() {
+    flush(useFlashcardSessionStore.getState().pending)
+    clearPending()
+    reset()
+    navigate('/')
+  }
+
+  // 세션 이탈(라우팅 등 unmount) 시 미확정 판정을 빠짐없이 확정 전송 — 마지막 카드 누락 방지.
   useEffect(() => {
-    if (status === 'finished' && pending) {
-      flush(pending)
-      clearPending()
+    return () => {
+      const p = useFlashcardSessionStore.getState().pending
+      if (p) srsAnswer.mutate({ document_id: p.document_id, q: p.q })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, pending])
+  }, [])
 
   // 키보드: 스페이스=뒤집기, ←=모른다(q1), →=안다(q4) (설계 §5.7)
   useEffect(() => {
@@ -214,12 +224,19 @@ function FlashcardSession() {
             <p className="text-xs text-muted">모른다</p>
           </div>
         </div>
+        {/* 마지막 판정 되돌리기 (검토 지시 2) — 완료 화면에서 미전송 취소, 마지막 카드로 복귀 */}
+        {pending != null && (
+          <button
+            type="button"
+            onClick={handleUndo}
+            className="mb-3 w-full rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:bg-bg"
+          >
+            ↩ 마지막 판정 되돌리기
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => {
-            reset()
-            navigate('/')
-          }}
+          onClick={leaveHome}
           className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
         >
           홈으로
@@ -242,7 +259,7 @@ function FlashcardSession() {
         {cardLoading ? (
           <p className="text-sm text-muted">불러오는 중…</p>
         ) : (
-          <MarkdownView content={content ?? card.title} />
+          <MarkdownView content={content ?? card.title} scale={fontScale} />
         )}
       </div>
       <p className="mt-3 text-center text-xs text-muted">탭 / 스페이스로 뒤집기</p>
@@ -262,7 +279,7 @@ function FlashcardSession() {
             {formatAnswer(answer)}
           </p>
         )}
-        <MarkdownView content={explanation ?? content ?? '내용 없음'} />
+        <MarkdownView content={explanation ?? content ?? '내용 없음'} scale={fontScale} />
       </div>
       <p className="mt-3 text-center text-xs text-muted">← 모른다 · 안다 →</p>
     </>

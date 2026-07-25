@@ -10,6 +10,7 @@ import { useSubmitAttempt } from '../api/quiz'
 import { useUpdateReviewNote } from '../api/reviewNotes'
 import { useDocument, useToggleBookmark } from '../api/documents'
 import { useSettings } from '../api/settings'
+import { useFontScale } from '../hooks/useFontScale'
 import ReportErrorButton from '../components/ReportErrorButton'
 import type { QuizQuestion, WrongReason } from '../api/types'
 
@@ -96,6 +97,7 @@ export default function QuizRunPage() {
   const updateReviewNote = useUpdateReviewNote()
   const toggleBookmark = useToggleBookmark()
   const settingsQuery = useSettings()
+  const fontScale = useFontScale()
   const autoAdvanceOn = settingsQuery.data?.['quiz.auto_advance'] === 'on'
 
   const [exitConfirm, setExitConfirm] = useState(false)
@@ -269,7 +271,7 @@ export default function QuizRunPage() {
           </span>
           <QuizCardBookmark documentId={question.document_id} />
         </div>
-        <MarkdownView content={question.content} />
+        <MarkdownView content={question.content} scale={fontScale} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -313,7 +315,7 @@ export default function QuizRunPage() {
 
           <div className="text-sm text-primary">
             <span className="font-semibold">해설</span>
-            <MarkdownView content={answered.result.explanation} />
+            <MarkdownView content={answered.result.explanation} scale={fontScale} />
           </div>
           <RelatedConceptLinks documentId={question.document_id} />
           <p className="mt-3 text-[11px] text-muted">단축키: 1~4 보기 · Enter 다음 · B 북마크</p>

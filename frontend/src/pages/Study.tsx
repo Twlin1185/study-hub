@@ -391,7 +391,7 @@ function StudyCard({
           {doc.explanation != null && (
             <div className="text-sm text-primary">
               <span className="font-semibold">해설</span>
-              <MarkdownView content={doc.explanation} />
+              <MarkdownView content={doc.explanation} scale={fontScale} />
             </div>
           )}
           <button
@@ -424,7 +424,7 @@ function StudyCard({
           </p>
           <div className="text-sm text-primary">
             <span className="font-semibold">해설</span>
-            <MarkdownView content={answered.result.explanation} />
+            <MarkdownView content={answered.result.explanation} scale={fontScale} />
           </div>
         </div>
       )}

@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import math
 import statistics
 
 from sqlalchemy import func, select
@@ -131,10 +132,15 @@ def _today_review_minutes(db: Session, queue_remaining: int) -> int:
 
     표본이 없을 때만(None) 60초/문항 기본값을 쓴다 — median이 0인 경우(극단적으로 빠른
     풀이 표본)까지 기본값으로 덮어써 버리면 안 되므로 `is None`으로 구분한다.
+
+    분 환산은 **올림**(설계 §4.12 갱신) — 큐가 남아 있는데 "0분"으로 표시돼 아무 것도
+    안 걸리는 듯 보이는 것을 방지한다. 큐가 0이면 0분 그대로 유지.
     """
+    if queue_remaining <= 0:
+        return 0
     median = _median_attempt_seconds(db)
     median_seconds = median if median is not None else 60.0
-    return round(queue_remaining * median_seconds / 60)
+    return max(1, math.ceil(queue_remaining * median_seconds / 60))
 
 
 def get_dashboard(db: Session) -> DashboardResponse:

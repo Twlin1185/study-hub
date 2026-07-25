@@ -128,7 +128,7 @@ export function toStoredLayout(layout: HomeLayout): StoredHomeLayout {
 // 콘텐츠 영역 실측 폭 기준 실제 렌더 열 수 (설계 §5.1 v1.6 — 뷰포트가 아닌 가용 폭).
 // 승격 임계값을 이전 단계 max-w보다 크게 잡아, N열 승격 순간부터 (콘텐츠 폭 − max-w)만큼
 // 좌우 여백이 생겨 가운데 정렬이 보이게 한다(1024~1280 사각지대 제거).
-// - 'auto': <704→1 · 704~1343→2(max-w-5xl 1024) · ≥1344→3(max-w-7xl 1280)
+// - 'auto': <704→1 · 704~1343→2(max-w-4xl 896) · ≥1344→3(max-w-6xl 1152)
 // - 고정 1/2/3: 그대로. 단 콘텐츠 폭 <640px는 항상 1열로 강등.
 export function effectiveColumns(columns: ColumnsSetting, contentWidth: number): number {
   if (columns === 'auto') {
