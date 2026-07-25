@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MarkdownView from '../components/MarkdownView'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -8,9 +8,23 @@ import { useQuizSessionStore } from '../stores/quizSession'
 import type { QuizAnswerRecord } from '../stores/quizSession'
 import { useSubmitAttempt } from '../api/quiz'
 import { useUpdateReviewNote } from '../api/reviewNotes'
-import { useDocument } from '../api/documents'
+import { useDocument, useToggleBookmark } from '../api/documents'
+import { useSettings } from '../api/settings'
+import { useFontScale } from '../hooks/useFontScale'
 import ReportErrorButton from '../components/ReportErrorButton'
-import type { QuizQuestion } from '../api/types'
+import type { QuizQuestion, WrongReason } from '../api/types'
+
+// 틀린이유 원탭 4버튼 (설계 §5.6, F36-⑤)
+const WRONG_REASONS: WrongReason[] = ['개념부족', '실수', '함정', '시간부족']
+
+// 정답 자동 다음 카운트다운 (설계 §5.6, F36-⑥) — 오답은 항상 정지.
+const AUTO_ADVANCE_MS = 1500
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null
+  if (!el) return false
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable
+}
 
 const RELATION_LABEL: Record<string, string> = {
   explains: '설명',
@@ -81,9 +95,16 @@ export default function QuizRunPage() {
 
   const submitAttempt = useSubmitAttempt()
   const updateReviewNote = useUpdateReviewNote()
+  const toggleBookmark = useToggleBookmark()
+  const settingsQuery = useSettings()
+  const fontScale = useFontScale()
+  const autoAdvanceOn = settingsQuery.data?.['quiz.auto_advance'] === 'on'
 
   const [exitConfirm, setExitConfirm] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  // 정답 자동 다음 카운트다운(남은 ms). null이면 비활성. 아무 키/탭으로 즉시 진행 (F36-⑥).
+  const [autoRemain, setAutoRemain] = useState<number | null>(null)
+  const autoActiveRef = useRef(false)
 
   // 새로고침/닫기 시 세션 종료 확인 (설계 §5.6 — 진행 중인 세션 이탈은 브라우저 경고)
   useEffect(() => {
@@ -108,6 +129,83 @@ export default function QuizRunPage() {
       navigate('/quiz', { replace: true })
     }
   }, [status, navigate])
+
+  // 현재 문제의 북마크 상태(B 단축키용) — quiz/session 응답엔 bookmarked가 없어 문서 상세로 조회.
+  const currentDocId = status === 'active' ? (questions[currentIndex]?.document_id ?? null) : null
+  const currentDocQuery = useDocument(currentDocId)
+
+  function advanceNow() {
+    autoActiveRef.current = false
+    goNext()
+  }
+
+  function toggleCurrentBookmark(docId: number) {
+    const bm = currentDocQuery.data?.bookmarked ?? false
+    toggleBookmark.mutate({ id: docId, bookmarked: !bm })
+  }
+
+  // 키보드 단축키 (설계 §5.6, F36-④): 1~4 보기·Enter 다음·B 북마크. 입력 포커스 중 무시.
+  useEffect(() => {
+    if (status !== 'active') return
+    function onKey(e: KeyboardEvent) {
+      if (isTypingTarget(e.target)) return
+      const q = questions[currentIndex]
+      if (!q) return
+      // 자동 다음 카운트다운 중엔 아무 키나 즉시 진행
+      if (autoActiveRef.current) {
+        e.preventDefault()
+        advanceNow()
+        return
+      }
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault()
+        toggleCurrentBookmark(q.document_id)
+        return
+      }
+      const ans = answers[q.document_id]
+      if (!ans) {
+        if (e.key >= '1' && e.key <= '4') {
+          const idx = Number(e.key) - 1
+          if (idx < (q.choices?.length ?? 0)) {
+            e.preventDefault()
+            handleSelect(idx)
+          }
+        }
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        goNext()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, currentIndex, answers, currentDocQuery.data?.bookmarked])
+
+  // 정답 자동 다음 (설계 §5.6, F36-⑥) — 정답 & 설정 on일 때만. 오답은 항상 정지.
+  useEffect(() => {
+    const q = questions[currentIndex]
+    const ans = q ? answers[q.document_id] : undefined
+    if (status !== 'active' || !ans || !ans.result.is_correct || !autoAdvanceOn) {
+      autoActiveRef.current = false
+      setAutoRemain(null)
+      return
+    }
+    autoActiveRef.current = true
+    const start = Date.now()
+    setAutoRemain(AUTO_ADVANCE_MS)
+    const interval = window.setInterval(() => {
+      setAutoRemain(Math.max(0, AUTO_ADVANCE_MS - (Date.now() - start)))
+    }, 100)
+    const timeout = window.setTimeout(() => {
+      autoActiveRef.current = false
+      goNext()
+    }, AUTO_ADVANCE_MS)
+    return () => {
+      window.clearInterval(interval)
+      window.clearTimeout(timeout)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, currentIndex, answers, autoAdvanceOn])
 
   if (status === 'idle') return null
 
@@ -173,7 +271,7 @@ export default function QuizRunPage() {
           </span>
           <QuizCardBookmark documentId={question.document_id} />
         </div>
-        <MarkdownView content={question.content} />
+        <MarkdownView content={question.content} scale={fontScale} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -209,21 +307,32 @@ export default function QuizRunPage() {
             </p>
             <ReportErrorButton documentId={question.document_id} variant="inline" />
           </div>
+
+          {/* 틀린이유 원탭 (설계 §5.6, F36-⑤) — 오답 & 오답노트 연결 시에만 */}
+          {!answered.result.is_correct && answered.result.review_note_id != null && (
+            <WrongReasonButtons reviewNoteId={answered.result.review_note_id} updateReviewNote={updateReviewNote} />
+          )}
+
           <div className="text-sm text-primary">
             <span className="font-semibold">해설</span>
-            <MarkdownView content={answered.result.explanation} />
+            <MarkdownView content={answered.result.explanation} scale={fontScale} />
           </div>
           <RelatedConceptLinks documentId={question.document_id} />
+          <p className="mt-3 text-[11px] text-muted">단축키: 1~4 보기 · Enter 다음 · B 북마크</p>
         </div>
       )}
 
       {answered && (
         <button
           type="button"
-          onClick={goNext}
+          onClick={advanceNow}
           className="mt-4 w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
         >
-          {currentIndex + 1 >= questions.length ? '결과 보기' : '다음'}
+          {autoRemain != null
+            ? `다음 (${(autoRemain / 1000).toFixed(1)}초 · 탭하면 즉시)`
+            : currentIndex + 1 >= questions.length
+              ? '결과 보기'
+              : '다음'}
         </button>
       )}
 
@@ -302,6 +411,46 @@ function QuizSummary({
       >
         퀴즈 설정으로
       </button>
+    </div>
+  )
+}
+
+// 틀린이유 원탭 4버튼 (설계 §5.6, F36-⑤) — review_note_id로 PATCH 즉시 기록, 재탭 시 변경.
+function WrongReasonButtons({
+  reviewNoteId,
+  updateReviewNote,
+}: {
+  reviewNoteId: number
+  updateReviewNote: ReturnType<typeof useUpdateReviewNote>
+}) {
+  const [selected, setSelected] = useState<WrongReason | null>(null)
+
+  function pick(reason: WrongReason) {
+    const next = selected === reason ? null : reason
+    setSelected(next)
+    updateReviewNote.mutate({ id: reviewNoteId, wrong_reason: next })
+  }
+
+  return (
+    <div className="mb-3">
+      <p className="mb-1.5 text-xs font-medium text-muted">틀린 이유 (오답노트에 바로 기록)</p>
+      <div className="flex flex-wrap gap-1.5">
+        {WRONG_REASONS.map((reason) => (
+          <button
+            key={reason}
+            type="button"
+            onClick={() => pick(reason)}
+            aria-pressed={selected === reason}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              selected === reason
+                ? 'border-accent bg-accent text-on-accent'
+                : 'border-border bg-surface text-primary hover:bg-bg'
+            }`}
+          >
+            {reason}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

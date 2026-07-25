@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 import models
 from exceptions import NotFoundError
-from schemas.srs import SrsAnswerRequest, SrsAnswerResult, SrsCardOut
+from schemas.srs import SrsAnswerRequest, SrsAnswerResult, SrsCardOut, SrsSummary
 from services import sm2, settings_service
 
 DEFAULT_DAILY_LIMIT = 30  # 계획서 §10 · stage-5 기본값
@@ -135,17 +135,38 @@ def get_today_queue(db: Session) -> List[SrsCardOut]:
     return items
 
 
-def count_due_today(db: Session) -> int:
-    """대시보드 `today_review` — 오늘 복습 대상 수(상한 반영)."""
-    today = local_today()
+def _count_due_by(db: Session, cutoff: dt.date) -> int:
+    """cutoff(포함) 이전까지 due인 카드 수 — 상한(`srs.daily_limit`) 적용.
+
+    `count_due_today`(cutoff=오늘)·`get_summary`(cutoff=오늘/내일) 공용 헬퍼.
+    """
     due = db.execute(
         select(func.count())
         .select_from(models.SrsCard)
         .join(models.Document, models.Document.id == models.SrsCard.document_id)
         .where(
             models.SrsCard.due_date.is_not(None),
-            models.SrsCard.due_date <= today,
+            models.SrsCard.due_date <= cutoff,
             models.Document.is_active == 1,
         )
     ).scalar_one()
     return min(due, _daily_limit(db))
+
+
+def count_due_today(db: Session) -> int:
+    """대시보드 `today_review` — 오늘 복습 대상 수(상한 반영)."""
+    return _count_due_by(db, local_today())
+
+
+def get_summary(db: Session) -> SrsSummary:
+    """`GET /api/srs/summary` (설계 §4.12) — {today_due, tomorrow_due}.
+
+    tomorrow_due는 due_date<=내일 전부(오늘 미소화 이월 포함)를 상한 적용해 센다 —
+    today_due와 별개로 재차 상한을 적용하므로 "이월분이 내일 자리를 채운다"가 자연히 표현된다.
+    """
+    today = local_today()
+    tomorrow = today + dt.timedelta(days=1)
+    return SrsSummary(
+        today_due=_count_due_by(db, today),
+        tomorrow_due=_count_due_by(db, tomorrow),
+    )

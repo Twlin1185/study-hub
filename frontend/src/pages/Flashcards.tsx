@@ -6,13 +6,14 @@ import ProgressBar from '../components/ProgressBar'
 import { useSrsToday } from '../api/srs'
 import { useSrsAnswer } from '../api/srs'
 import { useDocument, useDocuments } from '../api/documents'
+import { useFontScale } from '../hooks/useFontScale'
 import { ApiError } from '../api/client'
 import {
   FLASHCARD_Q_DONT_KNOW,
   FLASHCARD_Q_KNOW,
   useFlashcardSessionStore,
 } from '../stores/flashcardSession'
-import type { FlashcardCard } from '../stores/flashcardSession'
+import type { FlashcardCard, PendingJudgment } from '../stores/flashcardSession'
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -134,10 +135,19 @@ function FlashcardSession() {
   const results = useFlashcardSessionStore((s) => s.results)
   const flip = useFlashcardSessionStore((s) => s.flip)
   const grade = useFlashcardSessionStore((s) => s.grade)
+  const undo = useFlashcardSessionStore((s) => s.undo)
+  const pending = useFlashcardSessionStore((s) => s.pending)
+  const clearPending = useFlashcardSessionStore((s) => s.clearPending)
   const reset = useFlashcardSessionStore((s) => s.reset)
 
   const srsAnswer = useSrsAnswer()
+  const fontScale = useFontScale()
   const [error, setError] = useState<string | null>(null)
+
+  // 전송 지연 확정(설계 §4.12 F36-⑧) — 미전송 판정을 서버로 보낸다.
+  function flush(p: PendingJudgment | null) {
+    if (p) srsAnswer.mutate({ document_id: p.document_id, q: p.q })
+  }
 
   const card = cards[index]
   // srs 큐 경로(embedded)는 콘텐츠가 이미 있으므로 조회하지 않는다. 범위 경로만 documents/{id} 조회.
@@ -148,18 +158,35 @@ function FlashcardSession() {
   const explanation = card?.embedded ? card.explanation : docQuery.data?.explanation
   const cardLoading = needsFetch && docQuery.isLoading
 
+  // 전송 지연 방식(F36-⑧): 판정은 즉시 기록·진행하되, 서버 확정은 "다음 카드 진입"에 미룬다.
+  // 직전 pending을 먼저 확정 전송한 뒤 새 판정으로 교체 — 새 판정은 undo(미전송 취소) 가능.
   function handleGrade(q: number) {
-    if (!card || srsAnswer.isPending) return
+    if (!card) return
     setError(null)
-    // 규칙4: srs/answer는 낙관적 대상 아님 → mutation 성공 후 다음 카드로 진행.
-    srsAnswer.mutate(
-      { document_id: card.document_id, q },
-      {
-        onSuccess: () => grade(q),
-        onError: (e) => setError(errMsg(e, '판정 저장에 실패했습니다. 다시 시도하세요.')),
-      },
-    )
+    flush(pending)
+    grade(q)
   }
+
+  function handleUndo() {
+    undo()
+  }
+
+  // 완료 화면 이탈 시 미확정 판정을 확정 전송한다 (검토 지시 2 — 완료 화면 진입 즉시 flush하지 않음).
+  function leaveHome() {
+    flush(useFlashcardSessionStore.getState().pending)
+    clearPending()
+    reset()
+    navigate('/')
+  }
+
+  // 세션 이탈(라우팅 등 unmount) 시 미확정 판정을 빠짐없이 확정 전송 — 마지막 카드 누락 방지.
+  useEffect(() => {
+    return () => {
+      const p = useFlashcardSessionStore.getState().pending
+      if (p) srsAnswer.mutate({ document_id: p.document_id, q: p.q })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // 키보드: 스페이스=뒤집기, ←=모른다(q1), →=안다(q4) (설계 §5.7)
   useEffect(() => {
@@ -197,12 +224,19 @@ function FlashcardSession() {
             <p className="text-xs text-muted">모른다</p>
           </div>
         </div>
+        {/* 마지막 판정 되돌리기 (검토 지시 2) — 완료 화면에서 미전송 취소, 마지막 카드로 복귀 */}
+        {pending != null && (
+          <button
+            type="button"
+            onClick={handleUndo}
+            className="mb-3 w-full rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:bg-bg"
+          >
+            ↩ 마지막 판정 되돌리기
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => {
-            reset()
-            navigate('/')
-          }}
+          onClick={leaveHome}
           className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
         >
           홈으로
@@ -225,7 +259,7 @@ function FlashcardSession() {
         {cardLoading ? (
           <p className="text-sm text-muted">불러오는 중…</p>
         ) : (
-          <MarkdownView content={content ?? card.title} />
+          <MarkdownView content={content ?? card.title} scale={fontScale} />
         )}
       </div>
       <p className="mt-3 text-center text-xs text-muted">탭 / 스페이스로 뒤집기</p>
@@ -245,7 +279,7 @@ function FlashcardSession() {
             {formatAnswer(answer)}
           </p>
         )}
-        <MarkdownView content={explanation ?? content ?? '내용 없음'} />
+        <MarkdownView content={explanation ?? content ?? '내용 없음'} scale={fontScale} />
       </div>
       <p className="mt-3 text-center text-xs text-muted">← 모른다 · 안다 →</p>
     </>
@@ -257,6 +291,8 @@ function FlashcardSession() {
         <button
           type="button"
           onClick={() => {
+            // 이탈 전 미전송 판정 확정(실제 판정한 카드는 세션 종료로 확정, §5.7).
+            flush(pending)
             reset()
             navigate('/')
           }}
@@ -278,7 +314,6 @@ function FlashcardSession() {
         onFlip={flip}
         onSwipeLeft={() => handleGrade(FLASHCARD_Q_DONT_KNOW)}
         onSwipeRight={() => handleGrade(FLASHCARD_Q_KNOW)}
-        disabled={srsAnswer.isPending}
       />
 
       {error && <p className="mt-3 text-center text-sm text-wrong">{error}</p>}
@@ -287,20 +322,29 @@ function FlashcardSession() {
         <button
           type="button"
           onClick={() => handleGrade(FLASHCARD_Q_DONT_KNOW)}
-          disabled={srsAnswer.isPending}
-          className="flex-1 rounded-lg border border-wrong px-4 py-3 text-sm font-medium text-wrong hover:bg-wrong/10 disabled:opacity-50"
+          className="flex-1 rounded-lg border border-wrong px-4 py-3 text-sm font-medium text-wrong hover:bg-wrong/10"
         >
           모른다
         </button>
         <button
           type="button"
           onClick={() => handleGrade(FLASHCARD_Q_KNOW)}
-          disabled={srsAnswer.isPending}
-          className="flex-1 rounded-lg border border-correct px-4 py-3 text-sm font-medium text-correct hover:bg-correct/10 disabled:opacity-50"
+          className="flex-1 rounded-lg border border-correct px-4 py-3 text-sm font-medium text-correct hover:bg-correct/10"
         >
           안다
         </button>
       </div>
+
+      {/* 판정 undo 1회 (설계 §5.7, F36-⑧) — 직전 판정 미전송 취소, 서버 롤백 없음 */}
+      {pending != null && (
+        <button
+          type="button"
+          onClick={handleUndo}
+          className="mt-3 w-full rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:bg-bg"
+        >
+          ↩ 직전 판정 되돌리기
+        </button>
+      )}
     </div>
   )
 }

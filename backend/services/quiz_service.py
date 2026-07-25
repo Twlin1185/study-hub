@@ -56,9 +56,11 @@ def _eligible_ids(
     category_ids: Optional[List[int]],
     wrong_only: bool,
     bookmarked_only: bool = False,
+    allowed_types: Optional[List[str]] = None,
 ) -> List[int]:
+    type_filter = allowed_types if allowed_types is not None else list(QUESTION_TYPES)
     stmt = select(models.Document.id).where(
-        models.Document.is_active == 1, models.Document.type.in_(QUESTION_TYPES)
+        models.Document.is_active == 1, models.Document.type.in_(type_filter)
     )
     if wrong_only:
         stmt = stmt.join(
@@ -82,11 +84,18 @@ def build_quiz_session(db: Session, payload: QuizSessionRequest) -> QuizSessionR
         category_service.get_category_or_404(db, payload.category_id)
         category_ids = collect_descendant_ids(db, payload.category_id)
 
+    allowed_types: Optional[List[str]] = None
+    if payload.types is not None:
+        # 기존 mode·범위(하위 포함)와 "교집합" — QUESTION_TYPES 밖 값은 애초에 스키마가
+        # Literal로 막지만, 방어적으로 한 번 더 필터링한다.
+        allowed_types = [t for t in payload.types if t in QUESTION_TYPES]
+
     doc_ids = _eligible_ids(
         db,
         category_ids=category_ids,
         wrong_only=(payload.mode == "wrong_only"),
         bookmarked_only=(payload.mode == "bookmarked"),
+        allowed_types=allowed_types,
     )
 
     if payload.document_ids is not None:

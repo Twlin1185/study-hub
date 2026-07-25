@@ -4,10 +4,12 @@ import MarkdownView from '../components/MarkdownView'
 import FlipCard from '../components/FlipCard'
 import ProgressBar from '../components/ProgressBar'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { useSrsToday } from '../api/srs'
-import { useSrsAnswer } from '../api/srs'
+import { useSrsToday, useSrsAnswer, useSrsSummary } from '../api/srs'
+import { useContinueList } from '../api/study'
 import { useSubmitAttempt } from '../api/quiz'
+import { useFontScale } from '../hooks/useFontScale'
 import { ApiError } from '../api/client'
+import type { FontScale } from '../api/types'
 import { FLASHCARD_Q_DONT_KNOW, FLASHCARD_Q_KNOW } from '../stores/flashcardSession'
 import type { AttemptResponse, DocumentType, SrsQueueItem } from '../api/types'
 
@@ -77,6 +79,7 @@ function ReviewSession({ items: itemsProp }: { items: SrsQueueItem[] }) {
   const navigate = useNavigate()
   const submitAttempt = useSubmitAttempt()
   const srsAnswer = useSrsAnswer()
+  const fontScale = useFontScale()
 
   // 세션 중 attempts/srs.answer가 srs/today를 무효화→재조회하면 items가 뒤바뀔 수 있으므로
   // 세션 시작 시점의 큐를 한 번만 스냅샷해 순서를 고정한다.
@@ -89,6 +92,30 @@ function ReviewSession({ items: itemsProp }: { items: SrsQueueItem[] }) {
   const [error, setError] = useState<string | null>(null)
   const [quizAnswers, setQuizAnswers] = useState<Record<number, QuizAnswerRecord>>({})
   const [flipResults, setFlipResults] = useState<Record<number, number>>({})
+
+  // 뒤집기 카드 판정 전송 지연 + undo (설계 §5.7, F36-⑧). ref=로직 · state=UI 갱신용 미러.
+  const pendingFlipRef = useRef<{ document_id: number; q: number; index: number } | null>(null)
+  const [pendingFlip, setPendingFlipState] = useState<{ document_id: number; q: number; index: number } | null>(null)
+  function setPendingFlip(p: { document_id: number; q: number; index: number } | null) {
+    pendingFlipRef.current = p
+    setPendingFlipState(p)
+  }
+  function flushFlip() {
+    const p = pendingFlipRef.current
+    if (p) {
+      srsAnswer.mutate({ document_id: p.document_id, q: p.q })
+      setPendingFlip(null)
+    }
+  }
+
+  // 세션 이탈(라우팅 등 unmount) 시 미확정 판정을 빠짐없이 확정 전송 (검토 지시 2).
+  useEffect(() => {
+    return () => {
+      const p = pendingFlipRef.current
+      if (p) srsAnswer.mutate({ document_id: p.document_id, q: p.q })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const cardShownAtRef = useRef<number>(Date.now())
   useEffect(() => {
@@ -111,6 +138,8 @@ function ReviewSession({ items: itemsProp }: { items: SrsQueueItem[] }) {
 
   function handleSelectQuiz(choiceIndex: number) {
     if (!current || answered || submitAttempt.isPending) return
+    // 퀴즈 카드로 진입했으니 직전 뒤집기 판정이 남아있으면 확정 전송.
+    flushFlip()
     const myAnswer = String(choiceIndex + 1)
     const timeSpent = Math.max(0, Math.round((Date.now() - cardShownAtRef.current) / 1000))
     submitAttempt.mutate(
@@ -123,19 +152,33 @@ function ReviewSession({ items: itemsProp }: { items: SrsQueueItem[] }) {
     )
   }
 
+  // 전송 지연(F36-⑧): 판정은 즉시 기록·진행, 서버 확정은 다음 카드 진입/세션 종료로 미룬다.
+  // 마지막 카드도 지연 — 완료 화면에서 undo 가능, 이탈 시 확정(검토 지시 2).
   function handleJudgeFlip(q: number) {
-    if (!current || srsAnswer.isPending) return
+    if (!current) return
     setError(null)
-    srsAnswer.mutate(
-      { document_id: current.document_id, q },
-      {
-        onSuccess: () => {
-          setFlipResults((prev) => ({ ...prev, [current.document_id]: q }))
-          advance()
-        },
-        onError: (e) => setError(errMsg(e, '판정 저장에 실패했습니다.')),
-      },
-    )
+    flushFlip() // 직전 pending 확정 전송
+    setFlipResults((prev) => ({ ...prev, [current.document_id]: q }))
+    setPendingFlip({ document_id: current.document_id, q, index })
+    if (index + 1 >= items.length) {
+      setFinished(true)
+    } else {
+      setIndex((i) => i + 1)
+    }
+  }
+
+  function handleUndoFlip() {
+    const p = pendingFlipRef.current
+    if (!p) return
+    setFlipResults((prev) => {
+      const next = { ...prev }
+      delete next[p.document_id]
+      return next
+    })
+    setPendingFlip(null)
+    setFlipped(false)
+    setFinished(false) // 완료 화면에서 되돌리면 마지막 카드로 복귀 (검토 지시 2)
+    setIndex(p.index)
   }
 
   // 키보드: 뒤집기 카드에서만 스페이스=뒤집기, ←=모른다, →=안다 (§5.7과 동일 규약)
@@ -159,7 +202,16 @@ function ReviewSession({ items: itemsProp }: { items: SrsQueueItem[] }) {
   }, [finished, isQuestion, index, srsAnswer.isPending])
 
   if (finished) {
-    return <ReviewSummary items={items} quizAnswers={quizAnswers} flipResults={flipResults} />
+    return (
+      <ReviewSummary
+        items={items}
+        quizAnswers={quizAnswers}
+        flipResults={flipResults}
+        canUndo={pendingFlip != null}
+        onUndo={handleUndoFlip}
+        onBeforeLeave={flushFlip}
+      />
+    )
   }
   if (!current) return null
 
@@ -176,11 +228,23 @@ function ReviewSession({ items: itemsProp }: { items: SrsQueueItem[] }) {
         <ProgressBar value={index / items.length} label={`${index + 1}/${items.length}`} />
       </div>
 
+      {/* 미확정 뒤집기 판정이 남은 채 퀴즈 카드로 넘어온 경우 — 제출 전까지 되돌리기 노출 (검토 지시 1) */}
+      {isQuestion && pendingFlip != null && (
+        <button
+          type="button"
+          onClick={handleUndoFlip}
+          className="mb-3 w-full rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:bg-bg"
+        >
+          ↩ 이전 판정 되돌리기
+        </button>
+      )}
+
       {isQuestion ? (
         <QuizReviewCard
           item={current}
           answered={answered}
           pending={submitAttempt.isPending}
+          fontScale={fontScale}
           onSelect={handleSelectQuiz}
           onNext={advance}
         />
@@ -189,9 +253,11 @@ function ReviewSession({ items: itemsProp }: { items: SrsQueueItem[] }) {
           key={current.document_id}
           item={current}
           flipped={flipped}
-          disabled={srsAnswer.isPending}
+          fontScale={fontScale}
           onFlip={() => setFlipped((v) => !v)}
           onJudge={handleJudgeFlip}
+          canUndo={pendingFlip != null}
+          onUndo={handleUndoFlip}
         />
       )}
 
@@ -204,7 +270,10 @@ function ReviewSession({ items: itemsProp }: { items: SrsQueueItem[] }) {
           confirmLabel="종료"
           danger
           onClose={() => setExitConfirm(false)}
-          onConfirm={() => navigate('/')}
+          onConfirm={() => {
+            flushFlip()
+            navigate('/')
+          }}
         />
       )}
     </div>
@@ -215,12 +284,14 @@ function QuizReviewCard({
   item,
   answered,
   pending,
+  fontScale,
   onSelect,
   onNext,
 }: {
   item: SrsQueueItem
   answered: QuizAnswerRecord | undefined
   pending: boolean
+  fontScale: FontScale
   onSelect: (choiceIndex: number) => void
   onNext: () => void
 }) {
@@ -237,7 +308,7 @@ function QuizReviewCard({
             </span>
           )}
         </div>
-        <MarkdownView content={item.content} />
+        <MarkdownView content={item.content} scale={fontScale} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -272,7 +343,7 @@ function QuizReviewCard({
           </p>
           <div className="text-sm text-primary">
             <span className="font-semibold">해설</span>
-            <MarkdownView content={answered.result.explanation} />
+            <MarkdownView content={answered.result.explanation} scale={fontScale} />
           </div>
         </div>
       )}
@@ -293,15 +364,19 @@ function QuizReviewCard({
 function FlipReviewCard({
   item,
   flipped,
-  disabled,
+  fontScale,
   onFlip,
   onJudge,
+  canUndo,
+  onUndo,
 }: {
   item: SrsQueueItem
   flipped: boolean
-  disabled: boolean
+  fontScale: FontScale
   onFlip: () => void
   onJudge: (q: number) => void
+  canUndo: boolean
+  onUndo: () => void
 }) {
   // 큐 항목이 콘텐츠를 직접 실어준다(§4.7) — 별도 documents/{id} 조회 없이 렌더.
   const isConcept = item.type === 'concept'
@@ -316,7 +391,7 @@ function FlipReviewCard({
         {isConcept ? (
           <p className="text-base font-medium text-primary">{item.title}</p>
         ) : (
-          <MarkdownView content={item.content ?? item.title} />
+          <MarkdownView content={item.content ?? item.title} scale={fontScale} />
         )}
       </div>
       <p className="mt-3 text-center text-xs text-muted">탭 / 스페이스로 뒤집기</p>
@@ -336,7 +411,10 @@ function FlipReviewCard({
             {formatAnswer(item.answer)}
           </p>
         )}
-        <MarkdownView content={isConcept ? (item.content ?? '내용 없음') : (item.explanation ?? item.content ?? '내용 없음')} />
+        <MarkdownView
+          content={isConcept ? (item.content ?? '내용 없음') : (item.explanation ?? item.content ?? '내용 없음')}
+          scale={fontScale}
+        />
       </div>
       <p className="mt-3 text-center text-xs text-muted">← 모른다 · 안다 →</p>
     </>
@@ -351,26 +429,33 @@ function FlipReviewCard({
         onFlip={onFlip}
         onSwipeLeft={() => onJudge(FLASHCARD_Q_DONT_KNOW)}
         onSwipeRight={() => onJudge(FLASHCARD_Q_KNOW)}
-        disabled={disabled}
       />
       <div className="mt-5 flex gap-3">
         <button
           type="button"
           onClick={() => onJudge(FLASHCARD_Q_DONT_KNOW)}
-          disabled={disabled}
-          className="flex-1 rounded-lg border border-wrong px-4 py-3 text-sm font-medium text-wrong hover:bg-wrong/10 disabled:opacity-50"
+          className="flex-1 rounded-lg border border-wrong px-4 py-3 text-sm font-medium text-wrong hover:bg-wrong/10"
         >
           모른다
         </button>
         <button
           type="button"
           onClick={() => onJudge(FLASHCARD_Q_KNOW)}
-          disabled={disabled}
-          className="flex-1 rounded-lg border border-correct px-4 py-3 text-sm font-medium text-correct hover:bg-correct/10 disabled:opacity-50"
+          className="flex-1 rounded-lg border border-correct px-4 py-3 text-sm font-medium text-correct hover:bg-correct/10"
         >
           안다
         </button>
       </div>
+      {/* 판정 undo 1회 (설계 §5.7, F36-⑧) — 직전 판정 미전송 취소 */}
+      {canUndo && (
+        <button
+          type="button"
+          onClick={onUndo}
+          className="mt-3 w-full rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:bg-bg"
+        >
+          ↩ 직전 판정 되돌리기
+        </button>
+      )}
     </>
   )
 }
@@ -379,12 +464,26 @@ function ReviewSummary({
   items,
   quizAnswers,
   flipResults,
+  canUndo,
+  onUndo,
+  onBeforeLeave,
 }: {
   items: SrsQueueItem[]
   quizAnswers: Record<number, QuizAnswerRecord>
   flipResults: Record<number, number>
+  canUndo: boolean
+  onUndo: () => void
+  onBeforeLeave: () => void
 }) {
   const navigate = useNavigate()
+  const summaryQuery = useSrsSummary()
+  const continueQuery = useContinueList()
+
+  // 완료 화면 이탈 시 미확정 마지막 판정을 확정 전송 (검토 지시 2).
+  function leave(to: string) {
+    onBeforeLeave()
+    navigate(to)
+  }
   const quizItems = items.filter((it) => isQuestionLike(it.type))
   const flipItems = items.filter((it) => !isQuestionLike(it.type))
   const quizCorrect = quizItems.filter((it) => quizAnswers[it.document_id]?.result.is_correct).length
@@ -392,9 +491,12 @@ function ReviewSummary({
   const flipKnew = flipItems.filter((it) => (flipResults[it.document_id] ?? 0) >= 3).length
   const flipDone = flipItems.filter((it) => flipResults[it.document_id] != null).length
 
+  const tomorrowDue = summaryQuery.data?.tomorrow_due
+  const nextCard = continueQuery.data?.[0] ?? null
+
   return (
     <div className="mx-auto max-w-xl p-4">
-      <h1 className="mb-4 text-xl font-semibold text-primary">복습 완료</h1>
+      <h1 className="mb-4 text-xl font-semibold text-primary">복습 완료 🎉</h1>
       <div className="mb-4 grid grid-cols-2 gap-3">
         {quizItems.length > 0 && (
           <div className="rounded-lg border border-border bg-surface p-4 text-center">
@@ -413,13 +515,50 @@ function ReviewSummary({
           </div>
         )}
       </div>
-      <button
-        type="button"
-        onClick={() => navigate('/')}
-        className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
-      >
-        홈으로
-      </button>
+
+      {/* 내일 예정 (설계 §5.7, F36-③) — srs/summary */}
+      {tomorrowDue != null && (
+        <div className="mb-4 rounded-lg border border-border bg-accent-soft p-4 text-center">
+          <p className="text-sm text-accent">
+            내일 <span className="font-semibold">{tomorrowDue}개</span> 복습 예정
+          </p>
+        </div>
+      )}
+
+      {/* 마지막 판정 되돌리기 (검토 지시 2) — 완료 화면 진입 즉시 flush하지 않고 여기서 취소 가능 */}
+      {canUndo && (
+        <button
+          type="button"
+          onClick={onUndo}
+          className="mb-3 w-full rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:bg-bg"
+        >
+          ↩ 마지막 판정 되돌리기
+        </button>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {/* 이어하기로 계속 (설계 §5.7, F36-③) — daily_start 여정 후반부 */}
+        {nextCard && (
+          <button
+            type="button"
+            onClick={() => leave(`/study/${nextCard.category_id}`)}
+            className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
+          >
+            이어하기로 계속 ▶
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => leave('/')}
+          className={`w-full rounded px-4 py-2.5 text-sm font-medium ${
+            nextCard
+              ? 'border border-border bg-surface text-primary hover:bg-bg'
+              : 'bg-accent text-on-accent hover:opacity-90'
+          }`}
+        >
+          홈으로
+        </button>
+      </div>
     </div>
   )
 }

@@ -8,6 +8,8 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import math
+import statistics
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -111,12 +113,44 @@ def _recent(db: Session) -> RecentStats:
     return RecentStats(attempts_7d=total, accuracy_7d=round(accuracy, 4))
 
 
+def _median_attempt_seconds(db: Session, days: int = 30) -> float | None:
+    """최근 N일 문항 풀이 시간(time_spent) 중앙값 — 표본 없으면 None(호출부가 60초 기본값 적용)."""
+    since = _local_midnight_to_utc_naive(dt.date.today() - dt.timedelta(days=days - 1))
+    values = db.execute(
+        select(models.Attempt.time_spent).where(
+            models.Attempt.answered_at >= since,
+            models.Attempt.time_spent.is_not(None),
+        )
+    ).scalars().all()
+    if not values:
+        return None
+    return statistics.median(values)
+
+
+def _today_review_minutes(db: Session, queue_remaining: int) -> int:
+    """`today_review_minutes` 대략치 = 큐 잔여 × 최근 30일 문항 시간 중앙값(설계 §4.12).
+
+    표본이 없을 때만(None) 60초/문항 기본값을 쓴다 — median이 0인 경우(극단적으로 빠른
+    풀이 표본)까지 기본값으로 덮어써 버리면 안 되므로 `is None`으로 구분한다.
+
+    분 환산은 **올림**(설계 §4.12 갱신) — 큐가 남아 있는데 "0분"으로 표시돼 아무 것도
+    안 걸리는 듯 보이는 것을 방지한다. 큐가 0이면 0분 그대로 유지.
+    """
+    if queue_remaining <= 0:
+        return 0
+    median = _median_attempt_seconds(db)
+    median_seconds = median if median is not None else 60.0
+    return max(1, math.ceil(queue_remaining * median_seconds / 60))
+
+
 def get_dashboard(db: Session) -> DashboardResponse:
+    today_review = srs_service.count_due_today(db)
     return DashboardResponse(
-        today_review=srs_service.count_due_today(db),
+        today_review=today_review,
         continue_=study_service.get_continue_cards(db, limit=3),
         ddays=_ddays(db),
         recent=_recent(db),
+        today_review_minutes=_today_review_minutes(db, today_review),
     )
 
 

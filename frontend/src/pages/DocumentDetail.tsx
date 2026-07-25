@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { FormEvent, KeyboardEvent } from 'react'
+import type { KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   useAddRelation,
@@ -9,7 +9,6 @@ import {
   useLinkDocument,
   useSetDocumentTags,
   useUnlinkDocument,
-  useUpdateDocument,
 } from '../api/documents'
 import type { DocumentType, RelationType } from '../api/types'
 import MarkdownView from '../components/MarkdownView'
@@ -19,6 +18,8 @@ import MiniHistoryChart from '../components/MiniHistoryChart'
 import BookmarkButton from '../components/BookmarkButton'
 import AddRelationModal from '../components/AddRelationModal'
 import RegenerateJobPanel from '../components/RegenerateJobPanel'
+import DocEditor from '../components/DocEditor'
+import { useFontScale } from '../hooks/useFontScale'
 import { ApiError } from '../api/client'
 
 const TYPE_LABEL: Record<DocumentType, string> = {
@@ -69,49 +70,42 @@ function formatDueDate(due: string): string {
   return diff > 0 ? `${due} (D-${diff})` : `${due} (D+${-diff})`
 }
 
+// SRS 사람 말 표기 (설계 §5.3, F36-⑩) — "3일 후 복습 예정"·"오늘 복습 대상" 형태.
+function srsHumanText(due: string): string {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const dueDate = new Date(`${due}T00:00:00`)
+  if (Number.isNaN(dueDate.getTime())) return '복습 예정'
+  const diff = Math.round((dueDate.getTime() - today.getTime()) / 86400000)
+  if (diff <= 0) return '오늘 복습 대상'
+  if (diff === 1) return '내일 복습 예정'
+  return `${diff}일 후 복습 예정`
+}
+
 export default function DocumentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const documentId = id ? Number(id) : null
   const navigate = useNavigate()
 
   const docQuery = useDocument(documentId)
-  const updateDocument = useUpdateDocument()
   const deleteDocument = useDeleteDocument()
   const setTags = useSetDocumentTags()
   const linkDocument = useLinkDocument()
   const unlinkDocument = useUnlinkDocument()
   const addRelation = useAddRelation()
   const deleteRelation = useDeleteRelation()
+  const fontScale = useFontScale()
 
+  // 편집은 공용 DocEditor 모달로(설계 §5 도입부, F37) — 문서 상세 전용 인라인 폼 제거.
   const [editing, setEditing] = useState(false)
   const [addRelationOpen, setAddRelationOpen] = useState(false)
   const [relationError, setRelationError] = useState<string | null>(null)
-  const [form, setForm] = useState({
-    title: '',
-    content: '',
-    choices: '',
-    answer: '',
-    explanation: '',
-    difficulty: '',
-  })
   const [tagInput, setTagInput] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [srsDetailOpen, setSrsDetailOpen] = useState(false)
   const [answerRevealed, setAnswerRevealed] = useState(false)
 
   const doc = docQuery.data
-
-  useEffect(() => {
-    if (!doc) return
-    setForm({
-      title: doc.title,
-      content: doc.content ?? '',
-      choices: (doc.choices ?? []).join('\n'),
-      answer: doc.answer ?? '',
-      explanation: doc.explanation ?? '',
-      difficulty: doc.difficulty != null ? String(doc.difficulty) : '',
-    })
-  }, [doc])
 
   // 문서가 바뀔 때마다 정답·해설은 기본 가림 상태로 초기화한다.
   useEffect(() => {
@@ -132,32 +126,6 @@ export default function DocumentDetailPage() {
   const isQuestionLike = doc.type === 'question' || doc.type === 'past_question'
   // 열람 모드에서 정답·해설 스포일러를 적용할 타입(개념 제외)
   const hasAnswerSection = isQuestionLike || doc.type === 'flashcard'
-
-  function handleSave(e: FormEvent) {
-    e.preventDefault()
-    if (!documentId) return
-    setSaveError(null)
-    updateDocument.mutate(
-      {
-        id: documentId,
-        title: form.title.trim(),
-        content: form.content,
-        choices: isQuestionLike
-          ? form.choices
-              .split('\n')
-              .map((c) => c.trim())
-              .filter(Boolean)
-          : undefined,
-        answer: form.answer,
-        explanation: form.explanation,
-        difficulty: form.difficulty ? Number(form.difficulty) : null,
-      },
-      {
-        onSuccess: () => setEditing(false),
-        onError: (err) => setSaveError(errMsg(err, '저장에 실패했습니다.')),
-      },
-    )
-  }
 
   function handleTagKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key !== 'Enter' && e.key !== ',') return
@@ -201,27 +169,13 @@ export default function DocumentDetailPage() {
           <BookmarkButton documentId={doc.id} bookmarked={doc.bookmarked} />
         </div>
         <div className="flex gap-2">
-          {!editing && (
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
-            >
-              편집
-            </button>
-          )}
-          {editing && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditing(false)
-                setSaveError(null)
-              }}
-              className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
-            >
-              취소
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
+          >
+            편집
+          </button>
           <button
             type="button"
             onClick={() => setConfirmDelete(true)}
@@ -237,87 +191,17 @@ export default function DocumentDetailPage() {
         <RegenerateJobPanel doc={doc} />
       </div>
 
-      {!editing && <h1 className="mb-3 text-xl font-semibold text-primary">{doc.title}</h1>}
+      <h1 className="mb-3 text-xl font-semibold text-primary">{doc.title}</h1>
 
-      {editing ? (
-        <form onSubmit={handleSave} className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
-          <label className="flex flex-col gap-1 text-sm">
-            제목
-            <input
-              value={form.title}
-              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-              className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary outline-none focus:border-accent"
-              required
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            본문 (Markdown)
-            <textarea
-              value={form.content}
-              onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
-              rows={8}
-              className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary outline-none focus:border-accent"
-            />
-          </label>
-          {isQuestionLike && (
-            <>
-              <label className="flex flex-col gap-1 text-sm">
-                보기 (줄바꿈으로 구분)
-                <textarea
-                  value={form.choices}
-                  onChange={(e) => setForm((f) => ({ ...f, choices: e.target.value }))}
-                  rows={4}
-                  className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary outline-none focus:border-accent"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                정답
-                <input
-                  value={form.answer}
-                  onChange={(e) => setForm((f) => ({ ...f, answer: e.target.value }))}
-                  className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary outline-none focus:border-accent"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                해설 (Markdown)
-                <textarea
-                  value={form.explanation}
-                  onChange={(e) => setForm((f) => ({ ...f, explanation: e.target.value }))}
-                  rows={4}
-                  className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary outline-none focus:border-accent"
-                />
-              </label>
-            </>
-          )}
-          <label className="flex flex-col gap-1 text-sm">
-            난이도 (1~5)
-            <input
-              type="number"
-              min={1}
-              max={5}
-              value={form.difficulty}
-              onChange={(e) => setForm((f) => ({ ...f, difficulty: e.target.value }))}
-              className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary outline-none focus:border-accent"
-            />
-          </label>
+      {editing && (
+        <DocEditor mode="edit" documentId={doc.id} onClose={() => setEditing(false)} />
+      )}
 
-          {saveError && <p className="text-sm text-wrong">{saveError}</p>}
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="submit"
-              disabled={updateDocument.isPending}
-              className="rounded bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
-            >
-              저장
-            </button>
-          </div>
-        </form>
-      ) : (
+      {(
         <div className="flex flex-col gap-4">
           <div className="rounded-lg border border-border bg-surface p-4">
             {hasAnswerSection && <h2 className="mb-2 text-sm font-semibold text-primary">지문</h2>}
-            <MarkdownView content={doc.content} />
+            <MarkdownView content={doc.content} scale={fontScale} />
           </div>
 
           {hasAnswerSection && (doc.choices ?? []).length > 0 && (
@@ -353,7 +237,7 @@ export default function DocumentDetailPage() {
                   </p>
                   <div className="text-sm text-primary">
                     <span className="font-semibold">해설</span>
-                    <MarkdownView content={doc.explanation} />
+                    <MarkdownView content={doc.explanation} scale={fontScale} />
                   </div>
                 </div>
               )}
@@ -479,28 +363,40 @@ export default function DocumentDetailPage() {
         </div>
       )}
 
-      {/* SRS 복습 상태 (설계 §5.7, stage-5) — 카드가 생성된 경우에만 표시 */}
+      {/* SRS 복습 상태 — 사람 말 표기(설계 §5.3, F36-⑩). 수치는 "자세히"로 접힘 */}
       {doc.stats.srs && doc.stats.srs.due_date && (
         <div className="mt-4 rounded-lg border border-border bg-surface p-4">
-          <h2 className="mb-2 text-sm font-semibold text-primary">복습 상태 (SRS)</h2>
-          <dl className="grid grid-cols-3 gap-3 text-center">
-            <div>
-              <dd className="text-base font-semibold text-primary">{formatDueDate(doc.stats.srs.due_date)}</dd>
-              <dt className="text-xs text-muted">다음 복습일</dt>
-            </div>
-            <div>
-              <dd className="text-base font-semibold text-primary">
-                {doc.stats.srs.ease_factor != null ? doc.stats.srs.ease_factor.toFixed(2) : '-'}
-              </dd>
-              <dt className="text-xs text-muted">난이도 계수 (EF)</dt>
-            </div>
-            <div>
-              <dd className="text-base font-semibold text-primary">
-                {doc.stats.srs.interval_days != null ? `${doc.stats.srs.interval_days}일` : '-'}
-              </dd>
-              <dt className="text-xs text-muted">복습 간격</dt>
-            </div>
-          </dl>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-base font-semibold text-primary">{srsHumanText(doc.stats.srs.due_date)}</p>
+            <button
+              type="button"
+              onClick={() => setSrsDetailOpen((v) => !v)}
+              aria-expanded={srsDetailOpen}
+              className="text-xs text-muted hover:text-primary"
+            >
+              {srsDetailOpen ? '접기' : '자세히'}
+            </button>
+          </div>
+          {srsDetailOpen && (
+            <dl className="mt-3 grid grid-cols-3 gap-3 border-t border-border pt-3 text-center">
+              <div>
+                <dd className="text-sm font-semibold text-primary">{formatDueDate(doc.stats.srs.due_date)}</dd>
+                <dt className="text-xs text-muted">다음 복습일</dt>
+              </div>
+              <div>
+                <dd className="text-sm font-semibold text-primary">
+                  {doc.stats.srs.ease_factor != null ? doc.stats.srs.ease_factor.toFixed(2) : '-'}
+                </dd>
+                <dt className="text-xs text-muted">난이도 계수 (EF)</dt>
+              </div>
+              <div>
+                <dd className="text-sm font-semibold text-primary">
+                  {doc.stats.srs.interval_days != null ? `${doc.stats.srs.interval_days}일` : '-'}
+                </dd>
+                <dt className="text-xs text-muted">복습 간격</dt>
+              </div>
+            </dl>
+          )}
         </div>
       )}
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import List
+from typing import List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,7 +16,7 @@ from schemas.study import (
     StudyTrackResponse,
 )
 from services import category_service
-from services.tree_utils import category_path
+from services.tree_utils import category_path, collect_descendant_ids_ordered
 
 
 def _get_document_or_404(db: Session, document_id: int) -> models.Document:
@@ -28,23 +28,64 @@ def _get_document_or_404(db: Session, document_id: int) -> models.Document:
     return document
 
 
-def get_study_track(db: Session, category_id: int) -> StudyTrackResponse:
+def get_study_track(
+    db: Session,
+    category_id: int,
+    *,
+    deep: bool = False,
+    types: Optional[List[str]] = None,
+) -> StudyTrackResponse:
+    """학습 트랙 (설계 §4.4 / S9 §4.12 확장).
+
+    `deep`·`types` 둘 다 기본값(False/None)이면 기존(S3) 동작과 바이트 수준으로 동일
+    — 단일 카테고리 범위 + 필터 없음 + (sort_order, document_id) 정렬.
+
+    `deep=1`이면 하위 트리 전체 문서를 포함하고, 정렬은 "트리 순회(분류 sort_order) →
+    링크 sort_order"(설계 §4.12) — 같은 문서가 서브트리 내 여러 분류에 연결돼도 트리
+    순회상 먼저 만난 링크 하나만 남긴다(중복 제거).
+    """
     category = category_service.get_category_or_404(db, category_id)
 
-    links = db.execute(
+    category_ids = (
+        collect_descendant_ids_ordered(db, category_id) if deep else [category_id]
+    )
+    order_index = {cid: idx for idx, cid in enumerate(category_ids)}
+
+    stmt = (
         select(models.CategoryDocument, models.Document)
         .join(models.Document, models.Document.id == models.CategoryDocument.document_id)
         .where(
-            models.CategoryDocument.category_id == category_id,
+            models.CategoryDocument.category_id.in_(category_ids),
             models.Document.is_active == 1,
         )
-        .order_by(models.CategoryDocument.sort_order, models.CategoryDocument.document_id)
-    ).all()
+    )
+    if types:
+        stmt = stmt.where(models.Document.type.in_(types))
+
+    links = db.execute(stmt).all()
+    links_sorted = sorted(
+        links,
+        key=lambda pair: (
+            order_index.get(pair[0].category_id, 0),
+            pair[0].sort_order,
+            pair[0].document_id,
+        ),
+    )
+
+    seen_document_ids = set()
+    deduped: List[tuple] = []
+    for link, doc in links_sorted:
+        if doc.id in seen_document_ids:
+            continue
+        seen_document_ids.add(doc.id)
+        deduped.append((link, doc))
 
     progress_rows = db.execute(
-        select(models.StudyProgress).where(models.StudyProgress.category_id == category_id)
+        select(models.StudyProgress).where(
+            models.StudyProgress.category_id.in_(category_ids)
+        )
     ).scalars().all()
-    status_by_doc = {row.document_id: row.status for row in progress_rows}
+    status_map = {(row.category_id, row.document_id): row.status for row in progress_rows}
 
     items = [
         StudyTrackDocument(
@@ -52,10 +93,10 @@ def get_study_track(db: Session, category_id: int) -> StudyTrackResponse:
             doc_no=doc.doc_no,
             type=doc.type,
             title=doc.title,
-            status=status_by_doc.get(doc.id, "not_started"),
+            status=status_map.get((link.category_id, doc.id), "not_started"),
             sort_order=link.sort_order,
         )
-        for link, doc in links
+        for link, doc in deduped
     ]
 
     resume = db.get(models.ResumePoint, category_id)

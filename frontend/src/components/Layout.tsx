@@ -12,11 +12,13 @@ interface NavItem {
   end?: boolean
 }
 
-// 모바일 하단 탭바 구성 (설계 §5 도입부: 홈/커리큘럼/퀴즈/오답노트) — S3에서 확정.
+// 모바일 하단 탭바 구성 (설계 §5 도입부) — S9(F36-②)에서 "복습" 탭 추가로 5탭.
+// 복습 탭은 홈 경유 없이 /review로 직행한다.
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: '홈', icon: '🏠', end: true },
   { to: '/curriculum', label: '커리큘럼', icon: '📚' },
   { to: '/quiz', label: '퀴즈', icon: '📝' },
+  { to: '/review', label: '복습', icon: '🔁' },
   { to: '/review-notes', label: '오답노트', icon: '📌' },
 ]
 
