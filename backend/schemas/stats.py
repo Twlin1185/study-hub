@@ -9,6 +9,26 @@ from pydantic import BaseModel, Field
 class HeatmapItem(BaseModel):
     date: str  # YYYY-MM-DD
     count: int
+    # S10 (F26): 목표가 하나라도 설정된 경우에만 채움. 미설정 시 응답에서 생략(exclude_none).
+    goal_met: Optional[bool] = None
+
+
+class StreakGoal(BaseModel):
+    questions: Optional[int] = None
+    minutes: Optional[int] = None
+
+
+class StreakToday(BaseModel):
+    questions: int
+    minutes: int
+    goal: StreakGoal
+    goal_met: bool
+
+
+class StreakResponse(BaseModel):
+    current_streak: int
+    best_streak: int
+    today: StreakToday
 
 
 class WeaknessItem(BaseModel):

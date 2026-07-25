@@ -6,6 +6,7 @@ export type WidgetId =
   | 'continue'
   | 'today_review'
   | 'dday'
+  | 'streak'
   | 'heatmap'
   | 'exam_progress'
   | 'recent7d'
@@ -27,13 +28,15 @@ export interface HomeLayout {
   widgets: WidgetLayout[]
 }
 
-// 위젯 레지스트리 10종 — 설계 §5.1(S9: daily_start 추가). 순서 = 기본 레이아웃 순서.
-// daily_start는 continue보다 위(첫 번째) — 기존 저장 레이아웃엔 전방 호환 규칙으로 마지막에 자동 등장.
+// 위젯 레지스트리 11종 — 설계 §5.1(S9: daily_start, S10: streak 추가). 순서 = 기본 레이아웃 순서.
+// daily_start는 continue보다 위(첫 번째), streak는 heatmap 바로 위 — 기존 저장 레이아웃엔
+// 전방 호환 규칙(누락 id 보충)으로 자동 등장.
 export const WIDGET_REGISTRY: { id: WidgetId; title: string }[] = [
   { id: 'daily_start', title: '오늘 공부 시작' },
   { id: 'continue', title: '이어하기' },
   { id: 'today_review', title: '오늘의 복습' },
   { id: 'dday', title: 'D-Day' },
+  { id: 'streak', title: '스트릭' },
   { id: 'heatmap', title: '학습 히트맵' },
   { id: 'exam_progress', title: '시험별 진도' },
   { id: 'recent7d', title: '최근 7일' },

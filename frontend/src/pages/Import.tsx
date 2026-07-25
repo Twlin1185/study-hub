@@ -10,6 +10,7 @@ import LlmErrorInfoView from '../components/LlmErrorInfo'
 import LlmLimitBanner from '../components/LlmLimitBanner'
 import Stepper from '../components/Stepper'
 import ConfirmDialog from '../components/ConfirmDialog'
+import FetchImportWizard from '../components/FetchImportWizard'
 import type { StepperStep } from '../components/Stepper'
 import type {
   ImportAction,
@@ -22,8 +23,9 @@ import type {
 
 type WizardStep = 'select' | 'preview' | 'result'
 // 'convert' = 원본 파일 업로드 자동 변환 · 'url' = URL 반입(§4.11 F35 1단계) — 둘 다 ConvertStep을
-// 공유하고 sourceKind로 UI만 갈린다.
-type EntryMode = 'json' | 'convert' | 'url'
+// 공유하고 sourceKind로 UI만 갈린다. 'fetch' = 사이트에서 가져오기(§5.9, S10, F35 2단계) — 자체
+// 4단계 서브플로(FetchImportWizard)를 가진다.
+type EntryMode = 'json' | 'convert' | 'url' | 'fetch'
 
 interface ItemDecisionState {
   action: ImportAction
@@ -84,6 +86,7 @@ function buildInitialDecisions(items: ImportItem[]): Record<number, ItemDecision
 function initialEntryMode(): EntryMode {
   const stored = getStoredConvertJob()
   if (!stored) return 'json'
+  if (stored.sourceKind === 'fetch') return 'fetch'
   return stored.sourceKind === 'url' ? 'url' : 'convert'
 }
 
@@ -258,9 +261,18 @@ export default function ImportPage() {
             >
               URL로 시작
             </button>
+            <button
+              type="button"
+              onClick={() => setEntryMode('fetch')}
+              className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                entryMode === 'fetch' ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:bg-bg'
+              }`}
+            >
+              사이트에서 가져오기
+            </button>
           </div>
 
-          {entryMode === 'json' ? (
+          {entryMode === 'json' && (
             <SelectStep
               jsonFile={jsonFile}
               sourceFile={sourceFile}
@@ -270,12 +282,16 @@ export default function ImportPage() {
               submitting={previewMutation.isPending}
               errorMessage={previewMutation.isError ? errMsg(previewMutation.error, '미리보기에 실패했습니다.') : null}
             />
-          ) : (
+          )}
+          {(entryMode === 'convert' || entryMode === 'url') && (
             <ConvertStep
               sourceKind={entryMode === 'url' ? 'url' : 'file'}
               onPreviewReady={applyPreview}
               onFallbackToManual={() => setEntryMode('json')}
             />
+          )}
+          {entryMode === 'fetch' && (
+            <FetchImportWizard onPreviewReady={applyPreview} onFallbackToUrl={() => setEntryMode('url')} />
           )}
         </>
       )}

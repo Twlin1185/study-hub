@@ -1,6 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from './client'
-import type { AccuracyTrendEntry, CategoryChildStat, HeatmapEntry, WeaknessItem } from './types'
+import type { AccuracyTrendEntry, CategoryChildStat, HeatmapEntry, StreakResponse, WeaknessItem } from './types'
+
+// 목표·스트릭 캐시 키(§4.13, S10, F26) — 설정 화면에서 goal.* 저장 시 이 키들을 invalidate한다.
+export const streakKeys = {
+  all: ['stats', 'streak'] as const,
+}
 
 // 설계 §4.8 — 홈 히트맵 12주. from/to는 ISO 날짜(YYYY-MM-DD).
 export function useHeatmap(from: string, to: string) {
@@ -26,6 +31,15 @@ export function useAccuracyTrend(days = 30) {
   return useQuery({
     queryKey: ['stats', 'accuracy-trend', days],
     queryFn: () => api.get<AccuracyTrendEntry[]>(`/stats/accuracy-trend?days=${days}`),
+  })
+}
+
+// 설계 §4.13(S10, F26) — 홈 스트릭 위젯·복습 완료 화면. 전부 파생값(활동일 = attempts + 개념
+// 완료). goal_met은 설정된 목표 항목 각각 충족(AND) — 판정은 서버가 계산, 클라이언트는 표시만.
+export function useStreak() {
+  return useQuery({
+    queryKey: streakKeys.all,
+    queryFn: () => api.get<StreakResponse>('/stats/streak'),
   })
 }
 

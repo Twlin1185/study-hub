@@ -468,6 +468,10 @@ export interface SettingsResponse {
   'quiz.auto_advance'?: QuizAutoAdvance
   // 본문 글자 크기 3단계(문서 상세·학습 모드 공통). 기본 default.
   'study.font_scale'?: FontScale
+  // ---- 일일 목표 (설계 §4.13, S10, F26) ----
+  // 양의 정수, 미설정·0 = 목표 없음. 시간은 "문제 풀이 시간 기준"(개념 열람 시간 미측정).
+  'goal.daily_questions'?: number
+  'goal.daily_minutes'?: number
   [key: string]: unknown
 }
 
@@ -482,6 +486,8 @@ export type SettingsPatch = Partial<SettingsResponse>
 export interface HeatmapEntry {
   date: string // YYYY-MM-DD
   count: number
+  // S10(F26) — 목표가 하나라도 설정된 경우에만 채워진다(설계 §4.13). 미설정 시 필드 자체가 없음.
+  goal_met?: boolean
 }
 
 // 홈 "최근 정답률 추이 라인" (설계 §4.8, S4 보강) — 풀이가 있었던 날만, 날짜 오름차순.
@@ -644,7 +650,8 @@ export interface ApiKeyResponse {
   key_suffix: string
 }
 
-export type LlmErrorKind = 'rate_limit' | 'auth' | 'not_installed' | 'timeout' | 'other'
+// S10(§4.13): 'parse_failed' — 사이트 어댑터 파싱 실패(사이트 구조 변경 가능성). 원문 HTML 노출 금지.
+export type LlmErrorKind = 'rate_limit' | 'auth' | 'not_installed' | 'timeout' | 'parse_failed' | 'other'
 export type LlmLimitKind = 'session' | 'daily' | 'weekly' | 'model' | 'overall'
 
 // convert/regenerate 잡 실패 시 구조화된 오류(설계 §4.11) — 원문 CLI/API JSON은 여기 담기지 않는다.
@@ -657,7 +664,9 @@ export interface LlmErrorInfo {
   fallback_available: boolean
 }
 
-export type JobPhase = 'downloading' | 'preparing' | 'llm_running' | 'parsing' | 'preview_building'
+// S10(§4.13): 'fetching' — 사이트 수집(목록·문항·이미지 다운로드), URL 반입의 'downloading'과는
+// 구분되는 별도 단계(어댑터가 여러 요청을 스로틀 걸며 수행하는 구간).
+export type JobPhase = 'fetching' | 'downloading' | 'preparing' | 'llm_running' | 'parsing' | 'preview_building'
 
 export interface JobUsage {
   input_tokens: number
@@ -731,4 +740,97 @@ export interface CreateBackupResult {
 // restore 확인 문구는 고정 문자열 "RESTORE" (설계 §4.10 v1.5 확정)
 export interface RestoreBackupRequest {
   confirm: 'RESTORE'
+}
+
+// ---- 사이트에서 가져오기 (설계 §4.13, S10, F35 2단계) ----
+// 신규는 수집기(어댑터)뿐 — LLM 정리·미리보기·중복 감지·분류 자동 생성·승인 반입은 기존
+// convert 잡 큐·import preview/commit 재사용(§4.13 원칙). 새 테이블·컬럼 없음.
+
+export type FetchAdapterId = 'qnet' | 'comcbt'
+
+// GET /api/fetch/adapters — priority 숫자가 작을수록 우선(qnet=1, comcbt=2).
+// available:false = robots 비허용·접속 불가 진단 시. notice = 이용 고지 문구.
+export interface FetchAdapter {
+  id: FetchAdapterId
+  name: string
+  priority: number
+  available: boolean
+  notice: string
+}
+
+export type FetchAdaptersResponse = FetchAdapter[]
+
+// GET /api/fetch/certs?q= 병합 결과 — 정규화 이름(공백 제거) 기준 병합.
+export interface FetchCertSource {
+  adapter: FetchAdapterId
+  cert_ref: string
+}
+
+export interface FetchCertResult {
+  name: string
+  sources: FetchCertSource[]
+}
+
+export type FetchCertsResponse = FetchCertResult[]
+
+// POST /api/fetch/exams 요청 — 선택한 자격증의 sources 그대로 전달.
+export interface FetchExamsRequest {
+  sources: FetchCertSource[]
+}
+
+// 크롤링 예의 강제 조항 6항 — 실행 전 예상 LLM 사용량 안내. assumed=true면 문항 수·평균
+// 토큰 모두 가정치(문항 수 미상 시 60개, 표본 없으면 문항당 600토큰).
+export interface FetchExamEstimate {
+  questions_assumed: number
+  approx_input_tokens: number
+  assumed: boolean
+}
+
+// POST /api/fetch/exams 응답 항목 — exam_key(YYYY-N 정규화)가 양쪽에 있으면 큐넷(qnet) 채택,
+// comcbt는 also_on으로만 표기. imported = 해당 회차 분류 경로 존재 여부(파생).
+// exam_ref: 채택 어댑터(adapter) 기준 조회용 참조(§4.13 갱신 — refs[adapter]와 동일값, 유지).
+// refs: 어댑터별 exam_ref 맵(§4.13 갱신, stage-reviewer 지적 반영) — exam_ref의 의미가 어댑터마다
+// 달라(comcbt=srl 숫자, qnet=URL) also_on 재시도 시 채택 어댑터의 exam_ref를 그대로 쓸 수 없다.
+// 대상 어댑터 키가 refs에 없으면 그 어댑터로는 재시도 불가(해당 회차를 개별 조회할 수단이 없음).
+export interface FetchExamItem {
+  exam_key: string
+  exam_ref: string
+  refs: Record<string, string>
+  label: string
+  adapter: FetchAdapterId
+  also_on: FetchAdapterId[]
+  question_count?: number | null
+  imported: boolean
+  estimate: FetchExamEstimate
+}
+
+export type FetchExamsResponse = FetchExamItem[]
+
+// POST /api/fetch/import — 한 번에 1회차. convert 잡 큐 재사용(kind='fetch', 동시 1개,
+// engine·폴백 정책은 §4.11 그대로) → {job_id}(ConvertJobStartResponse와 동일 형태).
+export interface FetchImportRequest {
+  adapter: FetchAdapterId
+  cert_ref: string
+  exam_ref: string
+  engine?: LlmEngine
+}
+
+// ---- 목표·스트릭 (설계 §4.13, S10, F26) ----
+// GET /api/stats/streak — 전부 파생값(저장 없음). today.goal은 설정된 목표 항목만 채워짐.
+export interface StreakGoal {
+  questions?: number
+  minutes?: number
+}
+
+export interface StreakToday {
+  questions: number
+  minutes: number
+  goal: StreakGoal
+  goal_met: boolean
+}
+
+export interface StreakResponse {
+  current_streak: number
+  best_streak: number
+  today: StreakToday
 }

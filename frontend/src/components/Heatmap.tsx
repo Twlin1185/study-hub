@@ -31,7 +31,7 @@ function levelClass(level: number): string {
 // 설계 §5.1, 계획 체크리스트 — 학습 히트맵 12주(잔디). 오늘을 포함한 최근 N주를 일요일 시작 주 단위로 그린다.
 export default function Heatmap({ entries, weeks = 12 }: HeatmapProps) {
   const { columns, max } = useMemo(() => {
-    const countByDate = new Map(entries.map((e) => [e.date, e.count]))
+    const byDate = new Map(entries.map((e) => [e.date, e]))
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     // 이번 주 일요일까지 포함해 주 단위 격자를 맞춘다.
@@ -41,12 +41,18 @@ export default function Heatmap({ entries, weeks = 12 }: HeatmapProps) {
     const start = new Date(endOfWeek)
     start.setDate(endOfWeek.getDate() - totalDays + 1)
 
-    const days: { date: string; count: number; inFuture: boolean }[] = []
+    const days: { date: string; count: number; goalMet: boolean; inFuture: boolean }[] = []
     for (let i = 0; i < totalDays; i++) {
       const d = new Date(start)
       d.setDate(start.getDate() + i)
       const key = toDateKey(d)
-      days.push({ date: key, count: countByDate.get(key) ?? 0, inFuture: d > today })
+      const entry = byDate.get(key)
+      days.push({
+        date: key,
+        count: entry?.count ?? 0,
+        goalMet: entry?.goal_met === true,
+        inFuture: d > today,
+      })
     }
 
     const cols: (typeof days)[] = []
@@ -84,8 +90,12 @@ export default function Heatmap({ entries, weeks = 12 }: HeatmapProps) {
             {col.map((day) => (
               <div
                 key={day.date}
-                title={`${day.date}: ${day.count}건`}
-                className={`h-3 w-3 rounded-sm ${day.inFuture ? 'bg-transparent' : levelClass(bucket(day.count))}`}
+                title={day.inFuture ? day.date : `${day.date}: ${day.count}건${day.goalMet ? ' · 목표 달성' : ''}`}
+                // goal_met 링 강조(설계 §5.1·§4.13, S10) — 목표 미설정 시 goal_met 필드 자체가
+                // 없어(byDate에서 undefined) 항상 false이므로 기존 렌더가 그대로 유지된다.
+                className={`h-3 w-3 rounded-sm ${day.inFuture ? 'bg-transparent' : levelClass(bucket(day.count))} ${
+                  day.goalMet ? 'ring-2 ring-correct ring-offset-1 ring-offset-bg' : ''
+                }`}
               />
             ))}
           </div>

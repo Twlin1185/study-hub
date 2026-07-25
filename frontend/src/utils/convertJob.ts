@@ -4,11 +4,14 @@
 // url 문자열도 함께 저장해 [API로 재시도]가 새로고침 후에도 동작한다.
 const KEY = 'study-hub:convert-job'
 
+// 'fetch' = 사이트에서 가져오기(S10, §4.13) — File 객체처럼 되살릴 수 없는 입력이 없어(어댑터·
+// cert_ref·exam_ref는 모두 문자열) 새로고침 후에도 재시도 정보를 온전히 복원할 수 있다.
 export interface StoredConvertJob {
   jobId: string
-  sourceKind: 'file' | 'url'
+  sourceKind: 'file' | 'url' | 'fetch'
   url?: string
   fileName?: string
+  fetchLabel?: string
 }
 
 export function getStoredConvertJob(): StoredConvertJob | null {
@@ -16,7 +19,8 @@ export function getStoredConvertJob(): StoredConvertJob | null {
     const raw = window.localStorage.getItem(KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as StoredConvertJob
-    if (!parsed.jobId || (parsed.sourceKind !== 'file' && parsed.sourceKind !== 'url')) return null
+    if (!parsed.jobId || (parsed.sourceKind !== 'file' && parsed.sourceKind !== 'url' && parsed.sourceKind !== 'fetch'))
+      return null
     return parsed
   } catch {
     return null

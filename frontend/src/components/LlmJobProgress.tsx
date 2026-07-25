@@ -6,6 +6,7 @@ import type { JobPhase, JobProgress } from '../api/types'
 // 카운터 + 대략 ETA + "새로고침해도 이어짐" 안내. last_activity_at이 STALE_MS 이상 갱신되지
 // 않으면 "응답 지연" 배지를 보여준다(진짜 심장박동 신호).
 const PHASE_LABELS: Record<JobPhase, string> = {
+  fetching: '사이트 수집',
   downloading: '다운로드',
   preparing: '준비',
   llm_running: 'LLM 작업 중',
@@ -13,7 +14,7 @@ const PHASE_LABELS: Record<JobPhase, string> = {
   preview_building: '미리보기 준비',
 }
 
-const ALL_PHASES: JobPhase[] = ['downloading', 'preparing', 'llm_running', 'parsing', 'preview_building']
+const ALL_PHASES: JobPhase[] = ['fetching', 'downloading', 'preparing', 'llm_running', 'parsing', 'preview_building']
 
 const STALE_MS = 30_000
 
@@ -36,9 +37,15 @@ interface LlmJobProgressProps {
   progress: JobProgress | null | undefined
   // URL 반입일 때만 '다운로드' 스텝을 보여준다 (파일 업로드·재생성은 다운로드 단계가 없음).
   includeDownloading?: boolean
+  // 사이트에서 가져오기(S10, §4.13)일 때만 '사이트 수집' 스텝을 보여준다.
+  includeFetching?: boolean
 }
 
-export default function LlmJobProgress({ progress, includeDownloading = true }: LlmJobProgressProps) {
+export default function LlmJobProgress({
+  progress,
+  includeDownloading = true,
+  includeFetching = false,
+}: LlmJobProgressProps) {
   const [tickMs, setTickMs] = useState(0)
   const baseRef = useRef<{ elapsed: number; at: number }>({ elapsed: 0, at: Date.now() })
 
@@ -67,7 +74,9 @@ export default function LlmJobProgress({ progress, includeDownloading = true }: 
     )
   }
 
-  const steps = ALL_PHASES.filter((p) => includeDownloading || p !== 'downloading')
+  const steps = ALL_PHASES.filter(
+    (p) => (includeDownloading || p !== 'downloading') && (includeFetching || p !== 'fetching'),
+  )
   const currentIndex = Math.max(0, steps.indexOf(progress.phase))
   const elapsedDisplay = formatElapsed(progress.elapsed_ms + tickMs)
   const stale = Date.now() - new Date(progress.last_activity_at).getTime() > STALE_MS

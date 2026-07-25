@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useThemeStore } from '../stores/theme'
 import type { ThemeMode } from '../stores/theme'
 import { useSettings, useUpdateSettings } from '../api/settings'
+import { streakKeys } from '../api/stats'
 import { ApiError } from '../api/client'
 import type { FontScale, QuizAutoAdvance } from '../api/types'
 import DDayManager from '../components/DDayManager'
@@ -40,6 +42,7 @@ export default function SettingsPage() {
 
   const settingsQuery = useSettings()
   const updateSettings = useUpdateSettings()
+  const qc = useQueryClient()
   const [defaultCount, setDefaultCount] = useState('')
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -47,6 +50,12 @@ export default function SettingsPage() {
   const [dailyLimit, setDailyLimit] = useState('')
   const [srsSaved, setSrsSaved] = useState(false)
   const [srsError, setSrsError] = useState<string | null>(null)
+
+  // 일일 목표 (설계 §4.13·§5.11, S10, F26) — 비움/0 = 목표 없음.
+  const [goalQuestions, setGoalQuestions] = useState('')
+  const [goalMinutes, setGoalMinutes] = useState('')
+  const [goalSaved, setGoalSaved] = useState(false)
+  const [goalError, setGoalError] = useState<string | null>(null)
 
   // F36-⑨⑥ — settings 값 즉시 저장(변경 시 write). 기본값은 default/off.
   const fontScale: FontScale =
@@ -60,6 +69,10 @@ export default function SettingsPage() {
     if (value != null) setDefaultCount(String(value))
     const limit = settingsQuery.data?.['srs.daily_limit']
     if (limit != null) setDailyLimit(String(limit))
+    const gq = settingsQuery.data?.['goal.daily_questions']
+    setGoalQuestions(gq != null && gq > 0 ? String(gq) : '')
+    const gm = settingsQuery.data?.['goal.daily_minutes']
+    setGoalMinutes(gm != null && gm > 0 ? String(gm) : '')
   }, [settingsQuery.data])
 
   function handleSave() {
@@ -96,6 +109,37 @@ export default function SettingsPage() {
           window.setTimeout(() => setSrsSaved(false), 1500)
         },
         onError: (e) => setSrsError(e instanceof ApiError ? e.message : '저장에 실패했습니다.'),
+      },
+    )
+  }
+
+  // 비움/0 = 목표 없음(§4.13) — 음수·비정수만 오류로 막는다.
+  function parseGoalInput(raw: string): number | null {
+    if (raw.trim() === '') return 0
+    const num = Number(raw)
+    if (!Number.isInteger(num) || num < 0) return null
+    return num
+  }
+
+  function handleSaveGoals() {
+    const questions = parseGoalInput(goalQuestions)
+    const minutes = parseGoalInput(goalMinutes)
+    if (questions === null || minutes === null) {
+      setGoalError('0 이상의 정수를 입력하세요 (비우면 목표 없음).')
+      return
+    }
+    setGoalError(null)
+    updateSettings.mutate(
+      { 'goal.daily_questions': questions, 'goal.daily_minutes': minutes },
+      {
+        onSuccess: () => {
+          setGoalSaved(true)
+          window.setTimeout(() => setGoalSaved(false), 1500)
+          // 저장 시 스트릭·히트맵 위젯 invalidate (설계 §5.11 — 목표가 홈·복습 화면에 즉시 반영)
+          qc.invalidateQueries({ queryKey: streakKeys.all })
+          qc.invalidateQueries({ queryKey: ['stats', 'heatmap'] })
+        },
+        onError: (e) => setGoalError(e instanceof ApiError ? e.message : '저장에 실패했습니다.'),
       },
     )
   }
@@ -208,6 +252,47 @@ export default function SettingsPage() {
                 />
                 정답 자동 다음 사용
               </label>
+            </section>
+
+            <section className="rounded-lg border border-border bg-surface p-4">
+              <h3 className="mb-1 text-sm font-semibold text-primary">일일 목표</h3>
+              <p className="mb-3 text-xs text-muted">
+                비우거나 0으로 두면 목표 없음입니다. 시간은 문제 풀이 시간 기준입니다(개념 열람 시간은
+                포함되지 않습니다).
+              </p>
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1 text-xs text-muted">
+                  하루 문제 수
+                  <input
+                    type="number"
+                    min={0}
+                    value={goalQuestions}
+                    onChange={(e) => setGoalQuestions(e.target.value)}
+                    placeholder="없음"
+                    className="w-24 rounded border border-border bg-bg px-3 py-2 text-sm text-primary outline-none focus:border-accent"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-muted">
+                  하루 학습 시간(분)
+                  <input
+                    type="number"
+                    min={0}
+                    value={goalMinutes}
+                    onChange={(e) => setGoalMinutes(e.target.value)}
+                    placeholder="없음"
+                    className="w-24 rounded border border-border bg-bg px-3 py-2 text-sm text-primary outline-none focus:border-accent"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSaveGoals}
+                  disabled={updateSettings.isPending}
+                  className="rounded bg-accent px-3 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
+                >
+                  {goalSaved ? '저장됨' : '저장'}
+                </button>
+              </div>
+              {goalError && <p className="mt-2 text-sm text-wrong">{goalError}</p>}
             </section>
           </SettingsSection>
 

@@ -12,12 +12,11 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
-import ipaddress
+import hashlib
 import json
 import queue
 import re
 import shutil
-import socket
 import subprocess
 import threading
 import urllib.error
@@ -33,7 +32,8 @@ import models
 from database import BASE_DIR, SessionLocal
 from exceptions import AppError, ConflictError, NotFoundError, ValidationAppError
 from schemas.import_schema import PreviewResponse
-from services import document_service, import_service, llm_engine_service, settings_service, tag_rule_service
+from services import document_service, import_service, llm_engine_service, net_safety, settings_service, tag_rule_service
+from services.fetchers.base import FetchedExam, FetchedFile, ParseFailedError
 
 PROMPTS_DIR = BASE_DIR / "prompts"
 CONVERT_PROMPT_PATH = PROMPTS_DIR / "convert.md"
@@ -80,43 +80,17 @@ _ALLOWED_CONTENT_TYPES = {
 }
 
 
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """자동 리다이렉트를 막고 매 hop을 직접 검증한다(SSRF 방지) — Location만 꺼내
-    호출부 루프가 다시 호스트 검증부터 시작하게 한다."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, D401
-        return None
-
-
-def _is_blocked_ip(ip_str: str) -> bool:
-    try:
-        ip = ipaddress.ip_address(ip_str)
-    except ValueError:
-        return True  # 파싱 실패는 안전하게 차단
-    return (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    )
-
-
 def _assert_public_host(host: str) -> None:
+    """SSRF 검증 — 공용 `net_safety.assert_public_host`를 이 모듈의 ValidationAppError로 감싼다."""
     try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror as exc:
+        net_safety.assert_public_host(host)
+    except net_safety.HostResolveError as exc:
         raise ValidationAppError(f"URL 호스트를 확인할 수 없습니다: {host}") from exc
-    if not infos:
-        raise ValidationAppError(f"URL 호스트를 확인할 수 없습니다: {host}")
-    for info in infos:
-        ip = info[4][0]
-        if _is_blocked_ip(ip):
-            raise ValidationAppError(
-                "사설·루프백·링크로컬 등 로컬 네트워크 주소로의 반입은 허용되지 않습니다(SSRF 방지)",
-                detail={"host": host, "ip": ip},
-            )
+    except net_safety.UnsafeHostError as exc:
+        raise ValidationAppError(
+            "사설·루프백·링크로컬 등 로컬 네트워크 주소로의 반입은 허용되지 않습니다(SSRF 방지)",
+            detail={"host": host, "ip": exc.ip},
+        ) from exc
 
 
 def _filename_from_url(url: str, content_type: str) -> str:
@@ -133,7 +107,7 @@ def _download_source_url(url: str, *, on_activity=None) -> Tuple[str, bytes, str
     """안전장치: http/https만 허용, 매 리다이렉트 hop마다 호스트 DNS 재검증, 사설/루프백/
     링크로컬 IP 차단, content-type 화이트리스트(pdf/html/이미지/md), 크기 상한(50MB), 타임아웃."""
     current_url = url
-    opener = urllib.request.build_opener(_NoRedirectHandler())
+    opener = urllib.request.build_opener(net_safety.NoRedirectHandler())
 
     for _hop in range(MAX_REDIRECTS + 1):
         parsed = urllib.parse.urlparse(current_url)
@@ -592,7 +566,25 @@ def _handle_engine_failure(
 
 
 def _fallback_error_info(exc: Exception) -> dict:
-    """엔진 실패가 아닌 그 외 예외(JSON 파싱 실패·다운로드 오류 등)용 기본 error_info."""
+    """엔진 실패가 아닌 그 외 예외(JSON 파싱 실패·다운로드 오류·사이트 파싱 실패)용 error_info."""
+    if isinstance(exc, ParseFailedError):
+        # 사이트 어댑터 파싱/수집 실패 — 원문 노출 금지, 대안 안내(설계 §4.13).
+        alts = exc.alternatives or ["url_import"]
+        parts = []
+        if "url_import" in alts:
+            parts.append("공개 자료 URL이 있다면 [URL로 반입]으로 시도하세요")
+        if "other_adapter" in alts:
+            parts.append("다른 어댑터로 재시도할 수 있습니다")
+        action = ". ".join(parts) or "잠시 후 다시 시도하세요."
+        return {
+            "kind": "parse_failed",
+            "limit_kind": None,
+            "resets_at": None,
+            "message": f"{exc.public_message} — 사이트 구조가 변경되었을 수 있습니다.",
+            "action": action,
+            "fallback_available": False,
+            "alternatives": alts,
+        }
     message = exc.message if isinstance(exc, AppError) else "변환 처리 중 알 수 없는 오류가 발생했습니다."
     return {
         "kind": "other",
@@ -638,6 +630,8 @@ def _process_job(job_id: str) -> None:
     try:
         if job["kind"] == "convert":
             result = _do_convert(job_id, job)
+        elif job["kind"] == "fetch":
+            result = _do_fetch(job_id, job)
         else:
             result = _do_regenerate(job_id, job)
         with _JOBS_LOCK:
@@ -761,6 +755,243 @@ def _do_convert(job_id: str, job: dict) -> dict:
     return {"result_preview_id": preview.preview_id}
 
 
+# ---------------------------------------------------------------------------
+# 사이트 반입(F35-2, 설계 §4.13) — 어댑터 수집 → (파일 또는 구조화 문항) → convert 재사용
+# ---------------------------------------------------------------------------
+SOURCES_DIR = BASE_DIR / "sources"
+SOURCES_IMAGES_DIR = SOURCES_DIR / "images"
+
+
+def _fetch_category_path(cert_name: Optional[str], level_hint: str, exam_key: Optional[str]) -> Optional[str]:
+    """어댑터 확정 분류 경로 '{자격증}/{필기|실기}/{YYYY년 N회}' — 프롬프트에 강제 지시."""
+    if not cert_name or not exam_key or "-" not in exam_key:
+        return None
+    year, _, num = exam_key.partition("-")
+    if not year.isdigit() or not num.isdigit():
+        return None
+    return f"{cert_name}/{level_hint}/{year}년 {num}회"
+
+
+def _fetch_directives(fetched, *, cli: bool) -> str:
+    """수집 결과 메타를 반입 JSON 규격에 반영하도록 LLM에 강제 지시(설계 §4.13)."""
+    cat_path = _fetch_category_path(
+        getattr(fetched, "cert_name", None),
+        getattr(fetched, "level_hint", "필기"),
+        getattr(fetched, "exam_key", None),
+    )
+    exam_label = getattr(fetched, "exam_label", None) or ""
+    note = getattr(fetched, "note", None) or ""
+    lines = [
+        "## 사이트 반입 — 추가 지시(엄수)",
+        "이 원본은 자격증 기출 한 회차다. 각 문항을 반입 JSON 문서(type: past_question)로 만들라.",
+    ]
+    if cat_path:
+        lines.append(
+            f'- 모든 문항의 `suggest_categories`는 정확히 ["{cat_path}"]로 고정하라(다른 경로 추가 금지).'
+        )
+    lines.append(
+        '- 각 문항의 `source_detail`은 "'
+        + (exam_label[:40] if exam_label else "해당 회차")
+        + ' M번" 형식으로(M=문항 번호) 채우라.'
+    )
+    if note:
+        lines.append(f'- 최상위 `source.note`는 정확히 "{note}"로 채우라.')
+    lines.append("- 보기·정답·해설이 원본에 있으면 반드시 포함하고, 없는 정보를 지어내지 마라.")
+    lines.append("- 그림/이미지가 본문에 Markdown 링크로 있으면 그대로 보존하라.")
+    return "\n".join(lines)
+
+
+def _save_fetch_images(job_id: str, questions, client) -> None:
+    """FetchedExam 그림 문제 이미지: 어댑터 스로틀로 다운로드 → sources/images/ 저장 →
+    각 문항.images를 로컬 Markdown 경로로 치환(원본 불변 규칙 — 새 파일만 생성)."""
+    SOURCES_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    for q in questions:
+        local_links: List[str] = []
+        for url in list(q.images or []):
+            try:
+                data, ctype, _name = client.get_bytes(url)
+            except Exception:  # noqa: BLE001 - 이미지 하나 실패가 회차 전체를 막지 않는다
+                continue
+            ext = {
+                "image/png": "png",
+                "image/jpeg": "jpg",
+                "image/gif": "gif",
+                "image/webp": "webp",
+            }.get((ctype or "").lower(), "png")
+            digest = hashlib.sha256(data).hexdigest()[:16]
+            fname = f"{digest}.{ext}"
+            path = SOURCES_IMAGES_DIR / fname
+            if not path.exists():
+                path.write_bytes(data)
+            local_links.append(f"images/{fname}")
+            _touch_activity(job_id)
+        q.images = local_links
+
+
+def _fetched_exam_to_text(fetched: FetchedExam) -> str:
+    """구조화 문항 배열을 LLM 프롬프트용 구조화 텍스트로 직렬화."""
+    parts = [f"# {fetched.cert_name} {fetched.exam_label} ({fetched.exam_key})", ""]
+    for q in fetched.questions:
+        parts.append(f"## {q.no}번")
+        parts.append(q.stem)
+        for i, choice in enumerate(q.choices, start=1):
+            parts.append(f"{i}) {choice}")
+        for link in q.images or []:
+            parts.append(f"![그림]({link})")
+        if q.answer:
+            parts.append(f"정답: {q.answer}")
+        if q.explanation:
+            parts.append(f"해설: {q.explanation}")
+        parts.append("")
+    return "\n".join(parts)
+
+
+def _do_fetch(job_id: str, job: dict) -> dict:
+    from services.fetchers import registry as fetch_registry
+
+    _set_phase(job_id, "fetching", job.get("_fetch_source_url"))
+    adapter = fetch_registry.get_adapter(job["_adapter_id"])
+    if adapter is None:
+        raise ParseFailedError("등록되지 않은 어댑터입니다", detail={"adapter": job["_adapter_id"]})
+    client = fetch_registry.new_client(on_activity=lambda: _touch_activity(job_id))
+    fetched = adapter.fetch_exam(
+        job["_cert_ref"], job["_exam_ref"], client, on_activity=lambda: _touch_activity(job_id)
+    )
+
+    convert_md = CONVERT_PROMPT_PATH.read_text(encoding="utf-8")
+
+    if isinstance(fetched, FetchedFile):
+        _set_phase(job_id, "preparing")
+        tmp_path = _write_tmp_file(job_id, fetched.filename, fetched.data)
+        with _JOBS_LOCK:
+            job["_tmp_path"] = str(tmp_path)
+            job["_source_filename"] = fetched.filename
+            job["_source_bytes"] = fetched.data
+            job["_input_size"] = len(fetched.data)
+        directives = _fetch_directives(fetched, cli=job["_engine"] == "cli")
+        file_mode = True
+    elif isinstance(fetched, FetchedExam):
+        _set_phase(job_id, "fetching", "이미지 다운로드")
+        _save_fetch_images(job_id, fetched.questions, client)
+        _set_phase(job_id, "preparing")
+        structured = _fetched_exam_to_text(fetched)
+        directives = _fetch_directives(fetched, cli=False) + "\n\n## 원본(구조화 텍스트)\n\n" + structured
+        with _JOBS_LOCK:
+            job["_input_size"] = len(structured.encode("utf-8"))
+        file_mode = False
+    else:  # pragma: no cover - 인터페이스 위반
+        raise ParseFailedError("어댑터가 알 수 없는 결과를 반환했습니다")
+
+    attempted_fallback = False
+    text_result: Optional[str] = None
+    while True:
+        engine = job["_engine"]
+        _set_phase(job_id, "llm_running")
+        try:
+            if file_mode:
+                tmp_path = Path(job["_tmp_path"])
+                if engine == "cli":
+                    prompt = _build_convert_prompt_cli(convert_md, tmp_path) + "\n\n" + directives
+                    text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                else:
+                    prompt_text, blocks = _build_convert_prompt_api(convert_md, tmp_path)
+                    text_result = _run_api_streaming(
+                        prompt_text + "\n\n" + directives,
+                        file_blocks=blocks,
+                        timeout_seconds=job["_timeout"],
+                        job_id=job_id,
+                        model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                    )
+            else:
+                prompt = f"{convert_md}\n\n---\n\n{directives}\n\n최종 출력은 순수 JSON 객체 하나만."
+                if engine == "cli":
+                    text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                else:
+                    text_result = _run_api_streaming(
+                        prompt,
+                        file_blocks=None,
+                        timeout_seconds=job["_timeout"],
+                        job_id=job_id,
+                        model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                    )
+            llm_engine_service.record_engine_result(engine, success=True)
+            break
+        except (ClaudeCliError, llm_engine_service.ApiEngineError) as exc:
+            if _handle_engine_failure(job_id, job, engine, exc, attempted_fallback):
+                attempted_fallback = True
+                continue
+            raise
+
+    _set_phase(job_id, "parsing")
+    payload = _parse_json_payload(text_result)
+    json_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    _set_phase(job_id, "preview_building")
+    db = SessionLocal()
+    try:
+        preview: PreviewResponse = import_service.create_preview(
+            db,
+            json_bytes=json_bytes,
+            source_filename=job.get("_source_filename"),
+            source_bytes=job.get("_source_bytes"),
+        )
+    finally:
+        db.close()
+    return {"result_preview_id": preview.preview_id}
+
+
+def start_fetch_job(
+    *,
+    db: Session,
+    adapter_id: str,
+    cert_ref: str,
+    exam_ref: str,
+    source_url: Optional[str] = None,
+    engine: str = "auto",
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """사이트 반입 잡(kind='fetch') 시작 — convert 잡 큐 재사용(동시 1개). 진행·결과 조회는
+    기존 `GET /api/convert/{job_id}`. phase는 'fetching'부터 시작한다(설계 §4.13)."""
+    from services.fetchers import registry as fetch_registry
+
+    _purge_expired_jobs()
+    if not CONVERT_PROMPT_PATH.exists():
+        raise ValidationAppError(
+            "prompts/convert.md 프롬프트 파일을 찾을 수 없습니다", detail={"path": str(CONVERT_PROMPT_PATH)}
+        )
+    if fetch_registry.get_adapter(adapter_id) is None:
+        raise ValidationAppError("등록되지 않은 어댑터입니다", detail={"adapter": adapter_id})
+    if not cert_ref or not exam_ref:
+        raise ValidationAppError("cert_ref·exam_ref가 필요합니다")
+
+    resolved_engine = llm_engine_service.resolve_engine(db, engine)
+    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
+    pre_fallback = applied_engine != resolved_engine
+    resolved_engine = applied_engine
+    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+
+    job_id = f"ftc_{uuid.uuid4().hex[:8]}"
+    job = _new_job_base("fetch", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    if pre_fallback:
+        job["_fallback_used"] = True
+    job.update(
+        {
+            "_timeout": timeout_seconds,
+            "_adapter_id": adapter_id,
+            "_cert_ref": cert_ref,
+            "_exam_ref": exam_ref,
+            "_fetch_source_url": source_url,
+            "_phase": "fetching",
+            "_phase_detail": source_url,
+        }
+    )
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+    _ensure_worker()
+    _QUEUE.put(job_id)
+    return job_id
+
+
 def _new_job_base(kind: str, *, resolved_engine: str, requested_engine: str, api_model: str) -> dict:
     now = dt.datetime.now()
     return {
@@ -872,7 +1103,8 @@ def get_convert_job(job_id: str) -> dict:
     _purge_expired_jobs()
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
-        if job is None or job["kind"] != "convert":
+        # 사이트 반입(kind='fetch')도 같은 규격으로 이 엔드포인트에서 조회한다(설계 §4.13).
+        if job is None or job["kind"] not in ("convert", "fetch"):
             raise NotFoundError(
                 "변환 작업을 찾을 수 없습니다(만료되었을 수 있습니다)", detail={"job_id": job_id}
             )
