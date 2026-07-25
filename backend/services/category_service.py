@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session
 
 import models
 from exceptions import ConflictError, NotFoundError
-from schemas.category import CategoryCreate, CategoryMove, CategoryNode, CategoryUpdate
+from schemas.category import (
+    CategoryCreate,
+    CategoryMove,
+    CategoryNode,
+    CategoryNodePipeline,
+    CategoryUpdate,
+    StageTypeProgress,
+)
 
 # 진도 집계 대상 문서 타입 — 플래시카드(S5)는 학습 트랙/진도율에서 제외
 PROGRESS_DOCUMENT_TYPES = ("concept", "question", "past_question")
@@ -104,6 +111,101 @@ def build_tree(db: Session) -> List[CategoryNode]:
             sort_order=cat.sort_order,
             doc_count=counts.get(cat.id, 0),
             progress=(done / total) if total else None,
+            children=[build(child) for child in children_by_parent.get(cat.id, [])],
+        )
+
+    roots = children_by_parent.get(None, [])
+    return [build(root) for root in roots]
+
+
+def stage_progress_map(db: Session) -> Dict[int, Dict[str, Tuple[int, int]]]:
+    """F37 파이프라인 집계 (설계 §4.12) — 노드별 {type: (done, total)}, 노드+하위 트리 전체.
+
+    **단일 패스**: 재귀 CTE로 트리를 펼친 뒤 한 번의 GROUP BY로 모든 노드×타입 조합을
+    집계한다(노드별 재귀 쿼리 금지 원칙). 판정:
+      - concept: study_progress.status='done'(서브트리 내 어느 링크에서든 done이면 done)
+      - question/past_question: 해당 문서에 **활성 attempt 1회 이상**(정오 무관 — 문서 전역
+        기준, 이 서브트리 안에서 풀었는지는 따지지 않는다 — "어느 화면에서 풀었든 인정")
+    total/done 모수는 하위 트리 내 **고유 문서 기준**(COUNT DISTINCT) — 문서가 서브트리의
+    여러 분류에 연결돼도 1개로 센다(이중 계산 금지, R1).
+    """
+    type_list = ", ".join(f"'{t}'" for t in PROGRESS_DOCUMENT_TYPES)
+    rows = db.execute(
+        text(
+            f"""
+            WITH RECURSIVE tree(id, root_id) AS (
+                SELECT id, id FROM categories
+                UNION ALL
+                SELECT c.id, t.root_id
+                FROM categories c
+                JOIN tree t ON c.parent_id = t.id
+            ),
+            attempted AS (
+                SELECT DISTINCT document_id FROM attempts
+            )
+            SELECT
+                t.root_id AS root_id,
+                d.type AS doc_type,
+                COUNT(DISTINCT cd.document_id) AS total,
+                COUNT(DISTINCT CASE
+                    WHEN d.type = 'concept' AND sp.status = 'done' THEN cd.document_id
+                    WHEN d.type != 'concept' AND att.document_id IS NOT NULL THEN cd.document_id
+                END) AS done
+            FROM tree t
+            JOIN category_documents cd ON cd.category_id = t.id
+            JOIN documents d
+                ON d.id = cd.document_id AND d.is_active = 1 AND d.type IN ({type_list})
+            LEFT JOIN study_progress sp
+                ON sp.category_id = cd.category_id AND sp.document_id = cd.document_id
+            LEFT JOIN attempted att ON att.document_id = cd.document_id
+            GROUP BY t.root_id, d.type
+            """
+        )
+    ).all()
+
+    result: Dict[int, Dict[str, Tuple[int, int]]] = defaultdict(dict)
+    for row in rows:
+        result[row.root_id][row.doc_type] = (row.done, row.total)
+    return result
+
+
+def build_tree_pipeline(db: Session) -> List[CategoryNodePipeline]:
+    """`GET /api/categories/tree?pipeline=1` — 기존 `build_tree`에 `stage_progress`만 추가.
+
+    파라미터 없는 기존 호출(`build_tree`)은 건드리지 않는다 — 별도 함수·별도 스키마로
+    분리해 기존 응답 불변을 보장한다.
+    """
+    categories = db.execute(
+        select(models.Category).order_by(models.Category.sort_order, models.Category.id)
+    ).scalars().all()
+
+    counts = _doc_counts(db)
+    progress_map = subtree_progress(db)
+    stage_map = stage_progress_map(db)
+
+    children_by_parent: Dict[Optional[int], List[models.Category]] = defaultdict(list)
+    for cat in categories:
+        children_by_parent[cat.parent_id].append(cat)
+
+    def build(cat: models.Category) -> CategoryNodePipeline:
+        done, total = progress_map.get(cat.id, (0, 0))
+        stage = stage_map.get(cat.id, {})
+        stage_progress = {
+            doc_type: StageTypeProgress(
+                done=stage.get(doc_type, (0, 0))[0], total=stage.get(doc_type, (0, 0))[1]
+            )
+            for doc_type in PROGRESS_DOCUMENT_TYPES
+        }
+        return CategoryNodePipeline(
+            id=cat.id,
+            parent_id=cat.parent_id,
+            name=cat.name,
+            level_hint=cat.level_hint,
+            exam_date=cat.exam_date,
+            sort_order=cat.sort_order,
+            doc_count=counts.get(cat.id, 0),
+            progress=(done / total) if total else None,
+            stage_progress=stage_progress,
             children=[build(child) for child in children_by_parent.get(cat.id, [])],
         )
 

@@ -1,16 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import MarkdownView from '../components/MarkdownView'
 import ProgressBar from '../components/ProgressBar'
+import Stepper from '../components/Stepper'
+import type { StepperStep } from '../components/Stepper'
 import { api, ApiError } from '../api/client'
 import { useStudyTrack, useStudyEvent } from '../api/study'
 import { useDocument } from '../api/documents'
 import { useSubmitAttempt, useCreateQuizSession } from '../api/quiz'
-import { useCategoryTree } from '../api/categories'
+import { useCategoryTree, useCategoryTreePipeline } from '../api/categories'
 import { useQuizSessionStore } from '../stores/quizSession'
-import { findNextSiblingId } from '../utils/tree'
+import { useFontScale } from '../hooks/useFontScale'
+import { findCategory, findNextSiblingId } from '../utils/tree'
 import ReportErrorButton from '../components/ReportErrorButton'
-import type { AttemptResponse, StudyTrackItem } from '../api/types'
+import type {
+  AttemptResponse,
+  CategoryStageProgress,
+  DocumentType,
+  FontScale,
+  QuizQuestion,
+  StudyTrackItem,
+} from '../api/types'
+
+// F37 개념 트랙 = 하위 포함, concept+question 인터리브(기출 제외) — 설계 §5.5·§4.12.
+const CONCEPT_TRACK_TYPES: DocumentType[] = ['concept', 'question']
 
 const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
 
@@ -36,15 +50,29 @@ export default function StudyPage() {
   const [searchParams] = useSearchParams()
   const fromStart = searchParams.get('from') === 'start'
 
-  const trackQuery = useStudyTrack(categoryId)
+  // F37: 개념 트랙은 하위 포함·concept+question(기출 제외) — 설계 §5.5.
+  const trackQuery = useStudyTrack(categoryId, { deep: true, types: CONCEPT_TRACK_TYPES })
   const studyEvent = useStudyEvent()
+  const fontScale = useFontScale()
 
   const items = useMemo<StudyTrackItem[]>(() => trackQuery.data?.items ?? [], [trackQuery.data])
 
   const [index, setIndex] = useState(0)
   const [finished, setFinished] = useState(false)
   const [session, setSession] = useState<Record<number, SessionAnswer>>({})
+  // 집중 모드(F36-⑦) — 화면 로컬 상태(저장 안 함), Esc/토글로 복귀.
+  const [focus, setFocus] = useState(false)
   const initRef = useRef<number | null>(null)
+
+  // 집중 모드에서 Esc로 복귀 (설계 §5.5).
+  useEffect(() => {
+    if (!focus) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setFocus(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [focus])
 
   // 시작 위치 결정: ?from=start면 처음부터, resume_document_id 있으면 그 위치, 없으면 첫 미완료.
   // categoryId가 바뀔 때만 수행 — 완료/제출 등 다른 갱신으로도 현재 위치를 잃지 않는다.
@@ -169,53 +197,79 @@ export default function StudyPage() {
   const doneCount = items.filter((it) => it.status === 'done' || session[it.document_id] != null).length
 
   if (finished) {
+    // 개념 트랙 완료 → 챕터 3단계 여정(문제→기출→최종 완료) — 설계 §5.5, F37.
     return (
-      <ChapterComplete
+      <ChapterJourney
         categoryId={categoryId}
         categoryName={categoryName}
-        items={items}
-        session={session}
-        onReview={goPrev}
+        conceptItems={items}
+        conceptSession={session}
+        onReviewConcept={goPrev}
       />
     )
   }
 
+  // 집중 모드(F36-⑦): 사이드바(데스크톱)·헤더(모바일)를 덮는 전체화면 오버레이. 모바일 하단 탭바는 유지.
+  const wrapperClass = focus
+    ? 'fixed inset-0 z-20 overflow-y-auto bg-bg md:z-40'
+    : ''
+
   return (
-    <div className="mx-auto max-w-xl p-4 pb-28">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <Link to="/curriculum" className="text-sm text-muted hover:text-primary">
-          ← 나가기
-        </Link>
-        <span className="truncate text-sm text-muted" title={categoryName}>
-          {categoryName}
-        </span>
-      </div>
+    <div className={wrapperClass}>
+      <div className="mx-auto max-w-xl p-4 pb-28">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          {focus ? (
+            <button type="button" onClick={() => setFocus(false)} className="text-sm text-muted hover:text-primary">
+              ✕ 집중 모드 종료
+            </button>
+          ) : (
+            <Link to="/curriculum" className="text-sm text-muted hover:text-primary">
+              ← 나가기
+            </Link>
+          )}
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm text-muted" title={categoryName}>
+              {categoryName}
+            </span>
+            <button
+              type="button"
+              onClick={() => setFocus((v) => !v)}
+              aria-pressed={focus}
+              title={focus ? '집중 모드 종료 (Esc)' : '집중 모드'}
+              className="shrink-0 rounded border border-border px-2 py-1 text-xs text-muted hover:bg-bg hover:text-primary"
+            >
+              ⛶
+            </button>
+          </div>
+        </div>
 
-      <div className="mb-4">
-        <ProgressBar value={items.length > 0 ? doneCount / items.length : 0} label={`${doneCount}/${items.length}`} />
-      </div>
+        <div className="mb-4">
+          <ProgressBar value={items.length > 0 ? doneCount / items.length : 0} label={`${doneCount}/${items.length}`} />
+        </div>
 
-      {current && (
-        <StudyCard
-          key={current.document_id}
-          item={current}
-          categoryId={categoryId}
-          answered={session[current.document_id]}
-          onAnswered={recordSession}
-        />
-      )}
+        {current && (
+          <StudyCard
+            key={current.document_id}
+            item={current}
+            categoryId={categoryId}
+            fontScale={fontScale}
+            answered={session[current.document_id]}
+            onAnswered={recordSession}
+          />
+        )}
 
-      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-surface md:static md:mt-6 md:border-0 md:bg-transparent md:p-0">
-        <div className="mx-auto flex max-w-xl items-center gap-3 p-3 md:p-0">
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={index === 0}
-            className="rounded border border-border bg-surface px-4 py-2.5 text-sm font-medium text-primary hover:bg-bg disabled:opacity-40"
-          >
-            ◀ 이전
-          </button>
-          {current && <NextButton item={current} answered={session[current.document_id]} onConceptNext={handleConceptNext} onNext={advance} isLast={index + 1 >= items.length} />}
+        <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-surface md:static md:mt-6 md:border-0 md:bg-transparent md:p-0">
+          <div className="mx-auto flex max-w-xl items-center gap-3 p-3 md:p-0">
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={index === 0}
+              className="rounded border border-border bg-surface px-4 py-2.5 text-sm font-medium text-primary hover:bg-bg disabled:opacity-40"
+            >
+              ◀ 이전
+            </button>
+            {current && <NextButton item={current} answered={session[current.document_id]} onConceptNext={handleConceptNext} onNext={advance} isLast={index + 1 >= items.length} />}
+          </div>
         </div>
       </div>
     </div>
@@ -226,11 +280,13 @@ export default function StudyPage() {
 function StudyCard({
   item,
   categoryId,
+  fontScale,
   answered,
   onAnswered,
 }: {
   item: StudyTrackItem
   categoryId: number
+  fontScale: FontScale
   answered: SessionAnswer | undefined
   onAnswered: (documentId: number, myAnswer: string, result: AttemptResponse) => void
 }) {
@@ -293,7 +349,7 @@ function StudyCard({
       {/* 개념: 본문 Markdown. 문제: 지문만 렌더 — 정답·해설은 제출 후에만 노출(서버 채점 원칙). */}
       <div className="mb-4 rounded-lg border border-border bg-surface p-4">
         <h2 className="mb-2 text-base font-semibold text-primary">{doc.title}</h2>
-        <MarkdownView content={doc.content} />
+        <MarkdownView content={doc.content} scale={fontScale} />
       </div>
 
       {question && (
@@ -419,45 +475,104 @@ function NextButton({
   )
 }
 
-// 챕터 완료 화면 — 이번 세션 정답률 + 틀린 문제 + [지금 다시 풀기] + [다음 챕터 ▶].
-function ChapterComplete({
+// ---- 챕터 3단계 여정 (설계 §5.5, F37) ----
+type JourneyStage = 'concept_done' | 'practice' | 'practice_done' | 'past' | 'final'
+
+interface WrongEntry {
+  document_id: number
+  title: string
+  my_answer: string
+  answer: string
+}
+
+interface StageResult {
+  answered: number
+  correct: number
+  wrong: WrongEntry[]
+}
+
+function accuracyPct(r: StageResult): number | null {
+  return r.answered > 0 ? Math.round((r.correct / r.answered) * 100) : null
+}
+
+// 개념 트랙 완료 → 문제 → 기출 → 최종 완료. 단계 건너뛰기 가능, 문서 0개 단계 자동 생략.
+function ChapterJourney({
   categoryId,
   categoryName,
-  items,
-  session,
-  onReview,
+  conceptItems,
+  conceptSession,
+  onReviewConcept,
 }: {
   categoryId: number
   categoryName: string
-  items: StudyTrackItem[]
-  session: Record<number, SessionAnswer>
-  onReview: () => void
+  conceptItems: StudyTrackItem[]
+  conceptSession: Record<number, SessionAnswer>
+  onReviewConcept: () => void
 }) {
   const navigate = useNavigate()
   const treeQuery = useCategoryTree()
+  const pipelineQuery = useCategoryTreePipeline()
   const createSession = useCreateQuizSession()
   const startQuiz = useQuizSessionStore((s) => s.start)
+
+  const [stage, setStage] = useState<JourneyStage>('concept_done')
+  const [practiceResult, setPracticeResult] = useState<StageResult | null>(null)
+  const [pastResult, setPastResult] = useState<StageResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const answeredItems = items.filter((it) => session[it.document_id] != null)
-  const correctCount = answeredItems.filter((it) => session[it.document_id].result.is_correct).length
-  const answeredCount = answeredItems.length
-  const accuracy = answeredCount > 0 ? Math.round((correctCount / answeredCount) * 100) : null
-  const wrongItems = answeredItems.filter((it) => !session[it.document_id].result.is_correct)
+  // 개념 트랙 내 문제(question) 정답 집계
+  const conceptResult = useMemo<StageResult>(() => {
+    const answered = conceptItems.filter((it) => conceptSession[it.document_id] != null)
+    const correct = answered.filter((it) => conceptSession[it.document_id].result.is_correct)
+    const wrong: WrongEntry[] = answered
+      .filter((it) => !conceptSession[it.document_id].result.is_correct)
+      .map((it) => ({
+        document_id: it.document_id,
+        title: it.title,
+        my_answer: conceptSession[it.document_id].my_answer,
+        answer: conceptSession[it.document_id].result.answer,
+      }))
+    return { answered: answered.length, correct: correct.length, wrong }
+  }, [conceptItems, conceptSession])
+
+  const stageProgress = useMemo<CategoryStageProgress | null>(() => {
+    const node = pipelineQuery.data ? findCategory(pipelineQuery.data, categoryId) : null
+    return node?.stage_progress ?? null
+  }, [pipelineQuery.data, categoryId])
+  // 파이프라인 미로딩 시엔 일단 제공(빈 세션이면 QuizStage가 자동 생략).
+  const hasQuestion = stageProgress ? stageProgress.question.total > 0 : true
+  const hasPast = stageProgress ? stageProgress.past_question.total > 0 : true
 
   const nextSiblingId = treeQuery.data ? findNextSiblingId(treeQuery.data, categoryId) : null
 
-  function retryWrong() {
+  function afterPractice(result: StageResult) {
+    setPracticeResult(result)
+    if (hasPast) setStage('past')
+    else setStage('final')
+  }
+
+  function retryAllWrong() {
+    const wrongIds = [
+      ...conceptResult.wrong,
+      ...(practiceResult?.wrong ?? []),
+      ...(pastResult?.wrong ?? []),
+    ].map((w) => w.document_id)
+    const unique = Array.from(new Set(wrongIds))
+    if (unique.length === 0) {
+      setError('다시 풀 문제가 없습니다.')
+      return
+    }
     setError(null)
+    // 특정 문서 지목 재도전은 sequential + document_ids (설계 §5.8).
     createSession.mutate(
-      { category_id: categoryId, mode: 'wrong_only', count: Math.max(wrongItems.length, 1) },
+      { category_id: categoryId, mode: 'sequential', count: unique.length, document_ids: unique },
       {
         onSuccess: (data) => {
           if (data.items.length === 0) {
             setError('다시 풀 문제가 없습니다.')
             return
           }
-          startQuiz(data.items, 'wrong_only', categoryId)
+          startQuiz(data.items, 'sequential', categoryId)
           navigate('/quiz/run')
         },
         onError: (e) => setError(errMsg(e, '재도전 세션을 시작하지 못했습니다.')),
@@ -466,57 +581,183 @@ function ChapterComplete({
   }
 
   function goNextChapter() {
-    if (nextSiblingId != null) {
-      navigate(`/study/${nextSiblingId}?from=start`)
-    } else {
-      navigate('/curriculum')
-    }
+    if (nextSiblingId != null) navigate(`/study/${nextSiblingId}?from=start`)
+    else navigate('/curriculum')
   }
+
+  // ---- 문제 단계 ----
+  if (stage === 'practice') {
+    return (
+      <QuizStage
+        key="practice"
+        categoryId={categoryId}
+        types={['question']}
+        heading="챕터 연습문제"
+        onExit={() => setStage('concept_done')}
+        onComplete={afterPractice}
+        onEmpty={() => {
+          setPracticeResult({ answered: 0, correct: 0, wrong: [] })
+          if (hasPast) setStage('past')
+          else setStage('final')
+        }}
+      />
+    )
+  }
+  if (stage === 'past') {
+    return (
+      <QuizStage
+        key="past"
+        categoryId={categoryId}
+        types={['past_question']}
+        heading="챕터 기출문제"
+        onExit={() => setStage(practiceResult ? 'practice_done' : 'concept_done')}
+        onComplete={(r) => {
+          setPastResult(r)
+          setStage('final')
+        }}
+        onEmpty={() => {
+          setPastResult({ answered: 0, correct: 0, wrong: [] })
+          setStage('final')
+        }}
+      />
+    )
+  }
+
+  // ---- 단계 요약 화면들 ----
+  const conceptAcc = accuracyPct(conceptResult)
+
+  if (stage === 'concept_done') {
+    return (
+      <StageSummary title="개념 학습 완료 🎉" subtitle={categoryName} accuracy={conceptAcc} accuracyLabel="개념 문제 정답률">
+        <div className="flex flex-col gap-2">
+          {hasQuestion ? (
+            <button
+              type="button"
+              onClick={() => setStage('practice')}
+              className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
+            >
+              문제 풀이로 이어가기 ▶
+            </button>
+          ) : hasPast ? (
+            <button
+              type="button"
+              onClick={() => setStage('past')}
+              className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
+            >
+              기출로 마무리 ▶
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setStage('final')}
+              className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
+            >
+              완료 화면 보기 ▶
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onReviewConcept}
+            className="w-full rounded border border-border bg-surface px-4 py-2.5 text-sm font-medium text-primary hover:bg-bg"
+          >
+            개념 다시 보기
+          </button>
+          {(hasQuestion || hasPast) && (
+            <button
+              type="button"
+              onClick={() => setStage('final')}
+              className="w-full rounded border border-border bg-surface px-4 py-2 text-xs font-medium text-muted hover:bg-bg"
+            >
+              단계 건너뛰고 완료
+            </button>
+          )}
+        </div>
+      </StageSummary>
+    )
+  }
+
+  if (stage === 'practice_done') {
+    return (
+      <StageSummary
+        title="연습문제 완료"
+        subtitle={categoryName}
+        accuracy={practiceResult ? accuracyPct(practiceResult) : null}
+        accuracyLabel="연습문제 정답률"
+      >
+        <div className="flex flex-col gap-2">
+          {hasPast ? (
+            <button
+              type="button"
+              onClick={() => setStage('past')}
+              className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
+            >
+              기출로 마무리 ▶
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setStage('final')}
+              className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
+            >
+              완료 화면 보기 ▶
+            </button>
+          )}
+        </div>
+      </StageSummary>
+    )
+  }
+
+  // ---- 최종 완료 화면: 단계별 정답률 Stepper + 틀린 문제 재도전 + 다음 챕터 ----
+  const steps: StepperStep[] = [
+    { key: 'concept', label: '개념', sublabel: conceptAcc != null ? `${conceptAcc}%` : '—', status: 'done' },
+  ]
+  if (practiceResult) {
+    const acc = accuracyPct(practiceResult)
+    steps.push({ key: 'practice', label: '문제', sublabel: acc != null ? `${acc}%` : '—', status: 'done' })
+  }
+  if (pastResult) {
+    const acc = accuracyPct(pastResult)
+    steps.push({ key: 'past', label: '기출', sublabel: acc != null ? `${acc}%` : '—', status: 'done' })
+  }
+
+  const allWrong = [
+    ...conceptResult.wrong,
+    ...(practiceResult?.wrong ?? []),
+    ...(pastResult?.wrong ?? []),
+  ]
 
   return (
     <div className="mx-auto max-w-xl p-4">
       <h1 className="mb-1 text-xl font-semibold text-primary">챕터 완료 🎉</h1>
       <p className="mb-4 text-sm text-muted">{categoryName}</p>
 
-      <div className="mb-4 grid grid-cols-2 gap-3">
-        <div className="rounded-lg border border-border bg-surface p-4 text-center">
-          <p className="text-2xl font-semibold text-primary">{accuracy != null ? `${accuracy}%` : '-'}</p>
-          <p className="text-xs text-muted">
-            이번 세션 정답률{answeredCount > 0 ? ` (${correctCount}/${answeredCount})` : ''}
-          </p>
-        </div>
-        <div className="rounded-lg border border-border bg-surface p-4 text-center">
-          <p className="text-2xl font-semibold text-primary">{items.length}</p>
-          <p className="text-xs text-muted">완료한 문서</p>
-        </div>
+      <div className="mb-4 rounded-lg border border-border bg-surface p-4">
+        <p className="mb-3 text-sm font-semibold text-primary">단계별 정답률</p>
+        <Stepper steps={steps} />
       </div>
 
-      {answeredCount === 0 && (
-        <p className="mb-4 text-sm text-muted">이번 세션에 새로 푼 문제가 없습니다.</p>
-      )}
-
-      {wrongItems.length > 0 && (
+      {allWrong.length > 0 && (
         <div className="mb-4">
-          <h2 className="mb-2 text-sm font-semibold text-primary">틀린 문제 ({wrongItems.length})</h2>
+          <h2 className="mb-2 text-sm font-semibold text-primary">틀린 문제 ({allWrong.length})</h2>
           <div className="flex flex-col gap-2">
-            {wrongItems.map((it) => (
-              <div key={it.document_id} className="rounded-lg border border-border bg-surface p-3">
-                <p className="truncate text-sm text-primary" title={it.title}>
-                  {it.title}
+            {allWrong.map((w) => (
+              <div key={w.document_id} className="rounded-lg border border-border bg-surface p-3">
+                <p className="truncate text-sm text-primary" title={w.title}>
+                  {w.title}
                 </p>
                 <p className="text-xs text-muted">
-                  내 답: {session[it.document_id].my_answer} · 정답: {session[it.document_id].result.answer}
+                  내 답: {w.my_answer} · 정답: {w.answer}
                 </p>
               </div>
             ))}
           </div>
           <button
             type="button"
-            onClick={retryWrong}
+            onClick={retryAllWrong}
             disabled={createSession.isPending}
             className="mt-3 w-full rounded border border-accent bg-accent-soft px-4 py-2.5 text-sm font-medium text-accent hover:opacity-90 disabled:opacity-50"
           >
-            {createSession.isPending ? '준비 중…' : '지금 다시 풀기'}
+            {createSession.isPending ? '준비 중…' : '틀린 문제 다시 풀기'}
           </button>
         </div>
       )}
@@ -533,12 +774,220 @@ function ChapterComplete({
         </button>
         <button
           type="button"
-          onClick={onReview}
+          onClick={onReviewConcept}
           className="w-full rounded border border-border bg-surface px-4 py-2.5 text-sm font-medium text-primary hover:bg-bg"
         >
-          다시 보기
+          개념 다시 보기
         </button>
       </div>
+    </div>
+  )
+}
+
+// 단계 요약 카드(공용) — 정답률 타일 + 자식 버튼.
+function StageSummary({
+  title,
+  subtitle,
+  accuracy,
+  accuracyLabel,
+  children,
+}: {
+  title: string
+  subtitle: string
+  accuracy: number | null
+  accuracyLabel: string
+  children: ReactNode
+}) {
+  return (
+    <div className="mx-auto max-w-xl p-4">
+      <h1 className="mb-1 text-xl font-semibold text-primary">{title}</h1>
+      <p className="mb-4 text-sm text-muted">{subtitle}</p>
+      {accuracy != null && (
+        <div className="mb-4 rounded-lg border border-border bg-surface p-4 text-center">
+          <p className="text-2xl font-semibold text-primary">{accuracy}%</p>
+          <p className="text-xs text-muted">{accuracyLabel}</p>
+        </div>
+      )}
+      {children}
+    </div>
+  )
+}
+
+// 인라인 퀴즈 단계 (문제/기출) — quiz/session{types} 로 출제, 결과를 부모로 반환.
+function QuizStage({
+  categoryId,
+  types,
+  heading,
+  onComplete,
+  onEmpty,
+  onExit,
+}: {
+  categoryId: number
+  types: DocumentType[]
+  heading: string
+  onComplete: (result: StageResult) => void
+  onEmpty: () => void
+  onExit: () => void
+}) {
+  const createSession = useCreateQuizSession()
+  const submitAttempt = useSubmitAttempt()
+  const fontScale = useFontScale()
+
+  const [questions, setQuestions] = useState<QuizQuestion[] | null>(null)
+  const [startError, setStartError] = useState<string | null>(null)
+  const [index, setIndex] = useState(0)
+  const [answers, setAnswers] = useState<Record<number, SessionAnswer>>({})
+  const [cardShownAt, setCardShownAt] = useState(() => Date.now())
+  const startedRef = useRef(false)
+
+  useEffect(() => {
+    if (startedRef.current) return
+    startedRef.current = true
+    createSession.mutate(
+      { category_id: categoryId, mode: 'sequential', count: 200, types },
+      {
+        onSuccess: (data) => {
+          if (data.items.length === 0) onEmpty()
+          else setQuestions(data.items)
+        },
+        onError: (e) => setStartError(errMsg(e, '문제를 불러오지 못했습니다.')),
+      },
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    setCardShownAt(Date.now())
+  }, [index])
+
+  function buildResult(map: Record<number, SessionAnswer>): StageResult {
+    const list = questions ?? []
+    const answered = list.filter((q) => map[q.document_id] != null)
+    const correct = answered.filter((q) => map[q.document_id].result.is_correct)
+    const wrong: WrongEntry[] = answered
+      .filter((q) => !map[q.document_id].result.is_correct)
+      .map((q) => ({
+        document_id: q.document_id,
+        title: q.title,
+        my_answer: map[q.document_id].my_answer,
+        answer: map[q.document_id].result.answer,
+      }))
+    return { answered: answered.length, correct: correct.length, wrong }
+  }
+
+  function handleSelect(choiceIndex: number) {
+    if (!questions) return
+    const q = questions[index]
+    if (!q || answers[q.document_id] || submitAttempt.isPending) return
+    const myAnswer = String(choiceIndex + 1)
+    const timeSpent = Math.max(0, Math.round((Date.now() - cardShownAt) / 1000))
+    submitAttempt.mutate(
+      { document_id: q.document_id, category_id: categoryId, my_answer: myAnswer, time_spent: timeSpent, mode: 'quiz' },
+      {
+        onSuccess: (result) => setAnswers((prev) => ({ ...prev, [q.document_id]: { my_answer: myAnswer, result } })),
+      },
+    )
+  }
+
+  function next() {
+    if (!questions) return
+    if (index + 1 >= questions.length) {
+      onComplete(buildResult(answers))
+    } else {
+      setIndex((i) => i + 1)
+    }
+  }
+
+  if (startError) {
+    return (
+      <div className="mx-auto max-w-xl p-4">
+        <p className="mb-3 text-sm text-wrong">{startError}</p>
+        <button
+          type="button"
+          onClick={onExit}
+          className="rounded border border-border bg-surface px-4 py-2 text-sm text-primary hover:bg-bg"
+        >
+          ← 돌아가기
+        </button>
+      </div>
+    )
+  }
+  if (!questions) {
+    return <p className="p-4 text-sm text-muted">문제를 불러오는 중…</p>
+  }
+
+  const q = questions[index]
+  const answered = answers[q.document_id]
+
+  return (
+    <div className="mx-auto max-w-xl p-4 pb-24">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <button type="button" onClick={onExit} className="text-sm text-muted hover:text-primary">
+          ← 돌아가기
+        </button>
+        <span className="text-sm text-muted">{heading}</span>
+      </div>
+
+      <div className="mb-4">
+        <ProgressBar value={(index + 1) / questions.length} label={`${index + 1}/${questions.length}`} />
+      </div>
+
+      <div className="mb-4 rounded-lg border border-border bg-surface p-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="inline-block rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
+            {q.doc_no}
+          </span>
+          <ReportErrorButton documentId={q.document_id} variant="inline" />
+        </div>
+        <MarkdownView content={q.content} scale={fontScale} />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {(q.choices ?? []).map((choice, i) => {
+          const value = String(i + 1)
+          const isMine = answered?.my_answer === value
+          const isCorrectChoice = answered != null && answered.result.answer === value
+          let stateClass = 'border-border bg-surface text-primary hover:bg-bg'
+          if (answered) {
+            if (isCorrectChoice) stateClass = 'border-correct bg-correct/10 text-correct'
+            else if (isMine) stateClass = 'border-wrong bg-wrong/10 text-wrong'
+          }
+          return (
+            <button
+              key={i}
+              type="button"
+              disabled={answered != null || submitAttempt.isPending}
+              onClick={() => handleSelect(i)}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-default ${stateClass}`}
+            >
+              <span className="font-medium">{CIRCLED_DIGITS[i] ?? `${i + 1}.`}</span>
+              <span>{choice}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {answered && (
+        <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+          <p className={`mb-2 text-sm font-semibold ${answered.result.is_correct ? 'text-correct' : 'text-wrong'}`}>
+            {answered.result.is_correct ? '정답입니다' : '오답입니다'}
+          </p>
+          <div className="text-sm text-primary">
+            <span className="font-semibold">해설</span>
+            <MarkdownView content={answered.result.explanation} scale={fontScale} />
+          </div>
+        </div>
+      )}
+
+      {answered && (
+        <button
+          type="button"
+          onClick={next}
+          className="mt-4 w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
+        >
+          {index + 1 >= questions.length ? '단계 완료' : '다음'}
+        </button>
+      )}
     </div>
   )
 }

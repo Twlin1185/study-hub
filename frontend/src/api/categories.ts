@@ -4,12 +4,23 @@ import type { CategoryNode } from './types'
 
 export const categoryKeys = {
   tree: ['categories', 'tree'] as const,
+  // pipeline 변형도 tree 접두를 공유 — 기존 invalidateQueries({queryKey:['categories','tree']})가 함께 무효화.
+  treePipeline: ['categories', 'tree', 'pipeline'] as const,
 }
 
 export function useCategoryTree() {
   return useQuery({
     queryKey: categoryKeys.tree,
     queryFn: () => api.get<CategoryNode[]>('/categories/tree'),
+  })
+}
+
+// GET /api/categories/tree?pipeline=1 — 노드별 stage_progress(3단 진도) 포함 (§4.12, S9/F37).
+// 파라미터 없는 기존 트리와 응답이 다르므로(집계 필드 추가) 별도 캐시 키로 둔다.
+export function useCategoryTreePipeline() {
+  return useQuery({
+    queryKey: categoryKeys.treePipeline,
+    queryFn: () => api.get<CategoryNode[]>('/categories/tree?pipeline=1'),
   })
 }
 

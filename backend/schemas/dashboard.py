@@ -29,3 +29,5 @@ class DashboardResponse(BaseModel):
     continue_: List[ContinueCard] = Field(default_factory=list, alias="continue")
     ddays: List[DDayItem] = Field(default_factory=list)
     recent: RecentStats = Field(default_factory=RecentStats)
+    # S9(F36-①) — daily_start 위젯 분량 예고용 대략치(설계 §4.12)
+    today_review_minutes: int = 0

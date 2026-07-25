@@ -11,7 +11,9 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List
 
-from database import BASE_DIR, DB_PATH
+from sqlalchemy import text
+
+from database import BASE_DIR, DB_PATH, engine
 from exceptions import ConflictError, NotFoundError, ValidationAppError
 
 BACKUPS_DIR = BASE_DIR / "backups"
@@ -124,5 +126,14 @@ def restore_backup(backup_id: str, confirm: str) -> Dict:
         SOURCES_DIR.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(sources_zip, "r") as zf:
             zf.extractall(SOURCES_DIR)
+
+    # 복원 후처리(M6 이월 ②, 설계 §4.12): SQLAlchemy 커넥션 풀 폐기 — 이후 요청은
+    # 복원본 파일로 새 커넥션을 맺는다(stale 커넥션이 옛 DB 상태를 붙들고 있는 것 방지).
+    # Windows에서 앱이 study.db를 계속 열어 둔 채로도(WAL 체크포인트 이후) 안전하게
+    # dispose 가능 — 실제 파일 핸들은 각 커넥션이 쥐고 있고, 이미 위에서 파일 교체는
+    # 끝난 뒤이므로 dispose는 다음 요청부터 새 파일을 읽게 만드는 역할만 한다.
+    engine.dispose()
+    with engine.connect() as verify_conn:
+        verify_conn.execute(text("SELECT COUNT(*) FROM categories"))
 
     return {"restored_from": backup_id, "pre_restore_backup": pre_restore["id"]}

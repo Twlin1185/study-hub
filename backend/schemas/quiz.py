@@ -17,6 +17,9 @@ class QuizSessionRequest(BaseModel):
     mode: QuizMode = "sequential"
     count: Optional[int] = Field(default=None, ge=1, le=200)
     document_ids: Optional[List[int]] = None
+    # S9(F37, 설계 §4.12) — 기존 mode·범위(하위 포함)와 교집합. 미지정(None)이면 기존과
+    # 동일하게 question+past_question 둘 다 대상(불변).
+    types: Optional[List[Literal["question", "past_question"]]] = None
 
 
 class QuizQuestionOut(BaseModel):

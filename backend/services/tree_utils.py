@@ -28,6 +28,29 @@ def collect_descendant_ids(db: Session, category_id: int) -> List[int]:
     return ids
 
 
+def collect_descendant_ids_ordered(db: Session, category_id: int) -> List[int]:
+    """category_id 자신 + 하위 트리를 **트리 순회(preorder, sort_order 기준)**로 나열.
+
+    F37 study-track `deep=1` 정렬 기준(설계 §4.12 — "트리 순회(분류 sort_order) → 링크
+    sort_order"). `collect_descendant_ids`(BFS, 순서 무관 집계용)와 달리 순서 자체가
+    의미를 가지는 호출부(개념 트랙 인터리브 등)에서 쓴다.
+    """
+    ordered: List[int] = []
+
+    def _walk(current_id: int) -> None:
+        ordered.append(current_id)
+        children = db.execute(
+            select(models.Category.id)
+            .where(models.Category.parent_id == current_id)
+            .order_by(models.Category.sort_order, models.Category.id)
+        ).scalars().all()
+        for child_id in children:
+            _walk(child_id)
+
+    _walk(category_id)
+    return ordered
+
+
 def category_path(db: Session, category_id: int) -> str:
     """루트부터 해당 분류까지 '/'로 이은 경로 문자열."""
     parts: List[str] = []

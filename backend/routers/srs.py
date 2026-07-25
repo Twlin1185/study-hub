@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from database import get_db
-from schemas.srs import SrsAnswerRequest, SrsAnswerResult, SrsCardOut
+from schemas.srs import SrsAnswerRequest, SrsAnswerResult, SrsCardOut, SrsSummary
 from services import srs_service
 
 router = APIRouter(prefix="/api/srs", tags=["srs"])
@@ -22,6 +22,11 @@ router = APIRouter(prefix="/api/srs", tags=["srs"])
 @router.get("/today", response_model=List[SrsCardOut])
 def get_today(db: Session = Depends(get_db)) -> List[SrsCardOut]:
     return srs_service.get_today_queue(db)
+
+
+@router.get("/summary", response_model=SrsSummary)
+def get_summary(db: Session = Depends(get_db)) -> SrsSummary:
+    return srs_service.get_summary(db)
 
 
 @router.post("/answer", response_model=SrsAnswerResult)

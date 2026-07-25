@@ -2,6 +2,7 @@
 // 서버는 검증 없이 문자열로 저장하므로 파싱·정규화 책임은 전적으로 프론트에 있다.
 
 export type WidgetId =
+  | 'daily_start'
   | 'continue'
   | 'today_review'
   | 'dday'
@@ -26,8 +27,10 @@ export interface HomeLayout {
   widgets: WidgetLayout[]
 }
 
-// 위젯 레지스트리 9종 — 설계 §5.1. 순서 = 기본 레이아웃 순서(기존 Home.tsx 섹션 순서).
+// 위젯 레지스트리 10종 — 설계 §5.1(S9: daily_start 추가). 순서 = 기본 레이아웃 순서.
+// daily_start는 continue보다 위(첫 번째) — 기존 저장 레이아웃엔 전방 호환 규칙으로 마지막에 자동 등장.
 export const WIDGET_REGISTRY: { id: WidgetId; title: string }[] = [
+  { id: 'daily_start', title: '오늘 공부 시작' },
   { id: 'continue', title: '이어하기' },
   { id: 'today_review', title: '오늘의 복습' },
   { id: 'dday', title: 'D-Day' },

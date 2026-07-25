@@ -3,12 +3,19 @@ import { useThemeStore } from '../stores/theme'
 import type { ThemeMode } from '../stores/theme'
 import { useSettings, useUpdateSettings } from '../api/settings'
 import { ApiError } from '../api/client'
+import type { FontScale, QuizAutoAdvance } from '../api/types'
 import DDayManager from '../components/DDayManager'
 import TagRuleManager from '../components/TagRuleManager'
 import BackupManager from '../components/BackupManager'
-import TagMergeTool from '../components/TagMergeTool'
+import TagManager from '../components/TagManager'
 import SettingsSection from '../components/settings/SettingsSection'
 import LlmEngineSection from '../components/settings/LlmEngineSection'
+
+const FONT_SCALE_OPTIONS: { value: FontScale; label: string }[] = [
+  { value: 'small', label: '작게' },
+  { value: 'default', label: '기본' },
+  { value: 'large', label: '크게' },
+]
 
 const OPTIONS: { value: ThemeMode; label: string; icon: string }[] = [
   { value: 'light', label: '라이트', icon: '☀️' },
@@ -40,6 +47,13 @@ export default function SettingsPage() {
   const [dailyLimit, setDailyLimit] = useState('')
   const [srsSaved, setSrsSaved] = useState(false)
   const [srsError, setSrsError] = useState<string | null>(null)
+
+  // F36-⑨⑥ — settings 값 즉시 저장(변경 시 write). 기본값은 default/off.
+  const fontScale: FontScale =
+    settingsQuery.data?.['study.font_scale'] === 'small' || settingsQuery.data?.['study.font_scale'] === 'large'
+      ? settingsQuery.data['study.font_scale']
+      : 'default'
+  const autoAdvance: QuizAutoAdvance = settingsQuery.data?.['quiz.auto_advance'] === 'on' ? 'on' : 'off'
 
   useEffect(() => {
     const value = settingsQuery.data?.['quiz.default_count']
@@ -158,6 +172,43 @@ export default function SettingsPage() {
               </div>
               {srsError && <p className="mt-2 text-sm text-wrong">{srsError}</p>}
             </section>
+
+            <section className="rounded-lg border border-border bg-surface p-4">
+              <h3 className="mb-1 text-sm font-semibold text-primary">본문 글자 크기</h3>
+              <p className="mb-3 text-xs text-muted">문서 상세·학습 모드의 본문 크기입니다.</p>
+              <div className="flex gap-2">
+                {FONT_SCALE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => updateSettings.mutate({ 'study.font_scale': opt.value })}
+                    aria-pressed={fontScale === opt.value}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                      fontScale === opt.value
+                        ? 'border-accent bg-accent-soft text-accent'
+                        : 'border-border bg-bg text-primary hover:bg-surface-raised'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-border bg-surface p-4">
+              <h3 className="mb-1 text-sm font-semibold text-primary">정답 시 자동 다음</h3>
+              <p className="mb-3 text-xs text-muted">
+                퀴즈에서 정답을 맞히면 1.5초 뒤 자동으로 다음 문제로 넘어갑니다 (오답은 항상 정지).
+              </p>
+              <label className="flex items-center gap-2 text-sm text-primary">
+                <input
+                  type="checkbox"
+                  checked={autoAdvance === 'on'}
+                  onChange={(e) => updateSettings.mutate({ 'quiz.auto_advance': e.target.checked ? 'on' : 'off' })}
+                />
+                정답 자동 다음 사용
+              </label>
+            </section>
           </SettingsSection>
 
           <SettingsSection id="settings-schedule" title="일정">
@@ -166,7 +217,7 @@ export default function SettingsPage() {
 
           <SettingsSection id="settings-tags" title="태그·분류">
             <TagRuleManager />
-            <TagMergeTool />
+            <TagManager />
           </SettingsSection>
 
           <SettingsSection id="settings-llm" title="LLM 엔진">

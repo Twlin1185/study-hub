@@ -8,6 +8,9 @@ import { clearStoredConvertJob, getStoredConvertJob, setStoredConvertJob } from 
 import LlmJobProgress from '../components/LlmJobProgress'
 import LlmErrorInfoView from '../components/LlmErrorInfo'
 import LlmLimitBanner from '../components/LlmLimitBanner'
+import Stepper from '../components/Stepper'
+import ConfirmDialog from '../components/ConfirmDialog'
+import type { StepperStep } from '../components/Stepper'
 import type {
   ImportAction,
   ImportCommitResult,
@@ -97,6 +100,19 @@ export default function ImportPage() {
 
   const previewMutation = useImportPreview()
   const commitMutation = useImportCommit()
+
+  // 반입 완료(result) 상태에서 지나온 단계를 클릭하면 결과가 버려지는 파괴적 복귀 — 확인 후 재시작.
+  const [confirmRestart, setConfirmRestart] = useState(false)
+
+  // 공용 Stepper 헤더 네비게이션(설계 §5.9, F36-⑪) — 'done' 단계만 클릭 가능.
+  function handleStepNavigate(target: WizardStep) {
+    if (step === 'result') {
+      // result에서 뒤로 = 반입 결과 폐기 → 확인 후 처음부터.
+      setConfirmRestart(true)
+      return
+    }
+    if (target === 'select') setStep('select')
+  }
 
   function resetWizard() {
     setStep('select')
@@ -189,7 +205,22 @@ export default function ImportPage() {
         Claude Code로 변환한 기출 JSON을 미리보고 검증한 뒤 DB에 적재합니다.
       </p>
 
-      <StepIndicator step={step} />
+      <div className="mb-5">
+        <StepIndicator step={step} onNavigate={handleStepNavigate} />
+      </div>
+
+      {confirmRestart && (
+        <ConfirmDialog
+          title="반입 다시 시작"
+          message="이미 반입이 완료되었습니다. 처음부터 다시 시작할까요? (완료 요약은 사라집니다)"
+          confirmLabel="처음부터"
+          onClose={() => setConfirmRestart(false)}
+          onConfirm={() => {
+            setConfirmRestart(false)
+            resetWizard()
+          }}
+        />
+      )}
 
       {expiredNotice && (
         <div className="mb-4 rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">
@@ -273,26 +304,21 @@ export default function ImportPage() {
   )
 }
 
-function StepIndicator({ step }: { step: WizardStep }) {
-  const steps: { key: WizardStep; label: string }[] = [
-    { key: 'select', label: '① 파일 선택' },
-    { key: 'preview', label: '② 미리보기' },
-    { key: 'result', label: '③ 결과' },
-  ]
-  return (
-    <div className="mb-4 flex gap-2 text-sm">
-      {steps.map((s) => (
-        <span
-          key={s.key}
-          className={`rounded-full px-3 py-1 ${
-            s.key === step ? 'bg-accent text-on-accent' : 'bg-surface text-muted'
-          }`}
-        >
-          {s.label}
-        </span>
-      ))}
-    </div>
-  )
+const STEP_ORDER: WizardStep[] = ['select', 'preview', 'result']
+const STEP_LABELS: Record<WizardStep, string> = {
+  select: '파일 선택',
+  preview: '미리보기',
+  result: '결과',
+}
+
+function StepIndicator({ step, onNavigate }: { step: WizardStep; onNavigate: (target: WizardStep) => void }) {
+  const currentIndex = STEP_ORDER.indexOf(step)
+  const steps: StepperStep[] = STEP_ORDER.map((key, i) => ({
+    key,
+    label: STEP_LABELS[key],
+    status: i < currentIndex ? 'done' : i === currentIndex ? 'current' : 'future',
+  }))
+  return <Stepper steps={steps} onStepClick={(i) => onNavigate(STEP_ORDER[i])} />
 }
 
 interface ConvertStepProps {

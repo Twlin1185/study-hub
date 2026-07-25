@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useBackups, useCreateBackup, useRestoreBackup } from '../api/backups'
 import { useSettings, useUpdateSettings } from '../api/settings'
 import type { BackupItem } from '../api/types'
@@ -26,9 +27,12 @@ export default function BackupManager() {
   const settingsQuery = useSettings()
   const updateSettings = useUpdateSettings()
 
+  const qc = useQueryClient()
   const [notice, setNotice] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
   const [restoreTarget, setRestoreTarget] = useState<BackupItem | null>(null)
+  // 복원 성공 후 강제 리로드 모달 표시 여부 (설계 §4.12 M6 이월 ②) — 닫기 없이 리로드만.
+  const [restored, setRestored] = useState(false)
 
   // 설계 §4.10 — 값은 문자열 "daily"(활성)/""(비활성). 백엔드 기동 훅이 이 정확한 문자열을 비교한다.
   const autoBackup = settingsQuery.data?.['backup.auto'] === 'daily'
@@ -109,13 +113,51 @@ export default function BackupManager() {
             restoreBackup.mutate(restoreTarget.id, {
               onSuccess: () => {
                 setRestoreTarget(null)
-                setNotice('복원을 완료했습니다. 새로고침 후 확인하세요.')
+                // 강제 리로드 모달로 전환 — stale 커넥션/화면 조작을 차단한다(§4.12).
+                setRestored(true)
               },
             })
           }
         />
       )}
+
+      {restored && (
+        <ForceReloadModal
+          onReload={() => {
+            // 쿼리 캐시 폐기 후 전체 새로고침 — 복원본으로 앱을 다시 불러온다.
+            qc.clear()
+            window.location.reload()
+          }}
+        />
+      )}
     </section>
+  )
+}
+
+// 복원 완료 강제 리로드 모달 (설계 §4.12) — 닫기 버튼 없음(리로드만), "이상 시 서버 재시작" 안내.
+function ForceReloadModal({ onReload }: { onReload: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="복원 완료"
+    >
+      <div className="w-full max-w-md rounded-lg border border-border bg-surface-raised p-5 shadow-xl">
+        <h2 className="mb-2 text-lg font-semibold text-primary">복원 완료</h2>
+        <p className="mb-1 text-sm text-primary">앱을 다시 불러옵니다. 복원된 데이터로 새로 시작합니다.</p>
+        <p className="mb-4 text-xs text-muted">
+          다시 불러온 뒤에도 이상 동작이 보이면 서버(백엔드)를 재시작하세요.
+        </p>
+        <button
+          type="button"
+          onClick={onReload}
+          className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-on-accent hover:opacity-90"
+        >
+          앱 다시 불러오기
+        </button>
+      </div>
+    </div>
   )
 }
 

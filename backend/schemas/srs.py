@@ -20,6 +20,18 @@ class SrsAnswerResult(BaseModel):
     due_date: Optional[dt.date] = None
 
 
+class SrsSummary(BaseModel):
+    """`GET /api/srs/summary` (설계 §4.12, F36-③·①) — 복습 완료 화면 "내일 N개 예정",
+    홈 daily_start 위젯 분량 예고에 쓰인다.
+
+    today_due = 오늘 큐 잔여 수(상한 적용) — `count_due_today`와 동일 계산.
+    tomorrow_due = 내일까지 due인 카드 수(오늘 미소화 이월 포함) — 상한 동일 적용.
+    """
+
+    today_due: int
+    tomorrow_due: int
+
+
 class SrsCardOut(BaseModel):
     """오늘의 복습 큐 항목 — 렌더에 필요한 문서 필드 + 스케줄 메타.
 

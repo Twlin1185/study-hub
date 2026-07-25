@@ -14,6 +14,20 @@ export interface CategoryNode {
   children: CategoryNode[]
   doc_count: number
   progress: number | null
+  // S9(F37): tree?pipeline=1 요청 시에만 채워진다 — 노드+하위 트리 전체 집계(§4.12).
+  stage_progress?: CategoryStageProgress | null
+}
+
+// F37 챕터 파이프라인 3단 진도 (§4.12) — 전부 파생값, DDL 없음.
+export interface StageCount {
+  done: number
+  total: number
+}
+
+export interface CategoryStageProgress {
+  concept: StageCount
+  question: StageCount
+  past_question: StageCount
 }
 
 export interface CategoryTreeResponse {
@@ -107,6 +121,23 @@ export interface Tag {
   id: number
   name: string
   usage_count: number
+  // S9(F38): tag_query에서 이 태그를 참조하는 규칙 수 — "규칙 사용" 배지용 (§4.12).
+  rule_count?: number
+}
+
+// S9(F38) 유사(오타 의심) 태그 쌍 (§4.12) — GET /api/tags/similar.
+export type TagSimilarReason = 'space' | 'case' | 'edit1'
+
+export interface TagSimilarSide {
+  id: number
+  name: string
+  doc_count: number
+}
+
+export interface TagSimilarPair {
+  a: TagSimilarSide
+  b: TagSimilarSide
+  reason: TagSimilarReason
 }
 
 export interface DocumentListFilters {
@@ -248,6 +279,8 @@ export interface QuizSessionRequest {
   count: number
   // 지정 시 해당 문서만 대상(모드 필터와 교집합, 요청 순서 유지) — 오답노트 개별 재도전용 (설계 §4.5, §5.8)
   document_ids?: number[]
+  // S9(F37): 타입 필터(예: ['question'], ['past_question']) — mode·범위와 교집합 (§4.12)
+  types?: DocumentType[]
 }
 
 // 정답·해설은 절대 포함하지 않는다 (서버 채점 원칙, 설계 §8) — 타입에도 필드를 두지 않음.
@@ -332,6 +365,13 @@ export interface SrsAnswerResponse {
   due_date: string
 }
 
+// S9(F36-①③) 복습 요약 (§4.12) — GET /api/srs/summary.
+// today_due = 오늘 큐 잔여, tomorrow_due = 내일까지 due(오늘 미소화 이월 포함). daily_limit 상한 동일.
+export interface SrsSummaryResponse {
+  today_due: number
+  tomorrow_due: number
+}
+
 // ---- 오답노트 (설계 §4.6, 계획 §6.2 review_notes 테이블) ----
 
 export type WrongReason = '개념부족' | '실수' | '함정' | '시간부족'
@@ -398,6 +438,8 @@ export interface DashboardResponse {
   continue: ContinueCard[]
   ddays: DDayItem[]
   recent: DashboardRecent
+  // S9(F36-①): 데일리 세션 분량 예고용 대략치(분). 표본 없으면 서버가 60초/문항 기준. (§4.12)
+  today_review_minutes?: number | null
 }
 
 // ---- 설정 (설계 §4.10, 계획 §6.2 settings 테이블 — key/value) ----
@@ -421,8 +463,17 @@ export interface SettingsResponse {
   'llm.priority'?: LlmPriority
   'llm.fallback'?: LlmFallbackPolicy
   'llm.api_model'?: string
+  // ---- 학습 UX (설계 §4.12, S9) ----
+  // 정답 시 1.5초 자동 다음(오답은 항상 정지). 기본 off.
+  'quiz.auto_advance'?: QuizAutoAdvance
+  // 본문 글자 크기 3단계(문서 상세·학습 모드 공통). 기본 default.
+  'study.font_scale'?: FontScale
   [key: string]: unknown
 }
+
+// S9(F36-⑥⑨) settings 값 타입.
+export type QuizAutoAdvance = 'on' | 'off'
+export type FontScale = 'small' | 'default' | 'large'
 
 export type SettingsPatch = Partial<SettingsResponse>
 
