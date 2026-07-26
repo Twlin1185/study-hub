@@ -32,6 +32,7 @@ class ExamEntry:
     level_hint: str = "필기"  # '필기' | '실기' — 분류 경로 2단계
     question_count: Optional[int] = None  # 목록에서 미상이면 None(estimate가 60 가정)
     source_url: Optional[str] = None
+    exam_date: Optional[str] = None  # 'YYYY-MM-DD'(S12) — 병합 자연 키. 미상이면 None(기존 하위 호환)
 
 
 @dataclass
@@ -42,11 +43,12 @@ class FetchedQuestion:
     answer: Optional[str] = None
     explanation: Optional[str] = None
     images: List[str] = field(default_factory=list)  # 원본 이미지 URL(registry가 다운로드)
+    subject: Optional[str] = None  # 과목 구분(S12 — cbtbank) — 태그 제안 소재로만 사용
 
 
 @dataclass
 class FetchedExam:
-    """comcbt 구조화 경로 — LLM 프롬프트에 구조화 텍스트로 투입된다."""
+    """구조화 추출 경로(S12 cbtbank 첫 실사용) — LLM 프롬프트에 구조화 텍스트로 투입된다."""
 
     cert_name: str
     exam_key: str
@@ -54,6 +56,7 @@ class FetchedExam:
     level_hint: str
     questions: List[FetchedQuestion]
     source_url: Optional[str] = None
+    note: Optional[str] = None  # sources.note에 기록할 수집 출처(URL·어댑터 id) — FetchedFile과 동일 계약
 
 
 @dataclass

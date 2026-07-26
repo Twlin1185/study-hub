@@ -166,6 +166,17 @@ export default function SettingsPage() {
               </li>
             ))}
           </ul>
+          {/* 매뉴얼 링크(S12, F39, 설계 §5.11) — 목차 하단, 7번째 그룹이 아닌 단순 링크(F38 6그룹 불변) */}
+          <div className="mt-2 border-t border-border pt-2">
+            <a
+              href="/manual"
+              target="_blank"
+              rel="noopener"
+              className="block rounded px-2 py-1.5 text-sm text-muted hover:bg-surface hover:text-primary"
+            >
+              사용 설명서 열기 ↗
+            </a>
+          </div>
         </nav>
 
         <div className="flex min-w-0 flex-1 flex-col gap-6">
@@ -385,6 +396,18 @@ export default function SettingsPage() {
               </div>
             </section>
           </SettingsSection>
+
+          {/* 모바일(<768px, 사이드바 없음) 전용 매뉴얼 진입 경로 — 아코디언 하단(§5.11) */}
+          <div className="border-t border-border pt-4 md:hidden">
+            <a
+              href="/manual"
+              target="_blank"
+              rel="noopener"
+              className="block rounded px-2 py-1.5 text-sm text-muted hover:bg-surface hover:text-primary"
+            >
+              사용 설명서 열기 ↗
+            </a>
+          </div>
         </div>
       </div>
     </div>

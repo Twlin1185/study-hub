@@ -6,7 +6,8 @@
 3. User-Agent `StudyHub-Personal/1.0`.
 6. SSRF 방지 — 사설/루프백/링크로컬 IP 차단(F35-1 관례 유지).
 
-등록 어댑터·우선순위: **qnet=1, comcbt=2**(2026-07-25 사용자 확정). 자격증/회차 목록은
+등록 어댑터·우선순위: **qnet=1, cbtbank=2, comcbt=3**(2026-07-25 사용자 확정 · S12 갱신
+2026-07-26 — cbtbank는 구조화 추출 품질·비용 우위로 comcbt 위). 자격증/회차 목록은
 서버 메모리 캐시(TTL 24h)로 반복 크롤링을 막는다.
 """
 from __future__ import annotations
@@ -323,13 +324,14 @@ def _filename_from_disposition(disposition: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# 어댑터 등록 (우선순위: qnet=1, comcbt=2)
+# 어댑터 등록 (우선순위: qnet=1, cbtbank=2, comcbt=3 — S12 갱신)
 # ---------------------------------------------------------------------------
 def _load_adapters() -> List[Adapter]:
+    from services.fetchers.cbtbank import CbtbankAdapter
     from services.fetchers.comcbt import ComcbtAdapter
     from services.fetchers.qnet import QnetAdapter
 
-    adapters = [QnetAdapter(), ComcbtAdapter()]
+    adapters = [QnetAdapter(), CbtbankAdapter(), ComcbtAdapter()]
     adapters.sort(key=lambda a: a.priority)  # 작을수록 우선
     return adapters
 

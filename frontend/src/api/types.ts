@@ -872,9 +872,10 @@ export interface RestoreBackupRequest {
 // 신규는 수집기(어댑터)뿐 — LLM 정리·미리보기·중복 감지·분류 자동 생성·승인 반입은 기존
 // convert 잡 큐·import preview/commit 재사용(§4.13 원칙). 새 테이블·컬럼 없음.
 
-export type FetchAdapterId = 'qnet' | 'comcbt'
+// S12: cbtbank(CBT문제은행) 3호 어댑터 추가 — priority qnet=1 > cbtbank=2 > comcbt=3.
+export type FetchAdapterId = 'qnet' | 'comcbt' | 'cbtbank'
 
-// GET /api/fetch/adapters — priority 숫자가 작을수록 우선(qnet=1, comcbt=2).
+// GET /api/fetch/adapters — priority 숫자가 작을수록 우선(qnet=1, cbtbank=2, comcbt=3, S12).
 // available:false = robots 비허용·접속 불가 진단 시. notice = 이용 고지 문구.
 export interface FetchAdapter {
   id: FetchAdapterId
@@ -934,11 +935,15 @@ export type FetchExamsResponse = FetchExamItem[]
 
 // POST /api/fetch/import — 한 번에 1회차. convert 잡 큐 재사용(kind='fetch', 동시 1개,
 // engine·폴백 정책은 §4.11 그대로) → {job_id}(ConvertJobStartResponse와 동일 형태).
+// exam_key?(S12 확장, §4.13) — fetch/exams가 반환한 병합 대표 키를 그대로 전달하면 서버가
+// 수집 결과의 exam_key를 이 값으로 덮어써 목록 표기·분류 경로·imported 판정을 일치시킨다.
+// 미지정 시 기존 동작(어댑터 자체 키) 완전 불변.
 export interface FetchImportRequest {
   adapter: FetchAdapterId
   cert_ref: string
   exam_ref: string
   engine?: LlmEngine
+  exam_key?: string
 }
 
 // ---- 목표·스트릭 (설계 §4.13, S10, F26) ----

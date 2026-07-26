@@ -56,6 +56,10 @@ class FetchImportRequest(BaseModel):
     exam_ref: str
     source_url: Optional[str] = None
     engine: EngineChoice = "auto"
+    # 병합 대표 키(fetch/exams 응답의 exam_key 그대로 전달, S12) — 서버가 수집 결과의
+    # exam_key를 이 값으로 덮어써 목록 표기·분류 경로·imported 판정을 일치시킨다.
+    # 미지정 시 기존 동작 완전 불변(§4.13).
+    exam_key: Optional[str] = None
 
 
 class FetchJobStart(BaseModel):

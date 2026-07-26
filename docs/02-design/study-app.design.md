@@ -1,10 +1,10 @@
 # Study Hub — 상세 설계 (API 명세 · 화면 상세)
 
-> 상태: **Design v1.10** — v1.9 대비: **S11(M11 시험 직전 도구) API 계약 신설**(§4.14 — F25 실전 모의고사: `exam/session`·`exam/submit`·`exam/history` — **일괄 제출 채점 전용 경로**(세션 응답에 정답·해설 없음, 배치 전체 한 트랜잭션), 리포트·이력은 **attempts 파생(런 키 = 배치 공통 answered_at)** — DDL 없음 · F16 D-Day 복습 강도 조절: SRS **큐 구성 계층** 3종 — 유효 상한 확대·임박 시험 우선·선행 복습, sm2.py·저장값 불변) + **§5 화면**(모의고사 §5.12 신설 — 화면 12개, §5.6 진입 탭·§5.7 강화 배지·§5.11 토글 보강). v1.9: S10 계약(§4.13)
-> v1.9 갱신 이력: 2026-07-25 구현 실측 반영 — §4.13 comcbt는 **PDF 첨부→convert 경로**(문항 본문이 정적 HTML에 없음), qnet 목록은 **available:false 스텁**(JS 포털 — 실측 불가), exams 응답에 `exam_ref` 명시
+> 상태: **Design v1.11** — v1.10 대비: **S12(M12 콘텐츠 확장·도움말) 계약**(§4.13 갱신 — F35 어댑터 3호 **cbtbank.kr**: **FetchedExam 구조화 추출 경로 첫 실사용**(정적 HTML에 전 문항·정답·해설·과목·이미지 — 실측 2026-07-26), 회차 동일성 **시험 날짜 자연 키** 병합·대표 exam_key 규칙, 중복 우선순위 **qnet=1 > cbtbank=2 > comcbt=3**, `fetch/import`에 `exam_key?` 확장 · **§4.15 신설** — F39 사용자 매뉴얼 읽기 전용 서빙 `GET /manual`) + **§5**(공통 레이아웃 도움말 진입점·§5.9 채택 배지·§5.11 매뉴얼 링크). DDL 변경 없음
+> 이전 이력: v1.10 — S11 계약 신설(§4.14 F25 모의고사 일괄 제출 채점·F16 D-Day 큐 부스트, §5.12 — attempts 파생·DDL 없음) · v1.9 — S10 구현 실측 반영(§4.13 comcbt PDF 첨부→convert 경로, qnet available:false 스텁, exams `exam_ref` 명시)
 > 작성일: 2026-07-22 · 갱신: 2026-07-26
-> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.13)
-> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-11-exam-tools.plan.md`
+> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.14)
+> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-12-content-help.plan.md`
 
 ---
 
@@ -18,7 +18,7 @@
 ```
 study-hub/
 ├─ backend/
-│  ├─ main.py               # FastAPI 앱 생성, 라우터 등록, 정적 파일(frontend/dist) 서빙
+│  ├─ main.py               # FastAPI 앱 생성, 라우터 등록, 정적 파일(frontend/dist) 서빙, GET /manual(S12 — §4.15)
 │  ├─ database.py           # engine(SQLite WAL), SessionLocal, get_db
 │  ├─ models.py             # SQLAlchemy 모델 (계획서 §6.2 그대로)
 │  ├─ schemas/              # Pydantic 요청/응답 모델 (리소스별 파일)
@@ -26,7 +26,7 @@ study-hub/
 │  │                        # review_notes, stats, search, tags, suggestions, settings, exam(S11)
 │  ├─ services/             # sm2.py, import_service.py, stats_service.py,
 │  │                        # tag_rule_service.py, convert_service.py(M6), backup_service.py(M6),
-│  │                        # fetchers/(S10 — base·registry·comcbt·qnet, §4.13), exam_service.py(S11 — §4.14)
+│  │                        # fetchers/(S10 — base·registry·comcbt·qnet + S12 cbtbank, §4.13), exam_service.py(S11 — §4.14)
 │  └─ alembic/              # 마이그레이션
 ├─ frontend/
 │  └─ src/
@@ -57,7 +57,7 @@ study-hub/
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S11] = stage 1~11에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
+구현 단계 표기: [S1]~[S12] = stage 1~12에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
 
 ### 4.1 분류 Categories
 
@@ -291,7 +291,7 @@ study-hub/
 - API 계약 불변. `POST /api/backups/{id}/restore` 성공 직후 서버가 **SQLAlchemy `engine.dispose()`로 커넥션 풀 폐기**(이후 요청은 복원본으로 새 커넥션) + 복원본 대상 검증 쿼리 1회.
 - 프론트: 복원 성공 시 **강제 리로드 모달**("복원 완료 — 앱을 다시 불러옵니다") → 확인 시 쿼리 캐시 폐기 + `location.reload()`. 모달에 "이상 동작 시 서버를 재시작하세요" 안내 유지(닫기 없이 리로드만 — stale 화면 조작 차단).
 
-### 4.13 콘텐츠·동기 (S10 — F35 2단계 + F26)
+### 4.13 콘텐츠·동기 (S10 — F35 2단계 + F26 · **S12 갱신** — 어댑터 3호 cbtbank·날짜 키 병합)
 
 **원칙(강제)**: 신규는 **수집기(어댑터)뿐** — LLM 정리·진행 가시화·미리보기·중복 감지·분류 자동 생성·승인 반입은 전부 기존 convert 잡 큐(§4.10·§4.11)와 import preview/commit(§4.3)을 재사용한다. **새 테이블·컬럼 없음**(근거는 계획서 §14 F35·F26 명세).
 
@@ -299,10 +299,10 @@ study-hub/
 
 | 메서드/경로 | 설명 | 단계 |
 |---|---|---|
-| `GET /api/fetch/adapters` | 등록 어댑터 목록 `[{id: 'qnet'\|'comcbt', name, priority, available, notice}]` — priority 숫자가 작을수록 우선(**qnet=1, comcbt=2** — 2026-07-25 사용자 확정). `notice` = 이용 고지 문구(개인 학습 전용·재배포 금지). `available:false` = robots 비허용·접속 불가 진단 시 | S10 |
+| `GET /api/fetch/adapters` | 등록 어댑터 목록 `[{id: 'qnet'\|'cbtbank'(S12)\|'comcbt', name, priority, available, notice}]` — priority 숫자가 작을수록 우선. **S12 갱신: qnet=1, cbtbank=2, comcbt=3**(큐넷 정본 최우선은 2026-07-25 사용자 확정 유지 — cbtbank는 구조화 추출 품질·비용 우위로 comcbt 위, 아래 병합 규칙). `notice` = 이용 고지 문구(개인 학습 전용·재배포 금지). `available:false` = robots 비허용·접속 불가 진단 시 | S10·S12 |
 | `GET /api/fetch/certs?q=` | 자격증 검색 — 등록 어댑터 전체에 질의 후 **정규화 이름(공백 제거)으로 병합**: `[{name, sources: [{adapter, cert_ref}]}]`. 결과는 서버 메모리 캐시(TTL 24h — 반복 크롤링 방지) | S10 |
-| `POST /api/fetch/exams` | `{sources: [{adapter, cert_ref}]}` → **병합 회차 목록**: `[{exam_key, label, adapter(선정 어댑터), exam_ref, also_on: [], question_count?, imported, estimate}]`. **`exam_ref` = 선정 어댑터 기준 회차 참조 — `fetch/import`에 `{adapter, cert_ref, exam_ref}`로 그대로 전달하는 계약**(certs의 `cert_ref`와 대응). 항목에 **`refs: {어댑터id: exam_ref}` 맵 포함** — 같은 회차가 여러 어댑터에 있을 때 어댑터별 참조를 모두 담는다(`exam_ref`는 `refs[adapter]`와 동일). **대안 어댑터 재시도는 반드시 `refs[대상 어댑터]`를 사용**해야 한다(exam_ref는 어댑터마다 의미가 다름 — S10 검토 반영 2026-07-25). `exam_key` = `'YYYY-N'` 정규화 키 — **같은 키가 양쪽에 있으면 큐넷(qnet) 채택**, comcbt는 `also_on`으로만 표기(아래 규칙). `imported` = 해당 회차 분류 경로 존재 여부(파생 — 저장 안 함). `estimate` = 예상 LLM 사용량(아래) | S10 |
-| `POST /api/fetch/import` | `{adapter, cert_ref, exam_ref}` — **한 번에 1회차**(배치 없음). **convert 잡 큐 재사용**(kind=`'fetch'`, 동시 1개, engine 파라미터·폴백 정책 §4.11 그대로) → `{job_id}`. 진행·결과 조회는 기존 `GET /api/convert/{job_id}` — `progress.phase`에 `'fetching'`(사이트 수집·이미지 다운로드) 신설, 완료 시 `result_preview_id`로 기존 반입 위저드 미리보기에 합류 | S10 |
+| `POST /api/fetch/exams` | `{sources: [{adapter, cert_ref}]}` → **병합 회차 목록**: `[{exam_key, label, adapter(선정 어댑터), exam_ref, also_on: [], question_count?, imported, estimate}]`. **`exam_ref` = 선정 어댑터 기준 회차 참조 — `fetch/import`에 `{adapter, cert_ref, exam_ref}`로 그대로 전달하는 계약**(certs의 `cert_ref`와 대응). 항목에 **`refs: {어댑터id: exam_ref}` 맵 포함** — 같은 회차가 여러 어댑터에 있을 때 어댑터별 참조를 모두 담는다(`exam_ref`는 `refs[adapter]`와 동일). **대안 어댑터 재시도는 반드시 `refs[대상 어댑터]`를 사용**해야 한다(exam_ref는 어댑터마다 의미가 다름 — S10 검토 반영 2026-07-25). `exam_key` = 병합 그룹 **대표 키**: `'YYYY-N'` 정규화 키가 원칙, **S12부터 회차 번호를 아무 어댑터도 모르면 날짜형 `'YYYY-MM-DD'`**(아래 병합 규칙 — cbtbank 라벨에 회차 번호가 없음). 같은 회차가 여러 어댑터에 있으면 **priority 최소 어댑터 채택**(qnet > cbtbank > comcbt), 나머지는 `also_on` 표기. `imported` = 해당 회차 분류 경로 존재 여부(파생 — 저장 안 함, 키→폴더명 파생 함수는 convert 분류 경로와 단일 공유). `estimate` = 예상 LLM 사용량(아래) | S10·S12 |
+| `POST /api/fetch/import` | `{adapter, cert_ref, exam_ref, exam_key?}` — **한 번에 1회차**(배치 없음). **`exam_key?`(S12 확장)** = `fetch/exams`가 반환한 병합 대표 키를 그대로 전달 — 서버가 어댑터 수집 결과(FetchedExam/FetchedFile)의 exam_key를 이 값으로 **덮어써** 목록 표기·분류 경로·imported 판정을 일치시킨다(채택 어댑터가 회차 번호를 모르는 경우(cbtbank) 대비). 미지정 시 어댑터 자체 키(기존 동작 불변). **convert 잡 큐 재사용**(kind=`'fetch'`, 동시 1개, engine 파라미터·폴백 정책 §4.11 그대로) → `{job_id}`. 진행·결과 조회는 기존 `GET /api/convert/{job_id}` — `progress.phase`에 `'fetching'`(사이트 수집·이미지 다운로드) 신설, 완료 시 `result_preview_id`로 기존 반입 위저드 미리보기에 합류 | S10·S12 |
 | `GET /api/stats/streak` | F26: `{current_streak, best_streak, today: {questions, minutes, goal: {questions?, minutes?}, goal_met}}` — 전부 파생값(아래 규칙). 용처: 홈 스트릭 위젯(§5.1)·복습 완료 화면(§5.7) | S10 |
 | `GET /api/stats/heatmap` 확장 | 항목에 `goal_met`(bool) 추가 — **목표가 하나라도 설정된 경우에만** 채움(미설정 시 필드 생략). 기존 필드·파라미터 불변(하위 호환). 판정은 `stats/streak`와 동일 함수 공유 | S10 확장 |
 
@@ -312,20 +312,23 @@ study-hub/
 backend/services/fetchers/
 ├─ base.py       # 공통 인터페이스: search_certs(q) / list_exams(cert_ref)
 │                #   / fetch_exam(exam_ref, on_activity) → FetchedExam(구조 추출형) 또는 FetchedFile(원본 파일형)
-├─ registry.py   # 어댑터 등록·우선순위(qnet=1, comcbt=2)·사이트별 스로틀·robots 확인·목록 캐시(TTL 24h)
+├─ registry.py   # 어댑터 등록·우선순위(S12: qnet=1, cbtbank=2, comcbt=3)·사이트별 스로틀·robots 확인·목록 캐시(TTL 24h)
 ├─ comcbt.py     # 전자문제집 CBT — 자격증·회차 목록 파싱 + 회차별 PDF 첨부 다운로드(FetchedFile — 아래 실측 노트)
-└─ qnet.py       # 큐넷 공개자료 — 현재 목록 스텁(available:false) + 공개 파일 직접 URL 다운로드(아래 실측 노트)
+├─ qnet.py       # 큐넷 공개자료 — 현재 목록 스텁(available:false) + 공개 파일 직접 URL 다운로드(아래 실측 노트)
+└─ cbtbank.py    # CBT문제은행(cbtbank.kr, S12) — 회차 페이지 정적 HTML에서 문항 구조 추출(FetchedExam — 아래 실측 노트)
 ```
 
-- 수집 결과 2형: **`FetchedFile`**(원본 파일 — PDF 등) = F35-1과 동일하게 convert 투입(LLM이 구조 추출). **`FetchedExam`**(구조 추출형) = `{cert_name, exam_key, exam_label, questions: [{no, stem, choices, answer?, explanation?, images: []}]}` — 구조화 텍스트로 프롬프트에 투입. **현재 어댑터 2종은 모두 FetchedFile 경로**(실측 노트) — FetchedExam은 향후 구조 추출형 어댑터를 위한 인터페이스로 유지한다.
-- 두 경로 모두 최종적으로 **반입 JSON 규격(계획서 §8.2)으로 LLM 정리**(해설 보강·태그·검수) 후 preview 생성. `suggest_categories`는 어댑터가 확정한 경로(`"자격증명/필기/YYYY년 N회"`)를 프롬프트에 **강제 지시** — 분류 자동 생성은 기존 commit의 경로 생성 재사용.
-- **이미지(그림 문제)**: FetchedExam 경로에서 어댑터가 다운로드(스로틀 동일 적용)해 `sources/images/`에 저장(R2 관례), content에 Markdown 링크 삽입. **원본 불변 규칙 그대로.** (현재 comcbt는 PDF 경로라 이미지가 PDF에 내장 — 이 분기는 구현돼 있으나 실사용 대기.)
+- 수집 결과 2형: **`FetchedFile`**(원본 파일 — PDF 등) = F35-1과 동일하게 convert 투입(LLM이 구조 추출). **`FetchedExam`**(구조 추출형) = `{cert_name, exam_key, exam_label, questions: [{no, stem, choices, answer?, explanation?, subject?(S12 — 과목 구분), images: []}], note?(S12 — 수집 URL·어댑터 id, FetchedFile과 출처 추적 계약 동일)}` — 구조화 텍스트로 프롬프트에 투입. qnet·comcbt는 FetchedFile 경로(실측 노트), **cbtbank(S12)가 FetchedExam 경로의 첫 실사용**(그간 인터페이스·이미지 저장 분기만 구현돼 대기).
+- **S12 자료구조 확장(파이썬 dataclass — DDL 아님, 기본값 None으로 기존 어댑터 하위 호환)**: `ExamEntry.exam_date?`(`YYYY-MM-DD` — 병합 자연 키, comcbt도 제목의 날짜를 채움) · `FetchedQuestion.subject?`(cbtbank 과목 구분 — 구조화 텍스트에 "과목:" 줄로 직렬화, LLM 지시로 **태그 제안 소재**로만 사용. 분류 경로는 회차까지 — 기존 계약 불변, 과목 하위 분류 자동 생성은 범위 외).
+- 두 경로 모두 최종적으로 **반입 JSON 규격(계획서 §8.2)으로 LLM 정리**(해설 보강·태그·검수) 후 preview 생성. `suggest_categories`는 어댑터가 확정한 경로를 프롬프트에 **강제 지시** — 분류 자동 생성은 기존 commit의 경로 생성 재사용. **경로 3단계는 exam_key에서 파생(S12 확장)**: `YYYY-N` → `"자격증명/필기/YYYY년 N회"`, 날짜형 `YYYY-MM-DD` → `"자격증명/필기/YYYY년 M월 D일"`(앞자리 0 제거). **키→폴더명 파생 함수는 imported 판정(fetch_service)과 convert 분류 경로가 단일 공유**(불일치 금지).
+- **이미지(그림 문제)**: FetchedExam 경로에서 어댑터가 다운로드(스로틀 동일 적용)해 `sources/images/`에 저장(R2 관례), content에 Markdown 링크 삽입 — 링크는 **절대 경로 `/images/{fname}`**(상대 경로는 SPA 라우트에서 깨짐 — S12 검토 실측). 서빙은 `GET /images/{filename}` — `sources/images/`를 **읽기 전용** FileResponse(파일명 정규식 검증으로 경로 탈출 차단, 부재 시 404, SPA 폴백보다 먼저 — main.py, `/manual` 전례). **원본 불변 규칙 그대로.** (comcbt는 PDF 경로라 이미지가 PDF에 내장 — 이 분기는 S12 cbtbank가 첫 실사용: 문항 이미지가 `/images/bp/{code}/{code}mN.gif` 형태 규칙 URL로 개별 존재, 실측 2026-07-26.)
 - **출처 추적**: `documents.source_detail` = "YYYY년 N회 M번", `sources.note`에 수집 URL·어댑터 id 기록.
 - **DOM 셀렉터·페이지 구조는 이 문서에서 확정하지 않는다** — 구현 시 실측 확인(stage-10 체크리스트 명시). 설계가 확정하는 것은 인터페이스·오류 처리·예의 규칙뿐.
 
-**구현 실측 노트 (2026-07-25 — 추측 셀렉터 배제 원칙에 따른 확정 사항)**
+**구현 실측 노트 (2026-07-25 · S12 추가 2026-07-26 — 추측 셀렉터 배제 원칙에 따른 확정 사항)**
 - **comcbt**: robots는 전 경로 허용. 그러나 **문항 본문이 정적 HTML에 존재하지 않음** — 실제 풀이는 세션 기반 JS CBT 앱이고, 게시글에는 회차별 **PDF 첨부**(학생용/교사용/해설집, 무로그인 다운로드)만 있다. 따라서 JS 역설계 대신 **PDF 첨부 다운로드 → convert(LLM 구조 추출)** 경로를 채택(FetchedFile). 자격증(종목별 게시판)·회차 글 목록 파싱은 실측 확정.
 - **qnet**: robots.txt가 표준 응답이 아닌 점검 안내 HTML이며, 공개문제 카탈로그가 JS 포털이라 정적 목록을 실측할 수 없음 → `search_certs`/`list_exams`는 **빈 목록 + `available:false` 안내**로 구현(추측 셀렉터 금지). `fetch_exam`은 공개 파일 **직접 URL 한정**으로 F35-1 다운로드 경로 재사용. 큐넷 우선 병합 로직은 단위 테스트로 검증됨 — **포털 구조가 확정되면 qnet.py 목록 부분만 채우면 자동 작동**(모듈 격리 원칙, R14).
+- **cbtbank(S12 — 사전 조사 실측 2026-07-26)**: robots.txt가 `User-agent: *`에 `/exam/`·`/category/`·`/`를 **명시 Allow**(`/bbs/`·`/adm/`·`/data/` 등만 Disallow), 사이트맵 `sitemap_index.xml` 존재. 그누보드 엔진 — 로그인 기능은 있으나 **기출 열람(회차 목록·문항 페이지)은 무로그인 공개**(로그인 코드 일절 사용 금지 — 강제 조항 5). 자격증 페이지 `/category/{자격증명}`(공백→하이픈)에 회차 링크 목록(라벨 `"자격증명 (YYYY-MM-DD)"` — **회차 번호 표기 없음**), 회차 페이지 `/exam/{code}`(예: `bp20220424` — 자격증 코드가 comcbt와 동일 체계로 보임)가 **서버 렌더 정적 HTML에 전 문항 포함**: 문제 본문·보기 4개·정답·해설·**과목 구분**(예: "1과목 실험계획법"~"5과목 품질경영")·이미지 규칙 URL. 90문항 페이지도 수백 KB 수준(HTML 상한 8MB 내 여유). → **FetchedExam 구조 추출 경로 채택**(첫 실사용). 자격증 색인의 정확한 소스(사이트맵 vs 색인 페이지)와 DOM 셀렉터는 구현 시 실측 확정(stage-12 체크리스트 — 이 문서는 인터페이스·병합·예의 규칙만 확정). 해설은 사이트 제공 원문 그대로 투입(비공식 해설 가능성 — 기존 LLM 검수·미리보기 승인·F30 신고로 방어, 별도 재가공 없음).
 
 **크롤링 예의 — 강제 조항 (위반 구현 금지)**
 1. **robots.txt 존중**: 수집 전 확인(캐시 24h), 비허용 경로는 `available:false`·수집 거부 + URL 반입(F35-1) 대안 안내.
@@ -335,9 +338,11 @@ backend/services/fetchers/
 5. **로그인/CAPTCHA 필요 사이트는 범위 외** — 우회 코드 금지.
 6. **실행 전 예상 LLM 사용량 안내 필수**: `estimate = {questions_assumed(문항 수 — 목록에서 미상이면 60 가정 표기), approx_input_tokens(최근 완료 convert 잡의 문항당 평균 토큰 이동 평균 — 표본 없으면 문항당 600토큰 가정), assumed(bool — 가정치 여부)}`. §4.11 한도 기억 경고와 함께 확인 스텝에서 표시.
 
-**큐넷 우선 규칙 (중복 회차 — 2026-07-25 사용자 확정)**
-- `exam_key` 정규화(`YYYY-N`)로 회차 동일성 판정 — 같은 키가 양쪽 어댑터에 있으면 **qnet 항목을 채택**(공단 원본이 정본), comcbt는 `also_on`으로만 표기.
-- 채택 어댑터 수집이 실패(`parse_failed` 등)하면 **사용자가 명시적으로** 대안 어댑터로 재시도(`adapter` 지정 재요청) — 자동 전환 없음(수집 결과 품질이 달라 조용한 대체 금지).
+**중복 회차 병합·우선순위 (2026-07-25 사용자 확정 · S12 갱신 2026-07-26)**
+- **동일성 판정 2단(S12)**: ① **`exam_date`(YYYY-MM-DD)가 있는 항목끼리는 날짜로 병합** — cbtbank 라벨엔 회차 번호가 없고 comcbt 라벨("YYYY년 MM월 DD일(N회)")엔 날짜·회차가 둘 다 있으므로 **시험 날짜가 자연 키**다(같은 자격증의 병합은 `fetch/exams` 요청의 sources 단위 — 같은 종목이 같은 날 두 회차를 치르지 않음). ② 날짜가 없는 항목(qnet 등)은 기존 `YYYY-N` `exam_key`로 병합(하위 호환).
+- **대표 exam_key**: 병합 그룹에 회차 번호 보유 키(`YYYY-N`)가 있으면 그것을 채택(분류 경로 "YYYY년 N회" 유지 — comcbt가 회차 번호 제공자 역할), 없으면 날짜형 `YYYY-MM-DD`(경로 "YYYY년 M월 D일"). 채택 어댑터가 회차 번호를 모르는 경우(cbtbank)를 위해 `fetch/import`의 `exam_key?`로 대표 키를 서버가 덮어쓴다(위 표).
+- **채택 우선순위 = priority 최소: qnet(1) > cbtbank(2) > comcbt(3)** — 큐넷은 공단 원본(정본)으로 최우선 유지(2026-07-25 확정 번복 아님), cbtbank는 구조화 추출(FetchedExam — 정답·해설·과목·이미지 개별 추출, LLM 오추출 위험·비용 최소)이라 PDF 전체 재구조화(comcbt)보다 위. 채택 외 어댑터는 `also_on`·`refs`로만 표기.
+- 채택 어댑터 수집이 실패(`parse_failed` 등)하면 **사용자가 명시적으로** 대안 어댑터로 재시도(`adapter` 지정 + `refs[대상]` 재요청) — 자동 전환 없음(수집 결과 품질이 달라 조용한 대체 금지).
 - 문서 단위 중복은 별도 처리 불필요 — 기존 preview 중복 감지(제목+내용 해시, §4.3)가 그대로 작동한다.
 
 **파싱 실패 처리 (F30 연동)**
@@ -420,6 +425,17 @@ backend/services/fetchers/
 - **③ 선행 복습(D≤7만)**: due 도래 카드로 유효 상한이 안 차면, 임박 시험 서브트리의 `due_date > 오늘` 카드를 due 오름차순으로 남는 자리에 채운다(item `ahead:true`) — **시험 이후로 잡힌 카드를 시험 전에 한 번은 보게** 하는 장치. 저장된 due_date는 건드리지 않고, 풀이 시점에 정상 SM-2 갱신만 일어난다(Anki "review ahead"와 동일 원리).
 - 시험이 지나면 발동 조건이 저절로 해제(전부 날짜 파생 — 원복 코드 불요). 미발동·토글 off 시 기존 큐와 완전 동일.
 
+### 4.15 도움말 (S12 — F39 사용자 매뉴얼 통합)
+
+**원칙(강제)**: `docs/manual/user-manual.html` **원본 파일이 단일 출처** — 빌드 복사·프론트 번들 포함 없음(문서 갱신 = 서버 재시작 없이 새로고침만으로 반영). **읽기 전용 서빙** — `docs/manual/`을 쓰거나 수정하는 코드는 금지(`sources/` 원본 불변 규칙과 동일 정신). DDL·저장·상태 없음.
+
+| 메서드/경로 | 설명 | 단계 |
+|---|---|---|
+| `GET /manual` | `docs/manual/user-manual.html`을 `FileResponse`(`text/html; charset=utf-8`)로 서빙 — **`/api` 밖의 HTML 문서 경로**(JSON API 아님). 파일 없으면 404 — 본문은 전역 예외 처리의 §3 포맷 JSON을 따른다(별도 텍스트 포맷을 만들지 않음, 2026-07-26 검토 반영). **main.py 정적 서빙 블록에 직접 등록**(전용 라우터 과설계 — 엔드포인트 1개)하되 **SPA 폴백(catch-all)보다 먼저 매칭**되어야 한다 | S12 |
+
+- 매뉴얼은 자기완결 HTML(인라인 CSS, 토큰 팔레트·`prefers-color-scheme` 다크 지원 내장) — **새 탭 열람이 정본 경로**(§5 공통 레이아웃·§5.11 진입점). in-app 렌더러·iframe 임베드·검색은 만들지 않는다(YAGNI — 자체 목차 보유).
+- **한계 명문화**: 새 탭은 앱의 수동 테마 선택(localStorage `theme`)과 동기화하지 않는다 — 시스템 테마(`prefers-color-scheme`)만 추종(매뉴얼이 자체 지원, 허용된 한계).
+
 ## 5. 화면 상세 (12개)
 
 라우팅: React Router. 모바일(<768px)은 하단 탭바(홈/커리큘럼/퀴즈/**복습**/오답노트 — 복습 탭은 S9, F36-②: 홈 경유 없이 오늘의 복습 직행) + 트리 드로어.
@@ -430,6 +446,8 @@ backend/services/fetchers/
 - 접으면 **아이콘 전용 레일**(라벨 숨김, `title` 툴팁 유지) — 완전 숨김이 아니라 레일 유지: 다시 펼칠 진입점이 항상 보이고, 내비게이션은 한 번의 클릭 거리를 유지.
 - 상태: zustand `sidebar` 스토어 + **localStorage `sidebar`**(`'expanded' | 'collapsed'`) — 기기별 UI 선호이므로 서버 settings가 아닌 localStorage(theme 관례, §6).
 - 저장값 없을 때 기본: **768~1023px(태블릿) = collapsed, ≥1024px(PC) = expanded.** 모바일(<768px)은 사이드바 자체가 없으므로 토글 미노출(하단 탭바 유지).
+
+**도움말 진입점(S12, F39 — §4.15)**: 사이드바 **하단**에 "도움말" 항목(물음표 아이콘) — `/manual`을 **새 탭**(`target="_blank" rel="noopener"`)으로 연다(학습 중 화면·세션 상태를 떠나지 않게 — 앱 내 라우트 아님). 접힘 레일에서는 아이콘+`title` 툴팁. 모바일(<768px — 사이드바 없음)은 설정 화면의 매뉴얼 링크(§5.11)가 진입 경로(하단 탭바에 도움말 탭은 추가하지 않는다 — 탭 5개 유지).
 
 ### 5.1 홈 대시보드 — `/`
 - **구성(우선순위 순)**: ① 이어하기 카드(최대 3, 탭하면 `/study/:categoryId`로 즉시 복귀) ② "오늘의 복습 N개" 버튼(S5) ③ 학습 히트맵(S4 — 당초 12주 고정, S7부터 반응형 주 수) ④ D-Day 배지들(시험 분류 + 임의 D-Day 병합 — §4.8, S4 완성) ⑤ 북마크 모아보기 진입(S4)
@@ -523,9 +541,9 @@ backend/services/fetchers/
 - **엣지**: preview 만료(1h) 시 재업로드 안내. 오류 항목은 개별 오류 메시지 표시, 커밋에서 자동 제외.
 - **사이트에서 가져오기(S10, F35-2)**: 반입 화면 진입 방식에 [파일]·[URL](S8)과 나란히 **[사이트에서 가져오기]** 추가 → 공용 Stepper(S9, F36-⑪ 재사용) 4단계 서브플로:
   - ① **자격증 검색·선택** — `GET /api/fetch/certs?q=`(어댑터 병합 결과, 출처 사이트 배지 표시)
-  - ② **회차 선택** — `POST /api/fetch/exams` 병합 목록: 회차 라벨 + 채택 어댑터 배지(중복 회차는 **큐넷 채택** 표기 + `also_on` 소표기) + 문항 수(미상이면 "약 60문항 가정") + **"이미 반입됨" 배지**(`imported`). 한 번에 1회차 선택(라디오).
+  - ② **회차 선택** — `POST /api/fetch/exams` 병합 목록: 회차 라벨 + 채택 어댑터 배지(중복 회차는 **우선순위 어댑터 채택** 표기 — S12: qnet > cbtbank > comcbt, §4.13 병합 규칙 — + `also_on` 소표기) + 문항 수(미상이면 "약 60문항 가정") + **"이미 반입됨" 배지**(`imported`). 한 번에 1회차 선택(라디오). 어댑터 배지·목록은 `fetch/adapters`·`fetch/exams` 응답 메타 그대로 렌더 — cbtbank 추가(S12)로 프론트 코드 변경이 없어야 정상(어댑터 격리 원칙 검증 겸용).
   - ③ **예상 사용량 확인** — `estimate`(문항 수·대략 입력 토큰·가정치 여부) + 사용 엔진(auto/cli/api — §4.11 계약)과 **한도 기억 경고 배너(S8 재사용)** + **고정 고지: "개인 학습 전용 — 수집물 재배포 금지"**. 확인 없이는 실행 불가.
-  - ④ **실행** — `POST /api/fetch/import` → 기존 진행 패널 재사용(단계 스텝에 '사이트 수집' = `fetching` 추가, 경과·토큰·ETA·새로고침 안내 그대로) → 완료 시 `result_preview_id`로 **기존 위저드 ②(미리보기)에 합류** — 이후 중복 비교·분류 제안·커밋은 기존 흐름 그대로.
+  - ④ **실행** — `POST /api/fetch/import`(S12: 목록 응답의 `exam_key`를 그대로 전달 — §4.13) → 기존 진행 패널 재사용(단계 스텝에 '사이트 수집' = `fetching` 추가, 경과·토큰·ETA·새로고침 안내 그대로) → 완료 시 `result_preview_id`로 **기존 위저드 ②(미리보기)에 합류** — 이후 중복 비교·분류 제안·커밋은 기존 흐름 그대로.
   - 실패 시: `error_info` 렌더(§4.11 규칙) — `parse_failed`면 [URL로 반입]·[다른 어댑터로 재시도(있을 때)] 대안 버튼. 원문 HTML 미노출.
 - **API**: `import/preview`, `import/commit`. S6: "파일만 던지면 변환부터"(`convert`) 버튼 추가. S10: `fetch/*`(§4.13).
 
@@ -537,6 +555,7 @@ backend/services/fetchers/
 ### 5.11 설정 — `/settings`
 - 테마(라이트/다크/시스템 — localStorage, §6), 복습 큐 상한, 기본 문항 수, D-Day 관리(S4, 아래), 백업/복원(S6), 태그 병합 도구(S6 — S9에서 태그 관리자로 승격).
 - **6그룹 구성(F38 — 골격은 S8 선반영 완료, S9는 내용 완성)**: 좌측 목차(카테고리 점프, 모바일 아코디언) + ① **학습**(복습 상한·기본 문항 수 + S9: 글자 크기 `study.font_scale`·정답 자동 다음 `quiz.auto_advance` + **S10: 일일 목표** — 문제 수 `goal.daily_questions`·시간(분) `goal.daily_minutes` 숫자 입력, 비움/0 = 목표 없음, 저장 시 스트릭·히트맵 위젯 invalidate. "시간은 문제 풀이 시간 기준" 도움말 소표기 §4.13 + **S11: D-Day 복습 강화 토글** `srs.dday_boost`(기본 on) — "시험 14일 전부터 복습 상한을 늘리고 임박 시험 범위를 우선합니다" 도움말, §4.14) ② **일정**(D-Day 관리) ③ **태그·분류**(태그 규칙 + S9: **태그 관리자** — 아래) ④ **LLM 엔진**(S8 §4.11) ⑤ **데이터**(백업/복원·CSV 내보내기 + S9: 복원 후 강제 리로드 모달 §4.12) ⑥ **화면**(테마).
+- **매뉴얼 링크(S12, F39)**: 좌측 목차 **하단**(모바일 아코디언 하단)에 "사용 설명서 열기" 링크 — `/manual` 새 탭(`target="_blank" rel="noopener"`, §4.15). **7번째 그룹이 아닌 단순 링크**(F38 6그룹 구조 불변). 모바일(<768px)에서는 이것이 유일한 매뉴얼 진입 경로(§5 공통 레이아웃 — 사이드바 없음).
 - **태그 관리자(S9, F38)** — 병합 "도구"(TagMergeTool)를 관리 "화면"으로 승격:
   - **목록 테이블**: 이름 · 사용 문서 수(doc_count) · 규칙 사용 배지(rule_count>0) — 검색·정렬(이름/사용 수). 행 클릭 = 사용 문서 보기(탐색 `?tag=` 필터 링크).
   - **유사 태그 제안**: `GET /api/tags/similar` 결과를 "『정규화』↔『정규 화』 병합할까요?" 목록으로 — [병합](방향 선택 = 남길 이름 지정, 기존 `tags/merge`) / [무시](세션 내 숨김 — 저장 안 함, 과설계 방지).

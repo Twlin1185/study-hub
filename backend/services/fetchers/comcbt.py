@@ -55,6 +55,8 @@ YEAR_RE = re.compile(r"(20\d{2})\s*년")
 # 회차는 괄호 안에서만 인정한다(공지 제목의 "1회 이후 안내" 등 오탐 방지).
 # "(2회)" → 2, "(1, 2회 통합)" → 1(첫 번호 채택).
 ROUND_RE = re.compile(r"\(\s*(\d+)(?:\s*,\s*\d+)*\s*회")
+# 시험 날짜(S12 — 병합 자연 키): "2022년 04월 24일" → exam_date '2022-04-24'.
+DATE_RE = re.compile(r"(20\d{2})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일")
 
 # 첨부 선호 순위: 해설집(정답·해설 포함) > 학생용(문제) > 교사용 > 기타
 _ATTACH_PREF = ["해설집", "학생용", "교사용"]
@@ -76,10 +78,19 @@ def _parse_exam_key(title: str) -> Optional[str]:
     return f"{year_m.group(1)}-{round_m.group(1)}"
 
 
+def _parse_exam_date(title: str) -> Optional[str]:
+    """"2022년 04월 24일" → '2022-04-24'(S12 — 회차 번호 제공자 역할, 병합 자연 키)."""
+    m = DATE_RE.search(title)
+    if not m:
+        return None
+    year, month, day = m.groups()
+    return f"{year}-{int(month):02d}-{int(day):02d}"
+
+
 class ComcbtAdapter(Adapter):
     id = "comcbt"
     name = "전자문제집 CBT (comcbt.com)"
-    priority = 2  # qnet=1 다음
+    priority = 3  # qnet=1, cbtbank=2 다음(S12 갱신 — PDF 전체 재구조화라 구조화 추출보다 아래)
     notice = "개인 학습 전용 · 수집물 재배포 금지 — comcbt.com 기출 자료"
     base_url = BASE_URL
 
@@ -150,6 +161,7 @@ class ComcbtAdapter(Adapter):
                     level_hint=level,
                     question_count=None,  # 목록에 문항 수 없음 → estimate가 60 가정
                     source_url=EXAM_URL.format(mid=cert_ref, srl=srl),
+                    exam_date=_parse_exam_date(title),  # S12 — 회차 번호 제공자 역할
                 )
             )
         # 최신 회차 우선(게시판 정렬은 대체로 최신순이나 exam_key 내림차순으로 안정화)
