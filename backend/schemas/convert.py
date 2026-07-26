@@ -6,8 +6,12 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 JobStatus = Literal["running", "done", "error"]
-JobPhase = Literal["downloading", "preparing", "llm_running", "parsing", "preview_building"]
-ErrorKind = Literal["rate_limit", "auth", "not_installed", "timeout", "other"]
+# S10: 'fetching'(사이트 수집·이미지 다운로드) 신설 (설계 §4.13)
+JobPhase = Literal[
+    "fetching", "downloading", "preparing", "llm_running", "parsing", "preview_building"
+]
+# S10: 'parse_failed'(사이트 어댑터 파싱 실패) 추가 (설계 §4.13)
+ErrorKind = Literal["rate_limit", "auth", "not_installed", "timeout", "parse_failed", "other"]
 LimitKind = Literal["session", "daily", "weekly", "model", "overall"]
 EngineChoice = Literal["auto", "cli", "api"]
 
@@ -38,6 +42,8 @@ class ErrorInfo(BaseModel):
     message: str
     action: str
     fallback_available: bool
+    # S10 parse_failed 전용 — 프론트 대안 버튼 힌트('url_import' | 'other_adapter')
+    alternatives: Optional[List[str]] = None
 
 
 class ConvertJobStart(BaseModel):

@@ -7,6 +7,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { useSrsToday, useSrsAnswer, useSrsSummary } from '../api/srs'
 import { useContinueList } from '../api/study'
 import { useSubmitAttempt } from '../api/quiz'
+import { useStreak } from '../api/stats'
 import { useFontScale } from '../hooks/useFontScale'
 import { ApiError } from '../api/client'
 import type { FontScale } from '../api/types'
@@ -478,6 +479,7 @@ function ReviewSummary({
   const navigate = useNavigate()
   const summaryQuery = useSrsSummary()
   const continueQuery = useContinueList()
+  const streakQuery = useStreak()
 
   // 완료 화면 이탈 시 미확정 마지막 판정을 확정 전송 (검토 지시 2).
   function leave(to: string) {
@@ -516,12 +518,27 @@ function ReviewSummary({
         )}
       </div>
 
-      {/* 내일 예정 (설계 §5.7, F36-③) — srs/summary */}
-      {tomorrowDue != null && (
-        <div className="mb-4 rounded-lg border border-border bg-accent-soft p-4 text-center">
-          <p className="text-sm text-accent">
-            내일 <span className="font-semibold">{tomorrowDue}개</span> 복습 예정
-          </p>
+      {/* 오늘의 마무리 (설계 §5.7, F36-③ + S10 F26 연계) — 스트릭 배지와 내일 예고를 나란히.
+          streak 데이터는 서버 파생값을 그대로 표시만 한다(재계산 금지). */}
+      {(tomorrowDue != null || streakQuery.data) && (
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {streakQuery.data && streakQuery.data.current_streak > 0 && (
+            <div className="rounded-lg border border-border bg-accent-soft p-4 text-center">
+              <p className="text-sm text-accent">
+                <span className="font-semibold">{streakQuery.data.current_streak}일</span> 연속 학습 중
+              </p>
+              {streakQuery.data.today.goal_met && (
+                <p className="mt-1 text-xs font-medium text-correct">오늘 목표 달성</p>
+              )}
+            </div>
+          )}
+          {tomorrowDue != null && (
+            <div className="rounded-lg border border-border bg-accent-soft p-4 text-center">
+              <p className="text-sm text-accent">
+                내일 <span className="font-semibold">{tomorrowDue}개</span> 복습 예정
+              </p>
+            </div>
+          )}
         </div>
       )}
 

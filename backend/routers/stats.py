@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from exceptions import ValidationAppError
 from schemas.dashboard import DashboardResponse
-from schemas.stats import AccuracyTrendItem, HeatmapItem, WeaknessItem
+from schemas.stats import AccuracyTrendItem, HeatmapItem, StreakResponse, WeaknessItem
 from services import stats_service
 
 router = APIRouter(tags=["stats"])
@@ -21,13 +21,22 @@ def get_dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
     return stats_service.get_dashboard(db)
 
 
-@router.get("/api/stats/heatmap", response_model=List[HeatmapItem])
+@router.get(
+    "/api/stats/heatmap",
+    response_model=List[HeatmapItem],
+    response_model_exclude_none=True,  # 목표 미설정 시 goal_met 필드 생략(기존 응답 불변)
+)
 def get_heatmap(
     from_: Optional[dt.date] = Query(default=None, alias="from"),
     to: Optional[dt.date] = Query(default=None),
     db: Session = Depends(get_db),
 ) -> List[HeatmapItem]:
     return stats_service.get_heatmap(db, from_, to)
+
+
+@router.get("/api/stats/streak", response_model=StreakResponse)
+def get_streak(db: Session = Depends(get_db)) -> StreakResponse:
+    return stats_service.get_streak(db)
 
 
 @router.get("/api/stats/weakness", response_model=List[WeaknessItem])

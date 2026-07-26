@@ -18,6 +18,9 @@ DEFAULTS: Dict[str, Any] = {
     "llm.fallback": "ask",  # 'auto' | 'ask' | 'off' — auto는 과금 동의 UI 통과 시에만 프론트가 설정
     "llm.api_model": "claude-sonnet-5",
     "llm.last_limit": None,  # {engine, limit_kind, resets_at} | None — 최근 429 한도 기억
+    # S10 — 일일 학습 목표 (F26, 설계 §4.13). 양의 정수, None/0 = 목표 없음
+    "goal.daily_questions": None,
+    "goal.daily_minutes": None,
 }
 
 

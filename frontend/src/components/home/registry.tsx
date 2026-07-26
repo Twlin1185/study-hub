@@ -4,6 +4,7 @@ import DailyStartWidget from './DailyStartWidget'
 import ContinueWidget from './ContinueWidget'
 import TodayReviewWidget from './TodayReviewWidget'
 import DDayWidget from './DDayWidget'
+import StreakWidget from './StreakWidget'
 import HeatmapWidget from './HeatmapWidget'
 import ExamProgressWidget from './ExamProgressWidget'
 import Recent7dWidget from './Recent7dWidget'
@@ -18,6 +19,7 @@ export const WIDGET_COMPONENTS: Record<WidgetId, ComponentType> = {
   continue: ContinueWidget,
   today_review: TodayReviewWidget,
   dday: DDayWidget,
+  streak: StreakWidget,
   heatmap: HeatmapWidget,
   exam_progress: ExamProgressWidget,
   recent7d: Recent7dWidget,

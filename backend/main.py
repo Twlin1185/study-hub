@@ -22,6 +22,7 @@ from routers import (
     categories,
     convert,
     documents,
+    fetch,
     imports,
     llm,
     quiz,
@@ -55,6 +56,7 @@ app.include_router(search.router)
 app.include_router(convert.router)
 app.include_router(backups.router)
 app.include_router(llm.router)
+app.include_router(fetch.router)
 
 
 @app.on_event("startup")

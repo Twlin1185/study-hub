@@ -1,9 +1,10 @@
 # Study Hub — 상세 설계 (API 명세 · 화면 상세)
 
-> 상태: **Design v1.8** — v1.7 대비: **S9(M9 일상 다듬기) API 계약 신설**(§4.12 — F36 복습 요약 `srs/summary`·F37 파이프라인 집계(`tree?pipeline=1`·study-track `deep/types`·quiz `types`)·F38 태그 관리자(rename·similar·delete)·검색 trigram 재구축·복원 후처리) + **§5 화면 보강**(F36 11건 — daily_start 위젯·복습 탭·퀴즈 단축키·틀린이유 원탭·공용 Stepper 등, §5.4 커리큘럼 파이프라인·문서 작성/수정, §5.11 설정 6그룹·태그 관리자). v1.7: S8 API 계약(§4.11)
+> 상태: **Design v1.9** — v1.8 대비: **S10(M10 콘텐츠·동기) API 계약 신설**(§4.13 — F35 2단계 사이트 어댑터: comcbt·qnet 2종, 병합 회차 목록·**큐넷 우선**, 크롤링 예의 강제 조항, convert 잡 큐 재사용(kind='fetch') · F26 목표/스트릭: `stats/streak`·heatmap `goal_met` 확장 — 전부 파생값, DDL 없음) + **§5 화면 보강**(반입 "사이트에서 가져오기" Stepper 흐름 §5.9, 홈 스트릭 위젯·히트맵 목표 연동 §5.1, 복습 완료 스트릭 §5.7, 설정 일일 목표 §5.11). v1.8: S9 API 계약(§4.12)
+> v1.9 갱신 이력: 2026-07-25 구현 실측 반영 — §4.13 comcbt는 **PDF 첨부→convert 경로**(문항 본문이 정적 HTML에 없음), qnet 목록은 **available:false 스텁**(JS 포털 — 실측 불가), exams 응답에 `exam_ref` 명시
 > 작성일: 2026-07-22 · 갱신: 2026-07-25
-> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.10)
-> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-9-daily-polish.plan.md`
+> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.11)
+> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-10-content-motivation.plan.md`
 
 ---
 
@@ -24,7 +25,8 @@ study-hub/
 │  ├─ routers/              # categories, documents, imports, study, quiz, srs,
 │  │                        # review_notes, stats, search, tags, suggestions, settings
 │  ├─ services/             # sm2.py, import_service.py, stats_service.py,
-│  │                        # tag_rule_service.py, convert_service.py(M6), backup_service.py(M6)
+│  │                        # tag_rule_service.py, convert_service.py(M6), backup_service.py(M6),
+│  │                        # fetchers/(S10 — base·registry·comcbt·qnet, §4.13)
 │  └─ alembic/              # 마이그레이션
 ├─ frontend/
 │  └─ src/
@@ -55,7 +57,7 @@ study-hub/
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S9] = stage 1~9에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
+구현 단계 표기: [S1]~[S10] = stage 1~10에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
 
 ### 4.1 분류 Categories
 
@@ -236,7 +238,7 @@ study-hub/
 
 - **엔진 설정은 settings 재사용**: `llm.priority`(`'cli'\|'api'`, 기본 cli) · `llm.fallback`(`'auto'\|'ask'\|'off'`, 기본 **ask** — auto는 과금 동의 UI 통과 시에만 설정 가능) · `llm.api_model`(기본 `claude-sonnet-5` — 과금 부담 고려, 변경 가능).
 - **API 엔진**: anthropic Python SDK 직접 호출(키는 설정 화면에서 사용자가 등록한 secrets.json **단일 출처** — 환경변수·외부 프로필 자동 탐색 없음). convert/regenerate 프롬프트는 CLI 경로와 동일 템플릿.
-- **오류 구조화**: convert/regenerate 잡 상태 응답에 `error_info` 추가 — `{kind: 'rate_limit'\|'auth'\|'not_installed'\|'timeout'\|'other', limit_kind?: 'session'\|'daily'\|'weekly'\|'model'\|'overall', resets_at?, message(사람이 읽는 한국어), action(다음 행동 안내), fallback_available: bool}`. **CLI/API 원문 JSON은 사용자에게 노출 금지.** CLI 429의 `result` 문자열에서 한도 종류·리셋 시각을 파싱한다.
+- **오류 구조화**: convert/regenerate 잡 상태 응답에 `error_info` 추가 — `{kind: 'rate_limit'\|'auth'\|'not_installed'\|'timeout'\|'other', limit_kind?: 'session'\|'daily'\|'weekly'\|'model'\|'overall', resets_at?, message(사람이 읽는 한국어), action(다음 행동 안내), fallback_available: bool}`. (S10: kind에 `'parse_failed'` 추가 — 사이트 어댑터 파싱 실패, §4.13.) **CLI/API 원문 JSON은 사용자에게 노출 금지.** CLI 429의 `result` 문자열에서 한도 종류·리셋 시각을 파싱한다.
 - **한도 기억**: 최근 429의 `{kind, resets_at}`을 settings `llm.last_limit`에 기록 — status 응답에 포함하고, 리셋 전 변환 시도 시 실행 전에 경고(폴백 정책 적용). 리셋 시각 경과 시 자동 무효화.
 - CLI 로그인은 앱이 대행 불가(대화형) — status의 `logged_in:false`일 때 프론트가 "터미널에서 `claude` 실행해 로그인" 안내 + [다시 확인] 재진단.
 - **잡 진행 가시화(S8 — "마냥 기다리다 새로고침" 방지)**: convert/regenerate 잡 상태 응답에 `progress` 추가 —
@@ -289,6 +291,66 @@ study-hub/
 - API 계약 불변. `POST /api/backups/{id}/restore` 성공 직후 서버가 **SQLAlchemy `engine.dispose()`로 커넥션 풀 폐기**(이후 요청은 복원본으로 새 커넥션) + 복원본 대상 검증 쿼리 1회.
 - 프론트: 복원 성공 시 **강제 리로드 모달**("복원 완료 — 앱을 다시 불러옵니다") → 확인 시 쿼리 캐시 폐기 + `location.reload()`. 모달에 "이상 동작 시 서버를 재시작하세요" 안내 유지(닫기 없이 리로드만 — stale 화면 조작 차단).
 
+### 4.13 콘텐츠·동기 (S10 — F35 2단계 + F26)
+
+**원칙(강제)**: 신규는 **수집기(어댑터)뿐** — LLM 정리·진행 가시화·미리보기·중복 감지·분류 자동 생성·승인 반입은 전부 기존 convert 잡 큐(§4.10·§4.11)와 import preview/commit(§4.3)을 재사용한다. **새 테이블·컬럼 없음**(근거는 계획서 §14 F35·F26 명세).
+
+**신규·확장 엔드포인트**
+
+| 메서드/경로 | 설명 | 단계 |
+|---|---|---|
+| `GET /api/fetch/adapters` | 등록 어댑터 목록 `[{id: 'qnet'\|'comcbt', name, priority, available, notice}]` — priority 숫자가 작을수록 우선(**qnet=1, comcbt=2** — 2026-07-25 사용자 확정). `notice` = 이용 고지 문구(개인 학습 전용·재배포 금지). `available:false` = robots 비허용·접속 불가 진단 시 | S10 |
+| `GET /api/fetch/certs?q=` | 자격증 검색 — 등록 어댑터 전체에 질의 후 **정규화 이름(공백 제거)으로 병합**: `[{name, sources: [{adapter, cert_ref}]}]`. 결과는 서버 메모리 캐시(TTL 24h — 반복 크롤링 방지) | S10 |
+| `POST /api/fetch/exams` | `{sources: [{adapter, cert_ref}]}` → **병합 회차 목록**: `[{exam_key, label, adapter(선정 어댑터), exam_ref, also_on: [], question_count?, imported, estimate}]`. **`exam_ref` = 선정 어댑터 기준 회차 참조 — `fetch/import`에 `{adapter, cert_ref, exam_ref}`로 그대로 전달하는 계약**(certs의 `cert_ref`와 대응). 항목에 **`refs: {어댑터id: exam_ref}` 맵 포함** — 같은 회차가 여러 어댑터에 있을 때 어댑터별 참조를 모두 담는다(`exam_ref`는 `refs[adapter]`와 동일). **대안 어댑터 재시도는 반드시 `refs[대상 어댑터]`를 사용**해야 한다(exam_ref는 어댑터마다 의미가 다름 — S10 검토 반영 2026-07-25). `exam_key` = `'YYYY-N'` 정규화 키 — **같은 키가 양쪽에 있으면 큐넷(qnet) 채택**, comcbt는 `also_on`으로만 표기(아래 규칙). `imported` = 해당 회차 분류 경로 존재 여부(파생 — 저장 안 함). `estimate` = 예상 LLM 사용량(아래) | S10 |
+| `POST /api/fetch/import` | `{adapter, cert_ref, exam_ref}` — **한 번에 1회차**(배치 없음). **convert 잡 큐 재사용**(kind=`'fetch'`, 동시 1개, engine 파라미터·폴백 정책 §4.11 그대로) → `{job_id}`. 진행·결과 조회는 기존 `GET /api/convert/{job_id}` — `progress.phase`에 `'fetching'`(사이트 수집·이미지 다운로드) 신설, 완료 시 `result_preview_id`로 기존 반입 위저드 미리보기에 합류 | S10 |
+| `GET /api/stats/streak` | F26: `{current_streak, best_streak, today: {questions, minutes, goal: {questions?, minutes?}, goal_met}}` — 전부 파생값(아래 규칙). 용처: 홈 스트릭 위젯(§5.1)·복습 완료 화면(§5.7) | S10 |
+| `GET /api/stats/heatmap` 확장 | 항목에 `goal_met`(bool) 추가 — **목표가 하나라도 설정된 경우에만** 채움(미설정 시 필드 생략). 기존 필드·파라미터 불변(하위 호환). 판정은 `stats/streak`와 동일 함수 공유 | S10 확장 |
+
+**어댑터 모듈 구조 (사이트별 분리 — DOM 변경 시 해당 모듈만 수정)**
+
+```
+backend/services/fetchers/
+├─ base.py       # 공통 인터페이스: search_certs(q) / list_exams(cert_ref)
+│                #   / fetch_exam(exam_ref, on_activity) → FetchedExam(구조 추출형) 또는 FetchedFile(원본 파일형)
+├─ registry.py   # 어댑터 등록·우선순위(qnet=1, comcbt=2)·사이트별 스로틀·robots 확인·목록 캐시(TTL 24h)
+├─ comcbt.py     # 전자문제집 CBT — 자격증·회차 목록 파싱 + 회차별 PDF 첨부 다운로드(FetchedFile — 아래 실측 노트)
+└─ qnet.py       # 큐넷 공개자료 — 현재 목록 스텁(available:false) + 공개 파일 직접 URL 다운로드(아래 실측 노트)
+```
+
+- 수집 결과 2형: **`FetchedFile`**(원본 파일 — PDF 등) = F35-1과 동일하게 convert 투입(LLM이 구조 추출). **`FetchedExam`**(구조 추출형) = `{cert_name, exam_key, exam_label, questions: [{no, stem, choices, answer?, explanation?, images: []}]}` — 구조화 텍스트로 프롬프트에 투입. **현재 어댑터 2종은 모두 FetchedFile 경로**(실측 노트) — FetchedExam은 향후 구조 추출형 어댑터를 위한 인터페이스로 유지한다.
+- 두 경로 모두 최종적으로 **반입 JSON 규격(계획서 §8.2)으로 LLM 정리**(해설 보강·태그·검수) 후 preview 생성. `suggest_categories`는 어댑터가 확정한 경로(`"자격증명/필기/YYYY년 N회"`)를 프롬프트에 **강제 지시** — 분류 자동 생성은 기존 commit의 경로 생성 재사용.
+- **이미지(그림 문제)**: FetchedExam 경로에서 어댑터가 다운로드(스로틀 동일 적용)해 `sources/images/`에 저장(R2 관례), content에 Markdown 링크 삽입. **원본 불변 규칙 그대로.** (현재 comcbt는 PDF 경로라 이미지가 PDF에 내장 — 이 분기는 구현돼 있으나 실사용 대기.)
+- **출처 추적**: `documents.source_detail` = "YYYY년 N회 M번", `sources.note`에 수집 URL·어댑터 id 기록.
+- **DOM 셀렉터·페이지 구조는 이 문서에서 확정하지 않는다** — 구현 시 실측 확인(stage-10 체크리스트 명시). 설계가 확정하는 것은 인터페이스·오류 처리·예의 규칙뿐.
+
+**구현 실측 노트 (2026-07-25 — 추측 셀렉터 배제 원칙에 따른 확정 사항)**
+- **comcbt**: robots는 전 경로 허용. 그러나 **문항 본문이 정적 HTML에 존재하지 않음** — 실제 풀이는 세션 기반 JS CBT 앱이고, 게시글에는 회차별 **PDF 첨부**(학생용/교사용/해설집, 무로그인 다운로드)만 있다. 따라서 JS 역설계 대신 **PDF 첨부 다운로드 → convert(LLM 구조 추출)** 경로를 채택(FetchedFile). 자격증(종목별 게시판)·회차 글 목록 파싱은 실측 확정.
+- **qnet**: robots.txt가 표준 응답이 아닌 점검 안내 HTML이며, 공개문제 카탈로그가 JS 포털이라 정적 목록을 실측할 수 없음 → `search_certs`/`list_exams`는 **빈 목록 + `available:false` 안내**로 구현(추측 셀렉터 금지). `fetch_exam`은 공개 파일 **직접 URL 한정**으로 F35-1 다운로드 경로 재사용. 큐넷 우선 병합 로직은 단위 테스트로 검증됨 — **포털 구조가 확정되면 qnet.py 목록 부분만 채우면 자동 작동**(모듈 격리 원칙, R14).
+
+**크롤링 예의 — 강제 조항 (위반 구현 금지)**
+1. **robots.txt 존중**: 수집 전 확인(캐시 24h), 비허용 경로는 `available:false`·수집 거부 + URL 반입(F35-1) 대안 안내.
+2. **요청 간격**: 사이트별 **최소 2초**(전역 스로틀 — 목록·문항·이미지 요청 전부 포함), 오류 시 지수 백오프. 병렬 요청 금지(잡 큐 동시 1개와 일관).
+3. **User-Agent 명시**: `StudyHub-Personal/1.0` (F35-1 관례 유지).
+4. **개인 학습 전용·재배포 금지**: 실행 전 확인 스텝(§5.9)에 고지 문구 고정 노출. 내보내기·공유 기능에 수집물 예외 취급 없음(재배포 기능 자체를 만들지 않음).
+5. **로그인/CAPTCHA 필요 사이트는 범위 외** — 우회 코드 금지.
+6. **실행 전 예상 LLM 사용량 안내 필수**: `estimate = {questions_assumed(문항 수 — 목록에서 미상이면 60 가정 표기), approx_input_tokens(최근 완료 convert 잡의 문항당 평균 토큰 이동 평균 — 표본 없으면 문항당 600토큰 가정), assumed(bool — 가정치 여부)}`. §4.11 한도 기억 경고와 함께 확인 스텝에서 표시.
+
+**큐넷 우선 규칙 (중복 회차 — 2026-07-25 사용자 확정)**
+- `exam_key` 정규화(`YYYY-N`)로 회차 동일성 판정 — 같은 키가 양쪽 어댑터에 있으면 **qnet 항목을 채택**(공단 원본이 정본), comcbt는 `also_on`으로만 표기.
+- 채택 어댑터 수집이 실패(`parse_failed` 등)하면 **사용자가 명시적으로** 대안 어댑터로 재시도(`adapter` 지정 재요청) — 자동 전환 없음(수집 결과 품질이 달라 조용한 대체 금지).
+- 문서 단위 중복은 별도 처리 불필요 — 기존 preview 중복 감지(제목+내용 해시, §4.3)가 그대로 작동한다.
+
+**파싱 실패 처리 (F30 연동)**
+- 회차 단위 실패(목록·문항 구조 파싱 불가): 잡 실패 + `error_info {kind:'parse_failed', message:"사이트 구조가 변경되었을 수 있습니다", action: URL 반입(F35-1)·대안 어댑터 재시도 안내, fallback_available}` — 원문 HTML/JSON 노출 금지(§4.11 원칙 동일).
+- 문항 단위 경미 결함(보기 누락 등): preview 오류 항목으로 표기(기존 규칙 — 커밋에서 자동 제외).
+- 반입 후 발견된 내용 오류: 기존 **F30 오류 신고·재생성** 경로(§4.10) — 신고 사유 + source_detail(수집 출처)로 재생성.
+
+**F26 목표·스트릭 파생 규칙 (DDL 없음 — 근거는 계획서 §14 F26 명세)**
+- **목표 = settings 키 2개**: `goal.daily_questions` · `goal.daily_minutes`(양의 정수, 미설정·0 = 목표 없음. settings GET/PUT 재사용 — 새 API 없음).
+- **활동일** = 히트맵과 동일 모수(attempts + 개념 완료(`study_progress.completed_at`)). `current_streak` = 오늘 활동 있으면 오늘 포함 연속 일수, 오늘 없으면 **어제까지의** 연속 일수(하루가 끝나기 전에 스트릭을 끊지 않는다). `best_streak` = 전체 이력 최장(전수 스캔 — 개인 규모 충분).
+- **today**: `questions` = 오늘 attempts 수(정오 무관), `minutes` = 오늘 `attempts.time_spent` 합 ÷ 60 올림 — **문제 풀이 시간 기준**(개념 열람 시간은 미측정, 한계 명문화). `goal_met` = 설정된 목표 항목 **각각 모두** 충족(AND).
+- **스트릭은 목표와 무관**(활동 기준) — 목표 변경이 과거 스트릭을 재해석하지 않는다. 반면 heatmap `goal_met`은 **현재 목표로 과거를 재평가**하는 파생값(목표 이력 저장 안 함 — YAGNI).
+
 ## 5. 화면 상세 (11개)
 
 라우팅: React Router. 모바일(<768px)은 하단 탭바(홈/커리큘럼/퀴즈/**복습**/오답노트 — 복습 탭은 S9, F36-②: 홈 경유 없이 오늘의 복습 직행) + 트리 드로어.
@@ -305,7 +367,7 @@ study-hub/
 - **API**: `GET /api/dashboard`
 - **엣지**: 데이터 0건이면 온보딩 카드("기출 JSON을 반입해 시작하세요" → `/import`).
 - **위젯 레지스트리(S7, F31)** — 홈 섹션을 9개 위젯 컴포넌트로 분리, id 고정:
-  `continue`(이어하기) · `today_review`(오늘의 복습) · `dday`(D-Day) · `heatmap`(학습 히트맵 — 반응형 주 수) · `exam_progress`(시험별 진도 도넛) · `recent7d`(최근 7일 풀이/정답률) · `accuracy_trend`(최근 정답률 추이) · `weakness`(자꾸 틀리는 개념 Top 10) · `bookmarks`(북마크 모아보기 진입) · **`daily_start`(S9 — 아래, 레지스트리 10종으로 확장)**.
+  `continue`(이어하기) · `today_review`(오늘의 복습) · `dday`(D-Day) · `heatmap`(학습 히트맵 — 반응형 주 수) · `exam_progress`(시험별 진도 도넛) · `recent7d`(최근 7일 풀이/정답률) · `accuracy_trend`(최근 정답률 추이) · `weakness`(자꾸 틀리는 개념 Top 10) · `bookmarks`(북마크 모아보기 진입) · **`daily_start`(S9 — 아래, 레지스트리 10종으로 확장)** · **`streak`(S10 — 아래, 레지스트리 11종으로 확장)**.
   기존 "데이터 0건이면 위젯 미표시" 관례는 유지하되, 사용자 숨김(`visible:false`)이 우선하며 숨긴 위젯은 **데이터 쿼리도 실행하지 않는다**(비마운트 또는 `enabled:false` — 쿼리 미실행이면 구현 방식 무관, S7 구현은 비마운트). 온보딩 카드는 위젯이 아님(편집 대상 제외).
 - **편집 모드(S7, F31)**: 홈 헤더 [편집] → 위젯마다 드래그 핸들(≡)·숨김(눈) 토글, 상단 열 수 세그먼트(자동/1/2/3), 하단 "숨긴 위젯" 목록(탭하면 복귀), [기본값 복원], [완료]=`PUT /api/settings`(`home.layout`, §4.10 — 저장은 완료 시 1회, 취소 시 드래프트 폐기).
   - 드래그는 **Pointer Events 직접 구현**(pointerdown/move/up + setPointerCapture, 핸들 `touch-action:none`) — **외부 D&D 라이브러리 금지**. 같은 열 내 순서 변경 + 열 간 이동(col 배정), 드래그 중 자리표시자 표시.
@@ -321,6 +383,8 @@ study-hub/
   - 셀 크기·간격은 고정(토큰 기반) — `표시 주 수 = floor((컨테이너 폭 − 요일 라벨 폭) / (셀 + 간격))`을 **최소 8주 ~ 최대 26주**로 클램프. 항상 **최근 N주**를 오른쪽 끝(오늘)에 정렬해 렌더.
   - 데이터는 기존 `GET /api/stats/heatmap?from&to`로 **최대 범위(26주)를 1회 조회**하고 클라이언트에서 최근 N주만 잘라 렌더 — 리사이즈·열 변경 시 재요청 없음. **새 API·파라미터 변경 없음.**
   - 주 수 **수동 지정**(위젯별 설정)은 v1.x 후보로 계속 제외 — 이 항목은 자동 조정만 다룬다.
+- **스트릭 위젯(S10, F26) — `streak`**: "N일 연속 학습" 대표 수치 + 오늘 진행(목표 설정 시 "문제 12/20 · 15분/30분" 게이지, `goal_met`이면 달성 배지) + 최고 기록 소표기. 데이터 = `GET /api/stats/streak`(§4.13). 스트릭 0 **그리고** 목표 미설정이면 위젯 미표시(기존 0건 관례). 위젯 순서 기본값은 `heatmap` 바로 위 — 기존 저장 레이아웃에는 전방 호환 규칙(누락 id 보충)으로 자동 등장.
+- **히트맵 목표 연동(S10, F26)**: heatmap 응답의 `goal_met=true` 날짜 셀에 **링(테두리) 강조** + 툴팁에 "목표 달성" 표기 — 토큰 기반 스타일, 목표 미설정이면 기존 렌더 그대로. 새 요청 없음(기존 heatmap 1회 조회의 필드 확장).
 - **원탭 데일리 세션(S9, F36-①) — `daily_start` 위젯**: [오늘 공부 시작] CTA + 분량 예고("복습 12 + 2과목 Ch.3 이어하기 · 예상 25분" — `dashboard.today_review`·`continue[0]`·`today_review_minutes` §4.12). 탭 → 복습 큐 잔여가 있으면 `/review`로, 복습 완료 화면의 [이어하기로 계속]이 `/study/:categoryId`로 연결(F36-③, §5.7). 복습 0건이면 곧장 이어하기로. 복습 0건·이어하기도 없으면 위젯 미표시(기존 관례). 위젯 순서 기본값은 `continue`보다 위(첫 번째) — 기존 저장 레이아웃에는 전방 호환 규칙(누락 id = 표시·마지막 순서 보충)으로 자동 등장.
 - **D-Day 즉석 편집(S7, F32)**: D-Day 위젯 헤더의 연필 아이콘 → 모달로 **설정 §5.11의 D-Day 관리(DDayManager) 컴포넌트 재사용**(시험 분류 `exam_date` + 임의 D-Day 추가·수정·삭제 — 기존 categories PATCH·`settings:ddays.custom` 경로 그대로, 새 로직 없음). D-Day 위젯만은 데이터 0건이어도(visible이면) "등록된 D-Day 없음 + [추가]"로 표시 — 홈에서 첫 등록 가능. 저장 시 dashboard invalidate → 배지 즉시 갱신.
 
@@ -372,7 +436,7 @@ study-hub/
 ### 5.7 플래시카드 — `/flashcards?category_id=` (S5) · 오늘의 복습 — `/review`
 - 카드 뒤집기(탭/스페이스), 스와이프 좌="모른다"(q=1)/우="안다"(q=4). 남은 장수 + 오늘 큐 진행.
 - **판정 undo 1회(S9, F36-⑧)**: 직전 판정을 [되돌리기]로 취소(오조작 SM-2 오염 방지) — 구현은 **전송 지연**(§4.12): 판정은 다음 카드 진입 시(마지막 카드는 세션 종료 시) 확정 전송, undo = 미전송 취소 후 카드 복귀. 새 API 없음.
-- **복습 완료 화면(S9, F36-③)**: 오늘 큐 소화 완료 시 요약 + **"내일 N개 예정"**(`GET /api/srs/summary`) + **[이어하기로 계속]**(`study/continue` 첫 카드로 — daily_start 여정 §5.1의 후반부). F26 스트릭 연계 표시는 M10.
+- **복습 완료 화면(S9, F36-③)**: 오늘 큐 소화 완료 시 요약 + **"내일 N개 예정"**(`GET /api/srs/summary`) + **[이어하기로 계속]**(`study/continue` 첫 카드로 — daily_start 여정 §5.1의 후반부). **S10(F26·F36-③ 연계)**: 스트릭 배지 추가 — "N일 연속 학습 중"(`GET /api/stats/streak`), 오늘 목표 달성 시 달성 표기 — 내일 예고와 나란히 "오늘의 마무리" 블록.
 - **API**: `srs/today`(flashcard 타입 필터) 또는 범위 선택, `srs/answer`, `srs/summary`(S9).
 
 ### 5.8 오답노트 — `/review-notes`
@@ -386,7 +450,13 @@ study-hub/
 - **3단계 위저드**: ① 파일 선택(JSON + 원본 선택) → ② 미리보기 표(항목별 상태 배지: 정상/중복 의심/오류. 중복은 기존 문서와 나란히 비교, 라디오: 건너뛰기/새로 추가/병합. 분류·관계 제안 체크박스) → ③ 반입 실행 → 결과 요약(생성 N, 병합 N, 건너뜀 N + 새 문서 바로가기).
 - **공용 Stepper(S9, F36-⑪)**: 위저드 헤더 ①②③을 공용 Stepper 컴포넌트로 교체 — **지나온 단계(✓)는 실제 클릭으로 되돌아가기**(진행 중 결과가 버려지는 파괴적 복귀는 확인 후), 현재(●)는 강조, **미래(○)는 흐림+비클릭이 명확한 스타일·점선 연결**(눌릴 것처럼 보이지 않게). 토큰 기반 스타일. F37 3단 진도(§5.4)·챕터 최종 완료 화면(§5.5)에도 재사용.
 - **엣지**: preview 만료(1h) 시 재업로드 안내. 오류 항목은 개별 오류 메시지 표시, 커밋에서 자동 제외.
-- **API**: `import/preview`, `import/commit`. S6: "파일만 던지면 변환부터"(`convert`) 버튼 추가.
+- **사이트에서 가져오기(S10, F35-2)**: 반입 화면 진입 방식에 [파일]·[URL](S8)과 나란히 **[사이트에서 가져오기]** 추가 → 공용 Stepper(S9, F36-⑪ 재사용) 4단계 서브플로:
+  - ① **자격증 검색·선택** — `GET /api/fetch/certs?q=`(어댑터 병합 결과, 출처 사이트 배지 표시)
+  - ② **회차 선택** — `POST /api/fetch/exams` 병합 목록: 회차 라벨 + 채택 어댑터 배지(중복 회차는 **큐넷 채택** 표기 + `also_on` 소표기) + 문항 수(미상이면 "약 60문항 가정") + **"이미 반입됨" 배지**(`imported`). 한 번에 1회차 선택(라디오).
+  - ③ **예상 사용량 확인** — `estimate`(문항 수·대략 입력 토큰·가정치 여부) + 사용 엔진(auto/cli/api — §4.11 계약)과 **한도 기억 경고 배너(S8 재사용)** + **고정 고지: "개인 학습 전용 — 수집물 재배포 금지"**. 확인 없이는 실행 불가.
+  - ④ **실행** — `POST /api/fetch/import` → 기존 진행 패널 재사용(단계 스텝에 '사이트 수집' = `fetching` 추가, 경과·토큰·ETA·새로고침 안내 그대로) → 완료 시 `result_preview_id`로 **기존 위저드 ②(미리보기)에 합류** — 이후 중복 비교·분류 제안·커밋은 기존 흐름 그대로.
+  - 실패 시: `error_info` 렌더(§4.11 규칙) — `parse_failed`면 [URL로 반입]·[다른 어댑터로 재시도(있을 때)] 대안 버튼. 원문 HTML 미노출.
+- **API**: `import/preview`, `import/commit`. S6: "파일만 던지면 변환부터"(`convert`) 버튼 추가. S10: `fetch/*`(§4.13).
 
 ### 5.10 인쇄 뷰 — `/print?type=&category_id=&options=`
 - **종류 3종**(계획서 §12): 개념 정리본 / 문제집(문제 앞·해설 뒤 분리) / 오답노트.
@@ -395,7 +465,7 @@ study-hub/
 
 ### 5.11 설정 — `/settings`
 - 테마(라이트/다크/시스템 — localStorage, §6), 복습 큐 상한, 기본 문항 수, D-Day 관리(S4, 아래), 백업/복원(S6), 태그 병합 도구(S6 — S9에서 태그 관리자로 승격).
-- **6그룹 구성(F38 — 골격은 S8 선반영 완료, S9는 내용 완성)**: 좌측 목차(카테고리 점프, 모바일 아코디언) + ① **학습**(복습 상한·기본 문항 수 + S9: 글자 크기 `study.font_scale`·정답 자동 다음 `quiz.auto_advance`) ② **일정**(D-Day 관리) ③ **태그·분류**(태그 규칙 + S9: **태그 관리자** — 아래) ④ **LLM 엔진**(S8 §4.11) ⑤ **데이터**(백업/복원·CSV 내보내기 + S9: 복원 후 강제 리로드 모달 §4.12) ⑥ **화면**(테마).
+- **6그룹 구성(F38 — 골격은 S8 선반영 완료, S9는 내용 완성)**: 좌측 목차(카테고리 점프, 모바일 아코디언) + ① **학습**(복습 상한·기본 문항 수 + S9: 글자 크기 `study.font_scale`·정답 자동 다음 `quiz.auto_advance` + **S10: 일일 목표** — 문제 수 `goal.daily_questions`·시간(분) `goal.daily_minutes` 숫자 입력, 비움/0 = 목표 없음, 저장 시 스트릭·히트맵 위젯 invalidate. "시간은 문제 풀이 시간 기준" 도움말 소표기 §4.13) ② **일정**(D-Day 관리) ③ **태그·분류**(태그 규칙 + S9: **태그 관리자** — 아래) ④ **LLM 엔진**(S8 §4.11) ⑤ **데이터**(백업/복원·CSV 내보내기 + S9: 복원 후 강제 리로드 모달 §4.12) ⑥ **화면**(테마).
 - **태그 관리자(S9, F38)** — 병합 "도구"(TagMergeTool)를 관리 "화면"으로 승격:
   - **목록 테이블**: 이름 · 사용 문서 수(doc_count) · 규칙 사용 배지(rule_count>0) — 검색·정렬(이름/사용 수). 행 클릭 = 사용 문서 보기(탐색 `?tag=` 필터 링크).
   - **유사 태그 제안**: `GET /api/tags/similar` 결과를 "『정규화』↔『정규 화』 병합할까요?" 목록으로 — [병합](방향 선택 = 남길 이름 지정, 기존 `tags/merge`) / [무시](세션 내 숨김 — 저장 안 함, 과설계 방지).

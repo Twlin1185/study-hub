@@ -11,12 +11,20 @@ import io
 import math
 import statistics
 
-from sqlalchemy import func, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
 import models
 from schemas.dashboard import DashboardResponse, DDayItem, RecentStats
-from schemas.stats import AccuracyTrendItem, CategoryStatsItem, HeatmapItem, WeaknessItem
+from schemas.stats import (
+    AccuracyTrendItem,
+    CategoryStatsItem,
+    HeatmapItem,
+    StreakGoal,
+    StreakResponse,
+    StreakToday,
+    WeaknessItem,
+)
 from services import category_service, settings_service, srs_service, study_service
 from services.tree_utils import category_path, collect_descendant_ids
 
@@ -154,10 +162,69 @@ def get_dashboard(db: Session) -> DashboardResponse:
     )
 
 
+# ---------------------------------------------------------------------------
+# 목표·스트릭 (F26, 설계 §4.13) — 전부 파생값(DDL 없음). streak·heatmap이 판정 함수 공유.
+# ---------------------------------------------------------------------------
+def _goal_config(db: Session) -> tuple[int | None, int | None]:
+    """settings goal 키 2개를 양의 정수로 정규화 — None/0/비정수는 '목표 없음'(None)."""
+
+    def _norm(raw) -> int | None:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+
+    return (
+        _norm(settings_service.get_setting(db, "goal.daily_questions", None)),
+        _norm(settings_service.get_setting(db, "goal.daily_minutes", None)),
+    )
+
+
+def _evaluate_goal(
+    questions: int, minutes: int, q_goal: int | None, m_goal: int | None
+) -> bool:
+    """설정된 목표 항목 각각 모두 충족(AND). 목표 미설정이면 False (달성 대상 없음)."""
+    if q_goal is None and m_goal is None:
+        return False
+    if q_goal is not None and questions < q_goal:
+        return False
+    if m_goal is not None and minutes < m_goal:
+        return False
+    return True
+
+
+def _daily_questions(db: Session, start: dt.date, end: dt.date) -> dict[str, int]:
+    attempt_date = func.date(models.Attempt.answered_at, "localtime")
+    rows = db.execute(
+        select(attempt_date, func.count())
+        .where(attempt_date >= start.isoformat(), attempt_date <= end.isoformat())
+        .group_by(attempt_date)
+    ).all()
+    return {date_str: count for date_str, count in rows}
+
+
+def _daily_minutes(db: Session, start: dt.date, end: dt.date) -> dict[str, int]:
+    """일자별 풀이 시간(분, 올림) = sum(attempts.time_spent) ÷ 60. 개념 열람 시간은 미측정."""
+    attempt_date = func.date(models.Attempt.answered_at, "localtime")
+    rows = db.execute(
+        select(attempt_date, func.sum(models.Attempt.time_spent))
+        .where(attempt_date >= start.isoformat(), attempt_date <= end.isoformat())
+        .group_by(attempt_date)
+    ).all()
+    return {
+        date_str: math.ceil((total or 0) / 60) for date_str, total in rows
+    }
+
+
 def get_heatmap(
     db: Session, date_from: dt.date | None, date_to: dt.date | None
 ) -> list[HeatmapItem]:
-    """일자별 학습량 = attempts + 개념 완료(study_progress.done) 합산 (설계 §4.8)."""
+    """일자별 학습량 = attempts + 개념 완료(study_progress.done) 합산 (설계 §4.8).
+
+    S10(F26): 목표가 하나라도 설정된 경우에만 항목에 `goal_met` 추가 — 현재 목표로 과거를
+    재평가하며, streak와 동일한 판정 함수(`_evaluate_goal`)를 공유한다. 목표 미설정이면
+    기존 응답(date·count)과 완전히 동일(goal_met은 exclude_none으로 생략)."""
     end = date_to or dt.date.today()
     start = date_from or (end - dt.timedelta(weeks=HEATMAP_DEFAULT_WEEKS) + dt.timedelta(days=1))
     if start > end:
@@ -191,10 +258,82 @@ def get_heatmap(
     for date_str, count in completed_rows:
         counts[date_str] = counts.get(date_str, 0) + count
 
-    return [
-        HeatmapItem(date=date_str, count=count)
-        for date_str, count in sorted(counts.items())
-    ]
+    q_goal, m_goal = _goal_config(db)
+    goals_set = q_goal is not None or m_goal is not None
+    q_by_date = _daily_questions(db, start, end) if goals_set else {}
+    m_by_date = _daily_minutes(db, start, end) if goals_set else {}
+
+    items: list[HeatmapItem] = []
+    for date_str, count in sorted(counts.items()):
+        goal_met = None
+        if goals_set:
+            goal_met = _evaluate_goal(
+                q_by_date.get(date_str, 0), m_by_date.get(date_str, 0), q_goal, m_goal
+            )
+        items.append(HeatmapItem(date=date_str, count=count, goal_met=goal_met))
+    return items
+
+
+def _activity_date_set(db: Session) -> set[str]:
+    """활동일(ISO date 문자열) 전체 집합 = attempts + 개념 완료 (히트맵과 동일 모수)."""
+    dates: set[str] = set()
+    attempt_date = func.date(models.Attempt.answered_at, "localtime")
+    for value in db.execute(select(distinct(attempt_date))).scalars().all():
+        if value:
+            dates.add(value)
+    completed_date = func.date(models.StudyProgress.completed_at, "localtime")
+    rows = db.execute(
+        select(distinct(completed_date)).where(
+            models.StudyProgress.status == "done",
+            models.StudyProgress.completed_at.is_not(None),
+        )
+    ).scalars().all()
+    for value in rows:
+        if value:
+            dates.add(value)
+    return dates
+
+
+def get_streak(db: Session) -> StreakResponse:
+    """현재/최고 연속 학습일 + 오늘 목표 진행 (F26, 설계 §4.13) — 전부 파생, 저장 없음."""
+    dates = _activity_date_set(db)
+    today = dt.date.today()
+
+    # current: 오늘 활동 있으면 오늘부터, 없으면 어제까지의 연속(하루 끝나기 전 끊지 않음)
+    current = 0
+    cursor = today if today.isoformat() in dates else today - dt.timedelta(days=1)
+    while cursor.isoformat() in dates:
+        current += 1
+        cursor -= dt.timedelta(days=1)
+
+    # best: 전체 이력 최장 연속(전수 스캔)
+    best = 0
+    if dates:
+        ordered = sorted(dt.date.fromisoformat(d) for d in dates)
+        run = 1
+        best = 1
+        for prev, cur in zip(ordered, ordered[1:]):
+            if (cur - prev).days == 1:
+                run += 1
+            else:
+                run = 1
+            best = max(best, run)
+
+    q_today = _daily_questions(db, today, today).get(today.isoformat(), 0)
+    m_today = _daily_minutes(db, today, today).get(today.isoformat(), 0)
+    q_goal, m_goal = _goal_config(db)
+    goal_met = _evaluate_goal(q_today, m_today, q_goal, m_goal)
+
+    return StreakResponse(
+        current_streak=current,
+        best_streak=best,
+        today=StreakToday(
+            questions=q_today,
+            minutes=m_today,
+            goal=StreakGoal(questions=q_goal, minutes=m_goal),
+            goal_met=goal_met,
+        ),
+    )
 
 
 def get_accuracy_trend(db: Session, days: int = 30) -> list[AccuracyTrendItem]:
