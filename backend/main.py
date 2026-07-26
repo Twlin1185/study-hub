@@ -125,6 +125,26 @@ async def internal_error_handler(request: Request, exc: Exception) -> JSONRespon
     )
 
 
+# --- 앱 버전 확인 (설계 §4.16) ---
+# 이미 열려 있는 탭은 서버를 재시작하고 새로 빌드해도 **옛 JS를 그대로 실행**한다
+# (새로고침 전까지 화면만 구버전 — 2026-07-26 실사용 확인). 실행 중인 번들 파일명과
+# 서버가 지금 서빙하는 번들 파일명을 비교할 수 있게 후자를 알려준다. 빌드마다 파일명
+# 해시가 바뀌므로 별도 버전 파일·빌드 상수 없이 이것만으로 판별된다.
+_ASSET_SRC_RE = re.compile(r'src="[^"]*/assets/(index-[A-Za-z0-9_-]+\.js)"')
+
+
+@app.get("/api/app-version", include_in_schema=False)
+async def get_app_version():
+    asset: str | None = None
+    if INDEX_HTML.exists():
+        try:
+            m = _ASSET_SRC_RE.search(INDEX_HTML.read_text(encoding="utf-8"))
+            asset = m.group(1) if m else None
+        except OSError:
+            asset = None
+    return {"asset": asset}
+
+
 # --- 사용자 매뉴얼 서빙 (F39, 설계 §4.15, S12) ---
 # `docs/manual/user-manual.html` 원본이 단일 출처 — 빌드 복사·번들 포함 없음(파일 수정 →
 # 서버 재시작 없이 새로고침만으로 반영). 읽기 전용: 이 파일을 쓰거나 수정하는 코드는 없다.

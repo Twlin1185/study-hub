@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom'
 import SearchBar from './SearchBar'
 import SuggestionsNavBadge from './SuggestionsNavBadge'
 import { useSidebarStore } from '../stores/sidebar'
+import { useAppUpdate } from '../hooks/useAppUpdate'
 
 interface NavItem {
   to: string
@@ -75,9 +76,23 @@ export default function Layout({ children }: { children: ReactNode }) {
   const toggleSidebar = useSidebarStore((s) => s.toggle)
   const setSidebar = useSidebarStore((s) => s.setState)
   const collapsed = sidebar === 'collapsed'
+  // 새 빌드 감지(설계 §4.16) — 보통은 자동 새로고침으로 해결되고, 그래도 남으면 배너로 알린다.
+  const { updateAvailable } = useAppUpdate()
 
   return (
     <div className="flex h-full min-h-screen bg-bg text-primary">
+      {updateAvailable && (
+        <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 border-b border-warning bg-accent-soft px-3 py-2 text-sm text-primary print:hidden">
+          <span>새 버전이 준비되어 있습니다.</span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded border border-border bg-surface px-3 py-1 text-xs text-primary hover:bg-bg"
+          >
+            새로고침
+          </button>
+        </div>
+      )}
       {/* 데스크톱/태블릿 사이드바 (F33: 접힘 토글) */}
       <aside
         className={`hidden shrink-0 flex-col border-r border-border bg-surface p-3 md:flex print:hidden ${
