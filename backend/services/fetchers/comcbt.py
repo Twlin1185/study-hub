@@ -203,15 +203,25 @@ class ComcbtAdapter(Adapter):
                 detail={"exam_ref": exam_ref},
             )
         file_url, file_name = picked
-        data, ctype, disp_name = client.get_bytes(file_url)
+        # XE procFileDownload는 302로 파일 서버(img.comcbt.com)에 넘긴다(Location에
+        # 한글 파일명 — registry가 인코딩 복원). Referer는 게시판형 사이트의
+        # 직접 요청 차단 정책 대비 방어적으로 함께 보낸다.
+        data, ctype, disp_name = client.get_bytes(file_url, referer=exam_url)
         filename = disp_name or file_name or f"comcbt_{cert_ref}_{exam_ref}.pdf"
-        # 매직 바이트로 PDF 확인(octet-stream으로 오는 경우가 있어 확장자만 믿지 않는다)
-        if data[:5] != b"%PDF-" and not filename.lower().endswith(".pdf"):
-            # HWP 등 LLM이 직접 못 읽는 형식이면 파싱 실패로 안내
+        # 매직 바이트로 PDF 확인 — 확장자는 믿지 않는다(.pdf 이름으로 HTML 오류
+        # 페이지가 오는 경우가 실측됨. 확장자만 보면 그대로 LLM에 들어간다).
+        if data[:5] != b"%PDF-":
+            if filename.lower().endswith(".hwp"):
+                # HWP 등 LLM이 직접 못 읽는 형식이면 파싱 실패로 안내
+                raise ParseFailedError(
+                    "이 회차는 PDF 기출 파일이 제공되지 않습니다(HWP 등)",
+                    alternatives=["url_import", "other_adapter"],
+                    detail={"filename": filename},
+                )
             raise ParseFailedError(
-                "이 회차는 PDF 기출 파일이 제공되지 않습니다(HWP 등)",
+                "기출 파일 대신 사이트 안내 페이지가 응답되었습니다",
                 alternatives=["url_import", "other_adapter"],
-                detail={"filename": filename},
+                detail={"filename": filename, "content_type": ctype},
             )
         return FetchedFile(
             filename=filename,
