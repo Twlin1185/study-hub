@@ -3,7 +3,7 @@
 > 상태: **Design v1.10** — v1.9 대비: **S11(M11 시험 직전 도구) API 계약 신설**(§4.14 — F25 실전 모의고사: `exam/session`·`exam/submit`·`exam/history` — **일괄 제출 채점 전용 경로**(세션 응답에 정답·해설 없음, 배치 전체 한 트랜잭션), 리포트·이력은 **attempts 파생(런 키 = 배치 공통 answered_at)** — DDL 없음 · F16 D-Day 복습 강도 조절: SRS **큐 구성 계층** 3종 — 유효 상한 확대·임박 시험 우선·선행 복습, sm2.py·저장값 불변) + **§5 화면**(모의고사 §5.12 신설 — 화면 12개, §5.6 진입 탭·§5.7 강화 배지·§5.11 토글 보강). v1.9: S10 계약(§4.13)
 > v1.9 갱신 이력: 2026-07-25 구현 실측 반영 — §4.13 comcbt는 **PDF 첨부→convert 경로**(문항 본문이 정적 HTML에 없음), qnet 목록은 **available:false 스텁**(JS 포털 — 실측 불가), exams 응답에 `exam_ref` 명시
 > 작성일: 2026-07-22 · 갱신: 2026-07-26
-> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.12)
+> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.13)
 > 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-11-exam-tools.plan.md`
 
 ---
