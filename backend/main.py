@@ -168,6 +168,38 @@ async def get_source_image(filename: str):
 # 새로고침/직접 접속(/explore, /docs/1, /settings ...)이 404가 아닌 앱으로 뜬다.
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 INDEX_HTML = FRONTEND_DIST / "index.html"
+FRONTEND_SRC = Path(__file__).resolve().parent.parent / "frontend" / "src"
+
+
+def _warn_if_frontend_stale() -> None:
+    """dist가 없거나 src보다 오래됐으면 기동 로그에 눈에 띄게 알린다.
+
+    배포 빌드(dist)를 FastAPI가 그대로 서빙하므로, 프론트 코드를 고치고 `npm run build`를
+    빠뜨리면 **서버는 최신인데 화면만 옛 버전**이 된다(2026-07-26 실사용: dist가 하루 이상
+    묵어 새 화면이 없는 채로 운영됨). 서버가 빌드를 대신 실행하지는 않는다 — 안내만 하고,
+    자동 빌드는 시작 스크립트(`서버시작.bat`)가 담당한다.
+    """
+    if not INDEX_HTML.exists():
+        print("[!] frontend/dist 없음 - 화면이 뜨지 않습니다. frontend 폴더에서 `npm run build`를 실행하세요.")
+        return
+    if not FRONTEND_SRC.exists():
+        return
+    try:
+        built_at = INDEX_HTML.stat().st_mtime
+        newest_src = max(
+            (p.stat().st_mtime for p in FRONTEND_SRC.rglob("*") if p.is_file()),
+            default=0.0,
+        )
+    except OSError:
+        return
+    if newest_src > built_at:
+        print(
+            "[!] frontend/dist 가 소스보다 오래됐습니다 - 화면에 최신 변경이 반영되지 않습니다.\n"
+            "    frontend 폴더에서 `npm run build` 후 새로고침하세요."
+        )
+
+
+_warn_if_frontend_stale()
 
 if FRONTEND_DIST.exists() and INDEX_HTML.exists():
     assets_dir = FRONTEND_DIST / "assets"

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useFetchAdapters, useFetchCerts, useFetchExams, useFetchImport } from '../api/fetch'
-import { useConvertJob, useConvertedPreview } from '../api/convert'
+import { isJobLost, useConvertJob, useConvertedPreview } from '../api/convert'
 import { ApiError } from '../api/client'
 import { clearStoredConvertJob, getStoredConvertJob, setStoredConvertJob } from '../utils/convertJob'
 import LlmJobProgress from './LlmJobProgress'
@@ -181,7 +181,10 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl }: F
     }
   })
 
-  const running = jobId != null && (jobQuery.data == null || jobQuery.data.status === 'running')
+  // 잡 소실(404 — 서버 재시작·TTL 1시간 만료)이면 진행 표시를 멈춘다. 이 검사가 없으면
+  // 폴링이 영영 데이터를 못 받아 `running`이 참으로 남고 "처리 준비 중…"에서 멈춘다.
+  const jobLost = jobId != null && isJobLost(jobQuery)
+  const running = jobId != null && !jobLost && (jobQuery.data == null || jobQuery.data.status === 'running')
   const jobFailed = jobQuery.data?.status === 'error'
   const done = jobQuery.data?.status === 'done'
   const previewFetchFailed = done && (previewFetch.isError || !jobQuery.data?.result_preview_id)
@@ -421,6 +424,25 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl }: F
       {subStep === 'execute' && (
         <div className="flex flex-col gap-3">
           {running && <LlmJobProgress progress={jobQuery.data?.progress} includeDownloading={false} includeFetching />}
+
+          {jobLost && (
+            <div className="flex flex-col gap-2 rounded-lg border border-warning bg-accent-soft p-3 text-sm text-primary">
+              <p className="font-medium">진행 상황을 더 이상 확인할 수 없습니다</p>
+              <p className="text-xs text-muted">
+                서버가 다시 시작되었거나 작업 정보가 만료되어(1시간) 이 수집 작업의 진행 상황이 사라졌습니다.
+                수집이 끝나기 전이었다면 반입되지 않았으니 다시 시도해 주세요.
+              </p>
+              <div>
+                <button
+                  type="button"
+                  onClick={resetAll}
+                  className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+                >
+                  처음부터 다시 시도
+                </button>
+              </div>
+            </div>
+          )}
 
           {jobFailed && (
             <div className="flex flex-col gap-2">
