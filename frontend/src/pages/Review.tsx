@@ -12,7 +12,7 @@ import { useFontScale } from '../hooks/useFontScale'
 import { ApiError } from '../api/client'
 import type { FontScale } from '../api/types'
 import { FLASHCARD_Q_DONT_KNOW, FLASHCARD_Q_KNOW } from '../stores/flashcardSession'
-import type { AttemptResponse, DocumentType, SrsQueueItem } from '../api/types'
+import type { AttemptResponse, DdayBoostInfo, DocumentType, SrsQueueItem } from '../api/types'
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -42,6 +42,8 @@ interface QuizAnswerRecord {
 // 세션은 이 페이지의 지역 상태로만 관리(지정된 zustand 스토어 3개 외 신규 스토어 도입 회피).
 export default function ReviewPage() {
   const todayQuery = useSrsToday()
+  // D-Day 강화 발동 정보(설계 §5.7, S11 F16) — 헤더 배지용. items 스냅샷과 별개로 최신값을 쓴다.
+  const summaryQuery = useSrsSummary()
   const items = todayQuery.data ?? []
 
   if (todayQuery.isLoading) {
@@ -54,7 +56,7 @@ export default function ReviewPage() {
     return <ReviewEmpty />
   }
 
-  return <ReviewSession items={items} />
+  return <ReviewSession items={items} ddayBoost={summaryQuery.data?.dday_boost ?? null} />
 }
 
 function ReviewEmpty() {
@@ -76,7 +78,7 @@ function ReviewEmpty() {
   )
 }
 
-function ReviewSession({ items: itemsProp }: { items: SrsQueueItem[] }) {
+function ReviewSession({ items: itemsProp, ddayBoost }: { items: SrsQueueItem[]; ddayBoost: DdayBoostInfo | null }) {
   const navigate = useNavigate()
   const submitAttempt = useSubmitAttempt()
   const srsAnswer = useSrsAnswer()
@@ -225,6 +227,13 @@ function ReviewSession({ items: itemsProp }: { items: SrsQueueItem[] }) {
         <span className="text-sm text-muted">남은 {items.length - index}개</span>
       </div>
 
+      {/* D-Day 강화 모드 헤더 배지 (설계 §5.7, S11 F16) — 발동 시에만, 미발동 시 기존 화면 그대로. */}
+      {ddayBoost && (
+        <div className="mb-3 rounded-lg border border-accent bg-accent-soft px-3 py-2 text-xs font-medium text-accent">
+          『{ddayBoost.name}』 D-{ddayBoost.d_day} · 오늘 복습 {ddayBoost.effective_limit}개로 강화
+        </div>
+      )}
+
       <div className="mb-4">
         <ProgressBar value={index / items.length} label={`${index + 1}/${items.length}`} />
       </div>
@@ -308,6 +317,12 @@ function QuizReviewCard({
               오답노트
             </span>
           )}
+          {/* 선행 복습 소배지 (설계 §5.7, S11 F16) — ahead:true 카드에만 */}
+          {item.ahead && (
+            <span className="inline-block rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
+              선행 복습
+            </span>
+          )}
         </div>
         <MarkdownView content={item.content} scale={fontScale} />
       </div>
@@ -385,7 +400,13 @@ function FlipReviewCard({
   const front = (
     <>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">{item.doc_no}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">{item.doc_no}</span>
+          {/* 선행 복습 소배지 (설계 §5.7, S11 F16) — ahead:true 카드에만 */}
+          {item.ahead && (
+            <span className="rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">선행 복습</span>
+          )}
+        </span>
         <span className="text-xs text-muted">{isConcept ? '개념' : '플래시카드'} · 앞면</span>
       </div>
       <div className="flex flex-1 flex-col justify-center">

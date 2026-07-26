@@ -6,20 +6,35 @@
 날짜: due_date·"오늘" 경계는 서버 로컬(Asia/Seoul, 설계 §3) 날짜 기준. 서버가 Asia/Seoul로
 설정돼 있다는 전제 하에 dt.date.today()가 로컬 오늘이다(stats_service와 동일 규약).
 저장 타임스탬프(last_reviewed)는 다른 컬럼과 마찬가지로 UTC naive로 남긴다.
+
+S11(F16, 설계 §4.14) — D-Day 복습 강도 조절은 **큐 구성 계층**만 손댄다. 발동 판정·유효
+상한의 순수 로직은 `services/dday_boost.py`에 있고, 이 모듈은 그 함수에 넘길 후보
+(categories.exam_date + 설정 토글)를 DB에서 뽑아주는 접합부(`_resolve_boost`)만 담당한다.
+`get_today_queue`(큐) · `count_due_today`(대시보드 today_review) · `get_summary`가 전부
+`_resolve_boost`를 공유해 세 곳의 수치가 어긋나지 않는다. `services/sm2.py`·`srs_cards`
+저장값(EF·interval·due_date)은 이 확장이 절대 건드리지 않는다.
 """
 from __future__ import annotations
 
 import datetime as dt
 import json
-from typing import List
+from dataclasses import dataclass
+from typing import List, Optional, Set
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 import models
 from exceptions import NotFoundError
-from schemas.srs import SrsAnswerRequest, SrsAnswerResult, SrsCardOut, SrsSummary
-from services import sm2, settings_service
+from schemas.srs import (
+    DDayBoostOut,
+    SrsAnswerRequest,
+    SrsAnswerResult,
+    SrsCardOut,
+    SrsSummary,
+)
+from services import dday_boost, sm2, settings_service
+from services.tree_utils import collect_descendant_ids
 
 DEFAULT_DAILY_LIMIT = 30  # 계획서 §10 · stage-5 기본값
 
@@ -30,6 +45,45 @@ def local_today() -> dt.date:
 
 def _daily_limit(db: Session) -> int:
     return int(settings_service.get_setting(db, "srs.daily_limit", DEFAULT_DAILY_LIMIT))
+
+
+@dataclass
+class _DDayBoostContext:
+    """발동 중인 D-Day 부스트 — 큐 구성 3곳(today/count/summary)이 공유하는 값."""
+
+    winner: dday_boost.ExamCandidate  # 표시용(가장 임박한 시험) — category_id·name·exam_date·d_day
+    effective_limit: int
+    subtree_ids: Set[int]  # 임박 시험(들) 서브트리 합집합 — 우선순위·선행 복습 대상
+
+
+def _resolve_boost(db: Session) -> Optional[_DDayBoostContext]:
+    """발동 판정 + 유효 상한 — `settings:srs.dday_boost` AND categories.exam_date 중
+    0<=d_day<=14가 존재해야 발동(설계 §4.14). 임의 D-Day(`ddays.custom`)는 애초에 이
+    함수가 조회하지 않으므로 대상이 될 수 없다."""
+    toggle = settings_service.get_setting(db, "srs.dday_boost", "on")
+    today = local_today()
+    rows = db.execute(
+        select(models.Category).where(models.Category.exam_date.is_not(None))
+    ).scalars().all()
+    candidates = [
+        dday_boost.ExamCandidate(
+            category_id=cat.id,
+            name=cat.name,
+            exam_date=cat.exam_date,
+            d_day=(cat.exam_date - today).days,
+        )
+        for cat in rows
+    ]
+    winner, eligible = dday_boost.resolve_active_boost(toggle, candidates)
+    if winner is None:
+        return None
+
+    subtree_ids: Set[int] = set()
+    for candidate in eligible:
+        subtree_ids.update(collect_descendant_ids(db, candidate.category_id))
+
+    limit = dday_boost.effective_limit(_daily_limit(db), winner.d_day)
+    return _DDayBoostContext(winner=winner, effective_limit=limit, subtree_ids=subtree_ids)
 
 
 def apply_sm2(db: Session, document_id: int, q: int) -> models.SrsCard:
@@ -90,12 +144,84 @@ def _has_unresolved_note_expr():
     return case((models.SrsCard.document_id.in_(unresolved), 1), else_=0)
 
 
+def _subtree_document_ids_stmt(category_ids: Set[int]):
+    return select(models.CategoryDocument.document_id).where(
+        models.CategoryDocument.category_id.in_(category_ids)
+    )
+
+
+def _build_card_out(
+    card: models.SrsCard, doc: models.Document, has_note: object, *, ahead: bool
+) -> SrsCardOut:
+    is_flashcard = doc.type == "flashcard"
+    return SrsCardOut(
+        document_id=doc.id,
+        doc_no=doc.doc_no,
+        type=doc.type,
+        title=doc.title,
+        content=doc.content,
+        choices=json.loads(doc.choices) if doc.choices else None,
+        difficulty=doc.difficulty,
+        due_date=card.due_date,
+        ease_factor=card.ease_factor,
+        interval_days=card.interval_days,
+        repetitions=card.repetitions,
+        has_review_note=bool(has_note),
+        answer=doc.answer if is_flashcard else None,
+        explanation=doc.explanation if is_flashcard else None,
+        ahead=ahead,
+    )
+
+
+def _not_reviewed_today_expr(today: dt.date):
+    """`last_reviewed`가 없거나(아직 한 번도 안 풀었거나) 그 로컬 날짜가 오늘 이전인
+    카드 — 선행 복습(ahead) 후보 조건(review-once-per-day, S11 리뷰 결함 수정).
+
+    선행 복습으로 오늘 이미 푼 카드는 SM-2가 즉시 due_date를 미래로 밀어버려서
+    (`due_date > today`) 별도 필터 없이는 다음 호출에서 곧바로 다시 ahead 후보가
+    되어버린다 — 같은 카드가 반복 풀이로 interval만 폭증하며 큐에 계속 남는 결함이
+    있었다(계획서 리스크 4 "due 도래분 우선 소진 후 잔여 자리만"·설계 §4.14 ③
+    "시험 전에 **한 번은** 보게"가 무력화됨). `srs_cards.last_reviewed`는 이미 있는
+    저장값이므로 새 컬럼 없이 이 조건만으로 막는다 — due 도래(정상) 경로는 건드리지
+    않는다(오늘 풀어서 due가 밀린 카드가 그 경로로 재진입하지 않는 기존 동작 그대로).
+    저장은 UTC naive(`apply_sm2`)이므로 SQLite `date(col, 'localtime')`으로 로컬
+    날짜 경계를 맞춘다(stats_service와 동일 규약).
+    """
+    local_date = func.date(models.SrsCard.last_reviewed, "localtime")
+    return or_(models.SrsCard.last_reviewed.is_(None), local_date < today.isoformat())
+
+
 def get_today_queue(db: Session) -> List[SrsCardOut]:
-    """오늘의 복습 큐: due_date<=오늘, 우선순위(미해결 오답노트 > 기한초과 오래된 순), 상한 적용."""
+    """오늘의 복습 큐.
+
+    우선순위: 미해결 오답노트(1순위, 기존과 동일) > **임박 시험 서브트리 소속**(S11
+    발동 시에만 2순위로 끼어듦) > 기한초과 오래된 순. 상한은 D-Day 부스트 발동 시
+    유효 상한(`_resolve_boost`)으로 확대된다.
+
+    D<=7 부스트가 발동 중이고 due 카드만으로 유효 상한을 못 채우면, 임박 시험
+    서브트리의 아직 due 전인 카드 중 **오늘 아직 안 푼 카드**(`_not_reviewed_today_expr`)
+    를 due 오름차순으로 남는 자리에 채운다(`ahead=True` — 선행 복습, 설계 §4.14 ③).
+    오늘 이미 푼 선행 복습 카드는 due가 밀려도 당일 재진입하지 않는다(review-once
+    -per-day). 미발동 시 기존 큐·순서와 완전 동일.
+    """
     today = local_today()
+    boost = _resolve_boost(db)
+    limit = boost.effective_limit if boost is not None else _daily_limit(db)
     has_note = _has_unresolved_note_expr().label("has_note")
 
-    rows = db.execute(
+    order_cols = [has_note.desc()]
+    if boost is not None:
+        in_subtree = case(
+            (
+                models.SrsCard.document_id.in_(_subtree_document_ids_stmt(boost.subtree_ids)),
+                1,
+            ),
+            else_=0,
+        )
+        order_cols.append(in_subtree.desc())
+    order_cols += [models.SrsCard.due_date.asc(), models.SrsCard.document_id.asc()]
+
+    due_rows = db.execute(
         select(models.SrsCard, models.Document, has_note)
         .join(models.Document, models.Document.id == models.SrsCard.document_id)
         .where(
@@ -103,43 +229,42 @@ def get_today_queue(db: Session) -> List[SrsCardOut]:
             models.SrsCard.due_date <= today,
             models.Document.is_active == 1,
         )
-        .order_by(
-            has_note.desc(),
-            models.SrsCard.due_date.asc(),
-            models.SrsCard.document_id.asc(),
-        )
-        .limit(_daily_limit(db))
+        .order_by(*order_cols)
+        .limit(limit)
     ).all()
 
-    items: List[SrsCardOut] = []
-    for card, doc, has in rows:
-        is_flashcard = doc.type == "flashcard"
-        items.append(
-            SrsCardOut(
-                document_id=doc.id,
-                doc_no=doc.doc_no,
-                type=doc.type,
-                title=doc.title,
-                content=doc.content,
-                choices=json.loads(doc.choices) if doc.choices else None,
-                difficulty=doc.difficulty,
-                due_date=card.due_date,
-                ease_factor=card.ease_factor,
-                interval_days=card.interval_days,
-                repetitions=card.repetitions,
-                has_review_note=bool(has),
-                answer=doc.answer if is_flashcard else None,
-                explanation=doc.explanation if is_flashcard else None,
+    items: List[SrsCardOut] = [
+        _build_card_out(card, doc, has, ahead=False) for card, doc, has in due_rows
+    ]
+
+    if (
+        boost is not None
+        and boost.winner.d_day <= dday_boost.NEAR_THRESHOLD_DAYS
+        and len(items) < limit
+    ):
+        remaining = limit - len(items)
+        ahead_rows = db.execute(
+            select(models.SrsCard, models.Document, has_note)
+            .join(models.Document, models.Document.id == models.SrsCard.document_id)
+            .where(
+                models.SrsCard.due_date.is_not(None),
+                models.SrsCard.due_date > today,
+                models.Document.is_active == 1,
+                models.SrsCard.document_id.in_(_subtree_document_ids_stmt(boost.subtree_ids)),
+                _not_reviewed_today_expr(today),
             )
-        )
+            .order_by(models.SrsCard.due_date.asc(), models.SrsCard.document_id.asc())
+            .limit(remaining)
+        ).all()
+        items.extend(_build_card_out(card, doc, has, ahead=True) for card, doc, has in ahead_rows)
+
     return items
 
 
-def _count_due_by(db: Session, cutoff: dt.date) -> int:
-    """cutoff(포함) 이전까지 due인 카드 수 — 상한(`srs.daily_limit`) 적용.
-
-    `count_due_today`(cutoff=오늘)·`get_summary`(cutoff=오늘/내일) 공용 헬퍼.
-    """
+def _count_due_by(db: Session, cutoff: dt.date, limit: int) -> int:
+    """cutoff(포함) 이전까지 due인 카드 수 — 주어진 상한 적용 (`get_summary`의
+    tomorrow_due 전용. today_due는 `get_today_queue`와 반드시 같은 값이어야 하므로
+    큐 길이를 직접 쓴다 — 아래 `count_due_today`)."""
     due = db.execute(
         select(func.count())
         .select_from(models.SrsCard)
@@ -150,23 +275,41 @@ def _count_due_by(db: Session, cutoff: dt.date) -> int:
             models.Document.is_active == 1,
         )
     ).scalar_one()
-    return min(due, _daily_limit(db))
+    return min(due, limit)
 
 
 def count_due_today(db: Session) -> int:
-    """대시보드 `today_review` — 오늘 복습 대상 수(상한 반영)."""
-    return _count_due_by(db, local_today())
+    """대시보드 `today_review` — 오늘 복습 대상 수. `get_today_queue`의 큐 길이와 항상
+    같은 값이도록 그 함수를 그대로 재사용한다(선행 복습 포함, 설계 §4.14 DoD 8 —
+    3곳의 산출식이 어긋나지 않게 하는 가장 확실한 방법은 같은 함수를 쓰는 것)."""
+    return len(get_today_queue(db))
 
 
 def get_summary(db: Session) -> SrsSummary:
-    """`GET /api/srs/summary` (설계 §4.12) — {today_due, tomorrow_due}.
+    """`GET /api/srs/summary` (설계 §4.12) — {today_due, tomorrow_due[, dday_boost]}.
 
-    tomorrow_due는 due_date<=내일 전부(오늘 미소화 이월 포함)를 상한 적용해 센다 —
-    today_due와 별개로 재차 상한을 적용하므로 "이월분이 내일 자리를 채운다"가 자연히 표현된다.
+    tomorrow_due는 due_date<=내일 전부(오늘 미소화 이월 포함)를 유효 상한 적용해 센다 —
+    today_due와 별개로 재차 상한을 적용하므로 "이월분이 내일 자리를 채운다"가 자연히
+    표현된다(선행 복습(ahead)은 오늘 큐 전용 — 내일 수치에는 포함하지 않는다).
+
+    S11(F16): 발동 시에만 `dday_boost` 채움(미발동 시 응답에서 생략, 하위 호환).
     """
     today = local_today()
     tomorrow = today + dt.timedelta(days=1)
-    return SrsSummary(
-        today_due=_count_due_by(db, today),
-        tomorrow_due=_count_due_by(db, tomorrow),
+    boost = _resolve_boost(db)
+    limit = boost.effective_limit if boost is not None else _daily_limit(db)
+
+    summary = SrsSummary(
+        today_due=count_due_today(db),
+        tomorrow_due=_count_due_by(db, tomorrow, limit),
     )
+    if boost is not None:
+        summary.dday_boost = DDayBoostOut(
+            category_id=boost.winner.category_id,
+            name=boost.winner.name,
+            exam_date=boost.winner.exam_date,
+            d_day=boost.winner.d_day,
+            multiplier=dday_boost.boost_multiplier(boost.winner.d_day),
+            effective_limit=boost.effective_limit,
+        )
+    return summary

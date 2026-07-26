@@ -102,6 +102,8 @@ class Attempt(Base):
     my_answer: Mapped[str | None] = mapped_column(Text)
     is_correct: Mapped[int] = mapped_column(Integer, nullable=False)
     time_spent: Mapped[int | None] = mapped_column(Integer)
+    # 'quiz'|'review'|'flashcard'|'study'|'exam' (자유 텍스트 — CHECK 제약 없음. 'exam'은
+    # S11 모의고사, 배치 공통 answered_at이 응시 런 키 — 계획서 §14 F25, 설계 §4.14)
     mode: Mapped[str | None] = mapped_column(Text)
     answered_at: Mapped[dt.datetime] = mapped_column(
         DateTime, server_default=func.current_timestamp()

@@ -19,10 +19,13 @@ from services.tree_utils import collect_descendant_ids
 QUESTION_TYPES = ("question", "past_question")
 
 
-def _sequential_order(
+def sequential_order(
     db: Session, doc_ids: List[int], category_ids: Optional[List[int]]
 ) -> List[int]:
     """category_documents.sort_order 최솟값 기준 정렬(동률이면 document_id).
+
+    S11(F25) — `exam_service.build_exam_session`이 과목별 순차 출제에 이 함수를
+    그대로 재사용한다(설계 §4.14 "quiz_service 자격 판정 재사용").
 
     문서 하나가 여러 분류에 동시에 연결될 수 있으므로(다대다), 정렬 기준이 되는
     sort_order는 반드시 이번 조회 범위(category_ids)로 좁혀서 집계해야 한다.
@@ -50,7 +53,7 @@ def _sequential_order(
     return sorted(doc_ids, key=lambda d: (order_map.get(d, 0), d))
 
 
-def _eligible_ids(
+def eligible_document_ids(
     db: Session,
     *,
     category_ids: Optional[List[int]],
@@ -58,6 +61,11 @@ def _eligible_ids(
     bookmarked_only: bool = False,
     allowed_types: Optional[List[str]] = None,
 ) -> List[int]:
+    """출제 자격 판정(활성 문서 · 타입 필터 · 오답/북마크/분류 범위).
+
+    S11(F25) — `exam_service.build_exam_session`이 과목별 출제 자격 판정에 이 함수를
+    그대로 재사용한다(설계 §4.14).
+    """
     type_filter = allowed_types if allowed_types is not None else list(QUESTION_TYPES)
     stmt = select(models.Document.id).where(
         models.Document.is_active == 1, models.Document.type.in_(type_filter)
@@ -90,7 +98,7 @@ def build_quiz_session(db: Session, payload: QuizSessionRequest) -> QuizSessionR
         # Literal로 막지만, 방어적으로 한 번 더 필터링한다.
         allowed_types = [t for t in payload.types if t in QUESTION_TYPES]
 
-    doc_ids = _eligible_ids(
+    doc_ids = eligible_document_ids(
         db,
         category_ids=category_ids,
         wrong_only=(payload.mode == "wrong_only"),
@@ -111,7 +119,7 @@ def build_quiz_session(db: Session, payload: QuizSessionRequest) -> QuizSessionR
     elif payload.mode == "random":
         random.shuffle(doc_ids)
     else:
-        doc_ids = _sequential_order(db, doc_ids, category_ids)
+        doc_ids = sequential_order(db, doc_ids, category_ids)
 
     count = payload.count or int(settings_service.get_setting(db, "quiz.default_count", 20))
     doc_ids = doc_ids[:count]

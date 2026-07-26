@@ -7,6 +7,7 @@ import { useQuizSessionStore } from '../stores/quizSession'
 import type { QuizMode } from '../api/types'
 import { ApiError } from '../api/client'
 import CategoryScopePicker from '../components/CategoryScopePicker'
+import QuizExamTabs from '../components/QuizExamTabs'
 
 const MODE_OPTIONS: { value: QuizMode; label: string }[] = [
   { value: 'sequential', label: '순차' },
@@ -65,6 +66,9 @@ export default function QuizPage() {
   return (
     <div className="mx-auto max-w-xl p-4">
       <h1 className="mb-4 text-xl font-semibold text-primary">퀴즈</h1>
+
+      {/* 실전 모의고사 진입 탭 (설계 §5.6, S11) — 모의고사는 §5.12 별도 흐름(일괄 제출 채점). */}
+      <QuizExamTabs />
 
       <section className="mb-4">
         <h2 className="mb-2 text-sm font-semibold text-primary">범위</h2>
