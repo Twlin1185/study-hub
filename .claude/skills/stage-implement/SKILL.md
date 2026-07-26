@@ -1,14 +1,15 @@
 ---
 name: stage-implement
 description: >
-  Study Hub의 특정 단계(stage 1~6)를 계획 문서대로 구현하는 워크플로. 사용법:
+  Study Hub의 특정 단계(stage 문서가 있는 모든 단계)를 계획 문서대로 구현하는 워크플로. 사용법:
   /stage-implement <번호>. 단계 계획을 읽고 백엔드/프론트 작업을 분배(sonnet 에이전트),
   구현 후 opus 검토(stage-reviewer)까지 한 사이클로 돈다.
 ---
 
 # /stage-implement <n> — 단계 구현 워크플로
 
-인자로 받은 단계 번호 n(1~6)에 대해 아래 순서를 따른다. 인자가 없으면 stage-status를 먼저 확인해 다음 미완료 단계를 제안하고 확인받는다.
+인자로 받은 단계 번호 n에 대해 아래 순서를 따른다. 인자가 없으면 stage-status를 먼저 확인해 다음 미완료 단계를 제안하고 확인받는다.
+`docs/01-plan/stage-<n>-*.plan.md`가 아직 없으면(로드맵에만 있는 단계) 구현 전에 `plan-architect`로 작업 지시서 + 설계 계약(§4.x)부터 확정한다 — 마스터 계획 로드맵에도 없는 번호면 구현하지 말고 사용자에게 보고.
 
 ## 0. 준비 확인
 1. `docs/01-plan/stage-<n>-*.plan.md`를 읽는다 (작업 지시서).

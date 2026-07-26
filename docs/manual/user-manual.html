@@ -259,7 +259,7 @@
 <div class="shell">
 <nav class="toc" aria-label="목차">
   <p class="brand">Study Hub</p>
-  <p class="brand-sub">사용 설명서 · v1</p>
+  <p class="brand-sub">사용 설명서 · v1.x</p>
   <ol>
     <li class="toc-group">준비</li>
     <li><a href="#intro">1. 이 앱은 무엇인가</a></li>
@@ -270,19 +270,21 @@
     <li><a href="#import">5. 자료 넣기 (반입)</a></li>
     <li><a href="#study">6. 학습하기</a></li>
     <li><a href="#quiz">7. 퀴즈 풀기</a></li>
-    <li><a href="#review-notes">8. 오답노트</a></li>
-    <li><a href="#srs">9. 복습과 플래시카드</a></li>
-    <li><a href="#dashboard">10. 홈 대시보드 · D-Day</a></li>
-    <li><a href="#print">11. 인쇄 · PDF</a></li>
+    <li><a href="#exam">8. 실전 모의고사</a></li>
+    <li><a href="#review-notes">9. 오답노트</a></li>
+    <li><a href="#srs">10. 복습과 플래시카드</a></li>
+    <li><a href="#dashboard">11. 홈 대시보드 · 목표 · D-Day</a></li>
+    <li><a href="#print">12. 인쇄 · PDF</a></li>
     <li class="toc-group">자동화</li>
-    <li><a href="#search">12. 검색</a></li>
-    <li><a href="#tag-rules">13. 태그 자동 분류</a></li>
-    <li><a href="#regenerate">14. 문제 오류 신고</a></li>
-    <li><a href="#backup">15. 백업과 복원</a></li>
-    <li><a href="#pwa">16. 폰에서 쓰기 · PWA</a></li>
+    <li><a href="#search">13. 검색</a></li>
+    <li><a href="#tag-rules">14. 태그 자동 분류 · 태그 관리자</a></li>
+    <li><a href="#llm">15. LLM 엔진 관리</a></li>
+    <li><a href="#regenerate">16. 문제 오류 신고</a></li>
+    <li><a href="#backup">17. 백업과 복원</a></li>
+    <li><a href="#pwa">18. 폰에서 쓰기 · PWA</a></li>
     <li class="toc-group">참고</li>
-    <li><a href="#settings">17. 설정 모아보기</a></li>
-    <li><a href="#faq">18. 문제 해결 (FAQ)</a></li>
+    <li><a href="#settings">19. 설정 모아보기</a></li>
+    <li><a href="#faq">20. 문제 해결 (FAQ)</a></li>
     <li><a href="#embed">부록. 앱 내 탑재 메모</a></li>
   </ol>
 </nav>
@@ -291,7 +293,8 @@
 <h1>Study Hub 사용 설명서</h1>
 <p class="lede">기출문제와 학습자료를 쌓고, 학습 → 풀이 → 오답관리 → 복습의 루프를 돌리는 개인 학습 허브.</p>
 <p class="doc-meta">
-  이 문서 하나로 설치부터 일상 사용까지 따라 할 수 있게 쓰였습니다 — <strong>v1 전체 기능 기준</strong>입니다. ·
+  이 문서 하나로 설치부터 일상 사용까지 따라 할 수 있게 쓰였습니다 — <strong>v1.x 전체 기능 기준(Stage 11까지)</strong>입니다. ·
+  갱신일: 2026-07-26 ·
   문서 위치: <code>docs/manual/user-manual.html</code>
 </p>
 
@@ -314,8 +317,9 @@
     <span class="node back">다시 퀴즈로…</span>
   </div>
   <p>
-    한 번 세팅하면 매일 하는 일은 단순합니다 — <strong>홈에서 "이어하기"나 "오늘의 복습"을 누르는 것.</strong>
-    나머지는 앱이 골라줍니다.
+    한 번 세팅하면 매일 하는 일은 단순합니다 — <strong>홈에서 [오늘 공부 시작]을 누르는 것.</strong>
+    복습 → 이어하기가 한 번의 탭으로 이어지고, 나머지는 앱이 골라줍니다.
+    시험이 다가오면 실전 모의고사(<a href="#exam">8장</a>)와 D-Day 복습 강화(<a href="#srs">10장</a>)가 마무리를 돕습니다.
   </p>
 </section>
 
@@ -368,7 +372,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
   <div class="warn">
     <span class="label">보안</span>
     <p>이 앱은 로그인이 없습니다. <strong>공유기 포트포워딩으로 외부(인터넷)에 열지 마세요.</strong>
-    집 안 네트워크 전용입니다. 데이터가 소중하다면 <a href="#backup">15장 백업</a>을 먼저 읽어두세요.</p>
+    집 안 네트워크 전용입니다. 데이터가 소중하다면 <a href="#backup">17장 백업</a>을 먼저 읽어두세요.</p>
   </div>
 
   <div class="tip">
@@ -392,12 +396,13 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
       <tr><td>학습 모드</td><td><span class="path">/study/…</span></td><td>챕터를 순서대로 읽고 풀기 (커리큘럼에서 진입)</td></tr>
       <tr><td>문서 상세</td><td><span class="path">/docs/…</span></td><td>문서 하나 열람·편집. 문제는 정답이 기본 가려짐</td></tr>
       <tr><td>퀴즈</td><td><span class="path">/quiz</span></td><td>범위·모드를 골라 문제 풀기</td></tr>
+      <tr><td>모의고사</td><td><span class="path">/exam</span></td><td>실제 시험 형식 응시 — 제한 시간 · 일괄 채점 · 과목별 리포트</td></tr>
       <tr><td>오답노트</td><td><span class="path">/review-notes</span></td><td>틀린 문제 관리 — 메모 · 틀린 이유 · 재도전</td></tr>
-      <tr><td>복습 세션</td><td><span class="path">/review</span></td><td>"오늘의 복습" 큐를 순서대로 소화</td></tr>
+      <tr><td>복습 세션</td><td><span class="path">/review</span></td><td>"오늘의 복습" 큐를 순서대로 소화 (폰은 하단 "복습" 탭으로 직행)</td></tr>
       <tr><td>플래시카드</td><td><span class="path">/flashcards</span></td><td>카드 뒤집기 · 스와이프 암기</td></tr>
-      <tr><td>반입</td><td><span class="path">/import</span></td><td>JSON/원본 파일을 문서로 들여오기</td></tr>
+      <tr><td>반입</td><td><span class="path">/import</span></td><td>파일 · URL · 사이트에서 문서 들여오기</td></tr>
       <tr><td>인쇄</td><td><span class="path">/print</span></td><td>개념 정리본 · 문제집 · 오답노트를 A4/PDF로</td></tr>
-      <tr><td>설정</td><td><span class="path">/settings</span></td><td>복습 상한 · D-Day · 백업 · 태그 병합 등</td></tr>
+      <tr><td>설정</td><td><span class="path">/settings</span></td><td>6그룹 — 학습 · 일정 · 태그·분류 · LLM 엔진 · 데이터 · 화면</td></tr>
     </table>
   </div>
 </section>
@@ -440,7 +445,9 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
   <h2>5. 자료 넣기 (반입)</h2>
   <div class="h2-line"></div>
   <p>
-    반입은 "PDF나 노트를 → 문서 여러 개로" 바꿔 넣는 과정입니다. 두 가지 길이 있습니다.
+    반입은 "PDF나 노트를 → 문서 여러 개로" 바꿔 넣는 과정입니다. 네 가지 길이 있습니다 —
+    파일을 직접 변환해 넣거나(A), 원본만 던지거나(B), <strong>URL 하나로</strong>(C),
+    아예 <strong>기출 사이트에서 회차를 골라</strong>(D) 가져올 수 있습니다.
   </p>
 
   <h3>방법 A — Claude Code로 변환해서 넣기 (기본)</h3>
@@ -481,6 +488,64 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <span class="label">참고</span>
     <p>미리보기는 1시간 동안만 유지됩니다. 지나면 파일을 다시 선택하라는 안내가 나옵니다.</p>
   </div>
+
+  <h3>방법 C — URL로 반입 <span class="badge new">v1.x</span></h3>
+  <p>
+    <span class="path">/import</span>의 <strong>"URL로 시작"</strong>에 공개된 기출 PDF나 웹 페이지 주소를 붙여넣으면,
+    앱이 내려받아 변환까지 알아서 해 줍니다. 끝나면 위의 미리보기 단계로 합류하고,
+    내려받은 원본은 파일 반입과 똑같이 <code>sources/</code>에 보관됩니다.
+  </p>
+  <div class="note">
+    <span class="label">참고</span>
+    <p>공개 자료용입니다 — 로그인이 필요한 페이지는 안 되고, 너무 큰 파일(50MB 초과)이나
+    내부망 주소는 안전을 위해 거부됩니다.</p>
+  </div>
+
+  <h3>방법 D — 사이트에서 가져오기 <span class="badge new">v1.x</span></h3>
+  <p>
+    자격증 기출은 URL을 찾을 필요도 없습니다. <span class="path">/import</span>의
+    <strong>[사이트에서 가져오기]</strong>가 전자문제집 CBT(comcbt)·큐넷(Q-Net) 공개자료에서
+    회차 하나를 통째로 가져와 반입까지 이어 줍니다.
+  </p>
+  <ol class="steps">
+    <li>
+      <strong>자격증 검색·선택</strong>
+      <p>이름으로 검색하면 결과에 출처 사이트 배지가 함께 보입니다.</p>
+    </li>
+    <li>
+      <strong>회차 선택</strong>
+      <p>회차 목록에서 하나를 고릅니다. 같은 회차가 양쪽 사이트에 있으면 <strong>큐넷 자료가 우선</strong> 채택되고,
+      이미 들여온 회차에는 <strong>"이미 반입됨"</strong> 배지가 붙어 중복 반입을 막아 줍니다.</p>
+    </li>
+    <li>
+      <strong>예상 사용량 확인</strong>
+      <p>문항 수와 대략적인 LLM 사용량(토큰)을 미리 보여줍니다. 사용할 엔진(<a href="#llm">15장</a>)을 고를 수 있고,
+      한도 초과 상태면 경고 배너가 먼저 뜹니다. 이 확인 없이는 실행되지 않습니다.</p>
+    </li>
+    <li>
+      <strong>실행 → 미리보기</strong>
+      <p>사이트 수집 → 변환 진행 상황이 표시되고, 완료되면 기존 미리보기 단계로 합류합니다.
+      분류 트리에 "자격증/필기/YYYY년 N회" 경로가 자동으로 만들어집니다.</p>
+    </li>
+  </ol>
+  <div class="warn">
+    <span class="label">이용 원칙</span>
+    <p>수집한 자료는 <strong>개인 학습 전용이며 재배포는 금지</strong>입니다(실행 전 화면에도 항상 고지됩니다).
+    앱은 사이트에 부담을 주지 않도록 요청 간격을 두고 천천히 수집합니다 — 한 번에 한 회차만 가능합니다.</p>
+  </div>
+  <div class="note">
+    <span class="label">가져오기가 실패하면</span>
+    <p>사이트 구조가 바뀌었을 수 있습니다. 실패 화면의 <strong>[URL로 반입]</strong>이나
+    <strong>[다른 어댑터로 재시도]</strong> 버튼으로 우회할 수 있습니다.</p>
+  </div>
+
+  <h3>변환 진행 상황 보기</h3>
+  <p>
+    변환·수집이 도는 동안 진행 패널이 단계(다운로드 → 준비 → LLM 작업 중 → 결과 정리 → 미리보기)와
+    경과 시간, 누적 토큰·예상 비용, 대략적인 남은 시간을 실시간으로 보여줍니다.
+    <strong>브라우저를 새로고침해도 작업은 서버에서 계속됩니다</strong> — 다시 열면 같은 작업의 진행이 이어서 보입니다.
+    또 반입 위저드 상단의 단계 표시(①②③)는 지나온 단계를 눌러 되돌아갈 수 있습니다.
+  </p>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -513,6 +578,31 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <li>이미 완료한 문제로 돌아가면 <strong>내가 골랐던 보기와 정오·해설이 복원</strong>되어 보이고, [다시 풀기]로 새로 제출할 수 있습니다.</li>
     <li>문서를 그냥 열람(<span class="path">/docs/…</span>)할 때 문제의 정답·해설은 기본으로 가려져 있습니다 — "정답·해설 보기"를 눌러야 보입니다.</li>
   </ul>
+
+  <h3>챕터를 개념→문제→기출로 완주하기 <span class="badge new">v1.x</span></h3>
+  <p>
+    챕터(커리큘럼의 어느 단원이든)는 <strong>개념 → 문제 → 기출</strong>의 3단계 여정으로 이어집니다.
+    개념 트랙을 마치면 [문제 풀이로 이어가기] → 연습문제 퀴즈 → [기출로 마무리] → 기출 퀴즈 →
+    <strong>최종 완료 화면</strong>(단계별 정답률 + 틀린 문제 재도전 + [다음 챕터 ▶]) 순서입니다.
+    단계는 건너뛸 수 있고, 해당 타입 문서가 없는 단계는 자동으로 생략됩니다.
+    [이어하기]는 첫 미완료 단계로 데려다 줍니다.
+  </p>
+  <ul>
+    <li><strong>커리큘럼의 3단 진도</strong> — 각 챕터 행에 개념·문제·기출의 진행 표시(✓ ● ○)와 타입별 개수 칩이 붙고,
+      <strong>[학습]·[문제]·[기출]</strong> 버튼으로 원하는 단계에 바로 들어갈 수 있습니다(하위 단원 포함).
+      순서는 권장 동선일 뿐 강제가 아닙니다.</li>
+    <li><strong>커리큘럼에서 문서 추가·편집</strong> — 챕터를 펼치면 학습내용/문제/기출 탭별 문서 목록이 보이고,
+      <strong>[+ 문서 추가]</strong>(해당 분류에 자동 연결)와 행의 <strong>[편집]</strong>으로
+      문서 상세 화면을 거치지 않고 그 자리에서 작성·수정할 수 있습니다.</li>
+  </ul>
+
+  <h3>읽기 편의 <span class="badge new">v1.x</span></h3>
+  <ul>
+    <li><strong>집중 모드</strong> — 학습 모드 헤더의 토글로 사이드바·헤더를 숨기고 본문만 전체 화면으로.
+      <kbd>Esc</kbd> 또는 토글로 복귀합니다.</li>
+    <li><strong>글자 크기 3단계</strong> — 설정(학습 그룹)에서 작게/기본/크게를 고르면
+      문서 상세·학습 모드 본문에 공통 적용됩니다.</li>
+  </ul>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -535,6 +625,16 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
       <p>정답률·소요 시간·틀린 문제 리스트. 틀린 문제에는 그 자리에서 오답노트 메모를 바로 적을 수 있습니다.</p>
     </li>
   </ol>
+  <h3>더 빠르게 푸는 장치들 <span class="badge new">v1.x</span></h3>
+  <ul>
+    <li><strong>키보드 단축키</strong> — <kbd>1</kbd>~<kbd>4</kbd> 보기 선택(즉시 제출) · <kbd>Enter</kbd> 다음 문제 ·
+      <kbd>B</kbd> 북마크 토글. 마우스 없이 키보드만으로 완주할 수 있습니다(해설 아래에 힌트 표기).</li>
+    <li><strong>틀린 이유 원탭</strong> — 오답 직후 해설 화면에 <strong>개념부족 / 실수 / 함정 / 시간부족</strong> 4버튼이 떠서,
+      한 번 탭으로 오답노트에 바로 기록됩니다. 나중에 오답노트에서 따로 적을 필요가 없습니다.</li>
+    <li><strong>정답 자동 다음</strong> — 설정(학습 그룹)에서 켜면 정답일 때 1.5초 뒤 자동으로 다음 문제로 넘어갑니다
+      (카운트다운 표시, 아무 키로 즉시 진행). <strong>오답일 때는 항상 멈춥니다</strong> — 해설을 읽고 틀린 이유를 기록할 시간을 보장합니다.</li>
+  </ul>
+
   <div class="note">
     <span class="label">알아두기</span>
     <p>틀린 문제는 자동으로 <a href="#review-notes">오답노트</a>에 등록되고, 복습 스케줄(<a href="#srs">SM-2</a>)에도 반영됩니다.
@@ -543,8 +643,67 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
+<section id="exam">
+  <h2>8. 실전 모의고사 <span class="badge new">v1.x</span></h2>
+  <div class="h2-line"></div>
+  <p>
+    시험 형식 그대로 — 과목 구성, 제한 시간, <strong>다 풀고 한 번에 채점</strong> — 모의 응시하는 화면입니다.
+    퀴즈(<span class="path">/quiz</span>)가 한 문제씩 즉시 채점하는 연습이라면,
+    모의고사(<span class="path">/exam</span>)는 실전 리허설입니다.
+  </p>
+
+  <h3>구성하고 응시하기</h3>
+  <ol class="steps">
+    <li>
+      <strong>모의고사 탭으로 진입</strong>
+      <p>퀴즈 화면 상단의 <strong>[일반 퀴즈 | 실전 모의고사]</strong> 탭에서 모의고사를 선택합니다.</p>
+    </li>
+    <li>
+      <strong>시험 노드와 과목 선택</strong>
+      <p>트리에서 시험(예: "정보처리기사/필기")을 고르면 바로 아래 단원들이 과목 체크리스트로 나옵니다
+      (문제가 있는 과목은 기본 전체 선택). <strong>회차 노드 1개만 고르면 "회차 그대로" 모의</strong>가 됩니다 —
+      그 회차 전체 문항이 원래 순서대로 출제됩니다.</p>
+    </li>
+    <li>
+      <strong>조건 확인 후 [응시 시작]</strong>
+      <p>과목당 문항 수(기본 20) · 제한 시간(문항 수 기준 자동 계산, 수정 가능) ·
+      합격선(기본 "과목 40점 과락 · 평균 60점 합격", 수정 가능) · 출제 순서(랜덤/순차)를 정합니다.</p>
+    </li>
+    <li>
+      <strong>응시</strong>
+      <p>보기를 골라도 채점되지 않고 <strong>답안만 저장</strong>됩니다 — 답 변경, 이전/다음 이동이 자유롭습니다.
+      옆의 문항 네비게이터(폰은 하단 시트)에서 과목별 응답/미응답 현황을 보고 건너뛴 문제로 점프할 수 있습니다.
+      상단 타이머는 잔여 5분부터 경고색이 되고, <strong>0초가 되면 미응답을 포함해 자동 제출</strong>됩니다.
+      [제출]을 직접 누르면 미응답 개수를 확인한 뒤 제출합니다.</p>
+    </li>
+  </ol>
+  <div class="warn">
+    <span class="label">주의</span>
+    <p>응시 중 새로고침하거나 화면을 떠나면 시험이 사라집니다(경고가 뜹니다). 제출 전까지는 어디에도 저장되지 않습니다.</p>
+  </div>
+
+  <h3>결과 리포트</h3>
+  <ul>
+    <li><strong>총점 + 합격/불합격 배지</strong> — 총점은 과목 점수의 평균. 합격은 <em>전 과목 과락 없음</em>과
+      <em>평균 합격선 이상</em>을 둘 다 만족해야 합니다. 과락 과목이 하나라도 있으면 평균이 높아도 불합격입니다.</li>
+    <li><strong>과목별 점수 바</strong> — 과락 컷 라인이 표시되고, 과락 과목엔 배지가 붙습니다.</li>
+    <li><strong>문항별 리뷰</strong> — 제출 후이므로 내 답 vs 정답, 해설이 공개됩니다.
+      오답에는 퀴즈와 같은 <strong>틀린 이유 원탭</strong> 버튼이 있습니다.</li>
+    <li><strong>[틀린 문제 재도전] · [오답노트 가기]</strong> — 틀린 문제(미응답 포함)는 자동으로
+      <a href="#review-notes">오답노트</a>와 <a href="#srs">복습 스케줄</a>에 합류해 있습니다. 별도 조작 불요.</li>
+    <li><strong>응시 이력</strong> — 지난 응시들의 점수 요약이 함께 보입니다. 단, 상세 리포트는 결과 화면을 떠나면
+      다시 볼 수 없으니 필요하면 그 자리에서 확인하세요.</li>
+  </ul>
+  <div class="note">
+    <span class="label">알아두기</span>
+    <p>미응답 문항은 오답으로 처리됩니다 — 몰라서 비운 것도 복습 대상이니까요.
+    채점은 항상 서버에서 하고, 응시 중에는 정답·해설이 절대 내려오지 않습니다.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
 <section id="review-notes">
-  <h2>8. 오답노트</h2>
+  <h2>9. 오답노트</h2>
   <div class="h2-line"></div>
   <p>
     <span class="path">/review-notes</span>는 틀린 문제의 관리 장부입니다. 문제당 노트 1개가 자동 생성·갱신됩니다.
@@ -563,7 +722,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <section id="srs">
-  <h2>9. 복습과 플래시카드</h2>
+  <h2>10. 복습과 플래시카드</h2>
   <div class="h2-line"></div>
 
   <h3>"오늘의 복습"이 고르는 방법</h3>
@@ -579,7 +738,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
   <p>
     홈의 <strong>"오늘의 복습 N개"</strong> 버튼이 오늘 기한이 된 카드를 모아줍니다.
     우선순위는 <em>오답노트 미해결 → 기한을 오래 넘긴 순</em>이고, 하루 상한(기본 30개)을 넘는 분량은 다음 날로 밀립니다.
-    문서 상세에서 카드의 다음 복습일을 확인할 수 있습니다.
+    문서 상세에는 복습 상태가 <strong>"3일 후 복습 예정"처럼 사람 말로</strong> 표시됩니다
+    (알고리즘 수치가 궁금하면 "자세히"를 펼치면 됩니다).
   </p>
 
   <h3>플래시카드</h3>
@@ -593,21 +753,69 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     </table>
   </div>
   <p>복습 세션(<span class="path">/review</span>)에서는 문제와 카드가 섞여 나옵니다 — 문제는 퀴즈 카드로, 개념·암기 카드는 뒤집기로.</p>
+  <ul>
+    <li><strong>판정 되돌리기</strong> <span class="badge new">v1.x</span> — 손이 미끄러져 "안다"를 눌렀다면
+      <strong>[되돌리기]</strong>로 직전 판정 1회를 취소할 수 있습니다. 판정은 다음 카드로 넘어갈 때 확정되므로,
+      되돌린 판정은 복습 일정에 아무 흔적도 남기지 않습니다.</li>
+  </ul>
+
+  <h3>복습 완료 화면 <span class="badge new">v1.x</span></h3>
+  <p>
+    오늘 큐를 다 소화하면 마무리 화면이 나옵니다 — 오늘의 요약과 함께 <strong>"내일 N개 예정"</strong> 예고,
+    <strong>"N일 연속 학습 중"</strong> 스트릭 배지(목표를 달성했다면 달성 표기까지), 그리고
+    <strong>[이어하기로 계속]</strong> 버튼이 학습 모드의 마지막 위치로 이어 줍니다.
+    복습을 끝냈다고 하루가 끝난 게 아니라, 자연스럽게 다음 공부로 이어지는 설계입니다.
+  </p>
+
+  <h3>D-Day 복습 강화 — 시험이 다가오면 저절로 <span class="badge new">v1.x</span></h3>
+  <p>
+    시험일(<a href="#dashboard">시험 분류의 D-Day</a>)이 <strong>14일 이내</strong>로 들어오면 복습 큐가 자동으로 강해집니다.
+    시험이 지나면 아무 조작 없이 원래대로 돌아옵니다.
+  </p>
+  <ul>
+    <li><strong>복습량 확대</strong> — 하루 상한이 시험 8~14일 전엔 1.5배, <strong>7일 전부터는 2배</strong>로 늘어납니다.</li>
+    <li><strong>임박 시험 범위 우선</strong> — 그 시험 범위에 속한 카드가 큐 앞쪽으로 옵니다(오답노트 미해결이 여전히 1순위).</li>
+    <li><strong>선행 복습</strong> — 시험 7일 전부터는, 복습 기한이 시험 뒤로 잡혀 있던 카드도 남는 자리에 미리 당겨 나옵니다
+      ("선행 복습" 배지 표시) — 시험 전에 한 번은 보고 가게 하는 장치입니다.</li>
+    <li>발동 중에는 복습 화면 상단에 <strong>"『시험 이름』 D-7 · 오늘 복습 60개로 강화"</strong> 같은 배지가 보입니다.</li>
+    <li>원치 않으면 설정(학습 그룹)의 <strong>"D-Day 복습 강화"</strong> 토글을 끄면 됩니다(기본 켜짐).
+      "접수 마감" 같은 임의 D-Day는 강화 대상이 아닙니다 — 시험 분류의 시험일만 해당됩니다.</li>
+  </ul>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <section id="dashboard">
-  <h2>10. 홈 대시보드 · D-Day</h2>
+  <h2>11. 홈 대시보드 · 목표 · D-Day</h2>
   <div class="h2-line"></div>
   <p>홈(<span class="path">/</span>)에는 위젯이 배치됩니다:</p>
   <ul>
+    <li><strong>[오늘 공부 시작]</strong> <span class="badge new">v1.x</span> — 하루를 여는 원탭 버튼.
+      "복습 12 + Ch.3 이어하기 · 예상 25분"처럼 오늘 분량을 예고하고, 탭 한 번이면
+      복습 → 완료 화면 → [이어하기로 계속] → 학습 모드까지 끊김 없이 이어집니다(복습이 없으면 곧장 이어하기로)</li>
     <li><strong>이어하기</strong> — 최근 학습 위치 최대 3개. 탭 한 번으로 복귀</li>
     <li><strong>오늘의 복습 N개</strong> — 복습 세션 진입 버튼</li>
-    <li><strong>학습 히트맵</strong> — 날마다 얼마나 했는지 잔디밭. 색이 진할수록 많이 한 날</li>
+    <li><strong>스트릭</strong> <span class="badge new">v1.x</span> — "N일 연속 학습" + 오늘 목표 진행 게이지 + 최고 기록 (아래 참조)</li>
+    <li><strong>학습 히트맵</strong> — 날마다 얼마나 했는지 잔디밭. 색이 진할수록 많이 한 날.
+      목표를 달성한 날짜 셀에는 테두리 링이 표시됩니다</li>
     <li><strong>D-Day 배지</strong> — 시험일까지 며칠 남았는지</li>
     <li><strong>시험별 진도 도넛 · 최근 7일 · 정답률 추이 · 자꾸 틀리는 개념 Top 10 · 북마크</strong></li>
   </ul>
   <p>데이터가 없는 위젯은 표시되지 않으므로, 처음엔 홈이 단출한 게 정상입니다.</p>
+
+  <h3>일일 학습 목표와 스트릭 <span class="badge new">v1.x</span></h3>
+  <p>
+    설정(학습 그룹)에서 하루 목표를 <strong>문제 수</strong>와 <strong>공부 시간(분)</strong> 두 가지로 정할 수 있습니다
+    (비워두면 목표 없음 — 시간은 문제 풀이 시간 기준). 목표를 정하면:
+  </p>
+  <ul>
+    <li>홈 스트릭 위젯에 오늘 진행 게이지("문제 12/20 · 15분/30분")가 보이고, 달성 시 배지가 붙습니다.</li>
+    <li>히트맵에서 목표를 달성한 날은 셀에 링이 둘리고 툴팁에 "목표 달성"이 표기됩니다.</li>
+    <li>복습 완료 화면에도 스트릭·목표 달성이 함께 표시됩니다.</li>
+  </ul>
+  <p>
+    <strong>스트릭(연속 학습일)은 목표와 무관하게</strong> "그날 뭐라도 학습했는가"(문제 풀이 또는 개념 완료) 기준으로 이어집니다.
+    아직 오늘 공부를 안 한 아침에도 어제까지의 연속 기록은 끊기지 않고 유지 표시됩니다 — 하루가 끝나기 전엔 스트릭을 깨지 않습니다.
+  </p>
 
   <h3>D-Day 등록</h3>
   <p>
@@ -642,7 +850,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <section id="print">
-  <h2>11. 인쇄 · PDF</h2>
+  <h2>12. 인쇄 · PDF</h2>
   <div class="h2-line"></div>
   <p><span class="path">/print</span>에서 3가지 인쇄 뷰를 만들 수 있습니다:</p>
   <div class="table-wrap">
@@ -662,18 +870,20 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <section id="search">
-  <h2>12. 검색</h2>
+  <h2>13. 검색</h2>
   <div class="h2-line"></div>
   <ul>
     <li>화면 상단 헤더의 검색창, 또는 아무 데서나 <kbd>/</kbd> 키를 누르면 검색창에 포커스가 갑니다.</li>
     <li>제목·본문·해설 전체를 뒤져서, <strong>일치한 부분이 하이라이트된 스니펫</strong>과 함께 결과가 나옵니다.</li>
     <li>결과에는 타입 배지(개념/기출 등)가 붙고, 클릭하면 문서 상세로 이동합니다. 태그로도 걸러볼 수 있습니다.</li>
+    <li><strong>한국어 부분어 검색</strong> <span class="badge new">v1.x</span> — "정규형"으로 검색하면
+      "제3정규형"이 들어 있는 문서도 잡힙니다(단어 중간 일치). "DB"처럼 짧은 검색어(2자 이하)도 결과가 나옵니다.</li>
   </ul>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <section id="tag-rules">
-  <h2>13. 태그 자동 분류</h2>
+  <h2>14. 태그 자동 분류 · 태그 관리자</h2>
   <div class="h2-line"></div>
   <p>
     "이런 태그가 붙은 문서는 이 분류에 넣어줘"를 규칙으로 등록해 두면, 반입할 때마다 앱이 분류 연결을 제안합니다.
@@ -699,20 +909,71 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <p>규칙을 <strong>auto</strong>로 켜면 제안 없이 즉시 연결됩니다. 편하지만 오분류가 조용히 쌓일 수 있으니
     확실한 규칙에만 쓰세요. 실수했다면 규칙 관리의 <strong>"이 규칙이 연결한 문서 일괄 해제"</strong>로 한 번에 되돌립니다.</p>
   </div>
-  <p>오타로 갈라진 태그(<code>#정규화</code> / <code>#정규 화</code>)는 설정의 <strong>태그 병합 도구</strong>로 합칩니다.</p>
+  <h3>태그 관리자 — 태그 대청소 <span class="badge new">v1.x</span></h3>
+  <p>
+    설정의 <strong>태그·분류 그룹 → 태그 관리자</strong>에서 태그 전체를 한 화면에서 관리합니다.
+  </p>
+  <ul>
+    <li><strong>목록 테이블</strong> — 태그별 사용 문서 수와 "규칙 사용" 배지(자동 분류 규칙이 참조 중), 검색·정렬.
+      행을 클릭하면 그 태그가 붙은 문서들을 탐색 화면에서 바로 봅니다.</li>
+    <li><strong>유사 태그 병합 제안</strong> — 오타로 갈라진 태그(<code>#정규화</code> / <code>#정규 화</code>)를 앱이 찾아
+      "병합할까요?"라고 제안합니다. [병합]에서 남길 이름을 고르면 전 문서에 일괄 반영, [무시]하면 이번엔 넘어갑니다.</li>
+    <li><strong>이름 변경</strong> — 태그 이름을 바꾸면 붙어 있는 모든 문서에 즉시 반영됩니다.
+      바꾼 이름이 기존 태그와 겹치면 병합을 쓰라고 안내합니다.</li>
+    <li><strong>삭제</strong> — 아무 데도 안 쓰이는 태그만 지울 수 있습니다. 사용 중인 태그의 정리는 병합으로.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="llm">
+  <h2>15. LLM 엔진 관리 <span class="badge new">v1.x</span></h2>
+  <div class="h2-line"></div>
+  <p>
+    변환(반입)·재생성 같은 LLM 작업은 두 엔진 중 하나로 돌릴 수 있습니다.
+    설정의 <strong>LLM 엔진 그룹</strong>에 엔진 카드 2장이 있습니다:
+  </p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>엔진</th><th>무엇</th><th>비용</th></tr>
+      <tr><td><strong>CLI</strong></td><td>PC에 설치된 Claude Code(claude 명령)를 호출</td><td>Claude 구독에 포함 (한도 있음)</td></tr>
+      <tr><td><strong>API</strong></td><td>API 키를 등록해 직접 호출</td><td>사용량만큼 과금</td></tr>
+    </table>
+  </div>
+  <ul>
+    <li><strong>CLI 카드</strong> — 미설치/미로그인/정상 3상태를 표시합니다. 미로그인이면 "터미널에서 <code>claude</code>를 실행해
+      로그인하세요" 안내가 뜨고, [다시 확인]으로 재진단합니다. 한도 상태와 리셋 시각도 여기서 보입니다.</li>
+    <li><strong>API 카드</strong> — 키를 입력하면 <strong>즉석 연결 테스트</strong>를 통과해야만 저장됩니다.
+      저장 후엔 끝 4자리만 마스킹 표시되고, 언제든 삭제할 수 있습니다.</li>
+    <li><strong>우선 엔진</strong> — 평소 어느 엔진을 먼저 쓸지 선택(기본 CLI).</li>
+    <li><strong>폴백 정책</strong> — 우선 엔진이 한도 등으로 막혔을 때: <strong>물어보기</strong>(기본 — 버튼으로 확인 후 전환) ·
+      <strong>자동</strong>(바로 전환 — 과금이 생길 수 있어 동의 확인 후에만 켜짐) · <strong>끔</strong>.</li>
+  </ul>
+
+  <h3>한도에 걸리면</h3>
+  <p>
+    CLI 구독 한도를 초과해도 알 수 없는 오류 코드가 아니라 <strong>사람 말로</strong> 알려줍니다 —
+    예: <em>"Claude 구독 세션 한도 초과 — 오늘 21:40 리셋"</em>. API 키가 등록돼 있으면
+    <strong>[API로 재시도]</strong> 버튼이 함께 떠서 그 자리에서 이어갈 수 있습니다.
+    리셋 시각 전에 다시 변환을 시도하면 시작 전에 경고 배너로 미리 알려줍니다.
+  </p>
+  <div class="warn">
+    <span class="label">API 키 보관</span>
+    <p>API 키는 데이터베이스가 아니라 프로젝트 루트의 로컬 파일(<code>secrets.json</code>)에만 저장되며,
+    <strong>백업 zip에 포함되지 않습니다</strong>(git에도 올라가지 않음). PC를 옮기면 키는 다시 등록해야 합니다.</p>
+  </div>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <section id="regenerate">
-  <h2>14. 문제 오류 신고</h2>
+  <h2>16. 문제 오류 신고</h2>
   <div class="h2-line"></div>
   <p>
     변환 과정에서 보기 순서가 밀렸거나 정답이 이상한 문제를 발견하면, 그 자리에서 고칠 수 있습니다.
   </p>
   <ol class="steps">
     <li><strong>[오류 신고] 버튼</strong> — 문서 상세·학습 모드·퀴즈 해설 어디서든 누르고, 무엇이 이상한지 적습니다.</li>
-    <li><strong>재생성 대기</strong> — 앱이 claude CLI로 그 문서만 다시 만듭니다(원본 출처 정보가 있으면 대조).
-      진행 중 배지가 문서 상세에 표시됩니다.</li>
+    <li><strong>재생성 대기</strong> — 앱이 LLM 엔진(<a href="#llm">15장</a> — 설정한 우선 엔진·폴백 정책 적용)으로
+      그 문서만 다시 만듭니다(원본 출처 정보가 있으면 대조). 진행 중 배지가 문서 상세에 표시됩니다.</li>
     <li><strong>나란히 비교</strong> — 완료되면 문서 상세에서 기존 vs 신규를 비교해 보고
       <strong>[교체]</strong> 또는 <strong>[폐기]</strong>를 선택합니다.</li>
   </ol>
@@ -725,7 +986,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <section id="backup">
-  <h2>15. 백업과 복원</h2>
+  <h2>17. 백업과 복원</h2>
   <div class="h2-line"></div>
   <ul>
     <li><strong>백업 만들기</strong> — 설정 화면의 [백업 생성]. DB 스냅샷과 원본 파일(<code>sources/</code>)이
@@ -733,7 +994,15 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <li><strong>자동 백업</strong> — 설정에서 켜면, 마지막 백업 후 24시간이 지난 채로 서버가 켜질 때 자동 실행됩니다.</li>
     <li><strong>복원</strong> — 백업 목록에서 선택 후, 실수 방지를 위해 <strong>확인 문구를 직접 타이핑</strong>해야 진행됩니다.
       복원 직전 상태도 자동 스냅샷으로 한 벌 남깁니다.</li>
+    <li><strong>복원 후 새로 불러오기</strong> <span class="badge new">v1.x</span> — 복원이 끝나면
+      "복원 완료 — 앱을 다시 불러옵니다" 모달이 뜨고, 확인하면 화면 전체가 새로고침되어 복원된 데이터로 이어집니다
+      (서버 재시작 없이). 혹시 그 뒤에도 화면이 이상하게 동작하면 서버를 한 번 재시작하세요.</li>
   </ul>
+  <div class="note">
+    <span class="label">참고</span>
+    <p>LLM API 키(<a href="#llm">15장</a>)는 보안상 백업 zip에 <strong>포함되지 않습니다</strong> —
+    복원하거나 다른 PC로 이사한 뒤에는 설정에서 키를 다시 등록하세요.</p>
+  </div>
   <div class="tip">
     <span class="label">수동 백업</span>
     <p>앱이 꺼진 상태라면 프로젝트 루트의 <code>study.db</code> 파일을 다른 곳에 복사해 두는 것만으로도 백업이 됩니다.
@@ -743,7 +1012,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <section id="pwa">
-  <h2>16. 폰에서 쓰기 · PWA</h2>
+  <h2>18. 폰에서 쓰기 · PWA</h2>
   <div class="h2-line"></div>
   <p>폰 브라우저로 <code>http://&lt;PC IP&gt;:8000</code>에 접속한 뒤, 홈 화면에 앱처럼 설치할 수 있습니다:</p>
   <ul>
@@ -751,7 +1020,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <li><strong>iPhone (Safari)</strong> — 공유(□↑) → "홈 화면에 추가"</li>
   </ul>
   <p>
-    설치하면 주소창 없는 전체 화면으로 열리고 아이콘으로 바로 실행됩니다. 폰 화면에서는 하단 탭바(홈/커리큘럼/퀴즈/오답노트)로
+    설치하면 주소창 없는 전체 화면으로 열리고 아이콘으로 바로 실행됩니다. 폰 화면에서는 하단 탭바
+    (홈/커리큘럼/퀴즈/<strong>복습</strong>/오답노트 — 복습 탭은 v1.x 신설, 홈을 거치지 않고 오늘의 복습으로 직행)로
     오가고, 플래시카드 스와이프 등 터치 동작이 준비되어 있습니다.
   </p>
   <div class="note">
@@ -762,27 +1032,34 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <section id="settings">
-  <h2>17. 설정 모아보기</h2>
+  <h2>19. 설정 모아보기</h2>
   <div class="h2-line"></div>
+  <p>설정(<span class="path">/settings</span>)은 <strong>6그룹</strong>으로 구성되고, 좌측 목차(폰은 아코디언)로 점프합니다.</p>
   <div class="table-wrap">
     <table>
-      <tr><th>항목</th><th>어디서</th><th>기본값 · 메모</th></tr>
-      <tr><td>테마 (라이트/다크/시스템)</td><td>설정</td><td>기기별로 따로 저장됨</td></tr>
-      <tr><td>하루 복습 상한</td><td>설정</td><td>30개 — 과부하 방지</td></tr>
-      <tr><td>퀴즈 기본 문항 수</td><td>설정</td><td>퀴즈 설정 화면의 초기값</td></tr>
-      <tr><td>D-Day 관리</td><td>설정</td><td>시험 분류 시험일 + 임의 D-Day</td></tr>
-      <tr><td>백업 · 복원 · 자동 백업</td><td>설정</td><td><a href="#backup">15장</a></td></tr>
-      <tr><td>태그 규칙 · 병합</td><td>설정</td><td><a href="#tag-rules">13장</a></td></tr>
-      <tr><td>통계 CSV 내보내기</td><td>설정</td><td>풀이 기록 + 문서·분류 정보</td></tr>
-      <tr><td>홈 위젯 배치 (열 수·순서·숨김)</td><td>홈 [편집]</td><td>전 기기 공통 저장</td></tr>
-      <tr><td>사이드바 접힘</td><td>사이드바 « 토글</td><td>기기별로 따로 저장</td></tr>
+      <tr><th>그룹</th><th>항목</th><th>기본값 · 메모</th></tr>
+      <tr><td rowspan="6"><strong>학습</strong></td><td>하루 복습 상한</td><td>30개 — 과부하 방지</td></tr>
+      <tr><td>퀴즈 기본 문항 수</td><td>퀴즈 설정 화면의 초기값</td></tr>
+      <tr><td>본문 글자 크기</td><td>작게/기본/크게 — 문서 상세·학습 모드 공통</td></tr>
+      <tr><td>정답 자동 다음</td><td>기본 꺼짐 — 켜면 정답 시 1.5초 후 자동 진행 (<a href="#quiz">7장</a>)</td></tr>
+      <tr><td>일일 학습 목표 (문제 수·분)</td><td>비움 = 목표 없음 — 스트릭·히트맵 연동 (<a href="#dashboard">11장</a>)</td></tr>
+      <tr><td>D-Day 복습 강화</td><td>기본 켜짐 — 시험 14일 전부터 복습 확대 (<a href="#srs">10장</a>)</td></tr>
+      <tr><td><strong>일정</strong></td><td>D-Day 관리</td><td>시험 분류 시험일 + 임의 D-Day</td></tr>
+      <tr><td rowspan="2"><strong>태그·분류</strong></td><td>태그 자동 분류 규칙</td><td><a href="#tag-rules">14장</a></td></tr>
+      <tr><td>태그 관리자</td><td>유사 태그 병합 제안 · 이름 변경 · 삭제 (<a href="#tag-rules">14장</a>)</td></tr>
+      <tr><td><strong>LLM 엔진</strong></td><td>CLI/API 카드 · 우선 엔진 · 폴백 정책</td><td><a href="#llm">15장</a> — API 키는 로컬 파일 저장</td></tr>
+      <tr><td rowspan="2"><strong>데이터</strong></td><td>백업 · 복원 · 자동 백업</td><td><a href="#backup">17장</a></td></tr>
+      <tr><td>통계 CSV 내보내기</td><td>풀이 기록 + 문서·분류 정보</td></tr>
+      <tr><td><strong>화면</strong></td><td>테마 (라이트/다크/시스템)</td><td>기기별로 따로 저장됨</td></tr>
+      <tr><td colspan="2">홈 위젯 배치 (열 수·순서·숨김) — 홈 [편집]에서</td><td>전 기기 공통 저장</td></tr>
+      <tr><td colspan="2">사이드바 접힘 — 사이드바 « 토글</td><td>기기별로 따로 저장</td></tr>
     </table>
   </div>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <section id="faq">
-  <h2>18. 문제 해결 (FAQ)</h2>
+  <h2>20. 문제 해결 (FAQ)</h2>
   <div class="h2-line"></div>
 
   <h3>폰에서 접속이 안 돼요</h3>
@@ -812,7 +1089,24 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 
   <h3>복습이 갑자기 너무 많이 쌓였어요</h3>
   <p>며칠 쉬면 기한 지난 카드가 몰립니다. 하루 상한(기본 30)이 있으니 오늘 치만 소화하면 됩니다 —
-  밀린 것은 우선순위 순으로 매일 조금씩 나옵니다. 상한은 설정에서 조절.</p>
+  밀린 것은 우선순위 순으로 매일 조금씩 나옵니다. 상한은 설정에서 조절.
+  또 하나 — 시험일이 14일 이내면 <a href="#srs">D-Day 복습 강화</a>가 상한을 자동으로 늘린 상태일 수 있습니다
+  (복습 화면 상단에 강화 배지가 보입니다). 원치 않으면 설정에서 토글을 끄세요.</p>
+
+  <h3>변환하다가 "한도 초과"라고 떠요</h3>
+  <p>Claude 구독의 사용 한도에 걸린 것입니다. 메시지에 표시된 <strong>리셋 시각</strong>까지 기다렸다 다시 하거나,
+  API 키를 등록해 두었다면 <strong>[API로 재시도]</strong> 버튼으로 그 자리에서 이어갈 수 있습니다
+  (<a href="#llm">15장</a> — API는 사용량만큼 과금).</p>
+
+  <h3>사이트에서 가져오기가 실패해요</h3>
+  <p>기출 사이트의 구조가 바뀌었을 수 있습니다. 실패 화면의 <strong>[URL로 반입]</strong>(기출 PDF 주소를 직접 붙여넣기)이나
+  <strong>[다른 어댑터로 재시도]</strong>로 우회하세요. 반입된 문제의 내용이 이상한 경우는
+  <a href="#regenerate">문제 오류 신고</a>로 그 문서만 다시 만들 수 있습니다.</p>
+
+  <h3>모의고사 결과를 나중에 다시 보고 싶어요</h3>
+  <p>모의고사 화면의 <strong>응시 이력</strong>에 지난 응시의 점수·합격 여부 요약이 남습니다.
+  다만 문항별 상세 리뷰는 제출 직후의 결과 화면에서만 볼 수 있으니, 해설은 그 자리에서 확인하세요 —
+  틀린 문제 자체는 오답노트에 전부 남아 있습니다.</p>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -830,12 +1124,12 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
   </div>
   <p>
     권장은 <strong>A</strong> — 이 파일은 외부 의존성이 없는 단일 HTML이라 그대로 서빙만 하면 되고,
-    앱과 같은 디자인 토큰을 쓰므로 이질감도 없습니다. v1 완성(Stage 7) 후 결정하면 됩니다.
+    앱과 같은 디자인 토큰을 쓰므로 이질감도 없습니다. (v1 완성 시점에 적어둔 메모 — v1.x 현재도 결정 대기입니다.)
   </p>
 </section>
 
 <footer>
-  Study Hub 사용 설명서 · 2026-07-24 기준 · <strong>v1 완성판</strong> ·
+  Study Hub 사용 설명서 · 2026-07-26 기준 · <strong>v1.x (Stage 11까지 반영)</strong> ·
   기능 계획·설계의 원본은 <code>docs/01-plan</code> · <code>docs/02-design</code> 문서를 참조하세요.
 </footer>
 </main>
