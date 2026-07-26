@@ -94,6 +94,14 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl }: F
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewFetch.data])
 
+  // 잡이 사라진 것이 확인되면 저장된 기록을 즉시 지운다 — 화면의 안내는 이번 방문에서
+  // 그대로 보이되(무슨 일이 있었는지 알려야 하므로), 다시 열 때마다 죽은 잡을 조회해
+  // 같은 안내가 반복되지는 않게 한다.
+  useEffect(() => {
+    if (jobId != null && isJobLost(jobQuery)) clearStoredConvertJob()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, jobQuery.isError])
+
   function adapterName(id: FetchAdapterId): string {
     return adaptersQuery.data?.find((a) => a.id === id)?.name ?? ADAPTER_FALLBACK_NAME[id]
   }

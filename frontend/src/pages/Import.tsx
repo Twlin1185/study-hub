@@ -371,6 +371,13 @@ function ConvertStep({ sourceKind, onPreviewReady, onFallbackToManual }: Convert
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewFetch.data])
 
+  // 잡 소실이 확인되면 저장된 기록을 즉시 정리한다(사이트 반입 위저드와 동일 규약) —
+  // 안내는 이번 방문에 보이되 다시 열 때마다 반복되지 않게.
+  useEffect(() => {
+    if (jobId != null && isJobLost(jobQuery)) clearStoredConvertJob()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, jobQuery.isError])
+
   function startJob(engine?: 'api') {
     if (sourceKind === 'file') {
       if (!file) return
