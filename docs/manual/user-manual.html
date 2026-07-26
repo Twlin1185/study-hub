@@ -293,7 +293,7 @@
 <h1>Study Hub 사용 설명서</h1>
 <p class="lede">기출문제와 학습자료를 쌓고, 학습 → 풀이 → 오답관리 → 복습의 루프를 돌리는 개인 학습 허브.</p>
 <p class="doc-meta">
-  이 문서 하나로 설치부터 일상 사용까지 따라 할 수 있게 쓰였습니다 — <strong>v1.x 전체 기능 기준(Stage 11까지)</strong>입니다. ·
+  이 문서 하나로 설치부터 일상 사용까지 따라 할 수 있게 쓰였습니다 — <strong>v1.x 전체 기능 기준(Stage 12까지)</strong>입니다. ·
   갱신일: 2026-07-26 ·
   문서 위치: <code>docs/manual/user-manual.html</code>
 </p>
@@ -386,7 +386,9 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 <section id="screens">
   <h2>3. 화면 한눈에 보기</h2>
   <div class="h2-line"></div>
-  <p>왼쪽 사이드바(폰에서는 하단 탭바)로 오갑니다. 주소를 직접 칠 일은 거의 없지만, 이 설명서에서 화면을 가리킬 때 경로를 함께 적습니다.</p>
+  <p>왼쪽 사이드바(폰에서는 하단 탭바)로 오갑니다. 주소를 직접 칠 일은 거의 없지만, 이 설명서에서 화면을 가리킬 때 경로를 함께 적습니다.
+  이 설명서 자체도 앱 안에서 열 수 있습니다 — <strong>사이드바 하단 "도움말"</strong> 또는
+  <strong>설정 하단 "사용 설명서 열기"</strong>(폰에서는 이쪽)를 누르면 새 탭으로 열립니다.</p>
   <div class="table-wrap">
     <table>
       <tr><th>화면</th><th>경로</th><th>하는 일</th></tr>
@@ -504,7 +506,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
   <h3>방법 D — 사이트에서 가져오기 <span class="badge new">v1.x</span></h3>
   <p>
     자격증 기출은 URL을 찾을 필요도 없습니다. <span class="path">/import</span>의
-    <strong>[사이트에서 가져오기]</strong>가 전자문제집 CBT(comcbt)·큐넷(Q-Net) 공개자료에서
+    <strong>[사이트에서 가져오기]</strong>가 기출 공개 사이트 3곳 —
+    큐넷(Q-Net) 공개자료 · CBT문제은행(cbtbank) · 전자문제집 CBT(comcbt) — 에서
     회차 하나를 통째로 가져와 반입까지 이어 줍니다.
   </p>
   <ol class="steps">
@@ -514,7 +517,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     </li>
     <li>
       <strong>회차 선택</strong>
-      <p>회차 목록에서 하나를 고릅니다. 같은 회차가 양쪽 사이트에 있으면 <strong>큐넷 자료가 우선</strong> 채택되고,
+      <p>회차 목록에서 하나를 고릅니다. 같은 회차가 여러 사이트에 있으면 <strong>시험 날짜로 알아보고 하나로 병합</strong>되며,
+      <strong>큐넷 &gt; CBT문제은행 &gt; 전자문제집 CBT</strong> 순으로 우선 채택됩니다(나머지 출처는 소표기).
       이미 들여온 회차에는 <strong>"이미 반입됨"</strong> 배지가 붙어 중복 반입을 막아 줍니다.</p>
     </li>
     <li>
@@ -528,6 +532,12 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
       분류 트리에 "자격증/필기/YYYY년 N회" 경로가 자동으로 만들어집니다.</p>
     </li>
   </ol>
+  <div class="tip">
+    <span class="label">CBT문제은행 회차</span>
+    <p>CBT문제은행(cbtbank)에서 채택된 회차는 문항·보기·정답·해설에 과목 구분까지
+    <strong>이미 구조화된 채로</strong> 들어옵니다 — PDF를 통째로 다시 읽어내는 경로보다 변환 품질이 높고
+    LLM 사용량(비용)도 낮습니다. 과목명은 태그 제안으로 함께 붙습니다.</p>
+  </div>
   <div class="warn">
     <span class="label">이용 원칙</span>
     <p>수집한 자료는 <strong>개인 학습 전용이며 재배포는 금지</strong>입니다(실행 전 화면에도 항상 고지됩니다).
@@ -1111,25 +1121,27 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <section id="embed">
-  <h2>부록. 앱 내 탑재 메모 (추후 결정)</h2>
+  <h2>부록. 앱 내 탑재 메모 (결정 완료 — A안 구현됨)</h2>
   <div class="h2-line"></div>
-  <p>이 문서를 앱 안에서 열 수 있게 하는 방안 — 아직 결정 전이며, 후보는:</p>
+  <p>이 문서를 앱 안에서 열 수 있게 하는 방안으로 검토했던 후보들 (v1 완성 시점의 메모):</p>
   <div class="table-wrap">
     <table>
       <tr><th>방안</th><th>내용</th><th>비용</th></tr>
-      <tr><td>A. 정적 서빙</td><td>FastAPI가 <code>docs/manual/</code>을 <code>/manual</code> 경로로 서빙, 설정 화면에 "사용 설명서" 링크 추가</td><td>백엔드 라우트 1개 + 링크 1개 — 가장 쌈</td></tr>
+      <tr><td><strong>A. 정적 서빙 ✓ 채택</strong></td><td>FastAPI가 <code>docs/manual/</code>을 <code>/manual</code> 경로로 서빙, 설정 화면에 "사용 설명서" 링크 추가</td><td>백엔드 라우트 1개 + 링크 1개 — 가장 쌈</td></tr>
       <tr><td>B. 도움말 화면</td><td>React 화면으로 포팅해 사이드바에 메뉴 추가, 화면별 ? 아이콘에서 해당 절로 딥링크</td><td>포팅·유지보수 비용 큼</td></tr>
       <tr><td>C. 현행 유지</td><td>파일을 브라우저로 직접 열기 (더블클릭)</td><td>0 — 단 폰에서 보기 불편</td></tr>
     </table>
   </div>
   <p>
-    권장은 <strong>A</strong> — 이 파일은 외부 의존성이 없는 단일 HTML이라 그대로 서빙만 하면 되고,
-    앱과 같은 디자인 토큰을 쓰므로 이질감도 없습니다. (v1 완성 시점에 적어둔 메모 — v1.x 현재도 결정 대기입니다.)
+    <strong>A안이 채택되어 v1.x(Stage 12)에서 구현 완료</strong> — 이 문서는 이제 앱의
+    <code>/manual</code> 경로에서 그대로 서빙되며, <strong>사이드바 하단 "도움말"</strong>과
+    <strong>설정의 "사용 설명서 열기"</strong> 링크에서 새 탭으로 열립니다.
+    원본 파일(<code>docs/manual/user-manual.html</code>)을 고치면 서버 재시작 없이 새로고침만으로 반영됩니다.
   </p>
 </section>
 
 <footer>
-  Study Hub 사용 설명서 · 2026-07-26 기준 · <strong>v1.x (Stage 11까지 반영)</strong> ·
+  Study Hub 사용 설명서 · 2026-07-26 기준 · <strong>v1.x (Stage 12까지 반영)</strong> ·
   기능 계획·설계의 원본은 <code>docs/01-plan</code> · <code>docs/02-design</code> 문서를 참조하세요.
 </footer>
 </main>

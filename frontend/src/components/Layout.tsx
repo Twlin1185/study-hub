@@ -122,8 +122,22 @@ export default function Layout({ children }: { children: ReactNode }) {
           ))}
           <SuggestionsNavBadge compact={collapsed} />
         </nav>
-        <div className="mt-auto">
+        <div className="mt-auto flex flex-col gap-1">
           <NavButton item={{ to: '/settings', label: '설정', icon: '⚙️' }} collapsed={collapsed} />
+          {/* 도움말 진입점(S12, F39, 설계 §5·§4.15) — 앱 라우트가 아닌 외부 문서 링크이므로
+              NavLink가 아닌 일반 <a target="_blank">로 새 탭에 연다. 접힘 레일은 아이콘+title. */}
+          <a
+            href="/manual"
+            target="_blank"
+            rel="noopener"
+            title={collapsed ? '도움말' : undefined}
+            className={`flex items-center rounded text-sm text-muted transition-colors hover:bg-bg hover:text-primary ${
+              collapsed ? 'justify-center px-2 py-2' : 'flex-row justify-start gap-2 px-3 py-2'
+            }`}
+          >
+            <span aria-hidden>❓</span>
+            {!collapsed && <span>도움말</span>}
+          </a>
         </div>
       </aside>
 

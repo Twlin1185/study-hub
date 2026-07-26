@@ -33,7 +33,7 @@ import models
 from database import BASE_DIR, SessionLocal
 from exceptions import AppError, ConflictError, NotFoundError, ValidationAppError
 from schemas.import_schema import PreviewResponse
-from services import document_service, import_service, llm_engine_service, net_safety, settings_service, tag_rule_service
+from services import document_service, fetch_service, import_service, llm_engine_service, net_safety, settings_service, tag_rule_service
 from services.fetchers.base import FetchedExam, FetchedFile, ParseFailedError
 
 PROMPTS_DIR = BASE_DIR / "prompts"
@@ -769,13 +769,16 @@ SOURCES_IMAGES_DIR = SOURCES_DIR / "images"
 
 
 def _fetch_category_path(cert_name: Optional[str], level_hint: str, exam_key: Optional[str]) -> Optional[str]:
-    """어댑터 확정 분류 경로 '{자격증}/{필기|실기}/{YYYY년 N회}' — 프롬프트에 강제 지시."""
-    if not cert_name or not exam_key or "-" not in exam_key:
+    """어댑터 확정 분류 경로 '{자격증}/{필기|실기}/{회차 폴더}' — 프롬프트에 강제 지시.
+
+    키→폴더명 파생은 `fetch_service.exam_folder_name`과 단일 공유(설계 §4.13 — 불일치 금지).
+    `YYYY-N`(회차 번호) → "YYYY년 N회", `YYYY-MM-DD`(S12 날짜형) → "YYYY년 M월 D일"."""
+    if not cert_name or not exam_key:
         return None
-    year, _, num = exam_key.partition("-")
-    if not year.isdigit() or not num.isdigit():
+    folder = fetch_service.exam_folder_name(exam_key)
+    if not folder:
         return None
-    return f"{cert_name}/{level_hint}/{year}년 {num}회"
+    return f"{cert_name}/{level_hint}/{folder}"
 
 
 def _fetch_directives(fetched, *, cli: bool) -> str:
@@ -804,6 +807,11 @@ def _fetch_directives(fetched, *, cli: bool) -> str:
         lines.append(f'- 최상위 `source.note`는 정확히 "{note}"로 채우라.')
     lines.append("- 보기·정답·해설이 원본에 있으면 반드시 포함하고, 없는 정보를 지어내지 마라.")
     lines.append("- 그림/이미지가 본문에 Markdown 링크로 있으면 그대로 보존하라.")
+    if isinstance(fetched, FetchedExam) and any(getattr(q, "subject", None) for q in fetched.questions):
+        lines.append(
+            "- 원본에 \"과목: …\" 줄이 있으면 그 과목명을 해당 문항의 `tags`에 태그로 제안하라"
+            "(분류 경로는 위 회차 경로 고정 — 과목별 하위 분류는 만들지 마라)."
+        )
     return "\n".join(lines)
 
 
@@ -829,7 +837,7 @@ def _save_fetch_images(job_id: str, questions, client) -> None:
             path = SOURCES_IMAGES_DIR / fname
             if not path.exists():
                 path.write_bytes(data)
-            local_links.append(f"images/{fname}")
+            local_links.append(f"/images/{fname}")  # 절대 경로 — main.py GET /images/{filename}가 서빙
             _touch_activity(job_id)
         q.images = local_links
 
@@ -839,6 +847,8 @@ def _fetched_exam_to_text(fetched: FetchedExam) -> str:
     parts = [f"# {fetched.cert_name} {fetched.exam_label} ({fetched.exam_key})", ""]
     for q in fetched.questions:
         parts.append(f"## {q.no}번")
+        if q.subject:  # S12 — 과목 구분(태그 제안 소재)
+            parts.append(f"과목: {q.subject}")
         parts.append(q.stem)
         for i, choice in enumerate(q.choices, start=1):
             parts.append(f"{i}) {choice}")
@@ -863,6 +873,11 @@ def _do_fetch(job_id: str, job: dict) -> dict:
     fetched = adapter.fetch_exam(
         job["_cert_ref"], job["_exam_ref"], client, on_activity=lambda: _touch_activity(job_id)
     )
+    exam_key_override = job.get("_exam_key_override")
+    if exam_key_override:
+        # fetch/exams가 반환한 병합 대표 키로 덮어써 목록 표기·분류 경로·imported 판정을
+        # 일치시킨다(설계 §4.13 — 채택 어댑터가 회차 번호를 모르는 cbtbank 대비, S12).
+        fetched.exam_key = exam_key_override
 
     convert_md = CONVERT_PROMPT_PATH.read_text(encoding="utf-8")
 
@@ -955,6 +970,7 @@ def start_fetch_job(
     source_url: Optional[str] = None,
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    exam_key: Optional[str] = None,
 ) -> str:
     """사이트 반입 잡(kind='fetch') 시작 — convert 잡 큐 재사용(동시 1개). 진행·결과 조회는
     기존 `GET /api/convert/{job_id}`. phase는 'fetching'부터 시작한다(설계 §4.13)."""
@@ -987,6 +1003,7 @@ def start_fetch_job(
             "_cert_ref": cert_ref,
             "_exam_ref": exam_ref,
             "_fetch_source_url": source_url,
+            "_exam_key_override": exam_key,
             "_phase": "fetching",
             "_phase_detail": source_url,
         }

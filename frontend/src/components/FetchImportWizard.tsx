@@ -34,6 +34,7 @@ const SUB_STEP_LABELS: Record<FetchSubStep, string> = {
 const ADAPTER_FALLBACK_NAME: Record<FetchAdapterId, string> = {
   qnet: '큐넷',
   comcbt: '전자문제집 CBT',
+  cbtbank: 'CBT문제은행',
 }
 
 const ENGINE_OPTIONS: { value: LlmEngine; label: string }[] = [
@@ -137,6 +138,9 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl }: F
         cert_ref: source.cert_ref,
         exam_ref: examRef,
         engine: opts?.engineOverride ?? engine,
+        // S12(§4.13) — 목록 응답의 병합 대표 exam_key를 그대로 실행 요청에 실어 보낸다
+        // (대안 어댑터 재시도 시에도 대표 키는 동일하게 유지).
+        exam_key: selectedExam.exam_key,
       },
       {
         onSuccess: (data) => {
@@ -288,7 +292,10 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl }: F
           ) : (
             <ul className="flex flex-col gap-2">
               {(examList ?? []).map((exam) => {
-                const isQnetAdopted = exam.adapter === 'qnet' && exam.also_on.includes('comcbt')
+                // 채택 어댑터 배지는 exam.adapter(선정 어댑터)를 그대로 렌더 — 특정 어댑터 id를
+                // 하드코딩하지 않는다(어댑터 격리 원칙, §5.9). also_on이 있으면(중복 회차) 우선순위
+                // 채택 강조 배지, 없으면(단독 회차) 출처 배지만 소표기.
+                const adopted = exam.also_on.length > 0
                 return (
                   <li key={exam.exam_key}>
                     <label className="flex w-full cursor-pointer flex-wrap items-center gap-2 rounded border border-border bg-bg px-3 py-2.5 text-sm text-primary hover:bg-surface-raised">
@@ -299,12 +306,11 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl }: F
                         onChange={() => setSelectedExamKey(exam.exam_key)}
                       />
                       <span className="font-medium">{exam.label}</span>
-                      {isQnetAdopted && (
+                      {adopted ? (
                         <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-on-accent">
-                          큐넷 채택
+                          {adapterName(exam.adapter)} 채택
                         </span>
-                      )}
-                      {!isQnetAdopted && (
+                      ) : (
                         <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent">
                           {adapterName(exam.adapter)}
                         </span>
