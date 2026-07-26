@@ -12,6 +12,7 @@ import models
 DEFAULTS: Dict[str, Any] = {
     "quiz.default_count": 20,
     "srs.daily_limit": 30,  # 계획서 §10 · stage-5 기본값
+    "srs.dday_boost": "on",  # S11(F16, 설계 §4.14) — 'on'|'off', D-Day 복습 강도 조절 토글
     "backup.auto": False,
     # S8 — LLM 엔진 관리 (F34, 설계 §4.11)
     "llm.priority": "cli",  # 'cli' | 'api' — engine:'auto' 요청 시 이 값을 따른다

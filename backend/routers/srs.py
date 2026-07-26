@@ -24,7 +24,11 @@ def get_today(db: Session = Depends(get_db)) -> List[SrsCardOut]:
     return srs_service.get_today_queue(db)
 
 
-@router.get("/summary", response_model=SrsSummary)
+@router.get(
+    "/summary",
+    response_model=SrsSummary,
+    response_model_exclude_none=True,  # dday_boost 미발동 시 필드 생략(기존 응답 불변, S10 goal_met 전례)
+)
 def get_summary(db: Session = Depends(get_db)) -> SrsSummary:
     return srs_service.get_summary(db)
 

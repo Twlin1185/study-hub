@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useThemeStore } from '../stores/theme'
 import type { ThemeMode } from '../stores/theme'
 import { useSettings, useUpdateSettings } from '../api/settings'
+import { srsKeys } from '../api/srs'
 import { streakKeys } from '../api/stats'
 import { ApiError } from '../api/client'
 import type { FontScale, QuizAutoAdvance } from '../api/types'
@@ -63,6 +64,8 @@ export default function SettingsPage() {
       ? settingsQuery.data['study.font_scale']
       : 'default'
   const autoAdvance: QuizAutoAdvance = settingsQuery.data?.['quiz.auto_advance'] === 'on' ? 'on' : 'off'
+  // S11(F16) — D-Day 복습 강화 토글, 기본 on(§4.14 발동 조건: 값이 'off'일 때만 미발동).
+  const ddayBoostOn = settingsQuery.data?.['srs.dday_boost'] !== 'off'
 
   useEffect(() => {
     const value = settingsQuery.data?.['quiz.default_count']
@@ -293,6 +296,33 @@ export default function SettingsPage() {
                 </button>
               </div>
               {goalError && <p className="mt-2 text-sm text-wrong">{goalError}</p>}
+            </section>
+
+            {/* D-Day 복습 강화 토글 (설계 §5.11, S11 F16) */}
+            <section className="rounded-lg border border-border bg-surface p-4">
+              <h3 className="mb-1 text-sm font-semibold text-primary">D-Day 복습 강화</h3>
+              <p className="mb-3 text-xs text-muted">
+                시험 14일 전부터 복습 상한을 늘리고 임박 시험 범위를 우선합니다.
+              </p>
+              <label className="flex items-center gap-2 text-sm text-primary">
+                <input
+                  type="checkbox"
+                  checked={ddayBoostOn}
+                  onChange={(e) => {
+                    updateSettings.mutate(
+                      { 'srs.dday_boost': e.target.checked ? 'on' : 'off' },
+                      {
+                        onSuccess: () => {
+                          qc.invalidateQueries({ queryKey: srsKeys.today })
+                          qc.invalidateQueries({ queryKey: srsKeys.summary })
+                          qc.invalidateQueries({ queryKey: ['dashboard'] })
+                        },
+                      },
+                    )
+                  }}
+                />
+                D-Day 복습 강화 사용
+              </label>
             </section>
           </SettingsSection>
 

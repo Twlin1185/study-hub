@@ -9,6 +9,8 @@ import CurriculumPage from './pages/Curriculum'
 import CurriculumDetailPage from './pages/CurriculumDetail'
 import QuizPage from './pages/Quiz'
 import QuizRunPage from './pages/QuizRun'
+import ExamPage from './pages/Exam'
+import ExamRunPage from './pages/ExamRun'
 import ReviewNotesPage from './pages/ReviewNotes'
 import ReviewPage from './pages/Review'
 import FlashcardsPage from './pages/Flashcards'
@@ -27,6 +29,8 @@ function App() {
         <Route path="/curriculum/:id" element={<CurriculumDetailPage />} />
         <Route path="/quiz" element={<QuizPage />} />
         <Route path="/quiz/run" element={<QuizRunPage />} />
+        <Route path="/exam" element={<ExamPage />} />
+        <Route path="/exam/run" element={<ExamRunPage />} />
         <Route path="/review" element={<ReviewPage />} />
         <Route path="/flashcards" element={<FlashcardsPage />} />
         <Route path="/review-notes" element={<ReviewNotesPage />} />

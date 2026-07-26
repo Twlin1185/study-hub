@@ -326,6 +326,115 @@ export interface AttemptResponse {
   srs: AttemptSrs | null
 }
 
+// ---- 모의고사 Exam (설계 §4.14, S11, F25) ----
+//
+// 원칙(강제): 새 테이블 없음 — 리포트·이력은 전부 attempts 파생. exam/session 응답은
+// quiz/session의 QuizQuestionOut을 재사용(정답·해설 절대 미포함, 서버 채점 원칙 §8).
+// exam/submit은 제출 후 응답이라 정답·해설 공개(§4.14).
+export type ExamOrder = 'random' | 'sequential'
+
+export interface ExamCut {
+  subject_min: number
+  pass_avg: number
+}
+
+export interface ExamSubjectRequest {
+  category_id: number
+  // 미지정 = 해당 범위(하위 트리 전체) 전체 문항(과목당 상한 200, 서버 절단)
+  count?: number
+}
+
+export interface ExamSessionRequest {
+  subjects: ExamSubjectRequest[]
+  types?: DocumentType[]
+  order?: ExamOrder
+  time_limit_minutes?: number
+  cut?: ExamCut
+}
+
+// items 원소 = QuizQuestion(quiz/session과 동일 재사용) — 정답·해설 없음.
+// requested는 백엔드 스키마(ExamSubjectOut)상 Optional — count 미지정(전체 요청) 시 null.
+export interface ExamSubjectSession {
+  category_id: number
+  name: string
+  requested: number | null
+  count: number
+  items: QuizQuestion[]
+}
+
+export interface ExamSessionResponse {
+  time_limit_minutes: number
+  cut: ExamCut
+  order: ExamOrder
+  total_count: number
+  warnings: string[]
+  subjects: ExamSubjectSession[]
+}
+
+export interface ExamAnswerInput {
+  document_id: number
+  subject_category_id: number
+  // 미응답 = null (오답 처리 — §4.14)
+  my_answer: string | null
+  time_spent?: number
+}
+
+export interface ExamSubmitRequest {
+  answers: ExamAnswerInput[]
+  cut?: ExamCut
+  // 리포트 기록용 에코만(서버 타이머 검증 없음 — 타이머는 프론트 주도, §4.14)
+  elapsed_seconds?: number
+}
+
+export interface ExamSubjectReport {
+  category_id: number
+  name: string
+  score: number
+  correct: number
+  count: number
+  failed: boolean
+}
+
+export interface ExamResultItem {
+  document_id: number
+  subject_category_id: number
+  is_correct: boolean
+  my_answer: string | null
+  // 백엔드 스키마상 Optional — 정상 흐름에선 항상 채워지지만 방어적으로 null 허용.
+  answer: string | null
+  explanation: string | null
+  review_note_id: number | null
+}
+
+export interface ExamSubmitResponse {
+  taken_at: string
+  passed: boolean
+  cut: ExamCut
+  total: { score: number; correct: number; count: number }
+  elapsed_seconds: number | null
+  subjects: ExamSubjectReport[]
+  results: ExamResultItem[]
+}
+
+export interface ExamHistorySubject {
+  category_id: number
+  name: string
+  score: number
+  failed: boolean
+}
+
+// label = 과목 노드들의 공통 부모 경로 파생(분류 삭제 시 "(삭제된 분류)"). passed는 기본 컷(40/60)
+// 재평가(당시 컷 미보존, R15) — §4.14.
+export interface ExamHistoryItem {
+  taken_at: string
+  label: string
+  passed: boolean
+  total: { score: number; correct: number; count: number }
+  subjects: ExamHistorySubject[]
+}
+
+export type ExamHistoryResponse = ExamHistoryItem[]
+
 // ---- 복습 SRS (설계 §4.7, stage-5) ----
 //
 // GET /api/srs/today 실계약(설계 §4.7 명문화). 순수 배열. 큐 항목이 카드 렌더에 필요한 콘텐츠를
@@ -347,6 +456,9 @@ export interface SrsQueueItem {
   has_review_note: boolean
   answer: string | null
   explanation: string | null
+  // S11(F16) — 선행 복습 카드(임박 시험 대비로 due 전에 당겨온 카드). D≤7에서만 등장, 기본 false.
+  // 미발동 시 응답에서 생략될 수 있어 옵셔널로 둔다(§4.14 하위 호환).
+  ahead?: boolean
 }
 
 // today는 상한(settings:srs.daily_limit)으로 이미 잘려 내려오므로 페이지네이션 없이 배열로 받는다
@@ -365,11 +477,23 @@ export interface SrsAnswerResponse {
   due_date: string
 }
 
+// S11(F16) — D-Day 복습 강도 조절 발동 정보 (§4.14). 발동 시에만 srs/summary에 채워진다.
+export interface DdayBoostInfo {
+  category_id: number
+  name: string
+  exam_date: string
+  d_day: number
+  multiplier: number
+  effective_limit: number
+}
+
 // S9(F36-①③) 복습 요약 (§4.12) — GET /api/srs/summary.
 // today_due = 오늘 큐 잔여, tomorrow_due = 내일까지 due(오늘 미소화 이월 포함). daily_limit 상한 동일.
 export interface SrsSummaryResponse {
   today_due: number
   tomorrow_due: number
+  // S11(F16) — 발동 시에만 존재(미발동 시 필드 생략, 하위 호환 §4.14).
+  dday_boost?: DdayBoostInfo
 }
 
 // ---- 오답노트 (설계 §4.6, 계획 §6.2 review_notes 테이블) ----
@@ -472,6 +596,8 @@ export interface SettingsResponse {
   // 양의 정수, 미설정·0 = 목표 없음. 시간은 "문제 풀이 시간 기준"(개념 열람 시간 미측정).
   'goal.daily_questions'?: number
   'goal.daily_minutes'?: number
+  // ---- D-Day 복습 강도 조절 (설계 §4.14, S11, F16) ---- 기본 'on'.
+  'srs.dday_boost'?: 'on' | 'off'
   [key: string]: unknown
 }
 

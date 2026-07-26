@@ -1,10 +1,10 @@
 # Study Hub — 상세 설계 (API 명세 · 화면 상세)
 
-> 상태: **Design v1.9** — v1.8 대비: **S10(M10 콘텐츠·동기) API 계약 신설**(§4.13 — F35 2단계 사이트 어댑터: comcbt·qnet 2종, 병합 회차 목록·**큐넷 우선**, 크롤링 예의 강제 조항, convert 잡 큐 재사용(kind='fetch') · F26 목표/스트릭: `stats/streak`·heatmap `goal_met` 확장 — 전부 파생값, DDL 없음) + **§5 화면 보강**(반입 "사이트에서 가져오기" Stepper 흐름 §5.9, 홈 스트릭 위젯·히트맵 목표 연동 §5.1, 복습 완료 스트릭 §5.7, 설정 일일 목표 §5.11). v1.8: S9 API 계약(§4.12)
+> 상태: **Design v1.10** — v1.9 대비: **S11(M11 시험 직전 도구) API 계약 신설**(§4.14 — F25 실전 모의고사: `exam/session`·`exam/submit`·`exam/history` — **일괄 제출 채점 전용 경로**(세션 응답에 정답·해설 없음, 배치 전체 한 트랜잭션), 리포트·이력은 **attempts 파생(런 키 = 배치 공통 answered_at)** — DDL 없음 · F16 D-Day 복습 강도 조절: SRS **큐 구성 계층** 3종 — 유효 상한 확대·임박 시험 우선·선행 복습, sm2.py·저장값 불변) + **§5 화면**(모의고사 §5.12 신설 — 화면 12개, §5.6 진입 탭·§5.7 강화 배지·§5.11 토글 보강). v1.9: S10 계약(§4.13)
 > v1.9 갱신 이력: 2026-07-25 구현 실측 반영 — §4.13 comcbt는 **PDF 첨부→convert 경로**(문항 본문이 정적 HTML에 없음), qnet 목록은 **available:false 스텁**(JS 포털 — 실측 불가), exams 응답에 `exam_ref` 명시
-> 작성일: 2026-07-22 · 갱신: 2026-07-25
-> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.11)
-> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-10-content-motivation.plan.md`
+> 작성일: 2026-07-22 · 갱신: 2026-07-26
+> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.12)
+> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-11-exam-tools.plan.md`
 
 ---
 
@@ -23,17 +23,17 @@ study-hub/
 │  ├─ models.py             # SQLAlchemy 모델 (계획서 §6.2 그대로)
 │  ├─ schemas/              # Pydantic 요청/응답 모델 (리소스별 파일)
 │  ├─ routers/              # categories, documents, imports, study, quiz, srs,
-│  │                        # review_notes, stats, search, tags, suggestions, settings
+│  │                        # review_notes, stats, search, tags, suggestions, settings, exam(S11)
 │  ├─ services/             # sm2.py, import_service.py, stats_service.py,
 │  │                        # tag_rule_service.py, convert_service.py(M6), backup_service.py(M6),
-│  │                        # fetchers/(S10 — base·registry·comcbt·qnet, §4.13)
+│  │                        # fetchers/(S10 — base·registry·comcbt·qnet, §4.13), exam_service.py(S11 — §4.14)
 │  └─ alembic/              # 마이그레이션
 ├─ frontend/
 │  └─ src/
 │     ├─ api/               # client.ts(fetch 래퍼), 리소스별 React Query 훅
 │     ├─ components/        # 공용: Tree, DocCard, MarkdownView, ProgressBar, TagChip, …
-│     ├─ pages/             # 화면 11개 (§5)
-│     ├─ stores/            # zustand: quizSession, flashcardSession, theme, sidebar(S7)
+│     ├─ pages/             # 화면 12개 (§5)
+│     ├─ stores/            # zustand: quizSession, flashcardSession, examSession(S11), theme, sidebar(S7)
 │     ├─ styles/tokens.css  # 디자인 토큰 (§6)
 │     └─ App.tsx            # React Router 라우트
 ├─ sources/                 # 원본 파일 (불변)
@@ -57,7 +57,7 @@ study-hub/
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S10] = stage 1~10에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
+구현 단계 표기: [S1]~[S11] = stage 1~11에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
 
 ### 4.1 분류 Categories
 
@@ -351,7 +351,76 @@ backend/services/fetchers/
 - **today**: `questions` = 오늘 attempts 수(정오 무관), `minutes` = 오늘 `attempts.time_spent` 합 ÷ 60 올림 — **문제 풀이 시간 기준**(개념 열람 시간은 미측정, 한계 명문화). `goal_met` = 설정된 목표 항목 **각각 모두** 충족(AND).
 - **스트릭은 목표와 무관**(활동 기준) — 목표 변경이 과거 스트릭을 재해석하지 않는다. 반면 heatmap `goal_met`은 **현재 목표로 과거를 재평가**하는 파생값(목표 이력 저장 안 함 — YAGNI).
 
-## 5. 화면 상세 (11개)
+### 4.14 시험 직전 도구 (S11 — F25 실전 모의고사 + F16 D-Day 복습 강도 조절)
+
+**원칙(강제)**: **새 테이블·컬럼 없음** — 모의고사 리포트·이력은 전부 **attempts 파생**(mode=`'exam'` + 배치 공통 `answered_at` = 런 키), D-Day 강도 조절은 SRS **큐 구성 계층**만 손댄다(`services/sm2.py` 알고리즘·`srs_cards` 저장값(EF·interval·due_date)은 불변). 근거는 계획서 §14 F25·F16 명세.
+
+**신규·확장 엔드포인트**
+
+| 메서드/경로 | 설명 | 단계 |
+|---|---|---|
+| `POST /api/exam/session` | 모의고사 구성. 요청 `{subjects: [{category_id, count?}], types?, order?: 'random'(기본)\|'sequential', time_limit_minutes?, cut?: {subject_min, pass_avg}}` — 과목 = 요청된 분류 노드(각각 **하위 트리 전체**에서 출제, §4.6 deep 원칙 — 어느 노드를 과목으로 삼을지는 화면 §5.12가 시험 노드의 직계 자식 체크리스트로 위임). 출제 자격 판정·타입 필터는 quiz_service 재사용(활성 문서·question/past_question, `types` 미지정 시 둘 다). `count` 미지정 = 해당 범위 전체(과목당 상한 200). 응답에 **정답·해설 절대 미포함**(불변 규칙 1 — quiz/session과 동일). **서버는 세션을 저장하지 않는다**(무상태 — 제출 요청이 전부 갖고 온다) | S11 |
+| `POST /api/exam/submit` | **일괄 제출 채점** — 시간 종료·[제출] 시 1회 호출. 요청 `{answers: [{document_id, subject_category_id, my_answer(미응답=null), time_spent?}], cut?, elapsed_seconds?}`. 서버가 전 문항 채점(단건 attempts와 **같은 채점 코어** 공유 — 아래) 후 문항마다 attempts INSERT(mode=`'exam'`, category_id=과목 노드, **배치 공통 answered_at**) + 오답 시 오답노트 생성/재사용 + SM-2 갱신 + study_progress — **배치 전체가 한 트랜잭션**(불변 규칙 2 — 중간 실패 시 전무). 응답 = 리포트(아래 — **제출 후이므로 정답·해설 공개 허용**, attempts 단건 응답과 동일 원칙) | S11 |
+| `GET /api/exam/history?limit=20` | 응시 이력 — **파생값**(attempts mode='exam'을 answered_at으로 그룹, 저장 없음). 배열 반환(페이지네이션 없음 — limit 절단, srs/today 전례). 합격 재평가는 **기본 컷(40/60) 고정**(당시 컷 미저장 — 한계는 계획서 R15) | S11 |
+| `GET /api/srs/today` 확장 | F16 — D-Day 부스트 반영 큐(아래 규칙). item에 `ahead`(bool — 선행 복습 카드, D≤7에서만 등장, 기본 false) 추가. 미발동 시 기존 응답·순서 완전 불변 | S11 확장 |
+| `GET /api/srs/summary` 확장 | 발동 시에만 `dday_boost` 객체 추가: `{category_id, name, exam_date, d_day, multiplier, effective_limit}` — 미발동 시 필드 생략(하위 호환, S10 `goal_met` 전례). `today_due`·`tomorrow_due`는 유효 상한 기준으로 산출 | S11 확장 |
+
+**F25 모의고사 규칙 (전부 파생 — DDL 없음)**
+
+- **과목 출처 = categories 트리**: 별도 "과목" 개념을 만들지 않는다. 화면(§5.12)이 시험 노드(예: "정보처리기사/필기")의 **직계 자식 체크리스트**로 과목을 고르게 하고, API는 분류 id 목록만 받는다 — 직계 자식에 과목·회차 노드가 혼재해도(F35 반입이 회차를 필기 밑에 만듦) 사용자 선택으로 해소. **회차 모의** = 회차 노드 1개만 선택(단일 과목·전체 문항·`sequential`이 화면 기본값).
+- **채점 코어 공유**: attempt_service의 단건 채점(정규화 비교·평균시간/직전오답 기반 q 매핑·오답노트·진도·SM-2)을 **커밋 없는 공용 함수로 분리**해 단건(quiz)·배치(exam)가 같은 규칙을 쓴다(srs_service.apply_sm2 전례). 채점 규칙 이원화 금지. 기존 `POST /api/attempts` 동작·응답은 불변.
+- **미응답(null) = 오답**: attempts 기록(is_correct=0) + 오답노트 생성(몰라서 비운 것도 복습 대상) + SM-2 q=1. 기존 정규화 채점이 빈 답을 자연히 오답 처리.
+- **점수·합격 판정**: 과목 점수 = `round(100 × 정답 / 문항수)`. 과락 = 점수 < `subject_min`(기본 **40**). 총점 = 과목 점수 **단순 평균**(문항 수 가중 없음 — 국가기술자격 관례, 반올림). 합격 = 전 과목 비과락 **AND** 총점 ≥ `pass_avg`(기본 **60**).
+- **합격선(cut)의 출처 = 요청 파라미터**: 기본 40/60(국가기술자격 표준)을 화면이 채워 보내고 실행 시 조정 가능 — settings 저장 없음(전 국가기술자격 공통 표준이라 기본값으로 충분, YAGNI. 시험별 컷 프리셋은 실수요 확인 후 — R15).
+- **타이머 = 프론트 주도**: 개인용 로컬 앱 — 서버 검증은 과설계(방어 대상이 자기 자신). `time_limit_minutes` 미지정 시 서버가 `ceil(총 문항 × 1.5분)`(필기 관례) 계산해 응답에 에코, 카운트다운·시간 초과 자동 제출은 프론트 책임(§5.12). `elapsed_seconds`는 리포트에 기록용 에코만.
+- **검증**: `subject_category_id`는 해당 문서가 그 과목 서브트리에 연결된 경우만 허용(아니면 422 VALIDATION_ERROR). 존재하지 않는 문서·비활성 문서 포함 시 422. 전 과목 출제 문항 0이면 세션 생성 422. 0문항 과목은 세션 응답에서 제외 + `warnings`.
+- **attempts 기록 맥락**: `category_id` = **과목 노드**(가장 구체적 맥락 — "문서+맥락 이중 기록" 원칙 그대로). 덕분에 과목별 점수는 조회 시 category_id 그룹만으로 재계산되고, 기존 약점 분석·시험별 통계에도 그대로 합류한다. history의 시험 라벨 = 과목 노드들의 공통 부모 경로 파생(분류가 나중에 삭제되면 "(삭제된 분류)" 표기).
+
+`exam/session` 응답 예 (items 원소 = quiz/session의 `QuizQuestionOut` 재사용 — 정답·해설 없음):
+```json
+{
+  "time_limit_minutes": 90,
+  "cut": { "subject_min": 40, "pass_avg": 60 },
+  "order": "random",
+  "total_count": 60,
+  "warnings": [],
+  "subjects": [
+    { "category_id": 12, "name": "소프트웨어 설계", "requested": 20, "count": 20,
+      "items": [ { "document_id": 317, "doc_no": "DOC-0317", "type": "past_question",
+                   "title": "…", "content": "…", "choices": ["…","…","…","…"], "difficulty": 3 } ] }
+  ]
+}
+```
+
+`exam/submit` 응답(리포트) 예:
+```json
+{
+  "taken_at": "2026-07-26T14:02:11",
+  "passed": false,
+  "cut": { "subject_min": 40, "pass_avg": 60 },
+  "total": { "score": 58, "correct": 35, "count": 60 },
+  "elapsed_seconds": 4310,
+  "subjects": [
+    { "category_id": 12, "name": "소프트웨어 설계", "score": 35, "correct": 7, "count": 20, "failed": true }
+  ],
+  "results": [
+    { "document_id": 317, "subject_category_id": 12, "is_correct": false, "my_answer": "1",
+      "answer": "2", "explanation": "…", "review_note_id": 88 }
+  ]
+}
+```
+- `taken_at` = 런 키(배치 공통 answered_at, ISO) — history의 그룹 키와 동일 값.
+- `exam/history` item = `{taken_at, label(공통 부모 경로), passed(기본 컷 재평가), total{score, correct, count}, subjects[{category_id, name, score, failed}]}`.
+
+**F16 D-Day 복습 강도 조절 규칙 (큐 구성 계층 — sm2.py·srs_cards 저장값 불변)**
+
+- **발동 조건**: `settings:srs.dday_boost`(`'on'|'off'`, 기본 **on**) AND `categories.exam_date` 중 **0 ≤ d_day ≤ 14**가 존재(지난 날짜 제외). **임의 D-Day(`ddays.custom`)는 대상 아님** — 분류 서브트리가 없어 범위 우선·선행 복습이 정의되지 않는다(명문화).
+- **① 유효 상한 확대**: 가장 임박한 시험의 d_day ≤ 7 → `ceil(srs.daily_limit × 2)`, 8~14 → `ceil(× 1.5)`. **큐 구성·개수 산출(dashboard `today_review`)·`srs/summary`가 같은 유효 상한 함수를 공유**(수치 불일치 금지).
+- **② 임박 범위 우선**: 큐 정렬 우선순위 확장 — **미해결 오답노트(기존 1순위 유지)** > **임박 시험 서브트리 소속 카드**(문서가 해당 서브트리 분류에 연결) > 기한 초과 오래된 순. 여러 시험이 임박이면 서브트리 **합집합**이 우선 대상, 배율(①)은 최소 d_day 기준.
+- **③ 선행 복습(D≤7만)**: due 도래 카드로 유효 상한이 안 차면, 임박 시험 서브트리의 `due_date > 오늘` 카드를 due 오름차순으로 남는 자리에 채운다(item `ahead:true`) — **시험 이후로 잡힌 카드를 시험 전에 한 번은 보게** 하는 장치. 저장된 due_date는 건드리지 않고, 풀이 시점에 정상 SM-2 갱신만 일어난다(Anki "review ahead"와 동일 원리).
+- 시험이 지나면 발동 조건이 저절로 해제(전부 날짜 파생 — 원복 코드 불요). 미발동·토글 off 시 기존 큐와 완전 동일.
+
+## 5. 화면 상세 (12개)
 
 라우팅: React Router. 모바일(<768px)은 하단 탭바(홈/커리큘럼/퀴즈/**복습**/오답노트 — 복습 탭은 S9, F36-②: 홈 경유 없이 오늘의 복습 직행) + 트리 드로어.
 
@@ -425,6 +494,7 @@ backend/services/fetchers/
 
 ### 5.6 퀴즈 — `/quiz` (설정) → `/quiz/run`
 - **설정 화면**: 범위(트리 선택), 모드(순차/랜덤/오답만/북마크만), 문항 수(기본 `settings:quiz.default_count`).
+- **실전 모의고사 진입(S11, F25)**: 설정 화면 상단 탭 [일반 퀴즈 | 실전 모의고사] — 모의고사는 §5.12 별도 흐름(일괄 제출 채점 — 즉시 채점인 이 화면과 경로 분리).
 - **런 화면**: 문제 카드(지문 Markdown + 보기 4개 버튼), 선택 즉시 제출 → 정오 색상 + 해설 펼침 + 관련 개념 링크(S4) + [오류 신고](S6 — §5.3 재생성 흐름) → [다음]. 상단 진행바 + 경과 시간.
 - **종료 요약**: 정답률, 소요 시간, 틀린 문제 리스트(각각 오답노트 메모 바로 입력).
 - **키보드 단축키(S9, F36-④)**: 1~4 = 보기 선택(즉시 제출), Enter = 다음, B = 북마크 토글 — 입력 필드 포커스 중에는 무시. 해설 하단에 단축키 힌트 소표기.
@@ -437,6 +507,7 @@ backend/services/fetchers/
 - 카드 뒤집기(탭/스페이스), 스와이프 좌="모른다"(q=1)/우="안다"(q=4). 남은 장수 + 오늘 큐 진행.
 - **판정 undo 1회(S9, F36-⑧)**: 직전 판정을 [되돌리기]로 취소(오조작 SM-2 오염 방지) — 구현은 **전송 지연**(§4.12): 판정은 다음 카드 진입 시(마지막 카드는 세션 종료 시) 확정 전송, undo = 미전송 취소 후 카드 복귀. 새 API 없음.
 - **복습 완료 화면(S9, F36-③)**: 오늘 큐 소화 완료 시 요약 + **"내일 N개 예정"**(`GET /api/srs/summary`) + **[이어하기로 계속]**(`study/continue` 첫 카드로 — daily_start 여정 §5.1의 후반부). **S10(F26·F36-③ 연계)**: 스트릭 배지 추가 — "N일 연속 학습 중"(`GET /api/stats/streak`), 오늘 목표 달성 시 달성 표기 — 내일 예고와 나란히 "오늘의 마무리" 블록.
+- **D-Day 강화 모드(S11, F16)**: `srs/summary`의 `dday_boost` 발동 시 복습 헤더에 배지 — "『정보처리기사 필기』 D-7 · 오늘 복습 60개로 강화"(name·d_day·effective_limit). `ahead:true` 카드에는 "선행 복습" 소배지(§4.14 — 아직 due 전이지만 시험 대비로 당겨왔다는 표시). 미발동 시 기존 화면 그대로.
 - **API**: `srs/today`(flashcard 타입 필터) 또는 범위 선택, `srs/answer`, `srs/summary`(S9).
 
 ### 5.8 오답노트 — `/review-notes`
@@ -465,7 +536,7 @@ backend/services/fetchers/
 
 ### 5.11 설정 — `/settings`
 - 테마(라이트/다크/시스템 — localStorage, §6), 복습 큐 상한, 기본 문항 수, D-Day 관리(S4, 아래), 백업/복원(S6), 태그 병합 도구(S6 — S9에서 태그 관리자로 승격).
-- **6그룹 구성(F38 — 골격은 S8 선반영 완료, S9는 내용 완성)**: 좌측 목차(카테고리 점프, 모바일 아코디언) + ① **학습**(복습 상한·기본 문항 수 + S9: 글자 크기 `study.font_scale`·정답 자동 다음 `quiz.auto_advance` + **S10: 일일 목표** — 문제 수 `goal.daily_questions`·시간(분) `goal.daily_minutes` 숫자 입력, 비움/0 = 목표 없음, 저장 시 스트릭·히트맵 위젯 invalidate. "시간은 문제 풀이 시간 기준" 도움말 소표기 §4.13) ② **일정**(D-Day 관리) ③ **태그·분류**(태그 규칙 + S9: **태그 관리자** — 아래) ④ **LLM 엔진**(S8 §4.11) ⑤ **데이터**(백업/복원·CSV 내보내기 + S9: 복원 후 강제 리로드 모달 §4.12) ⑥ **화면**(테마).
+- **6그룹 구성(F38 — 골격은 S8 선반영 완료, S9는 내용 완성)**: 좌측 목차(카테고리 점프, 모바일 아코디언) + ① **학습**(복습 상한·기본 문항 수 + S9: 글자 크기 `study.font_scale`·정답 자동 다음 `quiz.auto_advance` + **S10: 일일 목표** — 문제 수 `goal.daily_questions`·시간(분) `goal.daily_minutes` 숫자 입력, 비움/0 = 목표 없음, 저장 시 스트릭·히트맵 위젯 invalidate. "시간은 문제 풀이 시간 기준" 도움말 소표기 §4.13 + **S11: D-Day 복습 강화 토글** `srs.dday_boost`(기본 on) — "시험 14일 전부터 복습 상한을 늘리고 임박 시험 범위를 우선합니다" 도움말, §4.14) ② **일정**(D-Day 관리) ③ **태그·분류**(태그 규칙 + S9: **태그 관리자** — 아래) ④ **LLM 엔진**(S8 §4.11) ⑤ **데이터**(백업/복원·CSV 내보내기 + S9: 복원 후 강제 리로드 모달 §4.12) ⑥ **화면**(테마).
 - **태그 관리자(S9, F38)** — 병합 "도구"(TagMergeTool)를 관리 "화면"으로 승격:
   - **목록 테이블**: 이름 · 사용 문서 수(doc_count) · 규칙 사용 배지(rule_count>0) — 검색·정렬(이름/사용 수). 행 클릭 = 사용 문서 보기(탐색 `?tag=` 필터 링크).
   - **유사 태그 제안**: `GET /api/tags/similar` 결과를 "『정규화』↔『정규 화』 병합할까요?" 목록으로 — [병합](방향 선택 = 남길 이름 지정, 기존 `tags/merge`) / [무시](세션 내 숨김 — 저장 안 함, 과설계 방지).
@@ -475,6 +546,14 @@ backend/services/fetchers/
   - 임의 D-Day(접수 마감·발표일 등 분류와 무관): 라벨+날짜 추가/수정/삭제 — `settings:ddays.custom = [{id, label, date}]` (settings GET/PUT 재사용).
   - 홈 D-Day 배지는 두 종류를 병합한 `dashboard.ddays`(§4.8) 사용.
 - **API**: `settings`, `categories` PATCH, `backups`(S6).
+
+### 5.12 모의고사 — `/exam` (구성) → `/exam/run` → 결과 (S11, F25)
+
+- **구성 화면**: 진입은 퀴즈 설정(§5.6) 탭. ① 트리에서 시험 노드 선택 → ② **직계 자식 체크리스트**로 과목 구성(문제 보유 노드는 기본 전체 선택 — 회차 노드가 섞여 있으면 사용자가 해제. **회차 노드 1개만 선택 = "회차 그대로" 모의**: 전체 문항·순차가 기본값으로 전환) → ③ 과목당 문항 수(기본 20) · 제한 시간(기본 총 문항 × 1.5분 자동 계산, 수정 가능) · 합격선(기본 40/60 표기 "과목 40점 과락 · 평균 60점 합격", 수정 가능) · 출제 순서(랜덤/순차) → [응시 시작] = `POST /api/exam/session`.
+- **런 화면(`/exam/run`)**: **QuizCard의 문항 렌더(지문 Markdown + 보기 버튼)를 재사용하되 채점 상호작용은 제거** — 보기 선택 = 답안 저장만(정오 색상·해설·오답노트 없음), 답 변경·이전/다음 자유 이동. 우측(모바일 하단 시트) **문항 네비게이터**: 과목 구분 + 문항별 응답/미응답 표시, 탭 이동. 상단 **카운트다운 타이머(프론트 주도 — §4.14)**: 잔여 5분 경고색(토큰), 0초 도달 시 확인 없이 **미응답 포함 자동 일괄 제출**. [제출] 버튼 = 미응답 N개 경고 확인 모달 후 `POST /api/exam/submit`. 세션은 zustand `examSession`(제출 전엔 서버 무상태) — 새로고침·이탈 시 "시험이 사라집니다" 경고(beforeunload + 라우터 가드).
+- **결과 리포트**: 총점 + 합격/불합격 배지, **과목별 점수 바**(subject_min 컷 라인 표시, 과락 과목 `--wrong` 계열 배지), 소요 시간. **문항별 리뷰**(제출 후이므로 정답·해설 공개 — results 기반): 내 답 vs 정답, 해설 펼침, 오답 문항엔 **틀린이유 원탭(F36-⑤ 재사용** — `review_note_id`로 PATCH). 하단 [틀린 문제 재도전](`quiz/session{mode:'sequential', document_ids}` — §5.8 관례) · [오답노트 가기] · **최근 응시 이력**(`GET /api/exam/history` — 점수 추이 소표기).
+- **엣지**: 선택 과목 전부 0문항 → 시작 불가 안내(422 메시지 렌더). 0문항 과목은 구성 화면에서 미리 비활성(개수 칩 0). 결과 화면은 리포트 데이터가 examSession에 있는 동안만 — 이탈 후엔 이력(history)에서 요약만 확인 가능(당시 상세 리포트 재열람은 저장하지 않음 — R15).
+- **API**: `exam/session`, `exam/submit`, `exam/history`(§4.14), `quiz/session`(재도전).
 
 ## 6. 테마 · 디자인 토큰 (F28)
 
@@ -486,12 +565,12 @@ backend/services/fetchers/
 ## 7. 프론트 상태 관리
 
 - **서버 상태**: TanStack Query — 캐시 키 = 리소스 경로. 변경(mutation) 후 관련 쿼리 invalidate.
-- **로컬 상태**: zustand 4개 — `quizSession`(문항·답안·타이머), `flashcardSession`, `theme`, `sidebar`(S7 — `'expanded'|'collapsed'`, localStorage `sidebar` persist, 기본값 규칙은 §5 도입부).
+- **로컬 상태**: zustand 5개 — `quizSession`(문항·답안·타이머), `flashcardSession`, `examSession`(S11 — 문항·답안·카운트다운·리포트, 제출 전엔 전부 로컬(서버 무상태 §4.14), persist 없음), `theme`, `sidebar`(S7 — `'expanded'|'collapsed'`, localStorage `sidebar` persist, 기본값 규칙은 §5 도입부).
 - 홈 레이아웃(S7)은 스토어를 두지 않는다: 저장본은 서버 `settings:home.layout`(TanStack Query), 편집 중 드래프트는 홈 컴포넌트 로컬 상태 — [완료] 시에만 PUT, 취소 시 폐기.
 - 낙관적 업데이트는 북마크·진도 완료(체감 속도 중요)에만 적용, 나머지는 단순 invalidate.
 
 ## 8. 비고
 
-- 서버 채점 원칙: 정답·해설은 `quiz/session` 응답에 포함하지 않는다 (풀기 전 노출 방지, 기록 무결성).
-- attempts 저장과 SM-2 갱신·오답노트 생성은 하나의 트랜잭션.
+- 서버 채점 원칙: 정답·해설은 `quiz/session`·`exam/session` 응답에 포함하지 않는다 (풀기 전 노출 방지, 기록 무결성).
+- attempts 저장과 SM-2 갱신·오답노트 생성은 하나의 트랜잭션 (모의고사 일괄 제출은 **배치 전체가 한 트랜잭션** — §4.14).
 - 이 문서와 실제 구현의 갭은 각 stage 완료 시 `/pdca analyze`로 점검.

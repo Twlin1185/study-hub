@@ -20,16 +20,31 @@ class SrsAnswerResult(BaseModel):
     due_date: Optional[dt.date] = None
 
 
+class DDayBoostOut(BaseModel):
+    """S11(F16, 설계 §4.14) — D-Day 강도 조절 발동 시에만 `SrsSummary.dday_boost`에 채워진다."""
+
+    category_id: int
+    name: str
+    exam_date: dt.date
+    d_day: int
+    multiplier: float
+    effective_limit: int
+
+
 class SrsSummary(BaseModel):
     """`GET /api/srs/summary` (설계 §4.12, F36-③·①) — 복습 완료 화면 "내일 N개 예정",
     홈 daily_start 위젯 분량 예고에 쓰인다.
 
-    today_due = 오늘 큐 잔여 수(상한 적용) — `count_due_today`와 동일 계산.
+    today_due = 오늘 큐 잔여 수(상한 적용, S11부터 D-Day 부스트 반영) — `count_due_today`와
+    동일 계산(`get_today_queue`와 항상 일치, 설계 §4.14 DoD).
     tomorrow_due = 내일까지 due인 카드 수(오늘 미소화 이월 포함) — 상한 동일 적용.
+    dday_boost = S11(F16) — 발동 시에만 채움, 미발동 시 응답에서 생략(exclude_none,
+    기존 호출부 응답 불변).
     """
 
     today_due: int
     tomorrow_due: int
+    dday_boost: Optional[DDayBoostOut] = None
 
 
 class SrsCardOut(BaseModel):
@@ -55,3 +70,6 @@ class SrsCardOut(BaseModel):
     # 플래시카드 뒤집기용 (flashcard 타입에서만 채움, 그 외 null)
     answer: Optional[str] = None
     explanation: Optional[str] = None
+    # S11(F16, 설계 §4.14) — 선행 복습 카드(D<=7에서만 등장, due 미도래인데 남는 자리를
+    # 채운 카드). 기본 false — 미발동 시 기존 응답과 동일한 값만 나온다.
+    ahead: bool = False
