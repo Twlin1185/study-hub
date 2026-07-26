@@ -16,3 +16,12 @@ frontend/dist/
 
 .bkit/
 backend/.bkit/
+
+# 작업용 git worktree (Claude Code 격리 작업 공간 — 커밋 대상 아님)
+.claude/worktrees/
+
+# 도구 런타임 상태 (세션마다 자동으로 바뀌는 값 — 소스가 아니다)
+.claude/scheduled_tasks.lock
+docs/.pdca-snapshots/
+docs/.pdca-status.json
+**/.bkit-memory.json
