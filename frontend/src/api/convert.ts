@@ -52,6 +52,19 @@ export function isJobLost(query: { isError: boolean; error: unknown }): boolean 
   return query.isError && query.error instanceof ApiError && query.error.status === 404
 }
 
+// 진행 상황을 더 이상 확인할 수 없는 상태를 구분한다.
+//   'lost'        — 404: 잡이 서버에서 사라짐(재시작·TTL 1시간 만료). 다시 시도해야 한다.
+//   'unreachable' — 그 외 실패(서버가 꺼졌거나 재시작 중, 네트워크 끊김). 서버가 돌아오면
+//                   같은 잡이 살아 있을 수도 있으므로 '다시 확인'을 권한다.
+// 404만 처리하면 서버를 끄거나 재시작하는 동안 화면이 "처리 준비 중…"에 갇힌다
+// (2026-07-26 실사용 확인 — 서버 재시작이 잦은 로컬 앱이라 흔한 경로다).
+export type JobUnavailable = 'lost' | 'unreachable' | null
+
+export function jobUnavailable(query: { isError: boolean; error: unknown }): JobUnavailable {
+  if (!query.isError) return null
+  return isJobLost(query) ? 'lost' : 'unreachable'
+}
+
 // convert 잡 완료(done) 시 result_preview_id로 반입 preview를 자동 연동한다. §4.3에는 preview_id로
 // 기존 미리보기를 다시 조회하는 GET 엔드포인트가 명세되어 있지 않아 `/import/preview/{id}`가
 // 있다고 가정해 시도한다 — 실패 시 폴백 안내(수동 반입)로 이어진다. **명세 갭 — 최종 보고 필수.**

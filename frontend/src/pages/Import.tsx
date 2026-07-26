@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useImportCommit, useImportPreview } from '../api/import'
-import { isJobLost, useConvertedPreview, useConvertJob, useStartConvert } from '../api/convert'
+import { isJobLost, jobUnavailable, useConvertedPreview, useConvertJob, useStartConvert } from '../api/convert'
 import { ApiError } from '../api/client'
 import { clearStoredConvertJob, getStoredConvertJob, setStoredConvertJob } from '../utils/convertJob'
 import LlmJobProgress from '../components/LlmJobProgress'
@@ -412,8 +412,8 @@ function ConvertStep({ sourceKind, onPreviewReady, onFallbackToManual }: Convert
   }
 
   // 잡 소실(404 — 서버 재시작·TTL 1시간 만료)이면 진행 표시를 멈춘다(사이트 반입 위저드와 동일 규약).
-  const jobLost = jobId != null && isJobLost(jobQuery)
-  const running = jobId != null && !jobLost && (jobQuery.data == null || jobQuery.data.status === 'running')
+  const unavailable = jobId != null ? jobUnavailable(jobQuery) : null
+  const running = jobId != null && unavailable == null && (jobQuery.data == null || jobQuery.data.status === 'running')
   const jobFailed = jobQuery.data?.status === 'error'
   const done = jobQuery.data?.status === 'done'
   const previewFetchFailed = done && (previewFetch.isError || !jobQuery.data?.result_preview_id)
@@ -481,20 +481,34 @@ function ConvertStep({ sourceKind, onPreviewReady, onFallbackToManual }: Convert
 
       {running && <LlmJobProgress progress={jobQuery.data?.progress} includeDownloading={sourceKind === 'url'} />}
 
-      {jobLost && (
+      {unavailable && (
         <div className="flex flex-col gap-2 rounded-lg border border-warning bg-accent-soft p-3 text-sm text-primary">
-          <p className="font-medium">진행 상황을 더 이상 확인할 수 없습니다</p>
-          <p className="text-xs text-muted">
-            서버가 다시 시작되었거나 작업 정보가 만료되어(1시간) 이 변환 작업의 진행 상황이 사라졌습니다.
-            변환이 끝나기 전이었다면 반입되지 않았으니 다시 시도해 주세요.
+          <p className="font-medium">
+            {unavailable === 'lost' ? '진행 상황을 더 이상 확인할 수 없습니다' : '서버에 연결하지 못했습니다'}
           </p>
-          <button
-            type="button"
-            onClick={handleReset}
-            className="w-fit rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
-          >
-            처음부터 다시 시도
-          </button>
+          <p className="text-xs text-muted">
+            {unavailable === 'lost'
+              ? '서버가 다시 시작되었거나 작업 정보가 만료되어(1시간) 이 변환 작업의 진행 상황이 사라졌습니다. 변환이 끝나기 전이었다면 반입되지 않았으니 다시 시도해 주세요.'
+              : '서버가 꺼져 있거나 다시 시작하는 중일 수 있습니다. 서버를 켠 뒤 [다시 확인]을 눌러 보세요 — 작업이 아직 살아 있으면 이어서 표시됩니다.'}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {unavailable === 'unreachable' && (
+              <button
+                type="button"
+                onClick={() => jobQuery.refetch()}
+                className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+              >
+                다시 확인
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleReset}
+              className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+            >
+              처음부터 다시 시도
+            </button>
+          </div>
         </div>
       )}
 
