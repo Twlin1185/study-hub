@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from './client'
+import { ApiError, api } from './client'
 import { documentKeys } from './documents'
 import type {
   ConvertJobResponse,
@@ -33,13 +33,23 @@ export function useStartConvert() {
 }
 
 // GET /api/convert/{job_id} 폴링 — running인 동안 2초 간격 재조회.
+// retry: false — 잡 큐는 인메모리(서버 재시작 시 소실) + TTL 1시간이라 404가 된 잡은
+// 재요청해도 돌아오지 않는다. 재시도하면 사라진 잡을 계속 두드리기만 한다(regenerate 잡 전례).
 export function useConvertJob(jobId: string | null) {
   return useQuery({
     queryKey: ['convert', 'job', jobId ?? ''],
     queryFn: () => api.get<ConvertJobResponse>(`/convert/${jobId}`),
     enabled: jobId != null,
     refetchInterval: (query) => (query.state.data?.status === 'running' ? POLL_INTERVAL_MS : false),
+    retry: false,
   })
+}
+
+// 잡이 서버에서 사라졌는가(404) — 서버 재시작 또는 TTL(1시간) 만료. 이 상태에서는 진행 표시를
+// 멈추고 "다시 시도" 안내로 빠져나가야 한다(폴링 결과가 영영 오지 않으므로 진행 중 표시를
+// 유지하면 화면이 "처리 준비 중…"에서 멈춘 것처럼 보인다 — 2026-07-26 사용자 실사용 보고).
+export function isJobLost(query: { isError: boolean; error: unknown }): boolean {
+  return query.isError && query.error instanceof ApiError && query.error.status === 404
 }
 
 // convert 잡 완료(done) 시 result_preview_id로 반입 preview를 자동 연동한다. §4.3에는 preview_id로

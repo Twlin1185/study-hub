@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useImportCommit, useImportPreview } from '../api/import'
-import { useConvertedPreview, useConvertJob, useStartConvert } from '../api/convert'
+import { isJobLost, useConvertedPreview, useConvertJob, useStartConvert } from '../api/convert'
 import { ApiError } from '../api/client'
 import { clearStoredConvertJob, getStoredConvertJob, setStoredConvertJob } from '../utils/convertJob'
 import LlmJobProgress from '../components/LlmJobProgress'
@@ -404,7 +404,9 @@ function ConvertStep({ sourceKind, onPreviewReady, onFallbackToManual }: Convert
     setJobId(null)
   }
 
-  const running = jobId != null && (jobQuery.data == null || jobQuery.data.status === 'running')
+  // 잡 소실(404 — 서버 재시작·TTL 1시간 만료)이면 진행 표시를 멈춘다(사이트 반입 위저드와 동일 규약).
+  const jobLost = jobId != null && isJobLost(jobQuery)
+  const running = jobId != null && !jobLost && (jobQuery.data == null || jobQuery.data.status === 'running')
   const jobFailed = jobQuery.data?.status === 'error'
   const done = jobQuery.data?.status === 'done'
   const previewFetchFailed = done && (previewFetch.isError || !jobQuery.data?.result_preview_id)
@@ -471,6 +473,23 @@ function ConvertStep({ sourceKind, onPreviewReady, onFallbackToManual }: Convert
         ))}
 
       {running && <LlmJobProgress progress={jobQuery.data?.progress} includeDownloading={sourceKind === 'url'} />}
+
+      {jobLost && (
+        <div className="flex flex-col gap-2 rounded-lg border border-warning bg-accent-soft p-3 text-sm text-primary">
+          <p className="font-medium">진행 상황을 더 이상 확인할 수 없습니다</p>
+          <p className="text-xs text-muted">
+            서버가 다시 시작되었거나 작업 정보가 만료되어(1시간) 이 변환 작업의 진행 상황이 사라졌습니다.
+            변환이 끝나기 전이었다면 반입되지 않았으니 다시 시도해 주세요.
+          </p>
+          <button
+            type="button"
+            onClick={handleReset}
+            className="w-fit rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+          >
+            처음부터 다시 시도
+          </button>
+        </div>
+      )}
 
       {jobFailed && (
         <div className="flex flex-col gap-2">
