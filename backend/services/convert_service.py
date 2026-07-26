@@ -14,6 +14,7 @@ import base64
 import datetime as dt
 import hashlib
 import json
+import logging
 import queue
 import re
 import shutil
@@ -48,6 +49,8 @@ JOB_TTL = dt.timedelta(hours=1)
 # 모델이면 API가 400을 반환하므로 이 값이 안전 상한이다). CLI 경로는 별도 출력 상한이
 # 없어 이 상수로 엔진 간 비대칭도 없앤다.
 API_MAX_OUTPUT_TOKENS = 32000
+
+_LOGGER = logging.getLogger(__name__)
 
 _JOBS: Dict[str, dict] = {}
 _JOBS_LOCK = threading.Lock()
@@ -656,7 +659,10 @@ def _process_job(job_id: str) -> None:
                     # SSRF 차단·JSON 파싱 실패 등 이미 안전한 한국어 메시지는 그대로 보존.
                     job["error"] = exc.message
                 else:
+                    # 미분류 예외 — UI에는 일반 메시지만 가지만, 원인 추적을 위해
+                    # 서버 콘솔에는 traceback을 남긴다(미로깅 시 원인 파악 불가).
                     job["error"] = None
+                    _LOGGER.exception("잡 %s(%s) 처리 중 미분류 예외", job_id, job.get("kind"))
                 if job.get("_error_info") is None:
                     job["_error_info"] = _fallback_error_info(exc)
     finally:

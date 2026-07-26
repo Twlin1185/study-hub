@@ -72,9 +72,30 @@ def _domain_lock(host: str) -> threading.Lock:
 # 단일 hop 요청(도메인 스로틀 2초 + 5xx/429 지수 백오프) — 리다이렉트는 추종하지 않고
 # ('redirect', location)을 반환해 호출부가 hop마다 SSRF/robots를 재검증하게 한다.
 # ---------------------------------------------------------------------------
+def _ascii_safe_url(url: str) -> str:
+    """IRI(경로·쿼리에 한글 등 비ASCII 포함 URL) → ASCII URI.
+
+    비ASCII URL은 두 경로로 들어온다 — ① HTML href의 진짜 유니코드 str,
+    ② 302 Location 헤더: http.client가 UTF-8 바이트를 latin-1로 디코드한
+    mojibake str(comcbt 파일 서버 실측). ②를 UTF-8로 재인코딩하면 깨진 URL이
+    되므로 latin-1 인코딩이 가능하면 원래 바이트로 복원해 quote한다 — cpython
+    `HTTPRedirectHandler`가 Location을 iso-8859-1로 quote하는 것과 같은 규약.
+    이미 인코딩된 %XX·예약 문자는 보존(이중 인코딩 방지). 호스트는 어댑터
+    허용 도메인(ASCII)뿐이라 IDN 변환은 다루지 않는다.
+    """
+    if url.isascii():
+        return url
+    try:
+        raw: bytes = url.encode("latin-1")  # 헤더 경유 mojibake → 원 바이트 복원
+    except UnicodeEncodeError:
+        raw = url.encode("utf-8")  # 진짜 유니코드 IRI(HTML에서 추출)
+    return urllib.parse.quote(raw, safe=":/?#[]@!$&'()*+,;=%")
+
+
 def _single_hop_request(url: str, host: str, headers: dict):
     """반환: ('ok', response) | ('redirect', location_url). HTTP/네트워크 오류는
     ParseFailedError(detail에 http_code 있으면 HTTP 오류)로 올린다."""
+    url = _ascii_safe_url(url)
     opener = urllib.request.build_opener(net_safety.NoRedirectHandler())
     lock = _domain_lock(host)
     with lock:  # 병렬 금지 — 도메인당 한 요청씩
@@ -252,9 +273,15 @@ class FetchClient:
                 continue
         return data.decode("utf-8", errors="replace")
 
-    def get_bytes(self, url: str, *, max_bytes: int = MAX_FETCH_BYTES) -> Tuple[bytes, Optional[str], Optional[str]]:
-        """(data, content_type, filename). 크기 상한·스로틀·robots 적용."""
-        resp = self._open(url)
+    def get_bytes(
+        self, url: str, *, max_bytes: int = MAX_FETCH_BYTES, referer: Optional[str] = None
+    ) -> Tuple[bytes, Optional[str], Optional[str]]:
+        """(data, content_type, filename). 크기 상한·스로틀·robots 적용.
+
+        referer: XE(comcbt) 등 게시판형 사이트는 다운로드 요청에 Referer가 없으면
+        파일 대신 HTML 안내 페이지를 반환한다 — 첨부를 발견한 게시물 URL을 넘긴다.
+        """
+        resp = self._open(url, extra_headers={"Referer": referer} if referer else None)
         with resp:
             ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower() or None
             disposition = resp.headers.get("Content-Disposition") or ""

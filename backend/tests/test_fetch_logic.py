@@ -131,3 +131,32 @@ def test_goal_met_and_semantics():
     assert _evaluate_goal(5, 30, 20, None) is False       # 문항 미달(분 목표 없음)
     assert _evaluate_goal(20, 0, 20, None) is True        # 문항만 목표 → 충족
     assert _evaluate_goal(100, 100, None, None) is False  # 목표 미설정 → 달성 대상 없음
+
+
+# --- URL ASCII 정규화 (S10 사후 수정: comcbt 한글 첨부 URL·mojibake Location) ---
+def test_ascii_safe_url_passthrough_ascii():
+    url = "https://www.comcbt.com/xe/?module=file&act=procFileDownload&file_srl=1&sid=ab"
+    assert registry._ascii_safe_url(url) == url
+
+
+def test_ascii_safe_url_encodes_unicode_iri():
+    # HTML href에서 추출한 진짜 유니코드 str — UTF-8 percent-encoding
+    url = "https://img.comcbt.com/xe/download/1/품질.pdf"
+    out = registry._ascii_safe_url(url)
+    assert out.isascii()
+    assert out == "https://img.comcbt.com/xe/download/1/%ED%92%88%EC%A7%88.pdf"
+
+
+def test_ascii_safe_url_recovers_latin1_mojibake_location():
+    # 302 Location 헤더: http.client가 UTF-8 바이트를 latin-1로 디코드한 str.
+    # 원 바이트를 복원해 quote해야 서버가 아는 경로가 된다(재인코딩 금지).
+    original = "https://img.comcbt.com/xe/download/1/품질.pdf"
+    mojibake = original.encode("utf-8").decode("latin-1")
+    assert registry._ascii_safe_url(mojibake) == registry._ascii_safe_url(original)
+
+
+def test_ascii_safe_url_preserves_existing_percent_escapes():
+    url = "https://img.comcbt.com/a/%ED%92%88 질.pdf"
+    out = registry._ascii_safe_url(url)
+    assert "%25" not in out  # 기존 %XX 이중 인코딩 금지
+    assert out == "https://img.comcbt.com/a/%ED%92%88%20%EC%A7%88.pdf"
