@@ -2,13 +2,14 @@
 title Study Hub Server
 cd /d "%~dp0backend"
 
+rem This script is for the DEV PC (uses backend\.venv + npm build).
+rem On a PC without .venv (e.g. a tester PC) hand over to the portable version.
 if not exist ".venv\Scripts\python.exe" (
-    echo [ERROR] backend\.venv not found.
-    echo Run these in the backend folder first:
-    echo    python -m venv .venv
-    echo    .venv\Scripts\pip install -r requirements.txt
-    pause
-    exit /b 1
+    echo [INFO] backend\.venv not found - this script is for the development PC.
+    echo        Starting the portable version instead: 2_StartServer.bat
+    echo.
+    call "%~dp02_StartServer.bat"
+    exit /b
 )
 
 rem Create DB schema if study.db is missing

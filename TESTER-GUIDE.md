@@ -42,9 +42,10 @@ Python·Node 등 아무것도 설치되지 않은 Windows PC에서 Study Hub를 
 
 ```
 Project_Study/
-├─ 1_Setup.bat        ← 초기 설정 (포터블 Python + 패키지 + DB 생성)
-├─ 2_StartServer.bat  ← 서버 시작 (테스터는 이것만 실행)
-├─ 수동 서버종료.bat   ← 서버 강제 종료
+├─ 1_Setup.bat            ← 초기 설정 (포터블 Python + 패키지 + DB 생성)
+├─ 2_StartServer.bat      ← 서버 시작 (테스터는 이것만 실행)
+├─ 수동 서버종료.bat       ← 서버 강제 종료
+├─ 개발용 서버시작.bat     ← 개발 PC 전용 (실수로 눌러도 자동으로 2번으로 넘어감)
 ├─ python-embed/      ← 초기 설정이 만드는 포터블 Python (지우면 재설치됨)
 ├─ backend/           ← 서버 코드
 ├─ frontend/dist/     ← 화면 (빌드 결과물)
