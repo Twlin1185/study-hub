@@ -36,9 +36,18 @@ interface LlmErrorInfoProps {
   legacyError?: string | null
   onRetryWithApi?: () => void
   retrying?: boolean
+  // S13(F40-④, 설계 §4.11 `invalid_output`): 출력이 잘려 파싱에 실패한 경우 — 같은 파일로
+  // 재시도하면 같은 실패이므로 "원본을 나눠서 다시 올리기"(시작 화면 복귀)를 제공한다.
+  onSplitReupload?: () => void
 }
 
-export default function LlmErrorInfoView({ errorInfo, legacyError, onRetryWithApi, retrying }: LlmErrorInfoProps) {
+export default function LlmErrorInfoView({
+  errorInfo,
+  legacyError,
+  onRetryWithApi,
+  retrying,
+  onSplitReupload,
+}: LlmErrorInfoProps) {
   if (!errorInfo) {
     return (
       <div className="rounded border border-wrong bg-surface px-3 py-2 text-sm">
@@ -58,16 +67,27 @@ export default function LlmErrorInfoView({ errorInfo, legacyError, onRetryWithAp
         </p>
       )}
       <p className="mt-1 text-muted">{errorInfo.action}</p>
-      {errorInfo.fallback_available && onRetryWithApi && (
-        <button
-          type="button"
-          onClick={onRetryWithApi}
-          disabled={retrying}
-          className="mt-2 rounded bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
-        >
-          {retrying ? '재시도 중…' : 'API로 재시도'}
-        </button>
-      )}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {errorInfo.fallback_available && onRetryWithApi && (
+          <button
+            type="button"
+            onClick={onRetryWithApi}
+            disabled={retrying}
+            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
+          >
+            {retrying ? '재시도 중…' : 'API로 재시도'}
+          </button>
+        )}
+        {errorInfo.kind === 'invalid_output' && onSplitReupload && (
+          <button
+            type="button"
+            onClick={onSplitReupload}
+            className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+          >
+            파일 나눠서 다시 올리기
+          </button>
+        )}
+      </div>
     </div>
   )
 }

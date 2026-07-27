@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -41,6 +42,19 @@ def commit(req: CommitRequest, db: Session = Depends(get_db)) -> CommitResult:
 
 
 @router.get("/preview/{preview_id}", response_model=PreviewResponse)
-def get_preview(preview_id: str) -> PreviewResponse:
-    """캐시된 미리보기 재조회 (설계 §4.3, S6) — convert 잡의 result_preview_id로 접근."""
-    return import_service.get_preview(preview_id)
+def get_preview(preview_id: str, db: Session = Depends(get_db)) -> PreviewResponse:
+    """캐시된 미리보기 재조회 (설계 §4.3, S6) — convert 잡의 result_preview_id로 접근.
+    S13(F40-①): 캐시 미스(TTL 만료·서버 재시작)면 `import/auto/` 보존본으로 복구한다."""
+    return import_service.get_preview(db, preview_id)
+
+
+@router.get("/preview/{preview_id}/json")
+def download_preview_json(preview_id: str) -> FileResponse:
+    """보존된 반입 JSON 내려받기 (S13 F40-①, 설계 §4.3) — 최악의 경우에도 사용자가 파일을
+    손에 쥐고 "반입 JSON 파일 선택" 경로로 이어갈 수 있게 하는 탈출구. 없으면 404."""
+    path = import_service.preserved_json_path(preview_id)
+    return FileResponse(
+        path,
+        media_type="application/json",
+        filename=path.name,  # Content-Disposition: attachment
+    )

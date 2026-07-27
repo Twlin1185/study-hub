@@ -1,33 +1,22 @@
-"""사이트 어댑터·목표 판정 순수 로직 단위 테스트 (S10·S12, 설계 §4.13).
+"""사이트 어댑터·목표 판정 순수 로직 단위 테스트 (S10·S13, 설계 §4.13).
 
-DB·네트워크 없이 검증 가능한 순수 함수만 고정한다 — 회차 키 정규화·estimate 산식·
-우선순위 병합(qnet>cbtbank>comcbt)·날짜 자연 키 병합·키→폴더명 파생·목표 달성(AND) 판정.
+DB·네트워크 없이 검증 가능한 순수 함수만 고정한다 — SSRF 리다이렉트 차단·URL ASCII
+정규화·estimate 산식·단일 어댑터 목록 구성(also_on 빈 배열·refs 단일 항목)·수치 튜플
+정렬·키→폴더명 파생·목표 달성(AND) 판정.
 (수집·LLM 경로는 스모크로 별도 확인.)
+
+S13 — 사설 사이트 어댑터들은 계획서 §14 F35-2 "제거 이력"에 따라 코드와 함께
+삭제됐다. 그 사이트 전용 파싱·다중 어댑터 병합 테스트도 함께 제거하고, 단일
+어댑터(qnet) 목록 구성 테스트로 대체했다.
 """
 from __future__ import annotations
 
 import pytest
 
 from services import fetch_service
-from services.fetchers import comcbt, registry
+from services.fetchers import registry
 from services.fetchers.base import ExamEntry, ParseFailedError
 from services.stats_service import _evaluate_goal
-
-
-# --- 회차 키 정규화(YYYY-N) -------------------------------------------------
-def test_parse_exam_key_basic():
-    assert comcbt._parse_exam_key("정보처리기사 필기 2022년 04월 24일(2회)(해설집 포함)") == "2022-2"
-
-
-def test_parse_exam_key_merged_round_takes_first():
-    # "1, 2회 통합" → 첫 회차 번호 채택
-    assert comcbt._parse_exam_key("정보처리기사 필기 2020년 06월 06일(1, 2회 통합)") == "2020-1"
-
-
-def test_parse_exam_key_none_for_notice_without_paren_round():
-    # 괄호 밖 "1회"는 공지 제목 오탐이므로 회차로 인정하지 않는다(None → 목록에서 제외)
-    assert comcbt._parse_exam_key("2020년 1회 이후 시험과목 변경 안내") is None
-    assert comcbt._parse_exam_key("공지사항입니다") is None
 
 
 # --- estimate 산식 ----------------------------------------------------------
@@ -46,13 +35,13 @@ def test_estimate_uses_known_count():
     assert est["approx_input_tokens"] == 40 * fetch_service.DEFAULT_TOKENS_PER_QUESTION
 
 
-# --- 큐넷 우선 병합(같은 exam_key 양쪽 존재 → qnet 채택, comcbt는 also_on) ----
-def _entry(adapter_cert, key):
-    return ExamEntry(exam_key=key, label=f"{adapter_cert} {key}", exam_ref="r", cert_name="정보처리기사")
+# --- 단일 어댑터 목록 구성(S13 — 병합·priority 채택 없음, 큐넷 우선 병합 테스트 대체) ---
+def _entry(key, ref="r", cert_name="정보처리기사", exam_date=None):
+    return ExamEntry(exam_key=key, label=f"{cert_name} {key}", exam_ref=ref, cert_name=cert_name, exam_date=exam_date)
 
 
-def test_merge_prefers_qnet(monkeypatch):
-    from services.fetchers import registry
+def test_list_exams_single_adapter_also_on_empty_refs_single(monkeypatch):
+    """등록 어댑터가 하나뿐이므로 also_on은 항상 빈 배열, refs는 단일 항목이다."""
 
     class _FakeQnet:
         id, priority = "qnet", 1
@@ -61,35 +50,38 @@ def test_merge_prefers_qnet(monkeypatch):
             return True, None
 
         def list_exams(self, cert_ref, client):
-            return [_entry("qnet", "2022-2")]
+            return [_entry("2022-2", ref="qref1"), _entry("2021-1", ref="qref2")]
 
-    class _FakeComcbt:
-        id, priority = "comcbt", 2
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry("comcbt", "2022-2"), _entry("comcbt", "2021-1")]
-
-    fakes = [_FakeQnet(), _FakeComcbt()]
+    fakes = [_FakeQnet()]
     monkeypatch.setattr(registry, "get_adapters", lambda: fakes)
     monkeypatch.setattr(registry, "get_adapter", lambda aid: next((a for a in fakes if a.id == aid), None))
     monkeypatch.setattr(registry, "cache_get", lambda k: None)
     monkeypatch.setattr(registry, "cache_set", lambda k, v: None)
     monkeypatch.setattr(fetch_service, "_is_imported", lambda *a, **k: False)
 
-    sources = [{"adapter": "qnet", "cert_ref": "x"}, {"adapter": "comcbt", "cert_ref": "iz"}]
+    sources = [{"adapter": "qnet", "cert_ref": "x"}]
     out = fetch_service.list_exams(db=None, sources=sources)
     by_key = {e["exam_key"]: e for e in out}
-    assert by_key["2022-2"]["adapter"] == "qnet"          # 큐넷 채택
-    assert by_key["2022-2"]["also_on"] == ["comcbt"]      # comcbt는 also_on
-    # refs: 양쪽 어댑터의 exam_ref를 모두 담고, 최상위 exam_ref == refs[adapter](하위 호환)
-    assert set(by_key["2022-2"]["refs"].keys()) == {"qnet", "comcbt"}
+
+    assert by_key["2022-2"]["adapter"] == "qnet"
+    assert by_key["2022-2"]["also_on"] == []
+    assert by_key["2022-2"]["refs"] == {"qnet": "qref1"}
     assert by_key["2022-2"]["exam_ref"] == by_key["2022-2"]["refs"]["qnet"]
-    assert by_key["2021-1"]["adapter"] == "comcbt"        # 한쪽만 있으면 그대로
+
     assert by_key["2021-1"]["also_on"] == []
-    assert set(by_key["2021-1"]["refs"].keys()) == {"comcbt"}
+    assert by_key["2021-1"]["refs"] == {"qnet": "qref2"}
+
+    # 정렬 순서 — 최신 회차(2022-2)가 먼저
+    assert [o["exam_key"] for o in out] == ["2022-2", "2021-1"]
+
+
+def test_list_exams_unregistered_adapter_ignored(monkeypatch):
+    """소스에 등록되지 않은 어댑터 id가 섞여 있어도 조용히 건너뛴다."""
+    monkeypatch.setattr(registry, "get_adapters", lambda: [])
+    monkeypatch.setattr(registry, "get_adapter", lambda aid: None)
+
+    out = fetch_service.list_exams(db=None, sources=[{"adapter": "ghost", "cert_ref": "x"}])
+    assert out == []
 
 
 # --- 리다이렉트 SSRF 재검증(사설/메타데이터 IP로의 리다이렉트 차단) ----------
@@ -134,42 +126,33 @@ def test_goal_met_and_semantics():
     assert _evaluate_goal(100, 100, None, None) is False  # 목표 미설정 → 달성 대상 없음
 
 
-# --- URL ASCII 정규화 (S10 사후 수정: comcbt 한글 첨부 URL·mojibake Location) ---
+# --- URL ASCII 정규화(범용 유틸 — 게시판형 사이트의 한글 첨부 URL·mojibake Location) ---
 def test_ascii_safe_url_passthrough_ascii():
-    url = "https://www.comcbt.com/xe/?module=file&act=procFileDownload&file_srl=1&sid=ab"
+    url = "https://www.example.com/dl/?module=file&act=procFileDownload&file_srl=1&sid=ab"
     assert registry._ascii_safe_url(url) == url
 
 
 def test_ascii_safe_url_encodes_unicode_iri():
     # HTML href에서 추출한 진짜 유니코드 str — UTF-8 percent-encoding
-    url = "https://img.comcbt.com/xe/download/1/품질.pdf"
+    url = "https://img.example.com/download/1/품질.pdf"
     out = registry._ascii_safe_url(url)
     assert out.isascii()
-    assert out == "https://img.comcbt.com/xe/download/1/%ED%92%88%EC%A7%88.pdf"
+    assert out == "https://img.example.com/download/1/%ED%92%88%EC%A7%88.pdf"
 
 
 def test_ascii_safe_url_recovers_latin1_mojibake_location():
     # 302 Location 헤더: http.client가 UTF-8 바이트를 latin-1로 디코드한 str.
     # 원 바이트를 복원해 quote해야 서버가 아는 경로가 된다(재인코딩 금지).
-    original = "https://img.comcbt.com/xe/download/1/품질.pdf"
+    original = "https://img.example.com/download/1/품질.pdf"
     mojibake = original.encode("utf-8").decode("latin-1")
     assert registry._ascii_safe_url(mojibake) == registry._ascii_safe_url(original)
 
 
 def test_ascii_safe_url_preserves_existing_percent_escapes():
-    url = "https://img.comcbt.com/a/%ED%92%88 질.pdf"
+    url = "https://img.example.com/a/%ED%92%88 질.pdf"
     out = registry._ascii_safe_url(url)
     assert "%25" not in out  # 기존 %XX 이중 인코딩 금지
-    assert out == "https://img.comcbt.com/a/%ED%92%88%20%EC%A7%88.pdf"
-
-
-# --- comcbt exam_date 추출 (S12 — 회차 번호 제공자 역할) --------------------
-def test_comcbt_parses_exam_date_from_title():
-    assert comcbt._parse_exam_date("정보처리기사 필기 2022년 04월 24일(2회)") == "2022-04-24"
-
-
-def test_comcbt_exam_date_none_without_full_date():
-    assert comcbt._parse_exam_date("공지사항입니다") is None
+    assert out == "https://img.example.com/a/%ED%92%88%20%EC%A7%88.pdf"
 
 
 # --- 키→폴더명 단일 파생 함수(설계 §4.13 — imported 판정·convert 분류 경로 공유) ----
@@ -187,243 +170,29 @@ def test_exam_folder_name_unparseable_returns_none():
     assert fetch_service.exam_folder_name("") is None
 
 
-# --- S12 병합: 날짜 자연 키(comcbt 날짜+회차 ↔ cbtbank 날짜만) ---------------
-def _entry_s12(key, cert_name="품질경영기사", exam_date=None, ref="r"):
-    return ExamEntry(exam_key=key, label=f"{cert_name} {key}", exam_ref=ref, cert_name=cert_name, exam_date=exam_date)
-
-
-def test_merge_by_exam_date_prefers_cbtbank_over_comcbt(monkeypatch):
-    """comcbt(날짜+회차 보유) ↔ cbtbank(날짜만) — 같은 날짜로 병합, cbtbank 채택
-    (priority qnet(1) > cbtbank(2) > comcbt(3)), 대표 키는 comcbt의 'YYYY-N'."""
-    from services.fetchers import registry as _registry
-
-    class _FakeCbtbank:
-        id, priority = "cbtbank", 2
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry_s12("2022-04-24", exam_date="2022-04-24", ref="bp20220424")]
-
-    class _FakeComcbt:
-        id, priority = "comcbt", 3
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry_s12("2022-2", exam_date="2022-04-24", ref="5851061")]
-
-    fakes = [_FakeCbtbank(), _FakeComcbt()]
-    monkeypatch.setattr(_registry, "get_adapters", lambda: fakes)
-    monkeypatch.setattr(_registry, "get_adapter", lambda aid: next((a for a in fakes if a.id == aid), None))
-    monkeypatch.setattr(_registry, "cache_get", lambda k: None)
-    monkeypatch.setattr(_registry, "cache_set", lambda k, v: None)
-    monkeypatch.setattr(fetch_service, "_is_imported", lambda *a, **k: False)
-
-    sources = [{"adapter": "cbtbank", "cert_ref": "품질경영기사"}, {"adapter": "comcbt", "cert_ref": "bp"}]
-    out = fetch_service.list_exams(db=None, sources=sources)
-    assert len(out) == 1
-    item = out[0]
-    assert item["adapter"] == "cbtbank"          # priority 최소 채택
-    assert item["also_on"] == ["comcbt"]
-    assert item["exam_key"] == "2022-2"           # 대표 키 = 회차 번호 보유 키(comcbt) 우선
-    assert set(item["refs"].keys()) == {"cbtbank", "comcbt"}
-    assert item["refs"]["cbtbank"] == "bp20220424"
-    assert item["refs"]["comcbt"] == "5851061"
-
-
-def test_merge_cbtbank_standalone_uses_date_key_and_folder(monkeypatch):
-    """cbtbank 단독(회차 번호 미상) — 대표 키가 날짜형이고 폴더명이 'YYYY년 M월 D일'."""
-    from services.fetchers import registry as _registry
-
-    class _FakeCbtbank:
-        id, priority = "cbtbank", 2
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry_s12("2022-04-24", exam_date="2022-04-24", ref="bp20220424")]
-
-    fakes = [_FakeCbtbank()]
-    monkeypatch.setattr(_registry, "get_adapters", lambda: fakes)
-    monkeypatch.setattr(_registry, "get_adapter", lambda aid: next((a for a in fakes if a.id == aid), None))
-    monkeypatch.setattr(_registry, "cache_get", lambda k: None)
-    monkeypatch.setattr(_registry, "cache_set", lambda k, v: None)
-    monkeypatch.setattr(fetch_service, "_is_imported", lambda *a, **k: False)
-
-    out = fetch_service.list_exams(db=None, sources=[{"adapter": "cbtbank", "cert_ref": "품질경영기사"}])
-    assert len(out) == 1
-    assert out[0]["exam_key"] == "2022-04-24"
-    assert out[0]["also_on"] == []
-    assert fetch_service.exam_folder_name(out[0]["exam_key"]) == "2022년 4월 24일"
-
-
-def test_merge_qnet_without_exam_date_uses_legacy_key_regression(monkeypatch):
-    """exam_date 없는 qnet 항목은 기존 'YYYY-N' 키 병합 그대로(하위 호환 회귀 없음)."""
-    from services.fetchers import registry as _registry
-
-    class _FakeQnet:
-        id, priority = "qnet", 1
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry_s12("2022-2", exam_date=None, ref="qref")]
-
-    fakes = [_FakeQnet()]
-    monkeypatch.setattr(_registry, "get_adapters", lambda: fakes)
-    monkeypatch.setattr(_registry, "get_adapter", lambda aid: next((a for a in fakes if a.id == aid), None))
-    monkeypatch.setattr(_registry, "cache_get", lambda k: None)
-    monkeypatch.setattr(_registry, "cache_set", lambda k, v: None)
-    monkeypatch.setattr(fetch_service, "_is_imported", lambda *a, **k: False)
-
-    out = fetch_service.list_exams(db=None, sources=[{"adapter": "qnet", "cert_ref": "x"}])
-    assert len(out) == 1
-    assert out[0]["exam_key"] == "2022-2"
-    assert out[0]["adapter"] == "qnet"
-
-
-def test_merge_three_way_priority_qnet_cbtbank_comcbt(monkeypatch):
-    """세 어댑터 모두 같은 날짜에 있으면 qnet 채택, also_on에 나머지 둘(정렬됨)."""
-    from services.fetchers import registry as _registry
-
-    class _FakeQnet:
-        id, priority = "qnet", 1
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry_s12("2022-2", exam_date="2022-04-24", ref="qref")]
-
-    class _FakeCbtbank:
-        id, priority = "cbtbank", 2
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry_s12("2022-04-24", exam_date="2022-04-24", ref="bp20220424")]
-
-    class _FakeComcbt:
-        id, priority = "comcbt", 3
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry_s12("2022-2", exam_date="2022-04-24", ref="5851061")]
-
-    fakes = [_FakeQnet(), _FakeCbtbank(), _FakeComcbt()]
-    monkeypatch.setattr(_registry, "get_adapters", lambda: fakes)
-    monkeypatch.setattr(_registry, "get_adapter", lambda aid: next((a for a in fakes if a.id == aid), None))
-    monkeypatch.setattr(_registry, "cache_get", lambda k: None)
-    monkeypatch.setattr(_registry, "cache_set", lambda k, v: None)
-    monkeypatch.setattr(fetch_service, "_is_imported", lambda *a, **k: False)
-
-    sources = [
-        {"adapter": "qnet", "cert_ref": "x"},
-        {"adapter": "cbtbank", "cert_ref": "품질경영기사"},
-        {"adapter": "comcbt", "cert_ref": "bp"},
-    ]
-    out = fetch_service.list_exams(db=None, sources=sources)
-    assert len(out) == 1
-    item = out[0]
-    assert item["adapter"] == "qnet"
-    assert item["also_on"] == ["cbtbank", "comcbt"]
-    assert item["exam_key"] == "2022-2"
-
-
-# --- 검토 후속 경검 1: 정렬이 문자열이 아닌 수치 (연도, 월, 일/회차)여야 함 ---------
+# --- 정렬이 문자열이 아닌 수치 (연도, 월, 일/회차)여야 함 --------------------
 def test_list_exams_sorts_numerically_not_lexically(monkeypatch):
     """같은 해 '2016-2'(회차만, 날짜 없음)와 '2016-10-01'(날짜형)을 문자열로 비교하면
     '2016-2' > '2016-10-01'이라 순서가 뒤바뀐다 — 수치 튜플 비교로 10월이 위로 온다."""
-    from services.fetchers import registry as _registry
 
-    class _FakeRoundOnly:
+    class _FakeQnet:
         id, priority = "qnet", 1
 
         def is_available(self, client):
             return True, None
 
         def list_exams(self, cert_ref, client):
-            return [_entry_s12("2016-2", exam_date=None, ref="r1")]
+            return [
+                _entry("2016-2", ref="r1"),
+                _entry("2016-10-01", ref="r2", exam_date="2016-10-01"),
+            ]
 
-    class _FakeDateOnly:
-        id, priority = "cbtbank", 2
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry_s12("2016-10-01", exam_date="2016-10-01", ref="r2")]
-
-    fakes = [_FakeRoundOnly(), _FakeDateOnly()]
-    monkeypatch.setattr(_registry, "get_adapters", lambda: fakes)
-    monkeypatch.setattr(_registry, "get_adapter", lambda aid: next((a for a in fakes if a.id == aid), None))
-    monkeypatch.setattr(_registry, "cache_get", lambda k: None)
-    monkeypatch.setattr(_registry, "cache_set", lambda k, v: None)
+    fakes = [_FakeQnet()]
+    monkeypatch.setattr(registry, "get_adapters", lambda: fakes)
+    monkeypatch.setattr(registry, "get_adapter", lambda aid: next((a for a in fakes if a.id == aid), None))
+    monkeypatch.setattr(registry, "cache_get", lambda k: None)
+    monkeypatch.setattr(registry, "cache_set", lambda k, v: None)
     monkeypatch.setattr(fetch_service, "_is_imported", lambda *a, **k: False)
 
-    sources = [{"adapter": "qnet", "cert_ref": "x"}, {"adapter": "cbtbank", "cert_ref": "y"}]
-    out = fetch_service.list_exams(db=None, sources=sources)
+    out = fetch_service.list_exams(db=None, sources=[{"adapter": "qnet", "cert_ref": "x"}])
     assert [o["exam_key"] for o in out] == ["2016-10-01", "2016-2"]  # 10월이 먼저(최신)
-
-
-# --- 검토 후속 경검 4: 대표 키가 삽입 순서가 아닌 priority로 결정 --------------------
-def test_representative_key_deterministic_by_priority_not_source_order(monkeypatch):
-    """회차 번호 보유 어댑터가 둘 이상이면 priority 최소 어댑터의 키를 쓴다 —
-    `sources` 요청 순서를 뒤집어도 대표 키가 바뀌지 않아야 한다."""
-    from services.fetchers import registry as _registry
-
-    class _FakeCbtbank:  # date-only, 전역 채택(priority 최소)
-        id, priority = "cbtbank", 2
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry_s12("2022-04-24", exam_date="2022-04-24", ref="bp1")]
-
-    class _FakeAdapterX:  # round key 보유, priority 5
-        id, priority = "adapterX", 5
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry_s12("2022-9", exam_date="2022-04-24", ref="x1")]
-
-    class _FakeAdapterY:  # round key 보유, priority 9(더 낮은 우선순위)
-        id, priority = "adapterY", 9
-
-        def is_available(self, client):
-            return True, None
-
-        def list_exams(self, cert_ref, client):
-            return [_entry_s12("2022-2", exam_date="2022-04-24", ref="y1")]
-
-    fakes = [_FakeCbtbank(), _FakeAdapterX(), _FakeAdapterY()]
-    monkeypatch.setattr(_registry, "get_adapters", lambda: fakes)
-    monkeypatch.setattr(_registry, "get_adapter", lambda aid: next((a for a in fakes if a.id == aid), None))
-    monkeypatch.setattr(_registry, "cache_get", lambda k: None)
-    monkeypatch.setattr(_registry, "cache_set", lambda k, v: None)
-    monkeypatch.setattr(fetch_service, "_is_imported", lambda *a, **k: False)
-
-    forward = [
-        {"adapter": "cbtbank", "cert_ref": "a"},
-        {"adapter": "adapterX", "cert_ref": "b"},
-        {"adapter": "adapterY", "cert_ref": "c"},
-    ]
-    reversed_sources = list(reversed(forward))
-
-    out_forward = fetch_service.list_exams(db=None, sources=forward)
-    out_reversed = fetch_service.list_exams(db=None, sources=reversed_sources)
-
-    # priority 5(adapterX)가 priority 9(adapterY)보다 우선 — 대표 키는 항상 '2022-9'
-    assert out_forward[0]["exam_key"] == "2022-9"
-    assert out_reversed[0]["exam_key"] == "2022-9"

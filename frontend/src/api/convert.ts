@@ -11,34 +11,62 @@ import type {
 
 const POLL_INTERVAL_MS = 2000
 
+// 대기열(F40-②) 폴링 간격 — 서버 워커가 동시 1개라 **현재 처리 중 1건만** 촘촘히 보고,
+// 뒤에서 순서를 기다리는 잡은 간격을 완화한다(설계 §5.9).
+export const ACTIVE_POLL_INTERVAL_MS = POLL_INTERVAL_MS
+export const IDLE_POLL_INTERVAL_MS = 10000
+
 // 설계 §4.10·§4.11, F23·F34·F35 — "원본 파일로 시작"(multipart) 또는 "URL로 시작"(JSON {url})
 // 업로드. multipart 필드명은 명세에 없어 import/preview와 동일 관례("file")로 가정 — 최종 보고 참고.
 // engine은 §4.11 신규 파라미터('auto'|'cli'|'api', 생략 시 서버 기본 auto=우선순위 설정).
+// categoryPath는 S13(F40-③) 선택 파라미터 `category_path` — 지정 시 LLM이 모든 문항의 분류
+// 제안을 그 경로 하나로 고정한다(제안 고정일 뿐 반입 확정은 여전히 사용자 승인 — R7).
 export type StartConvertInput =
-  | { kind: 'file'; file: File; engine?: LlmEngine }
-  | { kind: 'url'; url: string; engine?: LlmEngine }
+  | { kind: 'file'; file: File; engine?: LlmEngine; categoryPath?: string | null }
+  | { kind: 'url'; url: string; engine?: LlmEngine; categoryPath?: string | null }
+
+// 훅 밖(대기열 순차 투입 루프 등)에서도 쓰도록 요청 함수를 따로 노출한다.
+export function startConvertRequest(input: StartConvertInput): Promise<ConvertJobStartResponse> {
+  const categoryPath = input.categoryPath?.trim() ? input.categoryPath.trim() : undefined
+  if (input.kind === 'file') {
+    const form = new FormData()
+    form.append('file', input.file)
+    if (input.engine) form.append('engine', input.engine)
+    if (categoryPath) form.append('category_path', categoryPath)
+    return api.postForm<ConvertJobStartResponse>('/convert', form)
+  }
+  return api.post<ConvertJobStartResponse>('/convert', {
+    url: input.url,
+    engine: input.engine,
+    category_path: categoryPath,
+  })
+}
 
 export function useStartConvert() {
-  return useMutation({
-    mutationFn: (input: StartConvertInput) => {
-      if (input.kind === 'file') {
-        const form = new FormData()
-        form.append('file', input.file)
-        if (input.engine) form.append('engine', input.engine)
-        return api.postForm<ConvertJobStartResponse>('/convert', form)
-      }
-      return api.post<ConvertJobStartResponse>('/convert', { url: input.url, engine: input.engine })
-    },
-  })
+  return useMutation({ mutationFn: startConvertRequest })
+}
+
+// S13(F40-①, 설계 §4.3) — 보존된 반입 JSON 내려받기 링크. 최악의 경우에도 사용자가 파일을 손에
+// 쥐고 "반입 JSON 파일 선택" 경로로 이어갈 수 있는 탈출구다(브라우저 다운로드이므로 <a download>).
+export function previewJsonUrl(previewId: string): string {
+  return `/api/import/preview/${encodeURIComponent(previewId)}/json`
 }
 
 // GET /api/convert/{job_id} 폴링 — running인 동안 2초 간격 재조회.
 // retry: false — 잡 큐는 인메모리(서버 재시작 시 소실) + TTL 1시간이라 404가 된 잡은
 // 재요청해도 돌아오지 않는다. 재시도하면 사라진 잡을 계속 두드리기만 한다(regenerate 잡 전례).
+// 캐시 키 = 리소스 경로(설계 §7). 대기열(F40-②)이 useQueries로 여러 잡을 동시에 폴링할 때도
+// 같은 키·같은 요청 함수를 써야 단건 조회와 캐시가 공유된다.
+export const convertJobKey = (jobId: string) => ['convert', 'job', jobId] as const
+
+export function fetchConvertJob(jobId: string): Promise<ConvertJobResponse> {
+  return api.get<ConvertJobResponse>(`/convert/${jobId}`)
+}
+
 export function useConvertJob(jobId: string | null) {
   return useQuery({
-    queryKey: ['convert', 'job', jobId ?? ''],
-    queryFn: () => api.get<ConvertJobResponse>(`/convert/${jobId}`),
+    queryKey: convertJobKey(jobId ?? ''),
+    queryFn: () => fetchConvertJob(jobId as string),
     enabled: jobId != null,
     refetchInterval: (query) => (query.state.data?.status === 'running' ? POLL_INTERVAL_MS : false),
     retry: false,

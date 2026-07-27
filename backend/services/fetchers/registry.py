@@ -6,9 +6,10 @@
 3. User-Agent `StudyHub-Personal/1.0`.
 6. SSRF 방지 — 사설/루프백/링크로컬 IP 차단(F35-1 관례 유지).
 
-등록 어댑터·우선순위: **qnet=1, cbtbank=2, comcbt=3**(2026-07-25 사용자 확정 · S12 갱신
-2026-07-26 — cbtbank는 구조화 추출 품질·비용 우위로 comcbt 위). 자격증/회차 목록은
-서버 메모리 캐시(TTL 24h)로 반복 크롤링을 막는다.
+**등록 어댑터: qnet 단독**(priority=1 고정 — S13에서 사설 사이트 어댑터들을 제거하고
+단일 어댑터화, 계획서 §14 F35-2 "제거 이력"). 어댑터 간 병합·우선순위 채택은
+없다(설계 §4.13 "회차 목록 구성" S13 재작성). 자격증/회차 목록은 서버 메모리 캐시
+(TTL 24h)로 반복 크롤링을 막는다.
 """
 from __future__ import annotations
 
@@ -78,11 +79,11 @@ def _ascii_safe_url(url: str) -> str:
 
     비ASCII URL은 두 경로로 들어온다 — ① HTML href의 진짜 유니코드 str,
     ② 302 Location 헤더: http.client가 UTF-8 바이트를 latin-1로 디코드한
-    mojibake str(comcbt 파일 서버 실측). ②를 UTF-8로 재인코딩하면 깨진 URL이
-    되므로 latin-1 인코딩이 가능하면 원래 바이트로 복원해 quote한다 — cpython
-    `HTTPRedirectHandler`가 Location을 iso-8859-1로 quote하는 것과 같은 규약.
-    이미 인코딩된 %XX·예약 문자는 보존(이중 인코딩 방지). 호스트는 어댑터
-    허용 도메인(ASCII)뿐이라 IDN 변환은 다루지 않는다.
+    mojibake str(한글 파일명을 내려주는 게시판형 사이트에서 실측). ②를 UTF-8로
+    재인코딩하면 깨진 URL이 되므로 latin-1 인코딩이 가능하면 원래 바이트로 복원해
+    quote한다 — cpython `HTTPRedirectHandler`가 Location을 iso-8859-1로 quote하는
+    것과 같은 규약. 이미 인코딩된 %XX·예약 문자는 보존(이중 인코딩 방지). 호스트는
+    어댑터 허용 도메인(ASCII)뿐이라 IDN 변환은 다루지 않는다.
     """
     if url.isascii():
         return url
@@ -279,8 +280,9 @@ class FetchClient:
     ) -> Tuple[bytes, Optional[str], Optional[str]]:
         """(data, content_type, filename). 크기 상한·스로틀·robots 적용.
 
-        referer: XE(comcbt) 등 게시판형 사이트는 다운로드 요청에 Referer가 없으면
-        파일 대신 HTML 안내 페이지를 반환한다 — 첨부를 발견한 게시물 URL을 넘긴다.
+        referer: 일부 게시판형 사이트는 다운로드 요청에 Referer가 없으면 파일 대신
+        HTML 안내 페이지를 반환한다 — 그런 사이트를 위해 첨부를 발견한 게시물 URL을
+        넘길 수 있는 범용 훅(현재 등록 어댑터는 사용하지 않음).
         """
         resp = self._open(url, extra_headers={"Referer": referer} if referer else None)
         with resp:
@@ -324,16 +326,13 @@ def _filename_from_disposition(disposition: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# 어댑터 등록 (우선순위: qnet=1, cbtbank=2, comcbt=3 — S12 갱신)
+# 어댑터 등록 (S13 — qnet 단독, priority=1 고정. 사설 사이트 어댑터들은
+# 계획서 §14 F35-2 "제거 이력"에 따라 코드와 함께 삭제됐다)
 # ---------------------------------------------------------------------------
 def _load_adapters() -> List[Adapter]:
-    from services.fetchers.cbtbank import CbtbankAdapter
-    from services.fetchers.comcbt import ComcbtAdapter
     from services.fetchers.qnet import QnetAdapter
 
-    adapters = [QnetAdapter(), CbtbankAdapter(), ComcbtAdapter()]
-    adapters.sort(key=lambda a: a.priority)  # 작을수록 우선
-    return adapters
+    return [QnetAdapter()]
 
 
 _ADAPTERS: Optional[List[Adapter]] = None

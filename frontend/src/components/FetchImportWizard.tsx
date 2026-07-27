@@ -31,10 +31,9 @@ const SUB_STEP_LABELS: Record<FetchSubStep, string> = {
 }
 
 // 어댑터 목록 조회 실패/로딩 중에도 배지를 보여주기 위한 폴백 이름.
+// S13: 등록 어댑터는 큐넷 하나뿐(사설 사이트 어댑터 제거, 설계 §4.13, 계획서 §14 F35-2).
 const ADAPTER_FALLBACK_NAME: Record<FetchAdapterId, string> = {
   qnet: '큐넷',
-  comcbt: '전자문제집 CBT',
-  cbtbank: 'CBT문제은행',
 }
 
 const ENGINE_OPTIONS: { value: LlmEngine; label: string }[] = [
@@ -59,11 +58,13 @@ function extractLlmErrorInfo(error: unknown): LlmErrorInfo | null {
 
 interface FetchImportWizardProps {
   onPreviewReady: (data: ImportPreviewResponse) => void
-  // parse_failed 대안 버튼 — 다른 진입 모드(URL 반입, §5.9)로 전환.
+  // parse_failed 대안 버튼 · "준비 중" 안내 대안 버튼 — 다른 진입 모드(URL 반입, §5.9)로 전환.
   onFallbackToUrl: () => void
+  // "준비 중" 안내 대안 버튼 — 원본 파일 반입(자동 변환) 모드로 전환.
+  onFallbackToFile: () => void
 }
 
-export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl }: FetchImportWizardProps) {
+export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onFallbackToFile }: FetchImportWizardProps) {
   const stored = getStoredConvertJob()
   const resumed = stored?.sourceKind === 'fetch' ? stored : null
 
@@ -135,9 +136,9 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl }: F
     const adapter = opts?.adapterOverride ?? selectedExam.adapter
     const source = selectedCert.sources.find((s) => s.adapter === adapter)
     if (!source) return
-    // exam_ref는 어댑터마다 의미가 다르다(comcbt=srl 숫자, qnet=URL) — 채택 어댑터의 exam_ref를
-    // 그대로 다른 어댑터에 보내면 검증에 실패한다. 대상 어댑터의 값은 refs[adapter]에서 구한다
+    // exam_ref는 어댑터 기준 참조값(예: qnet=URL) — 대상 어댑터의 값은 refs[adapter]에서 구한다
     // (일반 실행 경로는 selectedExam.exam_ref === refs[selectedExam.adapter]로 동일값, 동작 불변).
+    // S13: 어댑터가 하나뿐이라 also_on 재시도(adapterOverride)는 사문화됐지만 계약은 유지한다.
     const examRef = opts?.adapterOverride ? selectedExam.refs[adapter] : selectedExam.exam_ref
     if (!examRef) return
     importMutation.mutate(
@@ -146,8 +147,8 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl }: F
         cert_ref: source.cert_ref,
         exam_ref: examRef,
         engine: opts?.engineOverride ?? engine,
-        // S12(§4.13) — 목록 응답의 병합 대표 exam_key를 그대로 실행 요청에 실어 보낸다
-        // (대안 어댑터 재시도 시에도 대표 키는 동일하게 유지).
+        // §4.13 — 목록 응답의 exam_key를 그대로 실행 요청에 실어 보낸다(S13: 단일 어댑터라
+        // 사실상 항등 전달이지만 계약·호출 형태는 유지).
         exam_key: selectedExam.exam_key,
       },
       {
@@ -208,15 +209,45 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl }: F
       (a) => selectedCert?.sources.some((s) => s.adapter === a) && Boolean(selectedExam.refs[a]),
     ) ?? null
 
+  // S13 종료 시점: 등록 어댑터가 qnet 스텁 1개(available:false)뿐이라 검색해도 항상 빈 결과다.
+  // 자동 수집 서브플로(①~④) 자체는 손대지 않고, 아직 시작 전(cert 단계)이면 "준비 중" 안내 +
+  // 대안 버튼으로 대체한다(빈 화면·오류 없이, 설계 §5.9). 이미 재개된 잡(execute 단계)은 그대로 둔다.
+  const allAdaptersUnavailable = adaptersQuery.isSuccess && adaptersQuery.data.every((a) => !a.available)
+  if (subStep === 'cert' && allAdaptersUnavailable) {
+    return (
+      <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
+        <p className="text-sm font-medium text-primary">사이트에서 가져오기 — 준비 중</p>
+        <p className="text-sm text-muted">
+          지금은 자동으로 가져올 수 있는 사이트가 없습니다. 회차 파일이나 URL로 반입해 주세요.
+        </p>
+        {adaptersQuery.data[0]?.notice && <p className="text-xs text-muted">{adaptersQuery.data[0].notice}</p>}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onFallbackToUrl}
+            className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
+          >
+            URL로 반입
+          </button>
+          <button
+            type="button"
+            onClick={onFallbackToFile}
+            className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
+          >
+            파일로 반입
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
       <Stepper steps={steps} size="sm" onStepClick={(i) => handleStepNavigate(SUB_STEP_ORDER[i])} />
 
       {subStep === 'cert' && (
         <div className="flex flex-col gap-3">
-          <p className="text-sm text-muted">
-            자격증 이름으로 검색하면 등록된 사이트(큐넷·전자문제집 CBT)에서 회차를 찾아옵니다.
-          </p>
+          <p className="text-sm text-muted">자격증 이름으로 검색하면 등록된 사이트에서 회차를 찾아옵니다.</p>
           {(adaptersQuery.data ?? []).some((a) => !a.available) && (
             <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-xs text-primary">
               {(adaptersQuery.data ?? [])

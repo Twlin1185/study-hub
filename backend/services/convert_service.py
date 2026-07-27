@@ -413,8 +413,40 @@ def _run_api_streaming(
 # ---------------------------------------------------------------------------
 # 텍스트 파싱 유틸 (기존 유지)
 # ---------------------------------------------------------------------------
+class InvalidLlmOutputError(ValidationAppError):
+    """LLM 출력이 완결된 JSON이 아님 (S13 F40-④, 설계 §4.11 `invalid_output`).
+
+    같은 파일로 재시도하면 같은 실패이므로 "잠시 후 다시 시도"는 오안내다 — 원본 분할·
+    엔진 교체를 안내한다. **원문(잘린 출력·raw)은 detail에도 담지 않는다**(로그에만)."""
+
+    def __init__(self, message: str, *, truncated: bool) -> None:
+        super().__init__(message, detail=None)
+        self.truncated = truncated
+
+
+# 문항이 많은 기출은 출력 상한에서 잘리는 것이 실제 실패 원인이다. 토큰 수를 직접 알 수
+# 없으므로 문자 수로 대략 환산해(한국어 혼합 텍스트 ≈ 2자/토큰) 상한 근접을 추정한다.
+_CHARS_PER_TOKEN = 2
+_TRUNCATION_RATIO = 0.9
+
+
+def _looks_truncated(cleaned: str) -> bool:
+    """출력이 '중간에 잘린' 모양인지 추정 — 상한 근접이거나 JSON이 열린 채 끝났는가."""
+    stripped = cleaned.rstrip()
+    if not stripped:
+        return False
+    if len(cleaned) >= API_MAX_OUTPUT_TOKENS * _CHARS_PER_TOKEN * _TRUNCATION_RATIO:
+        return True
+    if stripped[-1] not in "}]":
+        return True
+    return stripped.count("{") > stripped.count("}") or stripped.count("[") > stripped.count("]")
+
+
 def _parse_json_payload(text: str) -> Any:
-    """앞뒤 설명·코드펜스가 섞여 있어도 최대한 JSON 하나를 뽑아낸다."""
+    """앞뒤 설명·코드펜스가 섞여 있어도 최대한 JSON 하나를 뽑아낸다.
+
+    실패하면 `InvalidLlmOutputError` — 원문은 서버 로그에만 남기고 사용자 응답에는
+    싣지 않는다(설계 §4.11 원칙)."""
     cleaned = text.strip()
     fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", cleaned, re.DOTALL)
     if fence:
@@ -429,12 +461,28 @@ def _parse_json_payload(text: str) -> Any:
         try:
             return json.loads(cleaned[start : end + 1])
         except json.JSONDecodeError as exc:
-            raise ValidationAppError(
-                "claude 출력이 올바른 JSON이 아닙니다", detail={"raw": cleaned[:2000]}
-            ) from exc
-    raise ValidationAppError(
-        "claude 출력에서 JSON을 찾을 수 없습니다", detail={"raw": cleaned[:2000]}
+            _raise_invalid_output(cleaned, reason=str(exc))
+    _raise_invalid_output(cleaned, reason="출력에서 JSON 객체를 찾지 못함")
+
+
+def _raise_invalid_output(cleaned: str, *, reason: str) -> None:
+    truncated = _looks_truncated(cleaned)
+    _LOGGER.warning(
+        "LLM 출력 파싱 실패(truncated=%s, %d자): %s | raw(앞 500자)=%r",
+        truncated,
+        len(cleaned),
+        reason,
+        cleaned[:500],
     )
+    # 이 파서는 변환(convert·fetch)과 F30 재생성이 공유한다 — "문항이 많아"처럼 반입에만
+    # 맞는 표현 대신 경로 중립 문구를 쓰고, 경로별 다음 행동은 `_invalid_output_action`이
+    # 담당한다(재생성 실패에 "과목·회차 단위로 나눠 올리기"가 뜨던 문제).
+    message = (
+        "LLM 응답이 완결된 JSON이 아닙니다 — 출력이 중간에 잘렸을 수 있습니다"
+        if truncated
+        else "LLM 응답이 올바른 JSON이 아닙니다"
+    )
+    raise InvalidLlmOutputError(message, truncated=truncated)
 
 
 def _safe_name(name: str) -> str:
@@ -568,8 +616,33 @@ def _handle_engine_failure(
     return False
 
 
-def _fallback_error_info(exc: Exception) -> dict:
-    """엔진 실패가 아닌 그 외 예외(JSON 파싱 실패·다운로드 오류·사이트 파싱 실패)용 error_info."""
+def _invalid_output_action(*, truncated: bool, job_kind: str) -> str:
+    """`invalid_output` 안내 문구 — **실제로 제공되는 행동만** 지시한다.
+
+    ① 엔진 교체를 권하지 않는다: API 경로의 출력 상한(`API_MAX_OUTPUT_TOKENS`)은 CLI와
+       비대칭을 없애려고 맞춘 값이라 엔진을 바꿔도 잘림 한계가 넓어지지 않는다. 게다가
+       이 error_info는 `fallback_available=False`라 [API로 재시도] 버튼 자체가 렌더되지
+       않는다(문구와 버튼 불일치 = 오안내).
+    ② 경로별 문맥: 반입(convert·fetch)은 원본 분할이 유효하지만, F30 재생성은 문서 1건
+       재작성이라 "원본을 과목·회차 단위로 나눠 올리기"가 성립하지 않는다."""
+    if job_kind == "regenerate":
+        return (
+            "재생성 요청(사유)을 더 짧고 구체적으로 적어 다시 시도해 보세요."
+            if truncated
+            else "재생성을 한 번 더 시도해 보세요. 반복되면 재생성 사유를 더 구체적으로 적어 보세요."
+        )
+    return (
+        "원본을 과목·회차 단위로 나눠 올려 다시 변환해 보세요."
+        if truncated
+        else "같은 원본으로 다시 변환하거나, 원본을 과목·회차 단위로 나눠 올려 보세요."
+    )
+
+
+def _fallback_error_info(exc: Exception, *, job_kind: str = "convert") -> dict:
+    """엔진 실패가 아닌 그 외 예외(JSON 파싱 실패·다운로드 오류·사이트 파싱 실패)용 error_info.
+
+    `job_kind`는 잡 종류(convert·fetch·regenerate) — 같은 파싱 실패라도 사용자가 있는
+    화면이 달라 안내 문구가 달라진다(반입 위저드 vs 문서 상세 재생성 패널)."""
     if isinstance(exc, ParseFailedError):
         # 사이트 어댑터 파싱/수집 실패 — 원문 노출 금지, 대안 안내(설계 §4.13).
         alts = exc.alternatives or ["url_import"]
@@ -587,6 +660,18 @@ def _fallback_error_info(exc: Exception) -> dict:
             "action": action,
             "fallback_available": False,
             "alternatives": alts,
+        }
+    if isinstance(exc, InvalidLlmOutputError):
+        # S13(F40-④): 출력 잘림·파싱 실패를 'other' + "잠시 후 다시 시도"로 안내하면
+        # 같은 실패를 반복하며 LLM 비용만 태운다 — 전용 kind로 다음 행동을 알려준다
+        # (설계 §4.11). 원문(raw)은 여기에도 담지 않는다.
+        return {
+            "kind": "invalid_output",
+            "limit_kind": None,
+            "resets_at": None,
+            "message": exc.message,
+            "action": _invalid_output_action(truncated=exc.truncated, job_kind=job_kind),
+            "fallback_available": False,
         }
     message = exc.message if isinstance(exc, AppError) else "변환 처리 중 알 수 없는 오류가 발생했습니다."
     return {
@@ -664,7 +749,9 @@ def _process_job(job_id: str) -> None:
                     job["error"] = None
                     _LOGGER.exception("잡 %s(%s) 처리 중 미분류 예외", job_id, job.get("kind"))
                 if job.get("_error_info") is None:
-                    job["_error_info"] = _fallback_error_info(exc)
+                    job["_error_info"] = _fallback_error_info(
+                        exc, job_kind=job.get("kind") or "convert"
+                    )
     finally:
         tmp_path = job.get("_tmp_path") if job else None
         if tmp_path:
@@ -717,6 +804,11 @@ def _do_convert(job_id: str, job: dict) -> dict:
     if tmp_path is None:
         raise ValidationAppError("변환할 원본 파일이 없습니다")
 
+    # S13(F40-③): 사용자가 지정한 분류 경로가 있으면 사이트 반입과 **같은 지시 생성기**로
+    # "suggest_categories는 정확히 이 경로 하나로 고정" 지시를 붙인다(설계 §4.11).
+    directives = _manual_category_directives(job.get("_category_path"))
+    suffix = f"\n\n{directives}" if directives else ""
+
     attempted_fallback = False
     text_result: Optional[str] = None
     while True:
@@ -724,12 +816,12 @@ def _do_convert(job_id: str, job: dict) -> dict:
         _set_phase(job_id, "llm_running")
         try:
             if engine == "cli":
-                prompt = _build_convert_prompt_cli(convert_md, tmp_path)
+                prompt = _build_convert_prompt_cli(convert_md, tmp_path) + suffix
                 text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
             else:
                 prompt_text, blocks = _build_convert_prompt_api(convert_md, tmp_path)
                 text_result = _run_api_streaming(
-                    prompt_text,
+                    prompt_text + suffix,
                     file_blocks=blocks,
                     timeout_seconds=job["_timeout"],
                     job_id=job_id,
@@ -755,6 +847,9 @@ def _do_convert(job_id: str, job: dict) -> dict:
             json_bytes=json_bytes,
             source_filename=job.get("_source_filename"),
             source_bytes=job.get("_source_bytes"),
+            # S13(F40-①): LLM 비용을 치른 산출 JSON을 import/auto/에 보존해
+            # TTL 만료·서버 재시작 뒤에도 복구할 수 있게 한다(설계 §4.3).
+            preserve=True,
         )
     finally:
         db.close()
@@ -781,6 +876,29 @@ def _fetch_category_path(cert_name: Optional[str], level_hint: str, exam_key: Op
     return f"{cert_name}/{level_hint}/{folder}"
 
 
+def _category_directive_lines(
+    category_path: Optional[str], source_label: Optional[str]
+) -> List[str]:
+    """분류 경로·source_detail 지시 문자열 **단일 생성기** (설계 §4.11 F40-③ / §4.13).
+
+    사이트 반입(`_fetch_directives`)과 파일·URL 반입(`category_path` 파라미터)이 이 함수를
+    공유한다 — 중복 구현 금지. 경로는 정확히 1건으로 고정 지시하며, 경로 문자열은
+    json.dumps로 escape해 프롬프트 안의 JSON 표기를 깨뜨리지 않는다."""
+    lines: List[str] = []
+    if category_path:
+        lines.append(
+            f"- 모든 문항의 `suggest_categories`는 정확히 "
+            f"{json.dumps([category_path], ensure_ascii=False)}로 고정하라(다른 경로 추가 금지)."
+        )
+    label = (source_label or "").strip()
+    lines.append(
+        '- 각 문항의 `source_detail`은 "'
+        + (label[:40] if label else "해당 회차")
+        + ' M번" 형식으로(M=문항 번호) 채우라.'
+    )
+    return lines
+
+
 def _fetch_directives(fetched, *, cli: bool) -> str:
     """수집 결과 메타를 반입 JSON 규격에 반영하도록 LLM에 강제 지시(설계 §4.13)."""
     cat_path = _fetch_category_path(
@@ -794,15 +912,7 @@ def _fetch_directives(fetched, *, cli: bool) -> str:
         "## 사이트 반입 — 추가 지시(엄수)",
         "이 원본은 자격증 기출 한 회차다. 각 문항을 반입 JSON 문서(type: past_question)로 만들라.",
     ]
-    if cat_path:
-        lines.append(
-            f'- 모든 문항의 `suggest_categories`는 정확히 ["{cat_path}"]로 고정하라(다른 경로 추가 금지).'
-        )
-    lines.append(
-        '- 각 문항의 `source_detail`은 "'
-        + (exam_label[:40] if exam_label else "해당 회차")
-        + ' M번" 형식으로(M=문항 번호) 채우라.'
-    )
+    lines.extend(_category_directive_lines(cat_path, exam_label))
     if note:
         lines.append(f'- 최상위 `source.note`는 정확히 "{note}"로 채우라.')
     lines.append("- 보기·정답·해설이 원본에 있으면 반드시 포함하고, 없는 정보를 지어내지 마라.")
@@ -812,6 +922,56 @@ def _fetch_directives(fetched, *, cli: bool) -> str:
             "- 원본에 \"과목: …\" 줄이 있으면 그 과목명을 해당 문항의 `tags`에 태그로 제안하라"
             "(분류 경로는 위 회차 경로 고정 — 과목별 하위 분류는 만들지 마라)."
         )
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# 분류 경로 미리 지정 (S13 F40-③, 설계 §4.11 `category_path?`)
+# ---------------------------------------------------------------------------
+CATEGORY_PATH_MAX_DEPTH = 5
+CATEGORY_PATH_MAX_SEGMENT = 60
+
+
+def normalize_category_path(raw: Optional[str]) -> Optional[str]:
+    """`category_path` 검증·정규화 — 최대 5단계·단계당 60자·앞뒤 공백 정리·빈 단계 금지.
+    미지정(None·공백)은 None을 반환해 기존 동작(LLM 추론)을 그대로 둔다. 위반은 422."""
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    segments: List[str] = []
+    for seg in text.split("/"):
+        clean = seg.strip()
+        if not clean:
+            raise ValidationAppError(
+                "분류 경로에 빈 단계가 있습니다(예: 품질경영기사/필기/2022년 2회)",
+                detail={"category_path": raw},
+            )
+        if len(clean) > CATEGORY_PATH_MAX_SEGMENT:
+            raise ValidationAppError(
+                f"분류 경로의 각 단계는 {CATEGORY_PATH_MAX_SEGMENT}자 이하여야 합니다",
+                detail={"category_path": raw, "segment": clean[:80]},
+            )
+        segments.append(clean)
+    if len(segments) > CATEGORY_PATH_MAX_DEPTH:
+        raise ValidationAppError(
+            f"분류 경로는 최대 {CATEGORY_PATH_MAX_DEPTH}단계까지 지정할 수 있습니다",
+            detail={"category_path": raw, "depth": len(segments)},
+        )
+    return "/".join(segments)
+
+
+def _manual_category_directives(category_path: Optional[str]) -> Optional[str]:
+    """파일·URL 반입에서 사용자가 지정한 분류 경로를 프롬프트에 고정 지시로 붙인다.
+
+    **자동 반입이 아니다**(R7) — preview의 분류 제안을 고정할 뿐, 확정은 사용자 승인이며
+    없는 경로는 기존 commit의 누락 노드 생성 계약(`exists:false` → 승인 시 생성) 그대로다."""
+    if not category_path:
+        return None
+    label = category_path.split("/")[-1]
+    lines = ["## 분류 경로 — 추가 지시(엄수)"]
+    lines.extend(_category_directive_lines(category_path, label))
     return "\n".join(lines)
 
 
@@ -875,8 +1035,9 @@ def _do_fetch(job_id: str, job: dict) -> dict:
     )
     exam_key_override = job.get("_exam_key_override")
     if exam_key_override:
-        # fetch/exams가 반환한 병합 대표 키로 덮어써 목록 표기·분류 경로·imported 판정을
-        # 일치시킨다(설계 §4.13 — 채택 어댑터가 회차 번호를 모르는 cbtbank 대비, S12).
+        # fetch/exams가 반환한 키로 덮어써 목록 표기·분류 경로·imported 판정을 일치시킨다
+        # (설계 §4.13 — S13 단일 어댑터에서는 목록 키와 수집 키가 같아 사실상 항등 전달이지만,
+        # 계약·프론트 호출 형태를 유지하기 위해 파라미터를 남긴다).
         fetched.exam_key = exam_key_override
 
     convert_md = CONVERT_PROMPT_PATH.read_text(encoding="utf-8")
@@ -955,6 +1116,9 @@ def _do_fetch(job_id: str, job: dict) -> dict:
             json_bytes=json_bytes,
             source_filename=job.get("_source_filename"),
             source_bytes=job.get("_source_bytes"),
+            # S13(F40-①): LLM 비용을 치른 산출 JSON을 import/auto/에 보존해
+            # TTL 만료·서버 재시작 뒤에도 복구할 수 있게 한다(설계 §4.3).
+            preserve=True,
         )
     finally:
         db.close()
@@ -1040,6 +1204,7 @@ def _new_job_base(kind: str, *, resolved_engine: str, requested_engine: str, api
         "_phase_detail": None,
         "_usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": None},
         "_error_info": None,
+        "_category_path": None,  # S13(F40-③) — 파일·URL 반입의 분류 경로 고정 지시
     }
 
 
@@ -1050,8 +1215,10 @@ def start_convert_job(
     upload_bytes: bytes,
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    category_path: Optional[str] = None,
 ) -> str:
     _purge_expired_jobs()
+    category_path = normalize_category_path(category_path)
     if not CONVERT_PROMPT_PATH.exists():
         raise ValidationAppError(
             "prompts/convert.md 프롬프트 파일을 찾을 수 없습니다",
@@ -1078,6 +1245,7 @@ def start_convert_job(
             "_source_bytes": upload_bytes,
             "_tmp_path": str(tmp_path),
             "_input_size": len(upload_bytes),
+            "_category_path": category_path,
         }
     )
     with _JOBS_LOCK:
@@ -1093,10 +1261,12 @@ def start_convert_job_from_url(
     url: str,
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    category_path: Optional[str] = None,
 ) -> str:
     """URL 반입(F35 1단계) — 다운로드도 워커에서 수행(요청 스레드 블로킹 금지),
     phase='downloading'부터 잡으로 처리한다."""
     _purge_expired_jobs()
+    category_path = normalize_category_path(category_path)
     if not CONVERT_PROMPT_PATH.exists():
         raise ValidationAppError(
             "prompts/convert.md 프롬프트 파일을 찾을 수 없습니다",
@@ -1114,7 +1284,15 @@ def start_convert_job_from_url(
     job = _new_job_base("convert", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
     if pre_fallback:
         job["_fallback_used"] = True
-    job.update({"_timeout": timeout_seconds, "_url": url.strip(), "_phase": "downloading", "_phase_detail": url.strip()})
+    job.update(
+        {
+            "_timeout": timeout_seconds,
+            "_url": url.strip(),
+            "_phase": "downloading",
+            "_phase_detail": url.strip(),
+            "_category_path": category_path,
+        }
+    )
     with _JOBS_LOCK:
         _JOBS[job_id] = job
     _ensure_worker()

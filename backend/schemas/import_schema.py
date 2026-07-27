@@ -79,6 +79,9 @@ class PreviewResponse(BaseModel):
     source: PreviewSource
     summary: PreviewSummary
     items: List[PreviewItem]
+    # S13(F40-①): 디스크 보존본에서 복구된 미리보기 — 화면 상단 소표기용
+    # ("이전 미리보기를 복구했습니다 — 중복 판정은 현재 DB 기준입니다", 설계 §4.3)
+    recovered: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -117,3 +120,6 @@ class CommitResult(BaseModel):
     new_documents: List[NewDocumentRef] = Field(default_factory=list)
     categories_created: List[str] = Field(default_factory=list)
     relations_created: int = 0
+    # S13(F40-①): 만료된 preview를 디스크 보존본으로 복구한 뒤 커밋했음을 알린다
+    # (중복 판정이 최초와 달라졌을 수 있다는 소표기용 — 설계 §4.3)
+    recovered: bool = False

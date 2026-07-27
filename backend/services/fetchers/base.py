@@ -15,7 +15,7 @@ from typing import Any, Callable, List, Optional, Union
 
 @dataclass
 class CertRef:
-    """자격증 검색 결과 한 건 — `cert_ref`는 어댑터 내부 식별자(comcbt=게시판 mid 등)."""
+    """자격증 검색 결과 한 건 — `cert_ref`는 어댑터 내부 식별자(어댑터마다 규칙이 다르다)."""
 
     name: str
     cert_ref: str
@@ -43,12 +43,14 @@ class FetchedQuestion:
     answer: Optional[str] = None
     explanation: Optional[str] = None
     images: List[str] = field(default_factory=list)  # 원본 이미지 URL(registry가 다운로드)
-    subject: Optional[str] = None  # 과목 구분(S12 — cbtbank) — 태그 제안 소재로만 사용
+    subject: Optional[str] = None  # 과목 구분 — 태그 제안 소재로만 사용
 
 
 @dataclass
 class FetchedExam:
-    """구조화 추출 경로(S12 cbtbank 첫 실사용) — LLM 프롬프트에 구조화 텍스트로 투입된다."""
+    """구조화 추출 경로 — LLM 프롬프트에 구조화 텍스트로 투입된다. S13 시점에 이
+    경로를 쓰는 등록 어댑터는 없다(유일한 실사용 어댑터가 계획서 §14 F35-2 "제거
+    이력"에 따라 제거됨) — 공식 API가 구조화 문항을 주는 경우를 위해 인터페이스만 유지."""
 
     cert_name: str
     exam_key: str
@@ -61,7 +63,7 @@ class FetchedExam:
 
 @dataclass
 class FetchedFile:
-    """qnet(및 현재 comcbt) 경로 — 원본 파일을 그대로 convert에 투입한다(LLM이 구조 추출)."""
+    """qnet 경로 — 원본 파일을 그대로 convert에 투입한다(LLM이 구조 추출)."""
 
     filename: str
     data: bytes
