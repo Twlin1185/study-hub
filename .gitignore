@@ -10,7 +10,7 @@ node_modules/
 backend/.venv/
 backend/__pycache__/
 backend/**/__pycache__/
-frontend/dist/
+# frontend/dist 는 커밋한다 — 테스터가 Node 없이 화면을 받도록 (1_Setup.bat 배포 체계)
 *.pyc
 .env
 
@@ -19,6 +19,9 @@ backend/.bkit/
 
 # 작업용 git worktree (Claude Code 격리 작업 공간 — 커밋 대상 아님)
 .claude/worktrees/
+
+# 테스터용 포터블 Python (1_Setup.bat 이 내려받아 생성 — 커밋 금지)
+python-embed/
 
 # 도구 런타임 상태 (세션마다 자동으로 바뀌는 값 — 소스가 아니다)
 .claude/scheduled_tasks.lock
