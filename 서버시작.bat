@@ -14,7 +14,7 @@ if not exist ".venv\Scripts\python.exe" (
 rem Create DB schema if study.db is missing
 if not exist "..\study.db" (
     echo study.db not found - creating schema...
-    .venv\Scriptslembic.exe upgrade head
+    .venv\Scripts\python.exe -m alembic upgrade head
     if errorlevel 1 (
         echo [ERROR] schema creation failed. See messages above.
         pause

@@ -1,0 +1,6 @@
+# 배치 파일은 CRLF 바이트 그대로 보존 — LF로 변환되면 cmd 파서가 깨진다
+# (clone이든 GitHub Download ZIP이든 받은 쪽에서 항상 CRLF여야 함)
+*.bat -text
+
+# 빌드 산출물은 바이트 그대로 — 줄바꿈 변환 금지 (빌드 출력과 서빙 파일 동일 보장)
+frontend/dist/** -text
