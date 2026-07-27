@@ -8,7 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-# dist 는 커밋한다 — Node 없는 테스터 PC에 빌드 결과물을 전달하기 위함 (TESTER-GUIDE.md)
+# dist 는 커밋한다 — Node 없는 테스터 PC에 빌드 결과물을 전달하기 위함 (0_README.txt)
 dist-ssr
 *.local
 
