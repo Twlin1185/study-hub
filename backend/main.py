@@ -197,7 +197,7 @@ def _warn_if_frontend_stale() -> None:
     배포 빌드(dist)를 FastAPI가 그대로 서빙하므로, 프론트 코드를 고치고 `npm run build`를
     빠뜨리면 **서버는 최신인데 화면만 옛 버전**이 된다(2026-07-26 실사용: dist가 하루 이상
     묵어 새 화면이 없는 채로 운영됨). 서버가 빌드를 대신 실행하지는 않는다 — 안내만 하고,
-    자동 빌드는 시작 스크립트(`개발용 서버시작.bat`)가 담당한다.
+    자동 빌드는 시작 스크립트(`Dev_StartServer.bat`)가 담당한다.
     """
     if not INDEX_HTML.exists():
         print("[!] frontend/dist 없음 - 화면이 뜨지 않습니다. frontend 폴더에서 `npm run build`를 실행하세요.")

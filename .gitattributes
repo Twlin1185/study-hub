@@ -4,3 +4,6 @@
 
 # 빌드 산출물은 바이트 그대로 — 줄바꿈 변환 금지 (빌드 출력과 서빙 파일 동일 보장)
 frontend/dist/** -text
+
+# 테스터 안내문은 UTF-8 BOM + CRLF 바이트 그대로 — 어느 PC 메모장에서도 안 깨지게
+0_README.txt -text
