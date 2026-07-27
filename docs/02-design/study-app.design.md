@@ -1,11 +1,12 @@
 # Study Hub — 상세 설계 (API 명세 · 화면 상세)
 
-> 상태: **Design v1.13** — v1.12 대비: **사이트 어댑터 단일화(S13 — 사설 어댑터 comcbt·cbtbank 제거, 계획서 v0.16 §14 F35-2 제거 이력)**: §4.13에서 어댑터 3종 목록·우선순위 병합(qnet>cbtbank>comcbt)·날짜 자연 키 병합·`also_on`/`refs` 대안 어댑터 재시도·level_hint 오병합 방지 조건을 **큐넷 단일 어댑터 기준으로 정리**. **계약 형태는 유지**(`GET /api/fetch/adapters`는 계속 **배열** 반환, `POST /api/fetch/exams` 항목의 `also_on`(항상 `[]`)·`refs`(단일 항목)·`exam_key?`도 필드 유지) — 프론트 변경은 어댑터 id 유니온 축소(`'qnet'`)와 이름 폴백 맵 정리뿐. §5.9 대안 어댑터 재시도 버튼은 사문화(빈 `also_on`이라 미렌더). DDL 변경 없음.
+> 상태: **Design v1.14** — v1.13 대비: **단계 재편(계획서 v0.17 — 큐넷 실측에 따른 우선순위 변경)**: ① 큐넷 오픈API 계약(서비스키 `fetch/qnet-key`·목록/상세·`unsupported_format`·설정 카드)의 단계 태그를 **S13 → S14**로 이관(**내용 삭제 없음** — 계약은 그대로, 착수 시점만 뒤로). 사설 어댑터 제거·단일 어댑터화는 **S13 유지**. ② **F40 수동 반입 UX 계약 신설(S13)**: §4.3에 **변환 결과 디스크 보존·복구**(`GET /api/import/preview/{id}` 캐시 미스 시 복구) + **`GET /api/import/preview/{id}/json`(내려받기, 신규 1개)**, §4.11 `POST /api/convert`에 **`category_path?`**(분류 경로 제안 고정 — 사이트 반입 지시 생성기 공유) + `error_info.kind`에 **`'invalid_output'`**(출력 잘림 오안내 수정), §5.9에 **반입 대기열**(여러 파일 연속 — 새 API 0건, 서버 동시 1개 유지)·분류 경로 입력·복구 표시. **DDL 변경 없음.**
+> (v1.13: **사이트 어댑터 단일화(S13 — 사설 어댑터 comcbt·cbtbank 제거, 계획서 v0.16 §14 F35-2 제거 이력)**: §4.13에서 어댑터 3종 목록·우선순위 병합(qnet>cbtbank>comcbt)·날짜 자연 키 병합·`also_on`/`refs` 대안 어댑터 재시도·level_hint 오병합 방지 조건을 **큐넷 단일 어댑터 기준으로 정리**. **계약 형태는 유지**(`GET /api/fetch/adapters`는 계속 **배열** 반환, `POST /api/fetch/exams` 항목의 `also_on`(항상 `[]`)·`refs`(단일 항목)·`exam_key?`도 필드 유지) — 프론트 변경은 어댑터 id 유니온 축소(`'qnet'`)와 이름 폴백 맵 정리뿐. §5.9 대안 어댑터 재시도 버튼은 사문화(빈 `also_on`이라 미렌더). DDL 변경 없음.)
 > (v1.12: **S13(M13 큐넷 공식 오픈API) 계약**(§4.13 S13 갱신 — qnet 어댑터를 공공데이터포털 **"국가자격 공개문제 조회 서비스"**(getOpenQstList/getOpenQst)로 실가동: 서비스키 등록 `POST/DELETE /api/fetch/qnet-key`(secrets.json — F34 전례), `fileUrl` JWT 1시간 → **상세 조회·다운로드 같은 잡 연속 수행**, HWP 전용 회차 = 원본 저장 + `error_info.kind:'unsupported_format'` 신설, 병합 그룹 level_hint 동일 조건 명시. **기존 fetch 계약(adapters/certs/exams/import)·프론트 스텝 흐름 불변**) + §5.11 데이터 그룹 서비스키 카드·§5.9 실패 렌더 1종 추가)
 > 이전 이력: v1.11 — S12 계약(§4.13 cbtbank FetchedExam 첫 실사용·날짜 자연 키 병합·`fetch/import` `exam_key?`, §4.15 `GET /manual`) · v1.10 — S11 계약 신설(§4.14 F25·F16) · v1.9 — S10 구현 실측 반영(comcbt PDF 경로, qnet available:false 스텁)
 > 작성일: 2026-07-22 · 갱신: 2026-07-27
-> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.16)
-> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-13-qnet-openapi.plan.md`
+> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.17)
+> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-13-fetch-cleanup-manual-import.plan.md`(S13) · `stage-14-qnet-openapi.plan.md`(S14)
 
 ---
 
@@ -38,7 +39,8 @@ study-hub/
 │     ├─ styles/tokens.css  # 디자인 토큰 (§6)
 │     └─ App.tsx            # React Router 라우트
 ├─ sources/                 # 원본 파일 (불변)
-├─ import/                  # Claude Code가 생성한 반입 JSON
+├─ import/                  # 반입 JSON — 최상위: 사람이 넣은 파일(Claude Code 산출물 등)
+│  └─ auto/                 # S13(F40-①): 앱이 변환한 반입 JSON 자동 보존(최근 50건, git·백업 제외 — §4.3)
 ├─ prompts/convert.md       # LLM 변환 프롬프트 템플릿
 └─ study.db
 ```
@@ -89,13 +91,14 @@ study-hub/
 | `PUT /api/documents/{id}/bookmark` · `DELETE 동일 경로` | 북마크 토글 (F29) | S4 |
 | `GET /api/documents/batch?ids=1,2,3` | 인쇄 뷰 등 다건 조회 | S4 |
 
-### 4.3 반입 Import
+### 4.3 반입 Import (S2 · S6 — convert 연결 · **S13 — F40-① 변환 결과 보존·복구**)
 
 | 메서드/경로 | 설명 | 단계 |
 |---|---|---|
 | `POST /api/import/preview` | multipart로 JSON 파일 업로드 → 서버가 파싱·검증 후 미리보기 리포트. 원본 파일(`source_file`)을 같이 올리면 sources/에 보관 | S2 |
 | `POST /api/import/commit` | preview_id + 항목별 결정 → 실제 반입. 결과 요약 반환 | S2 |
-| `GET /api/import/preview/{preview_id}` | 캐시된 미리보기 재조회 — convert 잡 완료 시 `result_preview_id`로 반입 위저드에 연결하는 용도. TTL(1h) 만료 시 404 | S6 |
+| `GET /api/import/preview/{preview_id}` | 캐시된 미리보기 재조회 — convert 잡 완료 시 `result_preview_id`로 반입 위저드에 연결하는 용도. **S13(F40-①): 캐시 미스(TTL 1h 만료·서버 재시작)면 `import/auto/`의 보존 JSON으로 preview를 재생성해 복구**(같은 preview_id 유지) — 보존 파일도 없을 때만 404 | S6·S13 |
+| `GET /api/import/preview/{preview_id}/json` | **S13(F40-①)**: 보존된 반입 JSON 원본을 `Content-Disposition: attachment`로 반환(`application/json`). 최악의 경우에도 사용자가 파일을 손에 쥐고 "반입 JSON 파일 선택" 경로로 이어갈 수 있게 하는 **탈출구**. 보존 파일이 없으면 404 | S13 |
 
 `preview` 응답:
 ```json
@@ -127,7 +130,16 @@ study-hub/
   ]
 }
 ```
-- preview 상태는 서버 메모리(TTL 1시간)에 보관. 만료 시 409 → 다시 preview.
+- preview 상태는 서버 메모리(TTL 1시간)에 보관. 만료 시 409 → 다시 preview. **S13(F40-①)부터는 만료 전에 디스크 복구를 시도하므로 409는 "복구도 실패"일 때만 도달한다.**
+
+**변환 결과 보존·복구 (S13 — F40-①, 계획서 §14 F40. "LLM 비용이 증발하지 않게")**
+- **왜**: 변환 산출 JSON이 프로세스 메모리 preview 캐시(TTL 1시간)에만 존재해, 시간 초과·서버 재시작 시 LLM 비용을 치른 결과가 복구 수단 없이 사라진다(원본은 sources/에 남지만 재변환 = 재과금).
+- **보존**: convert·fetch 잡이 preview 생성에 성공하면 그 반입 JSON을 **`import/auto/{preview_id}__{source_hash12|nosrc}__{원본파일명}.json`** 으로 저장(UTF-8, `ensure_ascii=False`). **파일명 규칙이 곧 복구 계약** — `source_hash12` = 원본 바이트 SHA-256 앞 12자(= `sources/` 저장 파일명 접두어와 같은 규칙), 원본이 없으면 `nosrc`. 별도 인덱스·DB 레코드를 두지 않는다(**DDL 0건**).
+- **복구 절차**: 캐시 미스 → `import/auto/`에서 preview_id로 파일 탐색 → 해시로 `sources/`의 원본 바이트를 되읽어 → 기존 `create_preview`를 그대로 재실행(**같은 preview_id 재사용**). 결과적으로 원본 연결·`duplicate_source` 판정까지 최초와 동일하게 재구성된다.
+- **재계산 원칙**: 항목 `index`는 같은 JSON·같은 순서에서 나오므로 **안정**(commit 결정과 어긋나지 않는다). 반면 `duplicate_of`·`suggest_*`는 **복구 시점의 DB 기준으로 재계산**된다 — 그 사이 DB가 바뀌면 배지가 달라질 수 있어 화면에 "복구됨 — 판정은 현재 DB 기준" 소표기(F26 `goal_met` "현재 기준 재평가" 전례와 같은 원칙).
+- `POST /api/import/commit`도 만료 시 **같은 복구를 1회 시도**한 뒤 진행한다(프론트 재조회 불요).
+- **보존 정책**: `import/auto/`는 **최근 50건**만 유지(초과 시 오래된 것부터 삭제). git 제외 · **백업(F27) 대상 아님**(백업 = study.db + sources/) — 손실 시 대가는 "재변환 비용"뿐이다(원본은 백업된다). → 계획서 R18.
+- `import/` 최상위(사용자가 직접 넣는 반입 JSON)와 **하위 폴더로 분리**해 사람이 넣은 파일과 앱 산출물이 섞이지 않게 한다.
 - `action: "merge"` = 기존 문서에 태그·출처만 병합, 본문은 유지.
 - `approve_categories` 원소: **int = 기존 분류의 category_id** (`exists:true` 제안 승인) / **str = 생성 승인할 경로 문자열** (`exists:false` 제안 — commit이 누락 노드 생성 후 연결).
 - `commit` 응답: `{ "created": N, "merged": N, "skipped": N, "new_documents": [{id, doc_no, title}], "categories_created": ["경로", ...], "relations_created": N }`.
@@ -228,7 +240,7 @@ study-hub/
 
 - 재생성(F30) 프롬프트 구성: **현재 문서 내용 + 신고 사유(reason) + (source_detail 있으면) 원본 출처 정보** — 원본 대조가 가능하도록(R7). 엔진은 R9 결정 그대로 claude CLI 서브프로세스(F23 인프라). S8부터는 §4.11의 이중 엔진 정책을 따른다.
 
-### 4.11 LLM 엔진 관리 (S8 — F34 + F35 1단계)
+### 4.11 LLM 엔진 관리 (S8 — F34 + F35 1단계 · **S13 — F40-③ `category_path?` · F40-④ `invalid_output`**)
 
 | 메서드/경로 | 설명 | 단계 |
 |---|---|---|
@@ -236,10 +248,12 @@ study-hub/
 | `POST /api/llm/api-key` | `{key}` — **즉석 연결 테스트**(초경량 호출) 성공 시에만 저장. 저장처는 루트 `secrets.json`(**DB/settings 금지** — 백업(F27)·git 제외 대상). 응답은 `{key_suffix}`(마지막 4자리)만 — 원문 키는 어떤 응답에도 미포함(write-only) | S8 |
 | `DELETE /api/llm/api-key` | 키 삭제 | S8 |
 | `POST /api/convert` 확장 | `{file 업로드}` **또는 `{url}`** (F35-1): url이면 서버가 다운로드(공개 자료, 크기 상한·content-type 화이트리스트·**사설/로컬 IP 차단(SSRF 방지)**) 후 동일 파이프라인. `engine` 선택 파라미터(`'auto'\|'cli'\|'api'`, 기본 auto=우선순위) — 폴백 "물어보기" 시 프론트가 `engine:'api'`로 재요청하는 계약 | S8 |
+| `POST /api/convert` 확장 2 | **S13(F40-③)**: 선택 파라미터 **`category_path`**(예 `"품질경영기사/필기/2022년 2회"`) — 지정 시 서버가 프롬프트에 "모든 문항의 `suggest_categories`는 정확히 이 경로 하나로 고정" 지시를 넣는다. **사이트 반입(§4.13)의 지시 문자열 생성기를 공유**(중복 구현 금지 — 경로·라벨만 받는 형태로 일반화). 검증: 최대 5단계·단계당 60자·빈 단계 금지(위반 시 422). **자동 반입이 아니다** — preview의 제안을 고정할 뿐 확정은 사용자 승인(R7), 없는 노드 생성은 기존 commit `approve_categories` 계약 그대로 | S13 |
 
 - **엔진 설정은 settings 재사용**: `llm.priority`(`'cli'\|'api'`, 기본 cli) · `llm.fallback`(`'auto'\|'ask'\|'off'`, 기본 **ask** — auto는 과금 동의 UI 통과 시에만 설정 가능) · `llm.api_model`(기본 `claude-sonnet-5` — 과금 부담 고려, 변경 가능).
 - **API 엔진**: anthropic Python SDK 직접 호출(키는 설정 화면에서 사용자가 등록한 secrets.json **단일 출처** — 환경변수·외부 프로필 자동 탐색 없음). convert/regenerate 프롬프트는 CLI 경로와 동일 템플릿.
-- **오류 구조화**: convert/regenerate 잡 상태 응답에 `error_info` 추가 — `{kind: 'rate_limit'\|'auth'\|'not_installed'\|'timeout'\|'other', limit_kind?: 'session'\|'daily'\|'weekly'\|'model'\|'overall', resets_at?, message(사람이 읽는 한국어), action(다음 행동 안내), fallback_available: bool}`. (S10: kind에 `'parse_failed'` 추가 — 사이트 어댑터 파싱 실패, §4.13. S13: `'unsupported_format'` 추가 — qnet HWP 전용 회차, §4.13.) **CLI/API 원문 JSON은 사용자에게 노출 금지.** CLI 429의 `result` 문자열에서 한도 종류·리셋 시각을 파싱한다.
+- **오류 구조화**: convert/regenerate 잡 상태 응답에 `error_info` 추가 — `{kind: 'rate_limit'\|'auth'\|'not_installed'\|'timeout'\|'other', limit_kind?: 'session'\|'daily'\|'weekly'\|'model'\|'overall', resets_at?, message(사람이 읽는 한국어), action(다음 행동 안내), fallback_available: bool}`. (S10: kind에 `'parse_failed'` 추가 — 사이트 어댑터 파싱 실패, §4.13. **S13: `'invalid_output'` 추가 — 아래. S14: `'unsupported_format'` 추가 — qnet의 PDF 없는 게시물(ZIP·HWP), §4.13.**) **CLI/API 원문 JSON은 사용자에게 노출 금지.** CLI 429의 `result` 문자열에서 한도 종류·리셋 시각을 파싱한다.
+- **`invalid_output`(S13 — F40-④, 잘못된 안내의 교정)**: LLM 출력이 완결된 JSON이 아닐 때(대개 문항이 많아 출력 상한에서 **잘림**) 지금은 `kind:'other'` + "잠시 후 다시 시도하세요"로 안내되는데, **같은 파일로 재시도하면 같은 실패**라 LLM 비용만 반복 소모된다. → 전용 kind로 분류하고 message "변환 결과가 완결된 JSON이 아닙니다 — 문항이 많아 응답이 중간에 잘렸을 수 있습니다", action "원본을 과목·회차 단위로 나눠 올리거나 다른 엔진으로 재시도하세요". **원문(잘린 출력·raw)은 응답에 싣지 않는다**(§4.11 원칙 — 로그에만). **서버측 PDF 분할은 하지 않는다**(라이브러리 의존 금지 — §4.13 비지원 포맷 정책과 같은 원칙).
 - **한도 기억**: 최근 429의 `{kind, resets_at}`을 settings `llm.last_limit`에 기록 — status 응답에 포함하고, 리셋 전 변환 시도 시 실행 전에 경고(폴백 정책 적용). 리셋 시각 경과 시 자동 무효화.
 - CLI 로그인은 앱이 대행 불가(대화형) — status의 `logged_in:false`일 때 프론트가 "터미널에서 `claude` 실행해 로그인" 안내 + [다시 확인] 재진단.
 - **잡 진행 가시화(S8 — "마냥 기다리다 새로고침" 방지)**: convert/regenerate 잡 상태 응답에 `progress` 추가 —
@@ -292,7 +306,9 @@ study-hub/
 - API 계약 불변. `POST /api/backups/{id}/restore` 성공 직후 서버가 **SQLAlchemy `engine.dispose()`로 커넥션 풀 폐기**(이후 요청은 복원본으로 새 커넥션) + 복원본 대상 검증 쿼리 1회.
 - 프론트: 복원 성공 시 **강제 리로드 모달**("복원 완료 — 앱을 다시 불러옵니다") → 확인 시 쿼리 캐시 폐기 + `location.reload()`. 모달에 "이상 동작 시 서버를 재시작하세요" 안내 유지(닫기 없이 리로드만 — stale 화면 조작 차단).
 
-### 4.13 콘텐츠·동기 (S10 — F35 2단계 + F26 · S12 — 어댑터 3호 cbtbank·날짜 키 병합 · **S13 갱신** — qnet 공식 오픈API 실가동 + **사설 어댑터(comcbt·cbtbank) 제거로 단일 어댑터화**)
+### 4.13 콘텐츠·동기 (S10 — F35 2단계 + F26 · S12 — 어댑터 3호 cbtbank·날짜 키 병합 · **S13** — 사설 어댑터(comcbt·cbtbank) 제거로 단일 어댑터화 · **S14** — qnet 공식 오픈API 실가동)
+
+> **단계 구분(계획서 v0.17 재편)**: **S13 = 제거·단순화만**(제거 후 등록 어댑터 = qnet **스텁 1개**, `available:false` — 사이트 반입 탭은 "준비 중"). **S14 = qnet 오픈API 실가동**(서비스키·목록·상세·첨부). 아래 표·규칙에서 `S14` 태그가 붙은 항목은 **S13에서 구현하지 않는다** — 계약은 확정돼 있고 착수 시점만 뒤로 미뤘다(실측상 필기·필답형 미수록 → 후순위, 계획서 §14 F35-3 "실측 확정 사항").
 
 **원칙(강제)**: 신규는 **수집기(어댑터)뿐** — LLM 정리·진행 가시화·미리보기·중복 감지·분류 자동 생성·승인 반입은 전부 기존 convert 잡 큐(§4.10·§4.11)와 import preview/commit(§4.3)을 재사용한다. **새 테이블·컬럼 없음**(근거는 계획서 §14 F35·F26 명세).
 
@@ -302,12 +318,12 @@ study-hub/
 
 | 메서드/경로 | 설명 | 단계 |
 |---|---|---|
-| `GET /api/fetch/adapters` | 등록 어댑터 목록 `[{id, name, priority, available, notice}]` — **S13: 원소 1개(`id:'qnet'`, `priority:1`) 고정**. **계약 안정성 결정(2026-07-27): 배열 구조를 유지한다** — ① 프론트는 이미 목록을 일반 렌더(어댑터별 분기 없음)라 단일 객체로 바꾸면 오히려 프론트 수정이 필요하고, ② 공식 오픈API를 제공하는 다른 기관 어댑터가 추가될 여지를 열어두며, ③ registry·라우터 구조를 그대로 둘 수 있다(제거 범위를 최소화). `priority` 필드도 유지(값 1 고정 — 정렬 의미만 남고 채택 경쟁은 없음). `notice` = 이용 고지 문구(개인 학습 전용·재배포 금지 + **커버리지 한계**: 실기 공개문제 위주, 필기 기출은 URL·파일 반입 안내). `available:false` = 서비스키 미등록·접속 불가 진단 시. **S13**: qnet 항목에 `key_registered`(bool)·`key_suffix?`(마지막 4자리) 추가 — `available` = **서비스키 등록 여부 반영**(미등록 시 false + notice "공공데이터포털 서비스키 등록 필요 — 설정 > 데이터". 기존 스텁 응답의 상위 호환 — 프론트 분기 불요) | S10·S13 |
+| `GET /api/fetch/adapters` | 등록 어댑터 목록 `[{id, name, priority, available, notice}]` — **S13: 원소 1개(`id:'qnet'`, `priority:1`) 고정**. **계약 안정성 결정(2026-07-27): 배열 구조를 유지한다** — ① 프론트는 이미 목록을 일반 렌더(어댑터별 분기 없음)라 단일 객체로 바꾸면 오히려 프론트 수정이 필요하고, ② 공식 오픈API를 제공하는 다른 기관 어댑터가 추가될 여지를 열어두며, ③ registry·라우터 구조를 그대로 둘 수 있다(제거 범위를 최소화). `priority` 필드도 유지(값 1 고정 — 정렬 의미만 남고 채택 경쟁은 없음). `notice` = 이용 고지 문구(개인 학습 전용·재배포 금지 + **커버리지 한계**: 실기 공개문제 위주, 필기 기출은 URL·파일 반입 안내). `available:false` = 서비스키 미등록·접속 불가 진단 시(**S13 종료 시점 = 스텁이라 항상 false + "준비 중" 안내**). **S14**: qnet 항목에 `key_registered`(bool)·`key_suffix?`(마지막 4자리) 추가 — `available` = **서비스키 등록 여부 반영**(미등록 시 false + notice "공공데이터포털 서비스키 등록 필요 — 설정 > 데이터". 기존 스텁 응답의 상위 호환 — 프론트 분기 불요). notice의 **커버리지 한계 문구는 S14에서 실측 기준으로 확정**("실기 작업형·도면 위주 — 필기·필답형은 파일·URL 반입") | S10·S13·S14 |
 | `GET /api/fetch/certs?q=` | 자격증 검색 — 등록 어댑터 전체에 질의 후 **정규화 이름(공백 제거)으로 병합**: `[{name, sources: [{adapter, cert_ref}]}]`(S13: 어댑터가 하나이므로 `sources`는 항상 1건 — **응답 형태 유지**, 이름 정규화·중복 제거 로직은 남는다). 결과는 서버 메모리 캐시(TTL 24h — 반복 호출·쿼터 절약) | S10 |
 | `POST /api/fetch/exams` | `{sources: [{adapter, cert_ref}]}` → **회차 목록**: `[{exam_key, label, adapter, exam_ref, also_on: [], refs, question_count?, imported, estimate}]`. **`exam_ref` = 어댑터 기준 회차 참조 — `fetch/import`에 `{adapter, cert_ref, exam_ref}`로 그대로 전달하는 계약**(certs의 `cert_ref`와 대응). **S13 단순화**: 어댑터가 하나이므로 **어댑터 간 병합·priority 채택 경쟁이 없다** — `also_on`은 **항상 빈 배열**, `refs`는 `{qnet: exam_ref}` 단일 항목(둘 다 **필드는 유지** — 프론트 렌더 코드 불변). `exam_key` = 어댑터가 산출한 회차 키: `'YYYY-N'`이 원칙, 회차 번호를 알 수 없으면 날짜형 `'YYYY-MM-DD'`(폴더명 파생 규칙은 아래). `imported` = 해당 회차 분류 경로 존재 여부(파생 — 저장 안 함, 키→폴더명 파생 함수는 convert 분류 경로와 단일 공유). `estimate` = 예상 LLM 사용량(아래) | S10·S13 |
 | `POST /api/fetch/import` | `{adapter, cert_ref, exam_ref, exam_key?}` — **한 번에 1회차**(배치 없음). **`exam_key?`** = `fetch/exams`가 반환한 키를 그대로 되돌려 보내는 파라미터 — 서버가 수집 결과(FetchedExam/FetchedFile)의 exam_key를 이 값으로 덮어써 목록 표기·분류 경로·imported 판정을 일치시킨다. **S13: 단일 어댑터에서는 목록 키와 수집 키가 같아 사실상 항등 전달이지만, 계약·프론트 호출 형태를 유지하기 위해 파라미터를 남긴다**(미지정 시 어댑터 자체 키 — 동작 동일). **convert 잡 큐 재사용**(kind=`'fetch'`, 동시 1개, engine 파라미터·폴백 정책 §4.11 그대로) → `{job_id}`. 진행·결과 조회는 기존 `GET /api/convert/{job_id}` — `progress.phase`에 `'fetching'`(사이트 수집·이미지 다운로드) 신설, 완료 시 `result_preview_id`로 기존 반입 위저드 미리보기에 합류 | S10·S12 |
-| `POST /api/fetch/qnet-key` | `{key}` — 큐넷 오픈API **서비스키 등록**(F34 `llm/api-key` 계약 미러): **즉석 검증**(getOpenQstList `numOfRows=1` 호출 — 에러 30/31이면 실패 사유 반환) 성공 시에만 저장. 저장처는 루트 `secrets.json`의 `qnet_service_key`(**DB/settings 금지** — 백업(F27)·git 제외, anthropic 키와 파일 공유 — 병합 저장으로 상호 훼손 금지). 응답 `{key_suffix}`만 — **원문 키는 어떤 응답·로그에도 미포함**(write-only, 요청 URL 로깅 시 serviceKey 마스킹) | S13 |
-| `DELETE /api/fetch/qnet-key` | 서비스키 삭제 — 이후 qnet은 `available:false` 스텁 동작으로 복귀 | S13 |
+| `POST /api/fetch/qnet-key` | `{key}` — 큐넷 오픈API **서비스키 등록**(F34 `llm/api-key` 계약 미러): **즉석 검증**(getOpenQstList `numOfRows=1` 호출 — 에러 30/31이면 실패 사유 반환) 성공 시에만 저장. 저장처는 루트 `secrets.json`의 `qnet_service_key`(**DB/settings 금지** — 백업(F27)·git 제외, anthropic 키와 파일 공유 — 병합 저장으로 상호 훼손 금지). 응답 `{key_suffix}`만 — **원문 키는 어떤 응답·로그에도 미포함**(write-only, 요청 URL 로깅 시 serviceKey 마스킹) | S14 |
+| `DELETE /api/fetch/qnet-key` | 서비스키 삭제 — 이후 qnet은 `available:false` 스텁 동작으로 복귀 | S14 |
 | `GET /api/stats/streak` | F26: `{current_streak, best_streak, today: {questions, minutes, goal: {questions?, minutes?}, goal_met}}` — 전부 파생값(아래 규칙). 용처: 홈 스트릭 위젯(§5.1)·복습 완료 화면(§5.7) | S10 |
 | `GET /api/stats/heatmap` 확장 | 항목에 `goal_met`(bool) 추가 — **목표가 하나라도 설정된 경우에만** 채움(미설정 시 필드 생략). 기존 필드·파라미터 불변(하위 호환). 판정은 `stats/streak`와 동일 함수 공유 | S10 확장 |
 
@@ -318,21 +334,22 @@ backend/services/fetchers/
 ├─ base.py       # 공통 인터페이스: search_certs(q) / list_exams(cert_ref)
 │                #   / fetch_exam(exam_ref, on_activity) → FetchedExam(구조 추출형) 또는 FetchedFile(원본 파일형)
 ├─ registry.py   # 어댑터 등록·HTTP 클라이언트(SSRF 검증·리다이렉트 제한·매직 바이트)·스로틀(2초)·robots 확인·목록 캐시(TTL 24h, 프로세스 메모리)
-└─ qnet.py       # 큐넷 — S13: 공공데이터포털 오픈API(국가자격 공개문제 조회) 목록·상세 + 첨부 다운로드(FetchedFile — 아래 S13 노트. S10~S12는 목록 스텁이었음)
+└─ qnet.py       # 큐넷 — S10~S13은 목록 스텁(available:false). S14: 공공데이터포털 오픈API(국가자격
+                 #   공개문제 조회) 목록·상세 + 첨부 다운로드(FetchedFile — 아래 S14 노트)
                  #   ※ S13에서 comcbt.py·cbtbank.py 삭제(사설 어댑터 제거 — 계획서 §14 F35-2 제거 이력)
 ```
 
-- 수집 결과 2형은 **인터페이스로 유지**: **`FetchedFile`**(원본 파일 — PDF 등) = F35-1과 동일하게 convert 투입(LLM이 구조 추출) — **S13 qnet이 사용하는 경로**. **`FetchedExam`**(구조 추출형) = `{cert_name, exam_key, exam_label, questions: [{no, stem, choices, answer?, explanation?, subject?, images: []}], note?(수집 URL·어댑터 id — FetchedFile과 출처 추적 계약 동일)}` — 구조화 텍스트로 프롬프트에 투입. **S13 시점에 FetchedExam을 쓰는 어댑터는 없다**(유일한 사용자였던 cbtbank 제거) — 인터페이스·이미지 저장 분기·프롬프트 직렬화는 **삭제하지 않고 유지**한다(공식 API가 구조화 문항을 주는 경우를 위한 계약이며, 제거해도 얻는 게 없고 되살리기 비용만 크다).
+- 수집 결과 2형은 **인터페이스로 유지**: **`FetchedFile`**(원본 파일 — PDF 등) = F35-1과 동일하게 convert 투입(LLM이 구조 추출) — **S14 qnet이 사용하는 경로**. **`FetchedExam`**(구조 추출형) = `{cert_name, exam_key, exam_label, questions: [{no, stem, choices, answer?, explanation?, subject?, images: []}], note?(수집 URL·어댑터 id — FetchedFile과 출처 추적 계약 동일)}` — 구조화 텍스트로 프롬프트에 투입. **S13 시점에 FetchedExam을 쓰는 어댑터는 없다**(유일한 사용자였던 cbtbank 제거) — 인터페이스·이미지 저장 분기·프롬프트 직렬화는 **삭제하지 않고 유지**한다(공식 API가 구조화 문항을 주는 경우를 위한 계약이며, 제거해도 얻는 게 없고 되살리기 비용만 크다).
 - **자료구조 필드(파이썬 dataclass — DDL 아님, 기본값 None)**: `ExamEntry.exam_date?`(`YYYY-MM-DD` — S13에서 **병합 자연 키 용도는 소멸**, 라벨·정렬 보조 정보로만 남음) · `FetchedQuestion.subject?`(과목 구분 — 구조화 텍스트에 "과목:" 줄로 직렬화, LLM 지시로 **태그 제안 소재**로만 사용. 분류 경로는 회차까지 — 기존 계약 불변).
-- 두 경로 모두 최종적으로 **반입 JSON 규격(계획서 §8.2)으로 LLM 정리**(해설 보강·태그·검수) 후 preview 생성. `suggest_categories`는 어댑터가 확정한 경로를 프롬프트에 **강제 지시** — 분류 자동 생성은 기존 commit의 경로 생성 재사용. **경로 3단계는 exam_key + level_hint에서 파생**: `YYYY-N` → `"자격증명/{level_hint}/YYYY년 N회"`, 날짜형 `YYYY-MM-DD` → `"자격증명/{level_hint}/YYYY년 M월 D일"`(앞자리 0 제거 — S13 qnet 공개문제는 `level_hint='실기'`가 기본). **키→폴더명 파생 함수는 imported 판정(fetch_service)과 convert 분류 경로가 단일 공유**(불일치 금지).
-- **이미지(그림 문제)**: FetchedExam 경로에서 어댑터가 다운로드(스로틀 동일 적용)해 `sources/images/`에 저장(R2 관례), content에 Markdown 링크 삽입 — 링크는 **절대 경로 `/images/{fname}`**(상대 경로는 SPA 라우트에서 깨짐 — S12 검토 실측). 서빙은 `GET /images/{filename}` — `sources/images/`를 **읽기 전용** FileResponse(파일명 정규식 검증으로 경로 탈출 차단, 부재 시 404, SPA 폴백보다 먼저 — main.py, `/manual` 전례). **원본 불변 규칙 그대로.** (S13 qnet은 PDF 첨부 경로라 이미지가 PDF에 내장 — 이 분기는 현재 사용 어댑터가 없지만 **이미 반입된 이미지의 서빙(`GET /images/{filename}`)은 계속 필요**하므로 삭제 금지: 과거 수집 이미지는 전량 보존한다.)
+- 두 경로 모두 최종적으로 **반입 JSON 규격(계획서 §8.2)으로 LLM 정리**(해설 보강·태그·검수) 후 preview 생성. `suggest_categories`는 어댑터가 확정한 경로를 프롬프트에 **강제 지시** — 분류 자동 생성은 기존 commit의 경로 생성 재사용. **경로 3단계는 exam_key + level_hint에서 파생**: `YYYY-N` → `"자격증명/{level_hint}/YYYY년 N회"`, 날짜형 `YYYY-MM-DD` → `"자격증명/{level_hint}/YYYY년 M월 D일"`(앞자리 0 제거 — S14 qnet 공개문제는 `level_hint='실기'`가 기본). **S13(F40-③)부터 이 경로 규칙은 파일·URL 반입의 `category_path`(§4.11)와도 같은 형태를 쓴다** — 수동 지정 경로는 사용자가 직접 적으므로 키→폴더명 파생을 거치지 않는다. **키→폴더명 파생 함수는 imported 판정(fetch_service)과 convert 분류 경로가 단일 공유**(불일치 금지).
+- **이미지(그림 문제)**: FetchedExam 경로에서 어댑터가 다운로드(스로틀 동일 적용)해 `sources/images/`에 저장(R2 관례), content에 Markdown 링크 삽입 — 링크는 **절대 경로 `/images/{fname}`**(상대 경로는 SPA 라우트에서 깨짐 — S12 검토 실측). 서빙은 `GET /images/{filename}` — `sources/images/`를 **읽기 전용** FileResponse(파일명 정규식 검증으로 경로 탈출 차단, 부재 시 404, SPA 폴백보다 먼저 — main.py, `/manual` 전례). **원본 불변 규칙 그대로.** (S14 qnet은 PDF 첨부 경로라 이미지가 PDF에 내장 — 이 분기는 현재 사용 어댑터가 없지만 **이미 반입된 이미지의 서빙(`GET /images/{filename}`)은 계속 필요**하므로 삭제 금지: 과거 수집 이미지는 전량 보존한다.)
 - **출처 추적**: `documents.source_detail` = "YYYY년 N회 M번", `sources.note`에 수집 URL·어댑터 id 기록.
 - **DOM 셀렉터·페이지 구조는 이 문서에서 확정하지 않는다** — 구현 시 실측 확인(stage-10 체크리스트 명시). 설계가 확정하는 것은 인터페이스·오류 처리·예의 규칙뿐.
 
-**구현 실측 노트 (2026-07-25 · S12 추가 2026-07-26 · **S13 정리 2026-07-27** — 추측 셀렉터 배제 원칙에 따른 확정 사항)**
+**구현 실측 노트 (2026-07-25 · S12 추가 2026-07-26 · **S13 정리 + S14 오픈API 실측 2026-07-27** — 추측 셀렉터 배제 원칙에 따른 확정 사항)**
 - **[제거됨 — S13] comcbt(M10)·cbtbank(M12) 실측 노트**: 두 사설 어댑터는 **S13에서 코드와 함께 삭제**됐다(사설 사이트 DOM 겨냥 수집 코드의 공개 배포 중단 — 근거·트레이드오프·기각 대안은 계획서 §14 F35-2 "제거 이력"이 단일 출처). 사이트별 DOM·URL 규칙 세부는 이 문서에서 **삭제**한다(재도입 시 그대로 되살아나는 것을 막기 위함). 남길 교훈만 요약: ① 정적 HTML에 본문이 없는 사이트는 첨부 PDF 우회가 유일한 길이었고(FetchedFile), ② 구조화 HTML 사이트는 FetchedExam 경로를 처음 실사용했으며, ③ 어댑터 격리 덕에 두 어댑터의 도입·제거 모두 **fetch API 계약을 바꾸지 않았다**(R14 설계의 검증). 이미 반입된 문서·`sources/` 원본·수집 이미지는 **전량 보존**한다.
 - **qnet**: robots.txt가 표준 응답이 아닌 점검 안내 HTML이며, 공개문제 카탈로그가 JS 포털이라 정적 목록을 실측할 수 없음 → `search_certs`/`list_exams`는 **빈 목록 + `available:false` 안내**로 구현(추측 셀렉터 금지). `fetch_exam`은 공개 파일 **직접 URL 한정**으로 F35-1 다운로드 경로 재사용 — **포털 구조가 확정되면 qnet.py 목록 부분만 채우면 자동 작동**(모듈 격리 원칙, R14. S13에서 오픈API로 실현).
-- **qnet(S13 — 오픈API 스펙 실사본 확보 2026-07-27, 위 스텁의 해소 경로)**: 공공데이터포털 **"국가자격 공개문제 조회 서비스"** `http://apis.data.go.kr/B490007/openQst`(REST GET, `serviceKey` 쿼리 인증, `dataFormat` XML/JSON) — 포털 역설계 없이 공식 계약으로 목록·상세를 채운다(계획서 §14 F35-3). `getOpenQstList`(필수 serviceKey·numOfRows·pageNo·dataFormat·`qualgbCd` — **T(국가기술자격)만 사용**, 선택 `jmNm` 종목명 검색) → items: `artlSeq`(게시물 ID)·title·regDttm·seriesCd/Nm·jmCd/jmNm + totalCount. `getOpenQst`(상세 — qualgbCd·artlSeq) → title·contents(HTML clob — **사용하지 않음**, 첨부가 정본)·`fileList[]{fileNm, fileSn, fileUrl}`. **cert_ref = jmCd, exam_ref = artlSeq**(어댑터 내부 의미 — 계약상 불투명 값, S10의 직접 URL exam_ref는 목록 스텁이라 발급 이력 없음 → 하위 호환 부담 없음). exam_key는 게시물 제목에서 연도·회차 파싱(**형식은 구현 시 실측 확정 — 추측 파싱 금지**, 식별 불가 게시물은 **라벨 그대로 단독 항목**으로 노출하고 분류 경로는 회차 폴더를 만들 수 없으므로 사용자 확인에 맡긴다), 실기 공개문제는 `level_hint='실기'`. **`fileUrl`은 JWT 토큰 URL·유효 1시간(에러 941)** — 상세 조회와 다운로드를 같은 잡에서 즉시 연속 수행(목록·캐시에 fileUrl 저장 금지). 파일 호스트 `openapi.hrdkorea.or.kr`·API 호스트 `apis.data.go.kr` SSRF 허용 목록 추가(사설/루프백 차단·50MB 상한·2초 스로틀 유지 — 30 TPS 대비 과잉 여유지만 일관성 유지). **HWP 정책·커버리지 한계(실기 위주 — 필기 CBT 기출 비공개)·쿼터(일 1,000건, 24h 캐시로 절약)는 계획서 §14 F35-3이 단일 출처.** 오픈API 에러코드(22 쿼터 초과·30/31 키 오류·941 토큰 만료)는 사람 말 매핑(원문 XML/JSON 노출 금지).
+- **qnet(S14 — 오픈API 스펙 실사본 확보 + **실호출 실측** 2026-07-27, 위 스텁의 해소 경로. **S13에서는 스텁 유지**)**: ※ **실측 확정 사항(numOfRows 50 상한/930 · 목록 304건 중 메타 전 필드 빈값 43건 · 첨부 PDF14·ZIP4·HWP0 · 필기·필답형 미수록(품질경영기사 `totalCount 0`) · 제목 형식 불규칙 + 안내문 게시물 혼입)은 **계획서 §14 F35-3 "실측 확정 사항"이 단일 출처**이며, 구현 규칙은 `stage-14-qnet-openapi.plan.md` 체크리스트에 있다. 아래 계약은 그 전제 위에서 읽는다. 공공데이터포털 **"국가자격 공개문제 조회 서비스"** `http://apis.data.go.kr/B490007/openQst`(REST GET, `serviceKey` 쿼리 인증, `dataFormat` XML/JSON) — 포털 역설계 없이 공식 계약으로 목록·상세를 채운다(계획서 §14 F35-3). `getOpenQstList`(필수 serviceKey·**`numOfRows` — 실측 상한 50 고정**(초과 시 `resultCode 930`)·pageNo(전체 순회 7페이지 내외)·dataFormat·`qualgbCd` — **T(국가기술자격)만 사용**, 선택 `jmNm` 종목명 검색) → items: `artlSeq`(게시물 ID)·title·regDttm·seriesCd/Nm·jmCd/jmNm + totalCount. `getOpenQst`(상세 — qualgbCd·artlSeq) → title·contents(HTML clob — **사용하지 않음**, 첨부가 정본)·`fileList[]{fileNm, fileSn, fileUrl}`. **cert_ref = jmCd, exam_ref = artlSeq**(어댑터 내부 의미 — 계약상 불투명 값, S10의 직접 URL exam_ref는 목록 스텁이라 발급 이력 없음 → 하위 호환 부담 없음). exam_key는 게시물 제목에서 연도·회차 파싱(**실측 표본 5종이 계획서 §14 F35-3에 고정돼 있다 — 접두어 `[공개문제]`/`[문제공개]`/없음, 괄호 안 `YYYYMMDD`/`YYYY년도`/없음. 표본 밖 형식을 추측하지 말 것**, 식별 불가 게시물은 **라벨 그대로 단독 항목**으로 노출하고 분류 경로는 회차 폴더를 만들 수 없으므로 사용자 확인에 맡긴다), 실기 공개문제는 `level_hint='실기'`. **`fileUrl`은 JWT 토큰 URL·유효 1시간(에러 941)** — 상세 조회와 다운로드를 같은 잡에서 즉시 연속 수행(목록·캐시에 fileUrl 저장 금지). 파일 호스트 `openapi.hrdkorea.or.kr`·API 호스트 `apis.data.go.kr` SSRF 허용 목록 추가(사설/루프백 차단·50MB 상한·2초 스로틀 유지 — 30 TPS 대비 과잉 여유지만 일관성 유지). **HWP 정책·커버리지 한계(실기 위주 — 필기 CBT 기출 비공개)·쿼터(일 1,000건, 24h 캐시로 절약)는 계획서 §14 F35-3이 단일 출처.** 오픈API 에러코드(22 쿼터 초과·30/31 키 오류·941 토큰 만료)는 사람 말 매핑(원문 XML/JSON 노출 금지).
 
 **수집 예의 — 강제 조항 (위반 구현 금지)**
 0. **대상 제한(S13 신설)**: 어댑터는 **공식 오픈API 등 공개 배포가 허용된 경로만** 대상으로 한다 — 사설 사이트 DOM을 겨냥한 수집기는 추가하지 않는다(계획서 §14 F35-2 제거 이력). 대상 은닉(도메인 난독화 등)은 **금지** — 은닉은 정당성을 만들지 못한다(기각된 대안).
@@ -349,11 +366,12 @@ backend/services/fetchers/
 - **exam_key 형식과 폴더명 파생은 유지**: `YYYY-N` → "YYYY년 N회", 날짜형 `YYYY-MM-DD` → "YYYY년 M월 D일"(회차 번호 미상 폴백). **키→폴더명 파생 함수는 `imported` 판정(fetch_service)과 convert 분류 경로가 단일 공유**(불일치 금지 — 이 규칙은 변경 없음).
 - **정렬**: 최신 회차 우선 — 문자열 정렬이 아니라 (연도, 월, 일/회차) **수치 튜플**로 비교한다(`YYYY-N`·`YYYY-MM-DD` 혼재 대응 — S12 검토 지적, 단일 어댑터에서도 유효하므로 유지).
 - 회차 식별 불가 항목(제목에서 연도·회차를 못 읽는 게시물)은 **라벨 그대로 단독 항목**으로 노출(추측 금지 — 병합이 없으므로 "병합 불참" 개념 자체가 사라졌다).
+- **S14 실측 대응 2건(계약 수준)**: ① **메타 빈값 방어** — `jmCd`/`jmNm`이 빈 문자열인 게시물(실측 304건 중 43건)은 **종목 목록에 버킷을 만들지 않는다**(가짜 자격증 생성 금지). 대신 질의 문자열이 title에 포함되면 노출한다 — 조용히 사라지지도, 목록을 오염시키지도 않게. 빈 문자열과 `None`은 **정규화 함수 1개로 동일 취급**. ② **안내문 게시물 필터** — 공개문제가 아닌 안내·집행 공지가 섞여 있으므로 **제목 텍스트만으로** 판정해 기본 숨김 + "안내문 N건 보기" 토글로 노출(상세 조회로 판별하지 않는다 — 쿼터 소모).
 - 문서 단위 중복은 별도 처리 불필요 — 기존 preview 중복 감지(제목+내용 해시, §4.3)가 그대로 작동한다.
 
 **파싱 실패 처리 (F30 연동)**
 - 회차 단위 실패(목록·응답 구조 해석 불가): 잡 실패 + `error_info {kind:'parse_failed', message:"공개문제 응답 구조가 변경되었을 수 있습니다", action: **URL 반입(F35-1)·파일 반입** 안내, fallback_available}` — 원문 HTML/XML/JSON 노출 금지(§4.11 원칙 동일). **S13: 대안 어댑터 재시도 안내는 삭제**(단일 어댑터 — 폴백은 URL·파일 반입뿐).
-- **비지원 포맷(S13 — qnet HWP 정책, 계획서 §14 F35-3)**: 첨부에 LLM 투입 가능한 PDF가 없으면(HWP 등만) 원본을 sources/에 저장한 뒤 잡을 `error_info {kind:'unsupported_format', message:"HWP만 제공되는 공개문제 — 원본은 저장되었습니다", action:"한글에서 PDF로 변환 후 파일 반입"}`으로 종료 — **조용한 스킵 금지**(목록 시점엔 포맷 미상 — fileList는 상세 전용·쿼터 소모). 쿼터·키·토큰 오류(22·30/31·941)는 각각 사람 말 메시지로 분류(941은 상세 재조회 1회 내부 재시도 후).
+- **비지원 포맷(S14 — qnet 비지원 포맷 정책, 계획서 §14 F35-3)**: 첨부에 LLM 투입 가능한 PDF가 없으면 원본을 sources/에 저장한 뒤 잡을 `error_info {kind:'unsupported_format', …}`으로 종료 — **포맷별 문구 분기(실측: 실제 대상은 HWP가 아니라 ZIP)**: **ZIP** = "도면·과제 파일 묶음입니다 — 압축을 풀어 PDF/이미지를 파일 반입하세요", **HWP** = "한글에서 PDF로 변환 후 파일 반입", 그 외 = 일반 문구. PDF와 ZIP을 함께 가진 게시물은 PDF를 대표로 삼고 ZIP도 저장한다 — **조용한 스킵 금지**(목록 시점엔 포맷 미상 — fileList는 상세 전용·쿼터 소모). 쿼터·키·토큰 오류(22·30/31·941)는 각각 사람 말 메시지로 분류(941은 상세 재조회 1회 내부 재시도 후).
 - 문항 단위 경미 결함(보기 누락 등): preview 오류 항목으로 표기(기존 규칙 — 커밋에서 자동 제외).
 - 반입 후 발견된 내용 오류: 기존 **F30 오류 신고·재생성** 경로(§4.10) — 신고 사유 + source_detail(수집 출처)로 재생성.
 
@@ -557,15 +575,21 @@ backend/services/fetchers/
 ### 5.9 반입 — `/import`
 - **3단계 위저드**: ① 파일 선택(JSON + 원본 선택) → ② 미리보기 표(항목별 상태 배지: 정상/중복 의심/오류. 중복은 기존 문서와 나란히 비교, 라디오: 건너뛰기/새로 추가/병합. 분류·관계 제안 체크박스) → ③ 반입 실행 → 결과 요약(생성 N, 병합 N, 건너뜀 N + 새 문서 바로가기).
 - **공용 Stepper(S9, F36-⑪)**: 위저드 헤더 ①②③을 공용 Stepper 컴포넌트로 교체 — **지나온 단계(✓)는 실제 클릭으로 되돌아가기**(진행 중 결과가 버려지는 파괴적 복귀는 확인 후), 현재(●)는 강조, **미래(○)는 흐림+비클릭이 명확한 스타일·점선 연결**(눌릴 것처럼 보이지 않게). 토큰 기반 스타일. F37 3단 진도(§5.4)·챕터 최종 완료 화면(§5.5)에도 재사용.
-- **엣지**: preview 만료(1h) 시 재업로드 안내. 오류 항목은 개별 오류 메시지 표시, 커밋에서 자동 제외.
+- **엣지**: preview 만료(1h) 시 재업로드 안내. 오류 항목은 개별 오류 메시지 표시, 커밋에서 자동 제외. (**S13부터 만료는 먼저 디스크 복구를 시도한다** — §4.3.)
+- **수동 반입 UX(S13, F40 — 계획서 §14 F40. 큐넷 실측 이후 **파일·URL 반입이 정본 경로**가 된 데 따른 정비)**:
+  - **① 반입 대기열(F40-②)**: ①단계(선택)의 파일 입력을 **다중 선택(최대 10)** 으로 확장 → 선택한 파일 수만큼 기존 `POST /api/convert` 호출로 서버 큐에 적재(**새 API 0건 · 서버 동시 실행 1개 유지 — 병렬 금지**). 화면에는 파일 카드 목록(파일명 · 상태 배지 **대기 / 변환 중 / 검토 대기 / 반입 완료 / 실패**)이 뜨고, **진행 표시(LlmJobProgress)는 현재 처리 중 1건에만**(나머지는 배지만, 폴링 간격 완화). 완료 항목 [검토] → 기존 ②(미리보기) 단계로 진입 → 커밋 후 **[대기열로 돌아가기]**. 대기열은 ②·③ 단계에서 접힌 요약("검토 대기 N건")으로 유지. **Stepper 단계 수는 늘리지 않는다**(대기열은 ①단계 안에 산다). 잡 기록은 localStorage **배열**로 보존(기존 단건 레코드는 읽기 시 1건 큐로 승격 — 호환) → 새로고침·재접속 후 목록·상태 복원. 실패 항목은 목록에 남기고 [API로 재시도]·[건너뛰기](파일 소스는 새로고침 후 재선택 안내 — 기존 문구 재사용).
+  - **② 분류 경로 지정(F40-③)**: 시작 화면(파일·URL 공통)에 접이식 **"분류 경로 지정 (선택)"** — 기존 노드는 `CategoryScopePicker` 재사용으로 고르고 뒤에 회차 등 하위 경로를 텍스트로 덧붙인다(완성 경로 미리보기 문자열 표시 — 오타를 시작 전에 드러낸다) → `POST /api/convert`의 `category_path`(§4.11). 대기열에서는 **"모든 파일에 같은 상위 경로 적용"** + 파일별 마지막 칸(회차)만 개별 입력. **제안 고정일 뿐 확정은 ②단계 승인**(R7).
+  - **③ 복구·내려받기(F40-①)**: 미리보기가 디스크에서 복구된 경우 상단에 소표기("이전 미리보기를 복구했습니다 — 중복 판정은 현재 DB 기준입니다", §4.3). ②단계와 실패 화면에 **[변환 JSON 내려받기]**(`GET /api/import/preview/{id}/json`) — 최악의 경우에도 JSON을 손에 쥐고 "반입 JSON 파일 선택" 경로로 이어갈 수 있다.
+  - **④ 잘림 안내(F40-④)**: `error_info.kind:'invalid_output'` 렌더 1종 추가(§4.11) — 사람 말 메시지 + [파일 나눠서 다시 올리기](시작 화면 복귀). 원문(raw) 미노출, 색상은 토큰만.
 - **사이트에서 가져오기(S10, F35-2)**: 반입 화면 진입 방식에 [파일]·[URL](S8)과 나란히 **[사이트에서 가져오기]** 추가 → 공용 Stepper(S9, F36-⑪ 재사용) 4단계 서브플로:
-  - ① **자격증 검색·선택** — `GET /api/fetch/certs?q=`(어댑터 병합 결과, 출처 사이트 배지 표시)
+  - **S13 종료 시점의 상태(중요)**: 등록 어댑터가 **qnet 스텁 1개(`available:false`)** 뿐이므로 이 탭은 **"준비 중" 안내 + [URL로 반입]·[파일로 반입] 대안 버튼**만 렌더한다(빈 화면·오류 금지). 아래 ①~④ 서브플로는 **S14에서 실가동**되며, 그때 프론트 렌더 변경은 0이어야 정상이다(응답 메타 그대로 렌더).
+  - ① **자격증 검색·선택** — `GET /api/fetch/certs?q=`(어댑터 병합 결과, 출처 사이트 배지 표시). **S14: 결과 0건은 오류가 아니라 안내**("이 종목의 공개문제가 없습니다 — 필기·필답형은 이 API 범위 밖입니다", 실측 근거는 계획서 §14 F35-3)
   - ② **회차 선택** — `POST /api/fetch/exams` 목록: 회차 라벨 + 어댑터 배지(**S13: 항상 큐넷 1종**, `also_on`이 비어 있으므로 대안 출처 소표기는 렌더되지 않는다 — 렌더 분기 자체는 남겨 둔다) + 문항 수(미상이면 "약 60문항 가정") + **"이미 반입됨" 배지**(`imported`). 한 번에 1회차 선택(라디오). 어댑터 배지·목록은 `fetch/adapters`·`fetch/exams` 응답 메타 그대로 렌더 — 어댑터 추가·제거로 프론트 코드 변경이 없어야 정상(어댑터 격리 원칙 검증 겸용. S13 예외: 어댑터 id 유니온 타입·이름 폴백 맵만 정리).
   - ③ **예상 사용량 확인** — `estimate`(문항 수·대략 입력 토큰·가정치 여부) + 사용 엔진(auto/cli/api — §4.11 계약)과 **한도 기억 경고 배너(S8 재사용)** + **고정 고지: "개인 학습 전용 — 수집물 재배포 금지"**. 확인 없이는 실행 불가.
   - ④ **실행** — `POST /api/fetch/import`(목록 응답의 `exam_key`를 그대로 전달 — §4.13) → 기존 진행 패널 재사용(단계 스텝에 '사이트 수집' = `fetching` 추가, 경과·토큰·ETA·새로고침 안내 그대로) → 완료 시 `result_preview_id`로 **기존 위저드 ②(미리보기)에 합류** — 이후 중복 비교·분류 제안·커밋은 기존 흐름 그대로.
-  - 실패 시: `error_info` 렌더(§4.11 규칙) — `parse_failed`면 [URL로 반입]·[파일로 반입] 대안 버튼(**S13: [다른 어댑터로 재시도]는 사문화** — `also_on`이 항상 비어 있어 렌더되지 않는다). **S13**: `unsupported_format`이면 "원본은 sources/에 저장됨" 안내 + [파일 반입으로 이어가기] 버튼(한글→PDF 변환 후 — §4.13 HWP 정책). 원문 HTML/XML 미노출.
-  - **S13 프론트 변경 최소 원칙**: qnet 실가동·사설 어댑터 제거 모두 ①~④ 스텝의 렌더 로직을 바꾸지 않는다 — 응답 메타(`available`·배지·목록)를 그대로 렌더. **허용되는 프론트 변경은 딱 둘**: 어댑터 id 유니온을 `'qnet'`으로 좁히기(`FetchAdapterId`)와 이름 폴백 맵에서 제거된 어댑터 항목 삭제 — 유니온을 좁히면 타입 검사가 잔존 참조를 잡아 준다(DoD "참조 0건" 보조 수단).
-- **API**: `import/preview`, `import/commit`. S6: "파일만 던지면 변환부터"(`convert`) 버튼 추가. S10: `fetch/*`(§4.13).
+  - 실패 시: `error_info` 렌더(§4.11 규칙) — `parse_failed`면 [URL로 반입]·[파일로 반입] 대안 버튼(**S13: [다른 어댑터로 재시도]는 사문화** — `also_on`이 항상 비어 있어 렌더되지 않는다). **S14**: `unsupported_format`이면 "원본은 sources/에 저장됨" 안내 + [파일 반입으로 이어가기] 버튼(ZIP은 "압축을 풀어 PDF/이미지 반입", HWP는 "한글→PDF 변환 후" — §4.13 비지원 포맷 정책). 원문 HTML/XML 미노출.
+  - **S13·S14 프론트 변경 최소 원칙**: 사설 어댑터 제거(S13)·qnet 실가동(S14) 모두 ①~④ 스텝의 렌더 로직을 바꾸지 않는다 — 응답 메타(`available`·배지·목록)를 그대로 렌더. **허용되는 프론트 변경은 딱 둘**: 어댑터 id 유니온을 `'qnet'`으로 좁히기(`FetchAdapterId`)와 이름 폴백 맵에서 제거된 어댑터 항목 삭제 — 유니온을 좁히면 타입 검사가 잔존 참조를 잡아 준다(DoD "참조 0건" 보조 수단).
+- **API**: `import/preview`, `import/commit`. S6: "파일만 던지면 변환부터"(`convert`) 버튼 추가. S10: `fetch/*`(§4.13). **S13: `convert`의 `category_path?`(§4.11) · `import/preview/{id}`(복구) · `import/preview/{id}/json`(내려받기, §4.3)**.
 
 ### 5.10 인쇄 뷰 — `/print?type=&category_id=&options=`
 - **종류 3종**(계획서 §12): 개념 정리본 / 문제집(문제 앞·해설 뒤 분리) / 오답노트.
@@ -574,7 +598,7 @@ backend/services/fetchers/
 
 ### 5.11 설정 — `/settings`
 - 테마(라이트/다크/시스템 — localStorage, §6), 복습 큐 상한, 기본 문항 수, D-Day 관리(S4, 아래), 백업/복원(S6), 태그 병합 도구(S6 — S9에서 태그 관리자로 승격).
-- **6그룹 구성(F38 — 골격은 S8 선반영 완료, S9는 내용 완성)**: 좌측 목차(카테고리 점프, 모바일 아코디언) + ① **학습**(복습 상한·기본 문항 수 + S9: 글자 크기 `study.font_scale`·정답 자동 다음 `quiz.auto_advance` + **S10: 일일 목표** — 문제 수 `goal.daily_questions`·시간(분) `goal.daily_minutes` 숫자 입력, 비움/0 = 목표 없음, 저장 시 스트릭·히트맵 위젯 invalidate. "시간은 문제 풀이 시간 기준" 도움말 소표기 §4.13 + **S11: D-Day 복습 강화 토글** `srs.dday_boost`(기본 on) — "시험 14일 전부터 복습 상한을 늘리고 임박 시험 범위를 우선합니다" 도움말, §4.14) ② **일정**(D-Day 관리) ③ **태그·분류**(태그 규칙 + S9: **태그 관리자** — 아래) ④ **LLM 엔진**(S8 §4.11) ⑤ **데이터**(백업/복원·CSV 내보내기 + S9: 복원 후 강제 리로드 모달 §4.12 + **S13: 큐넷 오픈API 카드** — 공공데이터포털 서비스키 등록(입력 시 즉석 검증 — 실패 사유 표시)·등록 후 마지막 4자리 마스킹 표시·삭제, 발급 방법(공공데이터포털 활용신청) 안내 소표기. `fetch/qnet-key` §4.13 — F34 API 키 카드 UX 미러. 배치 근거: 데이터 유입(반입 소스) 계열 — **F38 6그룹 수 불변**, 그룹 내 카드 추가만) ⑥ **화면**(테마).
+- **6그룹 구성(F38 — 골격은 S8 선반영 완료, S9는 내용 완성)**: 좌측 목차(카테고리 점프, 모바일 아코디언) + ① **학습**(복습 상한·기본 문항 수 + S9: 글자 크기 `study.font_scale`·정답 자동 다음 `quiz.auto_advance` + **S10: 일일 목표** — 문제 수 `goal.daily_questions`·시간(분) `goal.daily_minutes` 숫자 입력, 비움/0 = 목표 없음, 저장 시 스트릭·히트맵 위젯 invalidate. "시간은 문제 풀이 시간 기준" 도움말 소표기 §4.13 + **S11: D-Day 복습 강화 토글** `srs.dday_boost`(기본 on) — "시험 14일 전부터 복습 상한을 늘리고 임박 시험 범위를 우선합니다" 도움말, §4.14) ② **일정**(D-Day 관리) ③ **태그·분류**(태그 규칙 + S9: **태그 관리자** — 아래) ④ **LLM 엔진**(S8 §4.11) ⑤ **데이터**(백업/복원·CSV 내보내기 + S9: 복원 후 강제 리로드 모달 §4.12 + **S14: 큐넷 오픈API 카드** — 공공데이터포털 서비스키 등록(입력 시 즉석 검증 — 실패 사유 표시)·등록 후 마지막 4자리 마스킹 표시·삭제, 발급 방법(공공데이터포털 활용신청) 안내 소표기. `fetch/qnet-key` §4.13 — F34 API 키 카드 UX 미러. 배치 근거: 데이터 유입(반입 소스) 계열 — **F38 6그룹 수 불변**, 그룹 내 카드 추가만) ⑥ **화면**(테마).
 - **매뉴얼 링크(S12, F39)**: 좌측 목차 **하단**(모바일 아코디언 하단)에 "사용 설명서 열기" 링크 — `/manual` 새 탭(`target="_blank" rel="noopener"`, §4.15). **7번째 그룹이 아닌 단순 링크**(F38 6그룹 구조 불변). 모바일(<768px)에서는 이것이 유일한 매뉴얼 진입 경로(§5 공통 레이아웃 — 사이드바 없음).
 - **태그 관리자(S9, F38)** — 병합 "도구"(TagMergeTool)를 관리 "화면"으로 승격:
   - **목록 테이블**: 이름 · 사용 문서 수(doc_count) · 규칙 사용 배지(rule_count>0) — 검색·정렬(이름/사용 수). 행 클릭 = 사용 문서 보기(탐색 `?tag=` 필터 링크).
