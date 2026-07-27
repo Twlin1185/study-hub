@@ -21,78 +21,78 @@
 
 ### 1. 백엔드 — 사설 어댑터 제거·병합 단순화 (계획서 §14 F35-2 제거 이력 · 설계 §4.13)
 
-- [ ] `services/fetchers/comcbt.py` **삭제** · `services/fetchers/cbtbank.py` **삭제**(파일 단위 제거 — 주석 처리·플래그로 비활성화 금지)
-- [ ] `services/fetchers/registry.py` 정리: 등록 목록을 **qnet 단독**으로(`get_adapters()` 반환 1건, priority=1 고정 — **S10 스텁 그대로**, 구현 교체는 Stage 14), 삭제 모듈 import 제거. **공용 장치는 유지** — HTTP 클라이언트·SSRF 검증·리다이렉트 제한·매직 바이트 검사·2초 스로틀·robots 확인·메모리 캐시(TTL 24h). comcbt 전용 흔적(파일 서버 Referer 처리·latin-1 mojibake Location 복원 등)이 **범용 유틸인지 사이트 전용인지 판별**해, 범용(URL ASCII 정규화 등)은 남기고 사이트 전용 분기만 제거
-- [ ] `services/fetchers/base.py`·`__init__.py` 주석에서 제거된 어댑터 언급 정리. **`FetchedExam`·`FetchedQuestion.subject`·`ExamEntry.exam_date` 등 자료구조는 삭제하지 않는다**(설계 §4.13 — 인터페이스 계약으로 유지. "cbtbank 첫 실사용" 서술만 갱신)
-- [ ] `services/fetch_service.py` **병합 로직 단순화**(설계 §4.13 "회차 목록 구성" 재작성분 기준): 어댑터 간 그룹핑(`_group_key`)·대표 키 선정(`_representative_exam_key`)·priority 최소 채택·`also_on` 산출 제거 → 어댑터 목록을 그대로 항목화. **응답 필드는 유지**(`also_on: []`, `refs: {qnet: exam_ref}`, `adapter`, `exam_key`, `imported`, `estimate` — 프론트 계약 불변)
-- [ ] **유지 확인(제거 금지 목록)**: `exam_folder_name` 등 **키→폴더명 파생 함수**(convert 분류 경로와 단일 공유 — F40-③도 이 규칙을 참조), 수치 튜플 정렬(`YYYY-N`/`YYYY-MM-DD` 혼재 대응), `GET /images/{filename}` 서빙(과거 수집 이미지 열람), F35-1 URL 반입·파일 업로드 반입·convert 파이프라인 전부
-- [ ] `services/convert_service.py`의 `exam_key` 덮어쓰기 주석에서 cbtbank 근거 서술 갱신(동작은 유지 — 설계 §4.13 `exam_key?` 항등 전달)
-- [ ] 프론트 최소 수정: `api/types.ts`의 `FetchAdapterId`를 **`'qnet'` 단독으로 축소** + `FetchImportWizard.tsx`의 `ADAPTER_FALLBACK_NAME`에서 제거 어댑터 항목 삭제 + 어댑터별 예시가 박힌 주석 갱신. **렌더 로직·스텝 흐름은 손대지 않는다**(설계 §5.9 — 유니온 축소로 타입 검사가 잔존 참조를 잡아 준다)
-- [ ] 테스트 정리(`tests/test_fetch_logic.py`·`tests/test_cbtbank_adapter.py`): **사이트 전용 테스트는 삭제**(comcbt 제목 파싱·exam_date 추출·cbtbank 어댑터 전용 파일), **범용 테스트는 보존**(SSRF 사설 IP 리다이렉트 차단·리다이렉트 홉 상한·URL ASCII 정규화·mojibake 복원·`estimate` 산출·`exam_folder_name` 파생·`goal_met` AND 판정). 큐넷 우선 병합 테스트(`test_merge_prefers_qnet`)는 **단일 어댑터 목록 구성 테스트로 대체**(`also_on`이 빈 배열·`refs` 단일 항목·정렬 순서 검증)
-- [ ] 잔존 참조 전수 확인: **소스 코드·주석·테스트·설정**에서 `cbtbank`/`comcbt` 검색 0건. **문서는 예외** — 계획서 §14 F35-2 제거 이력·R14·로드맵 M10/M12 표기, 설계 §4.13 폐지 규칙 주석·헤더 이력, 과거 stage-10/12 문서, 이 문서는 **이력으로 남긴다**(DoD 9). 빌드 산출물(`frontend/dist`)은 재빌드로 자연 해소
+- [x] `services/fetchers/comcbt.py` **삭제** · `services/fetchers/cbtbank.py` **삭제**(파일 단위 제거 — 주석 처리·플래그로 비활성화 금지)
+- [x] `services/fetchers/registry.py` 정리: 등록 목록을 **qnet 단독**으로(`get_adapters()` 반환 1건, priority=1 고정 — **S10 스텁 그대로**, 구현 교체는 Stage 14), 삭제 모듈 import 제거. **공용 장치는 유지** — HTTP 클라이언트·SSRF 검증·리다이렉트 제한·매직 바이트 검사·2초 스로틀·robots 확인·메모리 캐시(TTL 24h). comcbt 전용 흔적(파일 서버 Referer 처리·latin-1 mojibake Location 복원 등)이 **범용 유틸인지 사이트 전용인지 판별**해, 범용(URL ASCII 정규화 등)은 남기고 사이트 전용 분기만 제거
+- [x] `services/fetchers/base.py`·`__init__.py` 주석에서 제거된 어댑터 언급 정리. **`FetchedExam`·`FetchedQuestion.subject`·`ExamEntry.exam_date` 등 자료구조는 삭제하지 않는다**(설계 §4.13 — 인터페이스 계약으로 유지. "cbtbank 첫 실사용" 서술만 갱신)
+- [x] `services/fetch_service.py` **병합 로직 단순화**(설계 §4.13 "회차 목록 구성" 재작성분 기준): 어댑터 간 그룹핑(`_group_key`)·대표 키 선정(`_representative_exam_key`)·priority 최소 채택·`also_on` 산출 제거 → 어댑터 목록을 그대로 항목화. **응답 필드는 유지**(`also_on: []`, `refs: {qnet: exam_ref}`, `adapter`, `exam_key`, `imported`, `estimate` — 프론트 계약 불변)
+- [x] **유지 확인(제거 금지 목록)**: `exam_folder_name` 등 **키→폴더명 파생 함수**(convert 분류 경로와 단일 공유 — F40-③도 이 규칙을 참조), 수치 튜플 정렬(`YYYY-N`/`YYYY-MM-DD` 혼재 대응), `GET /images/{filename}` 서빙(과거 수집 이미지 열람), F35-1 URL 반입·파일 업로드 반입·convert 파이프라인 전부
+- [x] `services/convert_service.py`의 `exam_key` 덮어쓰기 주석에서 cbtbank 근거 서술 갱신(동작은 유지 — 설계 §4.13 `exam_key?` 항등 전달)
+- [x] 프론트 최소 수정: `api/types.ts`의 `FetchAdapterId`를 **`'qnet'` 단독으로 축소** + `FetchImportWizard.tsx`의 `ADAPTER_FALLBACK_NAME`에서 제거 어댑터 항목 삭제 + 어댑터별 예시가 박힌 주석 갱신. **렌더 로직·스텝 흐름은 손대지 않는다**(설계 §5.9 — 유니온 축소로 타입 검사가 잔존 참조를 잡아 준다)
+- [x] 테스트 정리(`tests/test_fetch_logic.py`·`tests/test_cbtbank_adapter.py`): **사이트 전용 테스트는 삭제**(comcbt 제목 파싱·exam_date 추출·cbtbank 어댑터 전용 파일), **범용 테스트는 보존**(SSRF 사설 IP 리다이렉트 차단·리다이렉트 홉 상한·URL ASCII 정규화·mojibake 복원·`estimate` 산출·`exam_folder_name` 파생·`goal_met` AND 판정). 큐넷 우선 병합 테스트(`test_merge_prefers_qnet`)는 **단일 어댑터 목록 구성 테스트로 대체**(`also_on`이 빈 배열·`refs` 단일 항목·정렬 순서 검증)
+- [x] 잔존 참조 전수 확인: **소스 코드·주석·테스트·설정**에서 `cbtbank`/`comcbt` 검색 0건. **문서는 예외** — 계획서 §14 F35-2 제거 이력·R14·로드맵 M10/M12 표기, 설계 §4.13 폐지 규칙 주석·헤더 이력, 과거 stage-10/12 문서, 이 문서는 **이력으로 남긴다**(DoD 9). 빌드 산출물(`frontend/dist`)은 재빌드로 자연 해소
 
 ### 2. 데이터·마이그레이션 영향 검토 (제거에 따른 필수 점검)
 
-- [ ] **기존 반입 문서 = 전량 보존.** comcbt·cbtbank 경로로 반입된 문서·분류·`sources` 레코드·`sources/` 원본 파일·`sources/images/` 이미지에 **손대지 않는다**(불변 규칙 3·4). 정리 스크립트·일괄 삭제·`is_active` 변경 **금지**
-- [ ] **`sources.note`의 출처 문자열 보존**: `"comcbt · {url}"`·`"cbtbank · {url}"` 기록은 **역사적 사실**이므로 마스킹·치환하지 않는다. 이 값을 파싱해 분기하는 코드가 있는지 확인하고(있다면 어댑터 존재 여부에 의존하지 않도록), 없으면 그대로 둔다
-- [ ] **어댑터 id를 참조하는 상태·캐시 점검**: 목록 캐시(`registry._CACHE`)·robots 캐시는 **프로세스 메모리 전용** — 정리 대상 파일 없음을 확인. `settings` 테이블·`secrets.json`·백업 스냅샷에 어댑터 id 키가 없는지 확인하고, 발견되면 **읽기 시 무시**(삭제 마이그레이션 없이 무해 잔존)
-- [ ] **잡 이력(convert jobs) 영향 없음 확인**: 과거 `kind='fetch'` 잡 레코드가 남아 있어도 조회·표시가 깨지지 않을 것(어댑터 id는 표시 문자열 — 미등록 id도 그대로 렌더). 필요하면 이름 폴백을 "(지원 종료된 출처)"로 표시
-- [ ] **재반입 불가 안내**: 과거 사설 출처로 반입된 회차는 이후 F30 재생성·재반입 시 자동 수집이 불가능하다 — 안내 문구가 필요한지 실측으로 판단(재생성은 저장된 문서 기준이라 통상 무영향)
-- [ ] **DDL diff 0 · Alembic 리비전 0건** 재확인
+- [x] **기존 반입 문서 = 전량 보존.** comcbt·cbtbank 경로로 반입된 문서·분류·`sources` 레코드·`sources/` 원본 파일·`sources/images/` 이미지에 **손대지 않는다**(불변 규칙 3·4). 정리 스크립트·일괄 삭제·`is_active` 변경 **금지**
+- [x] **`sources.note`의 출처 문자열 보존**: `"comcbt · {url}"`·`"cbtbank · {url}"` 기록은 **역사적 사실**이므로 마스킹·치환하지 않는다. 이 값을 파싱해 분기하는 코드가 있는지 확인하고(있다면 어댑터 존재 여부에 의존하지 않도록), 없으면 그대로 둔다
+- [x] **어댑터 id를 참조하는 상태·캐시 점검**: 목록 캐시(`registry._CACHE`)·robots 캐시는 **프로세스 메모리 전용** — 정리 대상 파일 없음을 확인. `settings` 테이블·`secrets.json`·백업 스냅샷에 어댑터 id 키가 없는지 확인하고, 발견되면 **읽기 시 무시**(삭제 마이그레이션 없이 무해 잔존)
+- [x] **잡 이력(convert jobs) 영향 없음 확인**: 과거 `kind='fetch'` 잡 레코드가 남아 있어도 조회·표시가 깨지지 않을 것(어댑터 id는 표시 문자열 — 미등록 id도 그대로 렌더). 필요하면 이름 폴백을 "(지원 종료된 출처)"로 표시
+- [x] **재반입 불가 안내**: 과거 사설 출처로 반입된 회차는 이후 F30 재생성·재반입 시 자동 수집이 불가능하다 — 안내 문구가 필요한지 실측으로 판단(재생성은 저장된 문서 기준이라 통상 무영향)
+- [x] **DDL diff 0 · Alembic 리비전 0건** 재확인
 
 ### 3. F40-① 변환 결과 보존·복구 (설계 §4.3 — "LLM 비용이 증발하지 않게")
 
 > 근거(실측): 변환 산출 JSON은 오직 `import_service._PREVIEW_CACHE`(프로세스 메모리, `PREVIEW_TTL=1시간`)에만 존재한다 — 1시간 초과·서버 재시작 시 **LLM 비용을 치른 결과가 복구 수단 없이 소멸**한다(원본은 sources/에 남지만 재변환 = 재과금). 60문항 preview를 항목별로 검토하면 1시간 초과가 현실적이다.
 
-- [ ] **디스크 보존**: convert·fetch 잡이 preview 생성에 성공하면 그 반입 JSON을 `import/auto/{preview_id}__{source_hash12|nosrc}__{원본파일명}.json`으로 저장(UTF-8, `ensure_ascii=False`). **파일명 규칙이 복구 계약**(설계 §4.3) — `source_hash12`는 원본 바이트 SHA-256 앞 12자(= `sources/` 저장 파일명 접두어와 동일 규칙), 원본이 없으면 `nosrc`
-- [ ] **보존 정책**: `import/auto/`는 **최근 50건 유지**(초과 시 오래된 것부터 삭제 — 원본은 sources/에 남으므로 손실 아님). `.gitignore`에 추가, **백업(F27) 대상 아님**(백업 = study.db + sources/ — 스냅샷 비대상임을 문서에 명시)
-- [ ] **복구**: `GET /api/import/preview/{preview_id}`가 캐시 미스일 때 `import/auto/`에서 해당 preview_id 파일을 찾아 **preview를 재생성**한다(같은 preview_id 유지). 원본 바이트는 파일명 해시로 `sources/`에서 되읽어 전달 — 원본 연결·`duplicate_source` 판정이 최초와 동일하게 재구성된다. 파일도 없으면 그때만 404
-- [ ] `POST /api/import/commit`도 만료 시 **같은 복구를 1회 시도**한 뒤 진행(프론트 재조회 불요). 복구 preview의 **항목 index는 같은 JSON에서 같은 순서로 생성되므로 안정**하고, 중복 판정(`duplicate_of`)은 **현재 DB 기준으로 재계산**된다 — 그 사이 DB가 바뀌었으면 배지가 달라질 수 있음을 preview 화면 상단에 소표기("이전 미리보기를 복구했습니다 — 중복 판정은 현재 DB 기준입니다"). 복구조차 실패하면 기존 409 안내 유지
-- [ ] **내려받기**: `GET /api/import/preview/{preview_id}/json` — 보존된 반입 JSON을 `Content-Disposition: attachment`로 반환(없으면 404). 프론트 preview 단계·실패 화면에 **[변환 JSON 내려받기]** 버튼 — 최악의 경우에도 사용자가 파일을 손에 쥐고 기존 "반입 JSON 파일 선택" 경로로 이어갈 수 있다
-- [ ] 단위 테스트: ① 캐시를 비운 뒤 `GET preview/{id}`가 디스크에서 복구되고 items 수·순서가 동일 ② 원본 연결이 복구돼 commit 후 `documents.source_id`가 채워짐 ③ 보존 50건 초과 시 오래된 파일부터 삭제 ④ 존재하지 않는 id는 404
+- [x] **디스크 보존**: convert·fetch 잡이 preview 생성에 성공하면 그 반입 JSON을 `import/auto/{preview_id}__{source_hash12|nosrc}__{원본파일명}.json`으로 저장(UTF-8, `ensure_ascii=False`). **파일명 규칙이 복구 계약**(설계 §4.3) — `source_hash12`는 원본 바이트 SHA-256 앞 12자(= `sources/` 저장 파일명 접두어와 동일 규칙), 원본이 없으면 `nosrc`
+- [x] **보존 정책**: `import/auto/`는 **최근 50건 유지**(초과 시 오래된 것부터 삭제 — 원본은 sources/에 남으므로 손실 아님). `.gitignore`에 추가, **백업(F27) 대상 아님**(백업 = study.db + sources/ — 스냅샷 비대상임을 문서에 명시)
+- [x] **복구**: `GET /api/import/preview/{preview_id}`가 캐시 미스일 때 `import/auto/`에서 해당 preview_id 파일을 찾아 **preview를 재생성**한다(같은 preview_id 유지). 원본 바이트는 파일명 해시로 `sources/`에서 되읽어 전달 — 원본 연결·`duplicate_source` 판정이 최초와 동일하게 재구성된다. 파일도 없으면 그때만 404
+- [x] `POST /api/import/commit`도 만료 시 **같은 복구를 1회 시도**한 뒤 진행(프론트 재조회 불요). 복구 preview의 **항목 index는 같은 JSON에서 같은 순서로 생성되므로 안정**하고, 중복 판정(`duplicate_of`)은 **현재 DB 기준으로 재계산**된다 — 그 사이 DB가 바뀌었으면 배지가 달라질 수 있음을 preview 화면 상단에 소표기("이전 미리보기를 복구했습니다 — 중복 판정은 현재 DB 기준입니다"). 복구조차 실패하면 기존 409 안내 유지
+- [x] **내려받기**: `GET /api/import/preview/{preview_id}/json` — 보존된 반입 JSON을 `Content-Disposition: attachment`로 반환(없으면 404). 프론트 preview 단계·실패 화면에 **[변환 JSON 내려받기]** 버튼 — 최악의 경우에도 사용자가 파일을 손에 쥐고 기존 "반입 JSON 파일 선택" 경로로 이어갈 수 있다
+- [x] 단위 테스트: ① 캐시를 비운 뒤 `GET preview/{id}`가 디스크에서 복구되고 items 수·순서가 동일 ② 원본 연결이 복구돼 commit 후 `documents.source_id`가 채워짐 ③ 보존 50건 초과 시 오래된 파일부터 삭제 ④ 존재하지 않는 id는 404
 
 ### 4. F40-③ 분류 경로 미리 지정 (설계 §4.11 `category_path?`)
 
 > 근거(실측): 사이트 반입 경로에는 `convert_service._fetch_directives`/`_fetch_category_path`로 분류 경로를 LLM에 **강제 고정**하는 장치가 이미 있는데, 파일·URL 반입에는 없다 — 회차 경로를 매번 LLM 추론에 맡기고 preview에서 확인·수정하거나 반입 후 재분류하게 된다. 여러 회차를 연속 반입하면 이 비용이 N배가 된다.
 
-- [ ] `POST /api/convert`에 **선택 파라미터 `category_path`** 추가(파일·URL 공통, 예 `"품질경영기사/필기/2022년 2회"`). 검증: 최대 5단계·단계당 60자·앞뒤 공백 정리·빈 단계 금지 — 위반 시 422(설계 §3 에러 포맷)
-- [ ] 서버는 사이트 반입과 **같은 지시 문자열 생성기를 공유**해(중복 구현 금지 — `_fetch_directives`를 경로/라벨만 받는 형태로 일반화) 프롬프트에 "모든 문항의 `suggest_categories`는 정확히 [경로] 하나로 고정" 지시를 넣는다. `source_detail` 형식 지시도 같은 규칙 재사용
-- [ ] **자동 반입이 되지 않게 한다** — 경로 지정은 preview의 분류 제안을 고정할 뿐, 반입 확정은 여전히 사용자 승인(R7·설계 §4.3 `approve_categories`). 존재하지 않는 경로는 기존 commit의 **누락 노드 생성** 계약 그대로(`exists:false` 제안 → 승인 시 생성)
-- [ ] 프론트: 시작 화면(파일·URL 공통)에 접이식 **"분류 경로 지정 (선택)"** — 기존 노드는 `CategoryScopePicker` 재사용으로 고르고, 뒤에 회차 등 하위 경로를 텍스트로 덧붙인다(미리보기 문자열 표시). 대기열(5절)에서는 **"모든 파일에 같은 상위 경로 적용"** + 파일별 마지막 칸(회차)만 개별 입력
-- [ ] 단위 테스트: ① 경로 검증(정상·5단계 초과·빈 단계) ② 지시 문자열에 경로가 정확히 1건으로 박힘 ③ 미지정 시 기존 동작(LLM 추론) 회귀 없음
+- [x] `POST /api/convert`에 **선택 파라미터 `category_path`** 추가(파일·URL 공통, 예 `"품질경영기사/필기/2022년 2회"`). 검증: 최대 5단계·단계당 60자·앞뒤 공백 정리·빈 단계 금지 — 위반 시 422(설계 §3 에러 포맷)
+- [x] 서버는 사이트 반입과 **같은 지시 문자열 생성기를 공유**해(중복 구현 금지 — `_fetch_directives`를 경로/라벨만 받는 형태로 일반화) 프롬프트에 "모든 문항의 `suggest_categories`는 정확히 [경로] 하나로 고정" 지시를 넣는다. `source_detail` 형식 지시도 같은 규칙 재사용
+- [x] **자동 반입이 되지 않게 한다** — 경로 지정은 preview의 분류 제안을 고정할 뿐, 반입 확정은 여전히 사용자 승인(R7·설계 §4.3 `approve_categories`). 존재하지 않는 경로는 기존 commit의 **누락 노드 생성** 계약 그대로(`exists:false` 제안 → 승인 시 생성)
+- [x] 프론트: 시작 화면(파일·URL 공통)에 접이식 **"분류 경로 지정 (선택)"** — 기존 노드는 `CategoryScopePicker` 재사용으로 고르고, 뒤에 회차 등 하위 경로를 텍스트로 덧붙인다(미리보기 문자열 표시). 대기열(5절)에서는 **"모든 파일에 같은 상위 경로 적용"** + 파일별 마지막 칸(회차)만 개별 입력
+- [x] 단위 테스트: ① 경로 검증(정상·5단계 초과·빈 단계) ② 지시 문자열에 경로가 정확히 1건으로 박힘 ③ 미지정 시 기존 동작(LLM 추론) 회귀 없음
 
 ### 5. F40-② 반입 대기열 — 여러 파일 연속 반입 (설계 §5.9)
 
 > 근거(실측): 파일 입력이 단일 선택(`Import.tsx` `<input type="file">`), 프론트가 `jobId` 하나만 들고 폴링하며, `localStorage`의 convert 잡 기록도 단건이다(`utils/convertJob`). 서버 워커는 **동시 1개**(`convert_service._QUEUE`)라 어차피 순차 처리인데도, 사용자는 파일마다 "선택 → 수 분 대기 → 검토 → 반입 → 새로 반입하기"를 반복해야 한다. 필기 기출이 수동 반입 주경로가 된 이상 이게 처리량의 병목이다.
 
-- [ ] **새 API 0건** — 파일 다중 선택 후 기존 `POST /api/convert`를 파일 수만큼 호출해 서버 큐에 쌓고(**서버 동시 1개 유지 — 병렬 실행 금지**), 각 `job_id`를 프론트가 관리한다
-- [ ] 프론트 대기열 UI: 파일 카드 목록(파일명 · 상태 배지 **대기 / 변환 중 / 검토 대기 / 반입 완료 / 실패** · 실패는 `error_info` 인라인 렌더). 진행 표시(`LlmJobProgress`)는 **현재 처리 중 1건에만**, 나머지는 상태 배지만(폴링 간격 완화)
-- [ ] **검토 흐름**: 완료 항목의 [검토] → 기존 preview 단계로 진입(현행 화면 그대로) → commit → **[대기열로 돌아가기]** 로 복귀해 다음 항목. 대기열은 preview·result 단계에서도 접힌 요약(`검토 대기 N건`)으로 보인다
-- [ ] **한 번에 최대 10개** 제한(초과 선택 시 안내) + 시작 전 기존 `LlmLimitBanner`(한도 기억, §4.11) 노출 — 대량 투입으로 한도를 태우는 사고 방지
-- [ ] localStorage 확장: 단건 `convertJob` → **배열(`convertQueue`)**. 기존 단건 레코드가 있으면 읽기 시 1건 큐로 승격(호환 — 진행 중 잡이 있는 상태로 배포돼도 폴링이 이어진다). 새로고침·재접속 후 목록·상태 복원
-- [ ] 실패 항목 개별 처리: [API로 재시도](기존 `engine:'api'` 계약) · [건너뛰기](목록에서 제거) · 파일 소스는 새로고침 후 File 객체가 없으므로 **재선택 안내**(현행 문구 재사용)
-- [ ] 스모크: 파일 3개 연속 반입 — 순차 변환 → 하나씩 검토·반입 → 중간에 새로고침해도 목록·진행이 복원되는지
+- [x] **새 API 0건** — 파일 다중 선택 후 기존 `POST /api/convert`를 파일 수만큼 호출해 서버 큐에 쌓고(**서버 동시 1개 유지 — 병렬 실행 금지**), 각 `job_id`를 프론트가 관리한다
+- [x] 프론트 대기열 UI: 파일 카드 목록(파일명 · 상태 배지 **대기 / 변환 중 / 검토 대기 / 반입 완료 / 실패** · 실패는 `error_info` 인라인 렌더). 진행 표시(`LlmJobProgress`)는 **현재 처리 중 1건에만**, 나머지는 상태 배지만(폴링 간격 완화)
+- [x] **검토 흐름**: 완료 항목의 [검토] → 기존 preview 단계로 진입(현행 화면 그대로) → commit → **[대기열로 돌아가기]** 로 복귀해 다음 항목. 대기열은 preview·result 단계에서도 접힌 요약(`검토 대기 N건`)으로 보인다
+- [x] **한 번에 최대 10개** 제한(초과 선택 시 안내) + 시작 전 기존 `LlmLimitBanner`(한도 기억, §4.11) 노출 — 대량 투입으로 한도를 태우는 사고 방지
+- [x] localStorage 확장: 단건 `convertJob` → **배열(`convertQueue`)**. 기존 단건 레코드가 있으면 읽기 시 1건 큐로 승격(호환 — 진행 중 잡이 있는 상태로 배포돼도 폴링이 이어진다). 새로고침·재접속 후 목록·상태 복원
+- [x] 실패 항목 개별 처리: [API로 재시도](기존 `engine:'api'` 계약) · [건너뛰기](목록에서 제거) · 파일 소스는 새로고침 후 File 객체가 없으므로 **재선택 안내**(현행 문구 재사용)
+- [x] 스모크: 파일 3개 연속 반입 — 순차 변환 → 하나씩 검토·반입 → 중간에 새로고침해도 목록·진행이 복원되는지
 
 ### 6. F40-④ 변환 출력 잘림 — 오안내 수정 (설계 §4.11 `invalid_output`)
 
 > 근거(실측): `convert_service._parse_json_payload` 실패는 `AppError`로 던져지고 `_fallback_error_info`가 `kind:'other'` + **"잠시 후 다시 시도하세요."** 로 안내한다 — 같은 파일로 재시도하면 같은 실패다. 출력 상한(`API_MAX_OUTPUT_TOKENS = 32000`) 주석에 이미 "수십 문항 기출은 8192 토큰을 쉽게 넘어 잘림·파싱 실패" 사례가 기록돼 있다. 원인·해결책을 모른 채 LLM 비용만 반복 지출하게 된다.
 
-- [ ] `error_info.kind`에 **`'invalid_output'`** 신설(설계 §4.11): message "변환 결과가 완결된 JSON이 아닙니다 — 문항이 많아 응답이 중간에 잘렸을 수 있습니다", action "원본을 과목·회차 단위로 나눠 올리거나, 다른 엔진으로 재시도해 보세요"
-- [ ] 잘림 추정 판별: 출력 길이가 상한에 근접하거나 JSON이 열린 채 끝나면 위 문구, 그 외 파싱 실패는 같은 kind에 일반 문구. **원문(잘린 출력·raw) 사용자 노출 금지** — `AppError.detail`의 `raw`가 잡 응답에 실리지 않는지 확인(§4.11 원칙)
-- [ ] **서버측 PDF 분할은 하지 않는다** — 라이브러리 의존 추가 금지(계획서 F35-3 HWP 정책과 같은 원칙). 안내로만 해결
-- [ ] 프론트: `LlmErrorInfo` 렌더에 kind 1종 추가(색상은 토큰만) + [파일 나눠서 다시 올리기](시작 화면 복귀) 버튼
-- [ ] 단위 테스트: 잘린 JSON 문자열 입력 시 `kind == 'invalid_output'`이고 raw 원문이 응답에 없음
+- [x] `error_info.kind`에 **`'invalid_output'`** 신설(설계 §4.11): message "LLM 응답이 완결된 JSON이 아닙니다 — 출력이 중간에 잘렸을 수 있습니다", action은 잡 종류별 — 반입 "원본을 과목·회차 단위로 나눠 올려 다시 변환해 보세요" / 재생성(F30) "재생성 요청(사유)을 더 짧고 구체적으로". **엔진 교체 문구는 넣지 않는다(구현 확정)** — 상한이 CLI·API 공통이라 무의미하고 [API로 재시도] 버튼도 렌더되지 않는다
+- [x] 잘림 추정 판별: 출력 길이가 상한에 근접하거나 JSON이 열린 채 끝나면 위 문구, 그 외 파싱 실패는 같은 kind에 일반 문구. **원문(잘린 출력·raw) 사용자 노출 금지** — `AppError.detail`의 `raw`가 잡 응답에 실리지 않는지 확인(§4.11 원칙)
+- [x] **서버측 PDF 분할은 하지 않는다** — 라이브러리 의존 추가 금지(계획서 F35-3 HWP 정책과 같은 원칙). 안내로만 해결
+- [x] 프론트: `LlmErrorInfo` 렌더에 kind 1종 추가(색상은 토큰만) + [파일 나눠서 다시 올리기](시작 화면 복귀) 버튼
+- [x] 단위 테스트: 잘린 JSON 문자열 입력 시 `kind == 'invalid_output'`이고 raw 원문이 응답에 없음
 
 ### 7. 프론트 마감 (설계 §5.9)
 
-- [ ] 반입 화면 진입 탭 4종(JSON 파일 / 원본 파일 / URL / 사이트에서 가져오기) 유지. **사이트 탭은 "준비 중"**(qnet 스텁 `available:false`) — 빈 화면·오류 없이 안내 + [URL로 반입]·[파일로 반입] 대안 버튼(Stage 14에서 실가동)
-- [ ] 공용 Stepper(F36-⑪) 흐름 불변 — 대기열은 ①단계(선택) 안에 들어가고 단계 수를 늘리지 않는다
-- [ ] 색상·간격은 **토큰만**(불변 규칙 5), 모바일 폭에서 대기열 카드가 세로로 접히는지 확인
+- [x] 반입 화면 진입 탭 4종(JSON 파일 / 원본 파일 / URL / 사이트에서 가져오기) 유지. **사이트 탭은 "준비 중"**(qnet 스텁 `available:false`) — 빈 화면·오류 없이 안내 + [URL로 반입]·[파일로 반입] 대안 버튼(Stage 14에서 실가동)
+- [x] 공용 Stepper(F36-⑪) 흐름 불변 — 대기열은 ①단계(선택) 안에 들어가고 단계 수를 늘리지 않는다
+- [x] 색상·간격은 **토큰만**(불변 규칙 5), 모바일 폭에서 대기열 카드가 세로로 접히는지 확인
 
 ### 8. 문서·매뉴얼 갱신 (불변 규칙 10 — 문서가 진척의 단일 출처)
 
-- [ ] `docs/manual/user-manual.html`: "방법 D — 사이트에서 가져오기"에서 **사이트 3곳 서술·우선순위 표기(큐넷 > CBT문제은행 > 전자문제집 CBT)·cbtbank 과목 구조화 설명을 삭제**하고 "현재는 준비 중(큐넷 공식 오픈API 연동 예정)"으로 축약. **방법 A/B(파일·URL 반입) 절을 F40 기준으로 재작성** — 여러 파일 한 번에 걸기, 분류 경로 미리 지정, 변환 JSON 내려받기·복구, 잘림 안내. "필기 기출은 파일·URL 반입으로" 안내 추가
-- [ ] 이 문서의 체크박스 `[x]` 갱신 + 계획서 M13 행 완료 표기(✅ 날짜)
+- [x] `docs/manual/user-manual.html`: "방법 D — 사이트에서 가져오기"에서 **사이트 3곳 서술·우선순위 표기(큐넷 > CBT문제은행 > 전자문제집 CBT)·cbtbank 과목 구조화 설명을 삭제**하고 "현재는 준비 중(큐넷 공식 오픈API 연동 예정)"으로 축약. **방법 A/B(파일·URL 반입) 절을 F40 기준으로 재작성** — 여러 파일 한 번에 걸기, 분류 경로 미리 지정, 변환 JSON 내려받기·복구, 잘림 안내. "필기 기출은 파일·URL 반입으로" 안내 추가
+- [x] 이 문서의 체크박스 `[x]` 갱신 + 계획서 M13 행 완료 표기(✅ 날짜)
 
 ## 완료 기준 (DoD)
 

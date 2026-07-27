@@ -52,6 +52,18 @@ export function collectDescendantIds(node: CategoryNode): Set<number> {
   return ids
 }
 
+// 루트부터 해당 분류까지 '/'로 이은 경로 문자열 (백엔드 tree_utils.category_path와 같은 규칙).
+// 반입 분류 경로 지정(F40-③, §4.11 `category_path`)이 서버와 같은 형식을 보내야 하므로 구분자는
+// 공백 없는 '/'다 — 표시용 collectLeafGroups(' / ')와 혼동하지 말 것.
+export function findCategoryPath(nodes: CategoryNode[], id: number): string | null {
+  for (const node of nodes) {
+    if (node.id === id) return node.name
+    const childPath = findCategoryPath(node.children, id)
+    if (childPath) return `${node.name}/${childPath}`
+  }
+  return null
+}
+
 export interface LeafGroup {
   id: number
   name: string

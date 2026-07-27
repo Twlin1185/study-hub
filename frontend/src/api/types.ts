@@ -202,6 +202,9 @@ export interface ImportPreviewResponse {
   source: ImportSource
   summary: ImportSummary
   items: ImportItem[]
+  // S13(F40-①, 설계 §4.3): 디스크 보존본에서 복구된 미리보기. 항목 index는 안정하지만
+  // 중복 판정(duplicate_of)은 복구 시점 DB 기준으로 재계산되므로 화면에 소표기한다.
+  recovered?: boolean
 }
 
 export interface ImportDecision {
@@ -226,6 +229,8 @@ export interface ImportCommitResult {
   new_documents: { id: number; doc_no: string; title: string }[]
   categories_created: string[]
   relations_created: number
+  // S13(F40-①): 만료된 preview를 디스크 보존본으로 복구한 뒤 커밋했음(설계 §4.3).
+  recovered?: boolean
 }
 
 // ---- 학습 진도 · 이어하기 (설계 §4.4) ----
@@ -777,7 +782,16 @@ export interface ApiKeyResponse {
 }
 
 // S10(§4.13): 'parse_failed' — 사이트 어댑터 파싱 실패(사이트 구조 변경 가능성). 원문 HTML 노출 금지.
-export type LlmErrorKind = 'rate_limit' | 'auth' | 'not_installed' | 'timeout' | 'parse_failed' | 'other'
+// S13(§4.11 F40-④): 'invalid_output' — LLM 출력이 완결된 JSON이 아님(대개 문항이 많아 출력 상한에서
+// 잘림). 같은 파일로 재시도하면 같은 실패라 "나눠서 다시 올리기"를 안내한다. 원문(raw) 미노출.
+export type LlmErrorKind =
+  | 'rate_limit'
+  | 'auth'
+  | 'not_installed'
+  | 'timeout'
+  | 'parse_failed'
+  | 'invalid_output'
+  | 'other'
 export type LlmLimitKind = 'session' | 'daily' | 'weekly' | 'model' | 'overall'
 
 // convert/regenerate 잡 실패 시 구조화된 오류(설계 §4.11) — 원문 CLI/API JSON은 여기 담기지 않는다.
@@ -872,11 +886,11 @@ export interface RestoreBackupRequest {
 // 신규는 수집기(어댑터)뿐 — LLM 정리·미리보기·중복 감지·분류 자동 생성·승인 반입은 기존
 // convert 잡 큐·import preview/commit 재사용(§4.13 원칙). 새 테이블·컬럼 없음.
 
-// S12: cbtbank(CBT문제은행) 3호 어댑터 추가 — priority qnet=1 > cbtbank=2 > comcbt=3.
-export type FetchAdapterId = 'qnet' | 'comcbt' | 'cbtbank'
+// S13: 사설 사이트 어댑터 제거 — 등록 어댑터는 qnet 단독(설계 §4.13, 계획서 §14 F35-2).
+export type FetchAdapterId = 'qnet'
 
-// GET /api/fetch/adapters — priority 숫자가 작을수록 우선(qnet=1, cbtbank=2, comcbt=3, S12).
-// available:false = robots 비허용·접속 불가 진단 시. notice = 이용 고지 문구.
+// GET /api/fetch/adapters — S13: 원소 1개(qnet, priority=1 고정) — 채택 경쟁 없음.
+// available:false = S13 종료 시점 스텁이라 항상 false("준비 중"). notice = 이용 고지 문구.
 export interface FetchAdapter {
   id: FetchAdapterId
   name: string
@@ -913,12 +927,12 @@ export interface FetchExamEstimate {
   assumed: boolean
 }
 
-// POST /api/fetch/exams 응답 항목 — exam_key(YYYY-N 정규화)가 양쪽에 있으면 큐넷(qnet) 채택,
-// comcbt는 also_on으로만 표기. imported = 해당 회차 분류 경로 존재 여부(파생).
-// exam_ref: 채택 어댑터(adapter) 기준 조회용 참조(§4.13 갱신 — refs[adapter]와 동일값, 유지).
-// refs: 어댑터별 exam_ref 맵(§4.13 갱신, stage-reviewer 지적 반영) — exam_ref의 의미가 어댑터마다
-// 달라(comcbt=srl 숫자, qnet=URL) also_on 재시도 시 채택 어댑터의 exam_ref를 그대로 쓸 수 없다.
-// 대상 어댑터 키가 refs에 없으면 그 어댑터로는 재시도 불가(해당 회차를 개별 조회할 수단이 없음).
+// POST /api/fetch/exams 응답 항목 — S13: 어댑터가 qnet 하나뿐이라 어댑터 간 병합·채택
+// 경쟁이 없다. also_on은 항상 빈 배열, refs는 {qnet: exam_ref} 단일 항목(계약 형태는 유지
+// — 향후 공식 API 어댑터 추가 여지 + 프론트 렌더 코드 불변, 설계 §4.13).
+// imported = 해당 회차 분류 경로 존재 여부(파생).
+// exam_ref: 어댑터 기준 조회용 참조(§4.13 — refs[adapter]와 동일값, 유지).
+// refs: 어댑터별 exam_ref 맵 — 필드는 유지하되 S13에서는 항상 단일 항목.
 export interface FetchExamItem {
   exam_key: string
   exam_ref: string
@@ -935,8 +949,9 @@ export type FetchExamsResponse = FetchExamItem[]
 
 // POST /api/fetch/import — 한 번에 1회차. convert 잡 큐 재사용(kind='fetch', 동시 1개,
 // engine·폴백 정책은 §4.11 그대로) → {job_id}(ConvertJobStartResponse와 동일 형태).
-// exam_key?(S12 확장, §4.13) — fetch/exams가 반환한 병합 대표 키를 그대로 전달하면 서버가
-// 수집 결과의 exam_key를 이 값으로 덮어써 목록 표기·분류 경로·imported 판정을 일치시킨다.
+// exam_key?(§4.13) — fetch/exams가 반환한 키를 그대로 전달하면 서버가 수집 결과의
+// exam_key를 이 값으로 덮어써 목록 표기·분류 경로·imported 판정을 일치시킨다.
+// S13: 단일 어댑터에서는 목록 키와 수집 키가 같아 사실상 항등 전달 — 계약 유지 목적.
 // 미지정 시 기존 동작(어댑터 자체 키) 완전 불변.
 export interface FetchImportRequest {
   adapter: FetchAdapterId

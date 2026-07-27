@@ -5,6 +5,10 @@ sources/
 TestSources/
 backups/
 backend/convert_tmp/
+# 반입 JSON 전체 — 기출 원문이 담긴 사용자 데이터다. 공개 저장소에는 **도구만** 올리고
+# 데이터는 각자 수집한다(계획서 §14 F35-2 제거 이력의 전제). auto/는 앱이 만든 보존본
+# (S13 F40-① — 최근 50건, 백업(F27) 대상도 아님).
+import/
 secrets.json
 node_modules/
 backend/.venv/

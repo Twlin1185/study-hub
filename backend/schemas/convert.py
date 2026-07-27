@@ -11,7 +11,10 @@ JobPhase = Literal[
     "fetching", "downloading", "preparing", "llm_running", "parsing", "preview_building"
 ]
 # S10: 'parse_failed'(사이트 어댑터 파싱 실패) 추가 (설계 §4.13)
-ErrorKind = Literal["rate_limit", "auth", "not_installed", "timeout", "parse_failed", "other"]
+# S13: 'invalid_output'(LLM 출력이 완결된 JSON이 아님 — 대개 출력 상한에서 잘림) 추가 (§4.11)
+ErrorKind = Literal[
+    "rate_limit", "auth", "not_installed", "timeout", "parse_failed", "invalid_output", "other"
+]
 LimitKind = Literal["session", "daily", "weekly", "model", "overall"]
 EngineChoice = Literal["auto", "cli", "api"]
 

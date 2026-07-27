@@ -1,16 +1,18 @@
-import { useEffect, useState } from 'react'
-import type { ChangeEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useImportCommit, useImportPreview } from '../api/import'
-import { isJobLost, jobUnavailable, useConvertedPreview, useConvertJob, useStartConvert } from '../api/convert'
+import { previewJsonUrl, useConvertedPreview } from '../api/convert'
 import { ApiError } from '../api/client'
-import { clearStoredConvertJob, getStoredConvertJob, setStoredConvertJob } from '../utils/convertJob'
-import LlmJobProgress from '../components/LlmJobProgress'
-import LlmErrorInfoView from '../components/LlmErrorInfo'
+import { readQueue } from '../utils/convertQueue'
+import { useConvertQueue, MAX_QUEUE_BATCH } from '../hooks/useConvertQueue'
+import type { ConvertQueue, QueueItem } from '../hooks/useConvertQueue'
 import LlmLimitBanner from '../components/LlmLimitBanner'
 import Stepper from '../components/Stepper'
 import ConfirmDialog from '../components/ConfirmDialog'
 import FetchImportWizard from '../components/FetchImportWizard'
+import ImportQueueList, { ImportQueueSummary } from '../components/ImportQueue'
+import CategoryPathField, { categoryPathError, normalizeCategoryPath } from '../components/CategoryPathField'
 import type { StepperStep } from '../components/Stepper'
 import type {
   ImportAction,
@@ -18,13 +20,12 @@ import type {
   ImportDecision,
   ImportItem,
   ImportPreviewResponse,
-  LlmErrorInfo,
 } from '../api/types'
 
 type WizardStep = 'select' | 'preview' | 'result'
-// 'convert' = 원본 파일 업로드 자동 변환 · 'url' = URL 반입(§4.11 F35 1단계) — 둘 다 ConvertStep을
-// 공유하고 sourceKind로 UI만 갈린다. 'fetch' = 사이트에서 가져오기(§5.9, S10, F35 2단계) — 자체
-// 4단계 서브플로(FetchImportWizard)를 가진다.
+// 'convert' = 원본 파일 업로드 자동 변환(S13: **다중 선택 = 반입 대기열**, F40-②) ·
+// 'url' = URL 반입(§4.11 F35 1단계) — 둘 다 StartConvertPanel + 같은 대기열을 공유하고
+// sourceKind로 입력 UI만 갈린다. 'fetch' = 사이트에서 가져오기(§5.9, S10) — 자체 4단계 서브플로.
 type EntryMode = 'json' | 'convert' | 'url' | 'fetch'
 
 interface ItemDecisionState {
@@ -43,17 +44,6 @@ const TYPE_LABEL: Record<string, string> = {
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
-}
-
-// 한도 기억(remembered-limit) 사전 차단 — 폴백 ask/off일 때 변환 시작 자체가 409로 거부되며
-// detail에 LlmErrorInfo가 실려 온다(설계 §4.11). 원문 판별은 과하지 않게 kind 필드 존재만 본다.
-function extractLlmErrorInfo(error: unknown): LlmErrorInfo | null {
-  if (!(error instanceof ApiError) || error.status !== 409) return null
-  const detail = error.detail
-  if (detail && typeof detail === 'object' && 'kind' in detail) {
-    return detail as LlmErrorInfo
-  }
-  return null
 }
 
 function toggleValue<T>(values: T[], value: T): T[] {
@@ -81,31 +71,53 @@ function buildInitialDecisions(items: ImportItem[]): Record<number, ItemDecision
   return initial
 }
 
-// 새로고침해도 진행 중인 convert 잡의 폴링이 이어지도록, 마운트 시 localStorage에 남은 잡이
-// 있으면 해당 진입 모드로 초기화한다(설계 §4.11 진행 가시화 요구사항).
+// 새로고침해도 진행 중인 잡의 폴링이 이어지도록, 마운트 시 대기열에 남은 항목이 있으면 해당
+// 진입 모드로 초기화한다(설계 §4.11 진행 가시화 · §5.9 F40-② 복원 요구).
 function initialEntryMode(): EntryMode {
-  const stored = getStoredConvertJob()
-  if (!stored) return 'json'
-  if (stored.sourceKind === 'fetch') return 'fetch'
-  return stored.sourceKind === 'url' ? 'url' : 'convert'
+  const entries = readQueue().filter((e) => !e.committed)
+  if (entries.length === 0) return 'json'
+  const fetchOnly = entries.every((e) => e.sourceKind === 'fetch')
+  if (fetchOnly) return 'fetch'
+  const last = [...entries].reverse().find((e) => e.sourceKind !== 'fetch')
+  return last?.sourceKind === 'url' ? 'url' : 'convert'
 }
 
 export default function ImportPage() {
+  const queue = useConvertQueue()
   const [entryMode, setEntryMode] = useState<EntryMode>(initialEntryMode)
   const [step, setStep] = useState<WizardStep>('select')
   const [jsonFile, setJsonFile] = useState<File | null>(null)
   const [sourceFile, setSourceFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<ImportPreviewResponse | null>(null)
+  // 미리보기가 변환 잡(대기열·사이트 반입)에서 왔는가 — 디스크 보존본이 있는 경우에만
+  // [변환 JSON 내려받기]가 의미를 갖는다(직접 올린 JSON은 서버가 보존하지 않는다, §4.3).
+  const [previewFromJob, setPreviewFromJob] = useState(false)
   const [decisions, setDecisions] = useState<Record<number, ItemDecisionState>>({})
   const [expiredNotice, setExpiredNotice] = useState<string | null>(null)
   const [result, setResult] = useState<ImportCommitResult | null>(null)
   const [erroredCount, setErroredCount] = useState(0)
+
+  // 대기열 항목 [검토] — preview_id로 미리보기를 열어 기존 ②단계에 그대로 합류시킨다.
+  const [reviewEntryId, setReviewEntryId] = useState<string | null>(null)
+  const [reviewPreviewId, setReviewPreviewId] = useState<string | null>(null)
+  const awaitingReview = useRef(false)
+  const reviewQuery = useConvertedPreview(reviewPreviewId)
 
   const previewMutation = useImportPreview()
   const commitMutation = useImportCommit()
 
   // 반입 완료(result) 상태에서 지나온 단계를 클릭하면 결과가 버려지는 파괴적 복귀 — 확인 후 재시작.
   const [confirmRestart, setConfirmRestart] = useState(false)
+
+  useEffect(() => {
+    // ①단계에서 [검토]를 눌러 기다리는 중일 때만 미리보기로 넘어간다 — 결과 화면에서 백그라운드
+    // 재조회가 일어나도 화면이 제멋대로 되돌아가지 않게 하는 가드.
+    if (reviewQuery.data && awaitingReview.current && step === 'select') {
+      awaitingReview.current = false
+      applyPreview(reviewQuery.data, true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewQuery.data])
 
   // 공용 Stepper 헤더 네비게이션(설계 §5.9, F36-⑪) — 'done' 단계만 클릭 가능.
   function handleStepNavigate(target: WizardStep) {
@@ -114,33 +126,60 @@ export default function ImportPage() {
       setConfirmRestart(true)
       return
     }
-    if (target === 'select') setStep('select')
+    if (target === 'select') backToSelect()
+  }
+
+  function backToSelect() {
+    setStep('select')
+    setPreview(null)
+    setDecisions({})
+    setPreviewFromJob(false)
+    awaitingReview.current = false
+    setReviewPreviewId(null)
+    setReviewEntryId(null)
   }
 
   function resetWizard() {
-    setStep('select')
+    backToSelect()
     setEntryMode('json')
     setJsonFile(null)
     setSourceFile(null)
-    setPreview(null)
-    setDecisions({})
     setResult(null)
     setErroredCount(0)
   }
 
-  function applyPreview(data: ImportPreviewResponse) {
+  // 대기열로 돌아가기 — 다음 항목을 이어서 검토한다(§5.9 F40-②).
+  function backToQueue() {
+    backToSelect()
+    setResult(null)
+    setErroredCount(0)
+    setEntryMode((mode) => (mode === 'convert' || mode === 'url' ? mode : 'convert'))
+  }
+
+  function applyPreview(data: ImportPreviewResponse, fromJob = false) {
     setPreview(data)
+    setPreviewFromJob(fromJob)
     setDecisions(buildInitialDecisions(data.items))
+    setExpiredNotice(null)
     setStep('preview')
+  }
+
+  function handleReview(item: QueueItem) {
+    if (!item.previewId) return
+    awaitingReview.current = true
+    setReviewEntryId(item.entry.id)
+    setReviewPreviewId(item.previewId)
+    // 같은 preview를 다시 여는 경우 캐시된 응답이 즉시 반환된다(refetch는 백그라운드).
+    if (reviewPreviewId === item.previewId && reviewQuery.data) {
+      awaitingReview.current = false
+      applyPreview(reviewQuery.data, true)
+    }
   }
 
   function handlePreviewSubmit() {
     if (!jsonFile) return
     setExpiredNotice(null)
-    previewMutation.mutate(
-      { jsonFile, sourceFile },
-      { onSuccess: applyPreview },
-    )
+    previewMutation.mutate({ jsonFile, sourceFile }, { onSuccess: (data) => applyPreview(data, false) })
   }
 
   function updateDecision(index: number, patch: Partial<ItemDecisionState>) {
@@ -187,19 +226,25 @@ export default function ImportPage() {
           setResult(data)
           // 오류로 자동 제외된 항목 수는 commit 응답에 없어 preview 요약에서 채출
           setErroredCount(preview.summary.error)
+          if (reviewEntryId) queue.markCommitted(reviewEntryId)
           setStep('result')
         },
         onError: (e) => {
           if (e instanceof ApiError && e.status === 409) {
-            setExpiredNotice('미리보기가 만료되었습니다 (1시간). 파일을 다시 선택해 반입을 시작하세요.')
-            setStep('select')
-            setPreview(null)
-            setDecisions({})
+            // S13(F40-①): 서버가 디스크 복구를 먼저 시도하므로 409는 "복구도 실패" 또는
+            // "이미 반입 완료"일 때만 도달한다 — 서버 메시지를 그대로 보여 준다.
+            setExpiredNotice(errMsg(e, '미리보기가 만료되었습니다. 다시 시작하세요.'))
+            backToSelect()
           }
         },
       },
     )
   }
+
+  const reviewError =
+    reviewQuery.isError && reviewEntryId
+      ? errMsg(reviewQuery.error, '미리보기를 불러오지 못했습니다. 변환 JSON을 내려받아 직접 반입해 보세요.')
+      : null
 
   return (
     <div className="mx-auto max-w-4xl p-4">
@@ -234,43 +279,26 @@ export default function ImportPage() {
       {step === 'select' && (
         <>
           <div className="mb-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setEntryMode('json')}
-              className={`rounded-full px-3 py-1.5 text-sm font-medium ${
-                entryMode === 'json' ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:bg-bg'
-              }`}
-            >
+            <ModeTab active={entryMode === 'json'} onClick={() => setEntryMode('json')}>
               반입 JSON 파일 선택
-            </button>
-            <button
-              type="button"
-              onClick={() => setEntryMode('convert')}
-              className={`rounded-full px-3 py-1.5 text-sm font-medium ${
-                entryMode === 'convert' ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:bg-bg'
-              }`}
-            >
+            </ModeTab>
+            <ModeTab active={entryMode === 'convert'} onClick={() => setEntryMode('convert')}>
               원본 파일로 시작 (자동 변환)
-            </button>
-            <button
-              type="button"
-              onClick={() => setEntryMode('url')}
-              className={`rounded-full px-3 py-1.5 text-sm font-medium ${
-                entryMode === 'url' ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:bg-bg'
-              }`}
-            >
+            </ModeTab>
+            <ModeTab active={entryMode === 'url'} onClick={() => setEntryMode('url')}>
               URL로 시작
-            </button>
-            <button
-              type="button"
-              onClick={() => setEntryMode('fetch')}
-              className={`rounded-full px-3 py-1.5 text-sm font-medium ${
-                entryMode === 'fetch' ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:bg-bg'
-              }`}
-            >
+            </ModeTab>
+            <ModeTab active={entryMode === 'fetch'} onClick={() => setEntryMode('fetch')}>
               사이트에서 가져오기
-            </button>
+            </ModeTab>
           </div>
+
+          {/* 다른 탭에 있어도 대기열이 살아 있음을 잊지 않게 한다(§5.9 접힌 요약) */}
+          {(entryMode === 'json' || entryMode === 'fetch') && (
+            <div className="mb-3">
+              <ImportQueueSummary items={queue.items} onBackToQueue={backToQueue} />
+            </div>
+          )}
 
           {entryMode === 'json' && (
             <SelectStep
@@ -284,39 +312,100 @@ export default function ImportPage() {
             />
           )}
           {(entryMode === 'convert' || entryMode === 'url') && (
-            <ConvertStep
-              sourceKind={entryMode === 'url' ? 'url' : 'file'}
-              onPreviewReady={applyPreview}
-              onFallbackToManual={() => setEntryMode('json')}
-            />
+            <div className="flex flex-col gap-4">
+              <StartConvertPanel sourceKind={entryMode === 'url' ? 'url' : 'file'} queue={queue} />
+              <ImportQueueList
+                items={queue.items}
+                starting={queue.starting}
+                reviewingEntryId={reviewEntryId}
+                reviewError={reviewError}
+                onReview={handleReview}
+                onRemove={queue.removeEntry}
+                onRetryApi={(id) => queue.retryEntry(id)}
+                onSplitReupload={() => {
+                  // F40-④ — 시작 화면(파일 선택)으로 되돌려 원본을 나눠 다시 올리게 한다.
+                  setEntryMode('convert')
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                }}
+                onClearFinished={queue.clearFinished}
+              />
+              {queue.items.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setEntryMode('json')}
+                  className="w-fit rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+                >
+                  대신 JSON 파일 직접 선택하기
+                </button>
+              )}
+            </div>
           )}
           {entryMode === 'fetch' && (
-            <FetchImportWizard onPreviewReady={applyPreview} onFallbackToUrl={() => setEntryMode('url')} />
+            <FetchImportWizard
+              onPreviewReady={(data) => applyPreview(data, true)}
+              onFallbackToUrl={() => setEntryMode('url')}
+              onFallbackToFile={() => setEntryMode('convert')}
+            />
           )}
         </>
       )}
 
       {step === 'preview' && preview && (
-        <PreviewStep
-          preview={preview}
-          decisions={decisions}
-          onUpdateDecision={updateDecision}
-          onSkipAll={skipAll}
-          onBack={() => setStep('select')}
-          onCommit={handleCommit}
-          committing={commitMutation.isPending}
-          commitError={
-            commitMutation.isError && !(commitMutation.error instanceof ApiError && commitMutation.error.status === 409)
-              ? errMsg(commitMutation.error, '반입 실행에 실패했습니다.')
-              : null
-          }
-        />
+        <div className="flex flex-col gap-4">
+          <ImportQueueSummary items={queue.items} onBackToQueue={backToQueue} />
+          <PreviewStep
+            preview={preview}
+            showJsonDownload={previewFromJob}
+            decisions={decisions}
+            onUpdateDecision={updateDecision}
+            onSkipAll={skipAll}
+            onBack={backToSelect}
+            onCommit={handleCommit}
+            committing={commitMutation.isPending}
+            commitError={
+              commitMutation.isError && !(commitMutation.error instanceof ApiError && commitMutation.error.status === 409)
+                ? errMsg(commitMutation.error, '반입 실행에 실패했습니다.')
+                : null
+            }
+          />
+        </div>
       )}
 
       {step === 'result' && result && (
-        <ResultStep result={result} erroredCount={erroredCount} onRestart={resetWizard} />
+        <div className="flex flex-col gap-4">
+          <ImportQueueSummary items={queue.items} onBackToQueue={backToQueue} />
+          <ResultStep
+            result={result}
+            erroredCount={erroredCount}
+            onRestart={resetWizard}
+            onBackToQueue={queue.items.length > 0 ? backToQueue : null}
+          />
+        </div>
       )}
     </div>
+  )
+}
+
+function ModeTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+        active ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:bg-bg'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -337,95 +426,68 @@ function StepIndicator({ step, onNavigate }: { step: WizardStep; onNavigate: (ta
   return <Stepper steps={steps} onStepClick={(i) => onNavigate(STEP_ORDER[i])} />
 }
 
-interface ConvertStepProps {
+interface StartConvertPanelProps {
   sourceKind: 'file' | 'url'
-  onPreviewReady: (data: ImportPreviewResponse) => void
-  onFallbackToManual: () => void
+  queue: ConvertQueue
 }
 
-// 설계 §4.10·§4.11, §5.9(S6·S8) — "원본 파일로 시작" / "URL로 시작"(F35 1단계). 서버 변환 잡을
-// 시작하고 폴링, 완료 시 곧장 반입 미리보기 단계로 넘어간다. jobId는 localStorage에 영속해
-// 새로고침 후에도 폴링이 이어진다(§4.11 진행 가시화). 실패 시 error_info를 사람이 읽는 안내로
-// 렌더하고, fallback_available이면 [API로 재시도]로 engine:'api' 재요청한다. 그래도 안 되면
-// 수동 반입(JSON 선택)으로 폴백한다.
-function ConvertStep({ sourceKind, onPreviewReady, onFallbackToManual }: ConvertStepProps) {
-  const initialStored = getStoredConvertJob()
-  const resumed = initialStored && initialStored.sourceKind === sourceKind ? initialStored : null
+// 설계 §5.9(S6·S8·S13) — "원본 파일로 시작"(F40-②: **다중 선택 → 대기열**) / "URL로 시작".
+// 서버 워커는 동시 1개라 대기열은 큐잉일 뿐 병렬 실행이 아니다. 시작 전 한도 배너(§4.11)를
+// 노출하고, 분류 경로(F40-③)는 파일·URL 공통 접이식 패널로 받는다.
+function StartConvertPanel({ sourceKind, queue }: StartConvertPanelProps) {
+  const [files, setFiles] = useState<File[]>([])
+  const [url, setUrl] = useState('')
+  const [commonPath, setCommonPath] = useState('')
+  // 파일별 마지막 칸(회차 등) — 공통 상위 경로 뒤에 붙는다(§5.9 F40-③).
+  const [perFileSuffix, setPerFileSuffix] = useState<Record<string, string>>({})
+  const [selectNotice, setSelectNotice] = useState<string | null>(null)
 
-  const [file, setFile] = useState<File | null>(null)
-  const [url, setUrl] = useState(resumed?.url ?? '')
-  const [jobId, setJobId] = useState<string | null>(resumed?.jobId ?? null)
-  const [resumedFileName] = useState<string | null>(resumed?.fileName ?? null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const startConvert = useStartConvert()
-  const jobQuery = useConvertJob(jobId)
-  const previewFetch = useConvertedPreview(
-    jobQuery.data?.status === 'done' ? (jobQuery.data.result_preview_id ?? null) : null,
-  )
-
-  useEffect(() => {
-    if (previewFetch.data) {
-      clearStoredConvertJob()
-      onPreviewReady(previewFetch.data)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewFetch.data])
-
-  // 잡 소실이 확인되면 저장된 기록을 즉시 정리한다(사이트 반입 위저드와 동일 규약) —
-  // 안내는 이번 방문에 보이되 다시 열 때마다 반복되지 않게.
-  useEffect(() => {
-    if (jobId != null && isJobLost(jobQuery)) clearStoredConvertJob()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, jobQuery.isError])
-
-  function startJob(engine?: 'api') {
-    if (sourceKind === 'file') {
-      if (!file) return
-      startConvert.mutate(
-        { kind: 'file', file, engine },
-        {
-          onSuccess: (data) => {
-            setJobId(data.job_id)
-            setStoredConvertJob({ jobId: data.job_id, sourceKind: 'file', fileName: file.name })
-          },
-        },
+  function handleFiles(e: ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? [])
+    // 대량 투입으로 LLM 한도를 한 번에 태우는 사고 방지(§5.9 · 리스크 6) — 이미 대기 중인
+    // 항목까지 합쳐 10개를 넘지 않게 한다.
+    if (picked.length + queue.pendingCount > MAX_QUEUE_BATCH) {
+      setSelectNotice(
+        queue.pendingCount > 0
+          ? `대기 중 ${queue.pendingCount}건이 있어 ${MAX_QUEUE_BATCH - queue.pendingCount}개까지 더 걸 수 있습니다 (선택 ${picked.length}개).`
+          : `한 번에 최대 ${MAX_QUEUE_BATCH}개까지 걸 수 있습니다 (선택 ${picked.length}개). 나눠서 올려 주세요.`,
       )
-    } else {
-      if (!url.trim()) return
-      startConvert.mutate(
-        { kind: 'url', url: url.trim(), engine },
-        {
-          onSuccess: (data) => {
-            setJobId(data.job_id)
-            setStoredConvertJob({ jobId: data.job_id, sourceKind: 'url', url: url.trim() })
-          },
-        },
-      )
+      setFiles([])
+      return
     }
+    setSelectNotice(null)
+    setFiles(picked)
   }
 
-  function handleReset() {
-    clearStoredConvertJob()
-    setFile(null)
-    setUrl('')
-    setJobId(null)
+  function pathForFile(name: string): string {
+    const suffix = perFileSuffix[name] ?? ''
+    return normalizeCategoryPath([commonPath, suffix].filter(Boolean).join('/'))
   }
 
-  // 잡 소실(404 — 서버 재시작·TTL 1시간 만료)이면 진행 표시를 멈춘다(사이트 반입 위저드와 동일 규약).
-  const unavailable = jobId != null ? jobUnavailable(jobQuery) : null
-  const running = jobId != null && unavailable == null && (jobQuery.data == null || jobQuery.data.status === 'running')
-  const jobFailed = jobQuery.data?.status === 'error'
-  const done = jobQuery.data?.status === 'done'
-  const previewFetchFailed = done && (previewFetch.isError || !jobQuery.data?.result_preview_id)
-  // preview_id가 TTL(1시간)로 만료되면 GET /import/preview/{id}가 404(NOT_FOUND)를 반환한다(§4.3).
-  const previewExpired = previewFetch.isError && previewFetch.error instanceof ApiError && previewFetch.error.status === 404
+  const pathError =
+    categoryPathError(commonPath) ??
+    files.map((f) => categoryPathError(pathForFile(f.name))).find((e) => e != null) ??
+    null
 
-  // URL 소스는 새로고침 후에도 url 문자열이 남아 재시도 가능. 파일 소스는 File 객체를 되살릴 수
-  // 없어 새로고침 후 재시도하려면 파일을 다시 선택해야 한다.
-  const canStart = sourceKind === 'url' ? url.trim().length > 0 : file != null
-  const needsReselect = sourceKind === 'file' && jobFailed && !file
-  // 시작 요청 자체가 409(한도 기억 사전 차단)로 거부된 경우 — LlmErrorInfoView로 구조화 렌더.
-  const startErrorInfo = startConvert.isError ? extractLlmErrorInfo(startConvert.error) : null
+  const canStart =
+    !queue.starting && pathError == null && (sourceKind === 'url' ? url.trim().length > 0 : files.length > 0)
+
+  async function handleStart() {
+    if (!canStart) return
+    if (sourceKind === 'url') {
+      const value = url.trim()
+      setUrl('')
+      await queue.startUrl(value, commonPath || null)
+      return
+    }
+    const inputs = files.map((file) => ({ file, categoryPath: pathForFile(file.name) || null }))
+    setFiles([])
+    setPerFileSuffix({})
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    await queue.startFiles(inputs)
+  }
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
@@ -433,143 +495,75 @@ function ConvertStep({ sourceKind, onPreviewReady, onFallbackToManual }: Convert
 
       <p className="text-sm text-muted">
         {sourceKind === 'file'
-          ? 'PDF·이미지 등 기출 원본 파일을 올리면 LLM이 반입 JSON으로 변환한 뒤 곧바로 미리보기 단계로 이어집니다.'
+          ? `PDF·이미지 등 기출 원본 파일을 올리면 LLM이 반입 JSON으로 변환한 뒤 미리보기 단계로 이어집니다. 여러 파일(최대 ${MAX_QUEUE_BATCH}개)을 한 번에 걸어두면 순서대로 변환되고, 끝난 것부터 검토할 수 있습니다.`
           : '공개 기출 자료 URL을 입력하면 서버가 다운로드부터 변환까지 처리합니다 (사설·로컬 네트워크 주소는 거부됩니다).'}
       </p>
 
       {sourceKind === 'file' ? (
-        <label className="flex flex-col gap-1 text-sm">
-          원본 파일
+        <label className="flex flex-col gap-1 text-sm text-primary">
+          원본 파일 (여러 개 선택 가능)
           <input
+            ref={fileInputRef}
             type="file"
-            disabled={jobId != null}
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary disabled:opacity-50"
+            multiple
+            onChange={handleFiles}
+            className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary"
           />
-          {file && <span className="text-xs text-muted">선택됨: {file.name}</span>}
-          {!file && resumedFileName && (
-            <span className="text-xs text-warning">
-              새로고침 전 "{resumedFileName}"을(를) 올렸습니다. 재시도하려면 파일을 다시 선택하세요
-              (진행 확인은 그대로 이어집니다).
-            </span>
-          )}
+          {files.length > 0 && <span className="text-xs text-muted">선택됨: {files.length}개</span>}
+          {selectNotice && <span className="text-xs text-warning">{selectNotice}</span>}
         </label>
       ) : (
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-sm text-primary">
           자료 URL
           <input
             type="url"
-            disabled={jobId != null}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://example.com/2023-기출.pdf"
-            className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary disabled:opacity-50"
+            className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary"
           />
         </label>
       )}
 
-      {startConvert.isError &&
-        (startErrorInfo ? (
-          <LlmErrorInfoView
-            errorInfo={startErrorInfo}
-            onRetryWithApi={canStart ? () => startJob('api') : undefined}
-            retrying={startConvert.isPending}
-          />
-        ) : (
-          <p className="text-sm text-wrong">{errMsg(startConvert.error, '변환 시작에 실패했습니다.')}</p>
-        ))}
+      <CategoryPathField value={commonPath} onChange={setCommonPath} sharedNotice={files.length > 1} />
 
-      {running && <LlmJobProgress progress={jobQuery.data?.progress} includeDownloading={sourceKind === 'url'} />}
-
-      {unavailable && (
-        <div className="flex flex-col gap-2 rounded-lg border border-warning bg-accent-soft p-3 text-sm text-primary">
-          <p className="font-medium">
-            {unavailable === 'lost' ? '진행 상황을 더 이상 확인할 수 없습니다' : '서버에 연결하지 못했습니다'}
+      {sourceKind === 'file' && files.length > 1 && (
+        <div className="flex flex-col gap-2 rounded border border-border bg-bg p-3">
+          <p className="text-xs font-semibold text-muted">
+            파일별 회차 (선택) — 위에서 정한 상위 경로가 모든 파일에 같이 적용됩니다.
           </p>
-          <p className="text-xs text-muted">
-            {unavailable === 'lost'
-              ? '서버가 다시 시작되었거나 작업 정보가 만료되어(1시간) 이 변환 작업의 진행 상황이 사라졌습니다. 변환이 끝나기 전이었다면 반입되지 않았으니 다시 시도해 주세요.'
-              : '서버가 꺼져 있거나 다시 시작하는 중일 수 있습니다. 서버를 켠 뒤 [다시 확인]을 눌러 보세요 — 작업이 아직 살아 있으면 이어서 표시됩니다.'}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {unavailable === 'unreachable' && (
-              <button
-                type="button"
-                onClick={() => jobQuery.refetch()}
-                className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
-              >
-                다시 확인
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleReset}
-              className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
-            >
-              처음부터 다시 시도
-            </button>
-          </div>
+          {files.map((file) => (
+            <div key={file.name} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+              <span className="min-w-0 flex-1 break-all text-xs text-primary">{file.name}</span>
+              <input
+                type="text"
+                value={perFileSuffix[file.name] ?? ''}
+                onChange={(e) => setPerFileSuffix((prev) => ({ ...prev, [file.name]: e.target.value }))}
+                placeholder="2022년 2회"
+                className="w-full rounded border border-border bg-surface px-2 py-1 text-xs text-primary outline-none focus:border-accent sm:w-40"
+              />
+              <span className="min-w-0 flex-1 break-all text-[11px] text-muted">
+                {pathForFile(file.name) || '분류 경로 지정 안 함'}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
-      {jobFailed && (
-        <div className="flex flex-col gap-2">
-          <LlmErrorInfoView
-            errorInfo={jobQuery.data?.error_info}
-            legacyError={jobQuery.data?.error}
-            onRetryWithApi={canStart ? () => startJob('api') : undefined}
-            retrying={startConvert.isPending}
-          />
-          {needsReselect && (
-            <p className="text-xs text-warning">
-              새로고침으로 파일 정보가 사라졌습니다. 파일을 다시 선택한 뒤 재시도하세요.
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              handleReset()
-              onFallbackToManual()
-            }}
-            className="w-fit rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
-          >
-            대신 JSON 파일 직접 선택하기
-          </button>
-        </div>
-      )}
-
-      {previewFetchFailed && (
-        <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">
-          {previewExpired ? (
-            <p>미리보기가 만료되었습니다 (1시간 TTL). 다시 시작하세요.</p>
-          ) : (
-            <p>
-              변환은 완료됐지만 미리보기를 자동으로 불러오지 못했습니다
-              {jobQuery.data?.result_preview_id ? ` (preview_id: ${jobQuery.data.result_preview_id})` : ''}. 반입
-              JSON 파일이 있다면 직접 선택해 반입하세요.
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              handleReset()
-              if (!previewExpired) onFallbackToManual()
-            }}
-            className="mt-2 rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
-          >
-            {previewExpired ? '다시 시작' : 'JSON 파일 직접 선택하기'}
-          </button>
-        </div>
-      )}
+      {pathError && <p className="text-sm text-warning">{pathError}</p>}
 
       <div className="flex justify-end">
         <button
           type="button"
-          disabled={!canStart || jobId != null || startConvert.isPending}
-          onClick={() => startJob()}
+          disabled={!canStart}
+          onClick={handleStart}
           className="rounded bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
         >
-          {startConvert.isPending ? '시작 중…' : '변환 시작'}
+          {queue.starting
+            ? '시작 중…'
+            : sourceKind === 'file' && files.length > 1
+              ? `${files.length}개 변환 시작`
+              : '변환 시작'}
         </button>
       </div>
     </div>
@@ -643,6 +637,7 @@ function SelectStep({
 
 interface PreviewStepProps {
   preview: ImportPreviewResponse
+  showJsonDownload: boolean
   decisions: Record<number, ItemDecisionState>
   onUpdateDecision: (index: number, patch: Partial<ItemDecisionState>) => void
   onSkipAll: () => void
@@ -654,6 +649,7 @@ interface PreviewStepProps {
 
 function PreviewStep({
   preview,
+  showJsonDownload,
   decisions,
   onUpdateDecision,
   onSkipAll,
@@ -666,6 +662,13 @@ function PreviewStep({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* S13(F40-①, 설계 §4.3) — 디스크 보존본에서 복구된 미리보기 소표기 */}
+      {preview.recovered && (
+        <div className="rounded border border-accent bg-accent-soft px-3 py-2 text-sm text-primary">
+          이전 미리보기를 복구했습니다 — 중복 판정은 현재 DB 기준입니다.
+        </div>
+      )}
+
       {source.duplicate_source && (
         <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">
           같은 원본이 이미 반입된 적 있습니다 ("{source.filename}"). 내용이 중복 의심으로 잡힐 수 있습니다.
@@ -679,13 +682,24 @@ function PreviewStep({
           <span className="text-warning">중복 의심 {summary.duplicate_suspect}</span>
           <span className="text-wrong">오류 {summary.error}</span>
         </div>
-        <button
-          type="button"
-          onClick={onSkipAll}
-          className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
-        >
-          전체 건너뛰기
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {showJsonDownload && (
+            <a
+              href={previewJsonUrl(preview.preview_id)}
+              download
+              className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+            >
+              변환 JSON 내려받기
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={onSkipAll}
+            className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+          >
+            전체 건너뛰기
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -879,13 +893,21 @@ function ResultStep({
   result,
   erroredCount,
   onRestart,
+  onBackToQueue,
 }: {
   result: ImportCommitResult
   erroredCount: number
   onRestart: () => void
+  onBackToQueue: (() => void) | null
 }) {
   return (
     <div className="flex flex-col gap-4">
+      {result.recovered && (
+        <div className="rounded border border-accent bg-accent-soft px-3 py-2 text-sm text-primary">
+          만료된 미리보기를 보존본으로 복구해 반입했습니다 — 중복 판정은 반입 시점 DB 기준입니다.
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryTile label="생성" value={result.created} />
         <SummaryTile label="병합" value={result.merged} />
@@ -929,7 +951,16 @@ function ResultStep({
         </div>
       )}
 
-      <div>
+      <div className="flex flex-wrap gap-2">
+        {onBackToQueue && (
+          <button
+            type="button"
+            onClick={onBackToQueue}
+            className="rounded bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90"
+          >
+            대기열로 돌아가기
+          </button>
+        )}
         <button
           type="button"
           onClick={onRestart}

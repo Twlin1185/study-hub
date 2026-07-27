@@ -43,7 +43,7 @@ from schemas.import_schema import (
     SuggestCategoryResult,
     SuggestRelationResult,
 )
-from services import tag_rule_service
+from services import preview_store, tag_rule_service
 from services.document_service import _generate_doc_no
 from services.tag_service import get_or_create_tag
 
@@ -51,8 +51,37 @@ SOURCES_DIR = BASE_DIR / "sources"
 QUESTION_TYPES = {"question", "past_question"}
 PREVIEW_TTL = dt.timedelta(hours=1)
 
-# preview 상태 = 서버 메모리 (TTL 1시간). 프로세스 재시작 시 소실 — 개인용이므로 허용.
+# preview 상태 = 서버 메모리 (TTL 1시간). 프로세스 재시작 시 소실 —
+# S13(F40-①)부터 convert·fetch 잡 산출 JSON은 `import/auto/`에 보존되므로,
+# 캐시 미스는 404/409가 아니라 **디스크 복구**를 먼저 시도한다(설계 §4.3).
 _PREVIEW_CACHE: Dict[str, dict] = {}
+
+# 커밋을 마친 preview_id (프로세스 메모리) — 보존 파일은 커밋 후에도 남으므로,
+# 같은 preview를 디스크에서 **복구**해 두 번 커밋하는 사고를 이 기록으로 막는다.
+# 설계 §4.3: "커밋 완료된 preview_id는 복구 대상에서 제외하고 409" — 따라서 조회
+# (get_preview)·커밋(commit_import) **양쪽 모든 경로**에서 먼저 검사한다. 조회가
+# 캐시를 되살리면 커밋의 가드가 무력화되기 때문이다.
+# dict를 순서 있는 집합으로 사용(삽입 순서 보장) — 상한 초과 시 오래된 것부터 밀어낸다
+# (_PREVIEW_CACHE의 TTL 정리와 같은 취지의 최소 정리. 값은 진단용 커밋 시각).
+_COMMITTED_MAX = 500
+_COMMITTED: Dict[str, dt.datetime] = {}
+
+
+def _mark_committed(preview_id: str) -> None:
+    _COMMITTED.pop(preview_id, None)  # 재삽입 시 순서를 최신으로
+    _COMMITTED[preview_id] = dt.datetime.now()
+    while len(_COMMITTED) > _COMMITTED_MAX:
+        _COMMITTED.pop(next(iter(_COMMITTED)), None)
+
+
+def _ensure_not_committed(preview_id: str) -> None:
+    """커밋을 마친 preview면 409 (설계 §4.3). 보존 파일은 지우지 않으므로
+    `GET /api/import/preview/{id}/json` 내려받기 탈출구는 그대로 살아 있다."""
+    if preview_id in _COMMITTED:
+        raise ConflictError(
+            "이미 반입이 완료된 미리보기입니다. 다시 반입하려면 미리보기를 새로 실행하세요",
+            detail={"preview_id": preview_id},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +341,17 @@ def create_preview(
     json_bytes: bytes,
     source_filename: Optional[str],
     source_bytes: Optional[bytes],
+    preview_id: Optional[str] = None,
+    preserve: bool = False,
+    recovered: bool = False,
 ) -> PreviewResponse:
+    """반입 JSON → preview 리포트.
+
+    S13(F40-①):
+      - `preserve=True`(convert·fetch 잡 경로)면 성공한 반입 JSON을 `import/auto/`에 보존한다.
+      - `preview_id` 지정 = 디스크 복구 재생성(같은 preview_id 유지), `recovered=True`는
+        "복구된 미리보기 — 중복 판정은 현재 DB 기준" 소표기용 플래그다.
+    """
     _purge_expired()
 
     # --- JSON 파싱 + 봉투 검증 ---
@@ -340,12 +379,14 @@ def create_preview(
 
     # --- 원본 파일 처리 (저장 + 해시 + duplicate_source) ---
     source_state: Optional[dict] = None
+    source_hash: Optional[str] = None
     preview_source = PreviewSource(
         filename=source_filename or envelope.source.filename,
         duplicate_source=False,
     )
     if source_bytes is not None and source_filename:
         file_hash = _sha256_bytes(source_bytes)
+        source_hash = file_hash
         existing = db.execute(
             select(models.Source).where(models.Source.file_hash == file_hash)
         ).scalars().first()
@@ -443,34 +484,110 @@ def create_preview(
         error=sum(1 for i in items if i.status == "error"),
     )
 
-    preview_id = f"imp_{uuid.uuid4().hex[:8]}"
+    preview_id = preview_id or f"imp_{uuid.uuid4().hex[:8]}"
     response = PreviewResponse(
         preview_id=preview_id,
         source=preview_source,
         summary=summary,
         items=items,
+        recovered=recovered,
     )
     _PREVIEW_CACHE[preview_id] = {
         "created_at": dt.datetime.now(),
         "source": source_state,
         "items": cache_items,
         "response": response,
+        "recovered": recovered,
     }
+
+    if preserve:
+        # LLM 비용을 치른 산출물이므로 캐시(TTL 1h)와 별개로 디스크에 남긴다(설계 §4.3).
+        preview_store.save(
+            preview_id,
+            json_bytes,
+            source_filename=source_filename,
+            source_hash=source_hash,
+        )
 
     return response
 
 
-def get_preview(preview_id: str) -> PreviewResponse:
-    """캐시된 미리보기 재조회 (설계 §4.3, S6) — convert 잡 완료 시 `result_preview_id`로
-    반입 위저드에 연결하는 용도. TTL(1h) 만료·존재하지 않으면 404."""
-    _purge_expired()
-    state = _PREVIEW_CACHE.get(preview_id)
-    if state is None:
+# ---------------------------------------------------------------------------
+# 복구 (S13 F40-① — 설계 §4.3 "LLM 비용이 증발하지 않게")
+# ---------------------------------------------------------------------------
+def recover_preview(db: Session, preview_id: str) -> Optional[PreviewResponse]:
+    """캐시 미스 시 `import/auto/`의 보존 JSON으로 preview를 재생성한다(같은 preview_id 유지).
+
+    원본 바이트는 보존 파일명의 해시로 `sources/`에서 되읽어 전달하므로 원본 연결·
+    `duplicate_source` 판정이 최초와 동일하게 재구성된다. 항목 `index`는 같은 JSON·같은
+    순서에서 나오므로 안정하고, `duplicate_of`·`suggest_*`는 **복구 시점 DB 기준**으로
+    재계산된다. 보존 파일이 없으면 None(→ 호출부가 404/409).
+
+    **커밋을 마친 preview는 복구하지 않는다**(설계 §4.3) — 호출부가 이미 검사하지만,
+    되살아난 캐시가 재커밋 차단을 무력화하는 경로를 여기서도 원천 차단한다."""
+    if preview_id in _COMMITTED:
+        return None
+    path = preview_store.find(preview_id)
+    if path is None:
+        return None
+    try:
+        json_bytes = path.read_bytes()
+    except OSError:
+        return None
+
+    hash12, original_name = preview_store.parse_name(path)
+    source_bytes = preview_store.read_source_bytes(hash12)
+    # 원본을 되읽지 못했으면(nosrc이거나 sources/에서 사라짐) 원본 없는 preview로 복구한다
+    # — 보존된 변환 결과를 잃는 것보다 낫다(원본 연결만 빠진다).
+    source_filename = original_name if source_bytes is not None else None
+
+    try:
+        return create_preview(
+            db,
+            json_bytes=json_bytes,
+            source_filename=source_filename,
+            source_bytes=source_bytes,
+            preview_id=preview_id,
+            recovered=True,
+        )
+    except ValidationAppError:
+        return None  # 보존 파일이 손상된 경우 — 기존 404/409 안내로 떨어진다
+
+
+def preserved_json_path(preview_id: str) -> Path:
+    """보존된 반입 JSON 파일 경로 (`GET /api/import/preview/{id}/json` — 내려받기)."""
+    path = preview_store.find(preview_id)
+    if path is None:
         raise NotFoundError(
-            "미리보기를 찾을 수 없습니다(만료되었을 수 있습니다). 다시 미리보기를 실행하세요",
+            "보존된 변환 JSON이 없습니다",
             detail={"preview_id": preview_id},
         )
-    return state["response"]
+    return path
+
+
+def get_preview(db: Session, preview_id: str) -> PreviewResponse:
+    """캐시된 미리보기 재조회 (설계 §4.3, S6) — convert 잡 완료 시 `result_preview_id`로
+    반입 위저드에 연결하는 용도. S13(F40-①): 캐시 미스면 디스크 복구를 시도하고,
+    보존 파일도 없을 때만 404.
+
+    커밋을 마친 preview_id는 **복구 대상에서 제외**하고 409를 낸다(설계 §4.3) — 조회가
+    보존본으로 캐시를 되살리면 `commit_import`의 재커밋 차단이 무력화되기 때문이다
+    (다른 탭이 커밋 전 상태로 남아 있는 경우가 실제 도달 경로). 내려받기
+    (`GET .../json`)는 이 검사를 타지 않으므로 탈출구는 그대로다."""
+    _purge_expired()
+    _ensure_not_committed(preview_id)
+    state = _PREVIEW_CACHE.get(preview_id)
+    if state is not None:
+        return state["response"]
+
+    recovered = recover_preview(db, preview_id)
+    if recovered is not None:
+        return recovered
+
+    raise NotFoundError(
+        "미리보기를 찾을 수 없습니다(만료되었을 수 있습니다). 다시 미리보기를 실행하세요",
+        detail={"preview_id": preview_id},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -602,13 +719,24 @@ def _create_relation(db: Session, concept_doc_id: int, target_doc_id: int) -> bo
 
 def commit_import(db: Session, req: CommitRequest) -> CommitResult:
     _purge_expired()
+    # 재커밋 차단은 **모든 경로 앞**에 둔다 — 캐시 미스 분기 안에만 두면, 그 사이의
+    # `GET /api/import/preview/{id}` 한 번이 보존본으로 캐시를 되살려(=캐시 히트)
+    # 가드를 통째로 건너뛰게 만든다(S13 검토 결함).
+    _ensure_not_committed(req.preview_id)
     state = _PREVIEW_CACHE.get(req.preview_id)
     if state is None or dt.datetime.now() - state["created_at"] > PREVIEW_TTL:
+        # S13(F40-①): 만료·재시작이면 디스크 보존본으로 **1회 복구**를 시도한 뒤 진행한다
+        # (프론트 재조회 불요). 항목 index는 같은 JSON·같은 순서라 결정과 어긋나지 않고,
+        # 중복 판정은 현재 DB 기준으로 재계산된다. 복구조차 실패하면 기존 409 안내 유지.
         _PREVIEW_CACHE.pop(req.preview_id, None)
-        raise ConflictError(
-            "미리보기가 만료되었거나 존재하지 않습니다. 다시 미리보기를 실행하세요",
-            detail={"preview_id": req.preview_id},
-        )
+        if recover_preview(db, req.preview_id) is None:
+            raise ConflictError(
+                "미리보기가 만료되었거나 존재하지 않습니다. 다시 미리보기를 실행하세요",
+                detail={"preview_id": req.preview_id},
+            )
+        state = _PREVIEW_CACHE[req.preview_id]
+
+    was_recovered = bool(state.get("recovered"))
 
     decisions_by_index = {d.index: d for d in req.decisions}
     cache_by_index = {c["index"]: c for c in state["items"]}
@@ -701,8 +829,9 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
         db.rollback()
         raise
 
-    # 성공 시 캐시 소거 (재커밋 방지)
+    # 성공 시 캐시 소거 (재커밋 방지) + 커밋 이력 기억(디스크 복구로 되살아나지 않도록)
     _PREVIEW_CACHE.pop(req.preview_id, None)
+    _mark_committed(req.preview_id)
 
     return CommitResult(
         created=created,
@@ -711,4 +840,5 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
         new_documents=new_docs,
         categories_created=sorted(set(categories_created)),
         relations_created=relations_created,
+        recovered=was_recovered,
     )
