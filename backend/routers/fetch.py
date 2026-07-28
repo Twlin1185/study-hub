@@ -19,8 +19,10 @@ from schemas.fetch import (
     ExamsRequest,
     FetchImportRequest,
     FetchJobStart,
+    QnetKeyRequest,
+    QnetKeyResponse,
 )
-from services import convert_service, fetch_service
+from services import convert_service, fetch_service, qnet_api
 
 router = APIRouter(prefix="/api/fetch", tags=["fetch"])
 
@@ -38,7 +40,25 @@ def search_certs(q: str = Query(default="", max_length=100)) -> List[CertItem]:
 @router.post("/exams", response_model=List[ExamItem])
 def list_exams(payload: ExamsRequest, db: Session = Depends(get_db)) -> List[ExamItem]:
     sources = [s.model_dump() for s in payload.sources]
-    return [ExamItem(**e) for e in fetch_service.list_exams(db, sources)]
+    return [
+        ExamItem(**e)
+        for e in fetch_service.list_exams(db, sources, include_notices=payload.include_notices)
+    ]
+
+
+@router.post("/qnet-key", response_model=QnetKeyResponse)
+def register_qnet_key(payload: QnetKeyRequest) -> QnetKeyResponse:
+    """서비스키 즉석 검증 후 등록(F34 `llm/api-key` 계약 미러) — 응답은 suffix만.
+    검증 실패 시 저장하지 않고 422 + 사람 말 사유(원문 응답 미노출)."""
+    suffix = qnet_api.save_service_key(payload.key)
+    return QnetKeyResponse(key_registered=True, key_suffix=suffix)
+
+
+@router.delete("/qnet-key", response_model=QnetKeyResponse)
+def delete_qnet_key() -> QnetKeyResponse:
+    """삭제 — 이후 qnet은 `available:false` 스텁 동작으로 복귀한다."""
+    qnet_api.delete_service_key()
+    return QnetKeyResponse(key_registered=False, key_suffix=None)
 
 
 @router.post("/import", response_model=FetchJobStart, status_code=status.HTTP_202_ACCEPTED)

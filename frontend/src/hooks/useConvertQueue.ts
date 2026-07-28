@@ -36,6 +36,9 @@ export interface QueueItem {
   errorInfo: LlmErrorInfo | null | undefined
   legacyError: string | null | undefined
   previewId: string | null
+  // 잡 성공 결과에 덧붙는 사람이 읽는 문장 목록(S14, §4.13, 기본 []) — 서버가 문구를 완성해
+  // 내려주므로 그대로 렌더한다(가공 금지).
+  notes: string[]
   // 잡을 더 이상 확인할 수 없는 상태(404=lost, 그 외=서버 연결 실패).
   unavailable: 'lost' | 'unreachable' | null
   // 서버 연결 실패(unreachable) 후 [다시 확인]용 — 실패하면 폴링이 자동 재개되지 않는다.
@@ -141,6 +144,7 @@ export function useConvertQueue() {
               ? '서버가 다시 시작되었거나 작업 정보가 만료되어(1시간) 이 변환 작업이 사라졌습니다. 다시 시도해 주세요.'
               : undefined),
         previewId,
+        notes: data?.notes ?? [],
         unavailable: previewId ? null : unavailable,
         refetch: r?.refetch ?? null,
         retryable: entry.sourceKind === 'url' ? Boolean(entry.url) : filesRef.current.has(entry.id),

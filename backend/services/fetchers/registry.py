@@ -377,5 +377,11 @@ def cache_set(key: str, value: Any) -> None:
         _CACHE[key] = (dt.datetime.now(), value)
 
 
+def cache_clear() -> None:
+    """목록 캐시 전체 폐기 — 서비스키 등록/삭제처럼 **수집 전제가 바뀐** 경우에만 쓴다(S14)."""
+    with _CACHE_LOCK:
+        _CACHE.clear()
+
+
 def new_client(on_activity: ActivityCallback = None) -> FetchClient:
     return FetchClient(on_activity=on_activity)

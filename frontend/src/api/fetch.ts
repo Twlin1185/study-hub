@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import type {
   ConvertJobStartResponse,
@@ -7,6 +7,7 @@ import type {
   FetchExamsRequest,
   FetchExamsResponse,
   FetchImportRequest,
+  QnetKeyResponse,
 } from './types'
 
 // 설계 §4.13(S10, F35 2단계) — 사이트에서 가져오기. 신규는 수집기(어댑터)뿐, 진행·미리보기는
@@ -41,5 +42,25 @@ export function useFetchExams() {
 export function useFetchImport() {
   return useMutation({
     mutationFn: (body: FetchImportRequest) => api.post<ConvertJobStartResponse>('/fetch/import', body),
+  })
+}
+
+// 설계 §4.13(S14) — 큐넷 오픈API 서비스키 관리. F34(`llm/api-key`) 계약 미러: 즉석 검증 성공
+// 시에만 저장되고, 응답은 key_suffix(마지막 4자리)만(원문 키 미포함, write-only). 등록 상태는
+// GET /api/fetch/adapters의 qnet 항목(key_registered·key_suffix)에서 읽으므로 성공 시 그 쿼리만
+// invalidate한다(§5.11 설정 카드가 fetch/adapters를 그대로 재사용).
+export function useSetQnetKey() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (key: string) => api.post<QnetKeyResponse>('/fetch/qnet-key', { key }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fetch', 'adapters'] }),
+  })
+}
+
+export function useDeleteQnetKey() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.delete<void>('/fetch/qnet-key'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fetch', 'adapters'] }),
   })
 }

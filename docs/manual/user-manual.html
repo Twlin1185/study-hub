@@ -141,6 +141,7 @@
   }
   .h2-line { height: 3px; width: 34px; background: var(--accent); border-radius: 2px; margin: 6px 0 18px; }
   h3 { font-size: 16px; font-weight: 700; margin: 26px 0 8px; }
+  h4 { font-size: 14px; font-weight: 700; margin: 18px 0 6px; }
   p { margin: 0 0 12px; }
   ul, ol { margin: 0 0 14px; padding-left: 22px; }
   li { margin-bottom: 5px; }
@@ -293,8 +294,8 @@
 <h1>Study Hub 사용 설명서</h1>
 <p class="lede">기출문제와 학습자료를 쌓고, 학습 → 풀이 → 오답관리 → 복습의 루프를 돌리는 개인 학습 허브.</p>
 <p class="doc-meta">
-  이 문서 하나로 설치부터 일상 사용까지 따라 할 수 있게 쓰였습니다 — <strong>v1.x 전체 기능 기준(Stage 12까지)</strong>입니다. ·
-  갱신일: 2026-07-26 ·
+  이 문서 하나로 설치부터 일상 사용까지 따라 할 수 있게 쓰였습니다 — <strong>v1.x 전체 기능 기준(큐넷 공개문제 반입 포함)</strong>입니다. ·
+  갱신일: 2026-07-27 ·
   문서 위치: <code>docs/manual/user-manual.html</code>
 </p>
 
@@ -449,13 +450,15 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
   <p>
     반입은 "PDF나 노트를 → 문서 여러 개로" 바꿔 넣는 과정입니다. 길은 네 가지 —
     미리 만들어 둔 <strong>반입 JSON을 넣거나</strong>(A), <strong>원본 파일을 그대로 던지거나</strong>(B),
-    <strong>URL 하나로</strong>(C) 넣습니다. <strong>사이트에서 가져오기</strong>(D)는 현재 준비 중입니다.
+    <strong>URL 하나로</strong>(C) 넣습니다. 네 번째 <strong>사이트에서 가져오기</strong>(D)는
+    <strong>큐넷(Q-Net) 공개문제</strong>를 자격증·회차만 골라 통째로 가져오는 경로입니다.
   </p>
   <div class="tip">
     <span class="label">필기 기출은 파일·URL 반입으로</span>
     <p>공개돼 있는 기출 자료는 <strong>실기 공개문제 위주</strong>라, 기사·산업기사의
-    <strong>필기 기출은 자동으로 가져올 방법이 없습니다</strong>. 필기는 <strong>방법 A~C(파일·URL 반입)</strong>가
-    정식 경로입니다 — 그래서 이 경로에 <strong>여러 파일 한 번에 걸기 · 분류 경로 미리 지정 · 변환 결과 보관</strong>
+    <strong>필기 기출은 자동으로 가져올 방법이 없습니다</strong>(방법 D로도 나오지 않습니다).
+    필기는 <strong>방법 A~C(파일·URL 반입)</strong>가 정식 경로입니다 — 그래서 이 경로에
+    <strong>여러 파일 한 번에 걸기 · 분류 경로 미리 지정 · 변환 결과 보관</strong>
     같은 편의 장치가 붙어 있습니다.</p>
   </div>
 
@@ -580,12 +583,92 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <li>어떤 경우든 <strong>변환에 성공했던 결과는 그대로 남아 있습니다</strong> — 위의 [변환 JSON 내려받기]로 회수하세요.</li>
   </ul>
 
-  <h3>방법 D — 사이트에서 가져오기 <span class="badge new">준비 중</span></h3>
+  <h3>방법 D — 사이트에서 가져오기 (큐넷 공개문제) <span class="badge new">v1.x</span></h3>
   <p>
-    자격증과 회차를 골라 통째로 가져오는 경로입니다. <strong>현재는 준비 중</strong>이라
-    <span class="path">/import</span>의 [사이트에서 가져오기] 탭을 열면 안내와 함께
-    <strong>[URL로 반입] · [파일로 반입]</strong> 대안 버튼만 보입니다.
-    큐넷(Q-Net) 공식 오픈API 연동으로 다시 열 예정이며, 그때까지는 방법 A~C를 사용하세요.
+    <span class="path">/import</span>의 <strong>[사이트에서 가져오기]</strong> 탭은
+    <strong>큐넷(Q-Net)이 공식으로 공개하는 "국가자격 공개문제"</strong>를 가져오는 경로입니다.
+    공공기관이 공개용으로 제공하는 자료를 정식 통로로 받아오는 것이라, 사이트 화면을 긁어오는 방식이 아닙니다.
+  </p>
+
+  <div class="warn">
+    <span class="label">먼저 읽어 주세요 — 여기에 있는 자료 / 없는 자료</span>
+    <p>큐넷 공개문제는 <strong>실기 작업형·도면 문제 위주</strong>입니다.
+    <strong>필기 기출과 필답형 실기 기출은 여기에 없습니다</strong> — 예를 들어
+    <em>품질경영기사</em>를 검색하면 결과가 <strong>0건</strong>으로 나오는데, 이건 고장이 아니라
+    <strong>애초에 공개 대상이 아니라서</strong> 그렇습니다. 필기·필답형 자료는
+    <strong>방법 A~C(파일·URL 반입)</strong>로 넣으세요.</p>
+  </div>
+
+  <h4>1) 서비스키 등록 (처음 한 번만)</h4>
+  <ol class="steps">
+    <li>
+      <strong>공공데이터포털에서 활용신청</strong>
+      <p><a href="https://www.data.go.kr" target="_blank" rel="noopener">공공데이터포털(data.go.kr)</a>에 로그인해
+      <strong>"국가자격 공개문제 조회 서비스"</strong>를 찾아 <strong>활용신청</strong>합니다.
+      승인되면 마이페이지에서 <strong>서비스키(인증키)</strong>를 복사할 수 있습니다.</p>
+    </li>
+    <li>
+      <strong>설정에 등록</strong>
+      <p><span class="path">/settings</span> → <strong>데이터</strong> 그룹 →
+      <strong>큐넷 오픈API</strong> 카드에 서비스키를 붙여 넣고 저장합니다.
+      저장 전에 <strong>즉석 확인 호출</strong>을 한 번 해 보고, 키가 잘못됐으면 이유를 알려주며 저장하지 않습니다.</p>
+    </li>
+    <li>
+      <strong>등록 후</strong>
+      <p>카드에는 <strong>끝 4자리만</strong> 보이고(원문 키는 화면에도 기록에도 남지 않습니다),
+      언제든 [삭제]할 수 있습니다. 키를 지우면 [사이트에서 가져오기] 탭은 다시 안내 화면으로 돌아갑니다.</p>
+    </li>
+  </ol>
+  <div class="note">
+    <span class="label">키 보관 위치</span>
+    <p>서비스키는 데이터베이스가 아니라 프로젝트 루트의 로컬 파일(<code>secrets.json</code>)에만 저장되고
+    <strong>백업 zip에 포함되지 않습니다</strong>(<a href="#backup">17장</a>). PC를 옮기면 다시 등록해야 합니다.
+    LLM API 키와 같은 파일을 쓰지만 서로 덮어쓰지 않습니다.</p>
+  </div>
+
+  <h4>2) 가져오는 순서</h4>
+  <ol class="steps">
+    <li>
+      <strong>자격증(종목) 검색</strong>
+      <p>종목 이름 일부를 입력해 고릅니다. 결과가 없으면 <strong>"이 종목의 공개문제가 없습니다"</strong>라고
+      안내합니다 — 오류가 아니라 위에서 말한 커버리지 문제입니다.</p>
+    </li>
+    <li>
+      <strong>회차(게시물) 선택</strong>
+      <p>공개문제 게시물 목록에서 하나를 고릅니다. 이미 넣은 회차에는 <strong>"이미 반입됨"</strong> 배지가 붙습니다.
+      목록 아래의 <strong>[안내문 N건 보기]</strong>를 누르면 시험 안내·집행 공지 같은
+      <strong>문제가 아닌 게시물</strong>도 볼 수 있습니다(평소엔 숨김).</p>
+    </li>
+    <li>
+      <strong>예상 사용량 확인</strong>
+      <p>문항 수·대략적인 LLM 사용량과 <strong>"개인 학습 전용 — 수집물 재배포 금지"</strong> 고지를 확인해야 실행됩니다.</p>
+    </li>
+    <li>
+      <strong>실행 → 미리보기</strong>
+      <p>첨부된 공개문제 PDF를 받아 변환한 뒤, <strong>방법 A~C와 똑같은 미리보기 화면</strong>으로 이어집니다.
+      중복 확인·분류 제안·반입은 그다음부터 동일합니다.</p>
+    </li>
+  </ol>
+
+  <div class="note">
+    <span class="label">회차를 알 수 없는 게시물</span>
+    <p>게시물 제목에 회차·날짜가 없는 경우가 많습니다. 이때 앱은 <strong>회차를 임의로 지어내지 않고</strong>
+    제목 그대로 목록에 올립니다 — 대신 <strong>"○○년 ○회" 분류 폴더가 자동으로 만들어지지 않으므로</strong>,
+    반입 후 미리보기 화면이나 문서 상세에서 <strong>원하는 분류에 직접 연결</strong>해 주세요.</p>
+  </div>
+
+  <div class="tip">
+    <span class="label">압축파일(ZIP)만 있는 게시물</span>
+    <p>도면·과제가 <strong>ZIP 묶음</strong>으로만 올라온 게시물이 있습니다. 이 경우 변환은 되지 않지만
+    <strong>원본 파일은 <code>sources/</code> 폴더에 그대로 저장</strong>되고, 화면에
+    <strong>[파일 반입으로 이어가기]</strong> 버튼과 함께 "압축을 풀어 PDF·이미지를 파일로 반입하세요"라고 안내합니다.
+    조용히 실패하거나 사라지는 일은 없습니다. (한글 파일이면 "한글에서 PDF로 저장한 뒤 파일 반입"으로 안내합니다.)</p>
+  </div>
+
+  <p>
+    하루 호출 한도를 넘겼거나 키가 잘못됐을 때도 알 수 없는 코드 대신
+    <strong>"오늘 호출 한도를 초과했습니다 — 내일 다시 시도하세요"</strong>처럼 사람 말로 알려줍니다.
+    같은 검색·목록을 반복해 열어도 <strong>하루 동안은 저장해 둔 결과를 재사용</strong>하므로 한도가 낭비되지 않습니다.
   </p>
 
   <h3>변환 진행 상황 보기</h3>
@@ -1098,8 +1181,9 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
       <tr><td rowspan="2"><strong>태그·분류</strong></td><td>태그 자동 분류 규칙</td><td><a href="#tag-rules">14장</a></td></tr>
       <tr><td>태그 관리자</td><td>유사 태그 병합 제안 · 이름 변경 · 삭제 (<a href="#tag-rules">14장</a>)</td></tr>
       <tr><td><strong>LLM 엔진</strong></td><td>CLI/API 카드 · 우선 엔진 · 폴백 정책</td><td><a href="#llm">15장</a> — API 키는 로컬 파일 저장</td></tr>
-      <tr><td rowspan="2"><strong>데이터</strong></td><td>백업 · 복원 · 자동 백업</td><td><a href="#backup">17장</a></td></tr>
+      <tr><td rowspan="3"><strong>데이터</strong></td><td>백업 · 복원 · 자동 백업</td><td><a href="#backup">17장</a></td></tr>
       <tr><td>통계 CSV 내보내기</td><td>풀이 기록 + 문서·분류 정보</td></tr>
+      <tr><td>큐넷 오픈API 서비스키</td><td>등록하면 [사이트에서 가져오기]가 열림 — 끝 4자리만 표시, 로컬 파일 저장(백업 제외) (<a href="#import">5장 방법 D</a>)</td></tr>
       <tr><td><strong>화면</strong></td><td>테마 (라이트/다크/시스템)</td><td>기기별로 따로 저장됨</td></tr>
       <tr><td colspan="2">홈 위젯 배치 (열 수·순서·숨김) — 홈 [편집]에서</td><td>전 기기 공통 저장</td></tr>
       <tr><td colspan="2">사이드바 접힘 — 사이드바 « 토글</td><td>기기별로 따로 저장</td></tr>
@@ -1148,11 +1232,21 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
   API 키를 등록해 두었다면 <strong>[API로 재시도]</strong> 버튼으로 그 자리에서 이어갈 수 있습니다
   (<a href="#llm">15장</a> — API는 사용량만큼 과금).</p>
 
-  <h3>[사이트에서 가져오기]가 "준비 중"이라고 떠요</h3>
-  <p>맞습니다 — 현재 이 경로는 준비 중이고, 공식 오픈API 연동으로 다시 열 예정입니다.
-  그때까지 자료는 <a href="#import">방법 A~C(파일·URL 반입)</a>로 넣으세요. 특히 <strong>필기 기출은 원래부터
-  자동으로 가져올 수 있는 공개 경로가 없어</strong> 파일·URL 반입이 정식 경로입니다.
-  반입된 문제의 내용이 이상한 경우는 <a href="#regenerate">문제 오류 신고</a>로 그 문서만 다시 만들 수 있습니다.</p>
+  <h3>사이트에서 가져오기가 안 되거나 실패해요</h3>
+  <p>이 경로는 <strong>큐넷 공개문제 하나</strong>만 다룹니다(<a href="#import">방법 D</a>). 증상별로 —</p>
+  <ul>
+    <li><strong>탭에 안내 화면만 보인다</strong> — 서비스키가 아직 등록되지 않은 상태입니다.
+      설정 → <strong>데이터</strong> → <strong>큐넷 오픈API</strong> 카드에서 등록하세요.</li>
+    <li><strong>검색 결과가 0건이다</strong> — 대부분 정상입니다. 큐넷 공개문제는 <strong>실기 작업형·도면 위주</strong>라
+      <strong>필기·필답형(예: 품질경영기사) 기출은 아예 없습니다</strong>. 그 자료는 파일·URL 반입으로 넣으세요.</li>
+    <li><strong>"오늘 호출 한도 초과" · "서비스키가 올바르지 않습니다"</strong> — 각각 내일 다시 시도하거나
+      설정에서 키를 다시 등록하면 됩니다.</li>
+    <li><strong>"압축파일만 있습니다"라고 끝난다</strong> — 도면·과제 묶음 게시물입니다.
+      원본은 <code>sources/</code>에 저장돼 있으니 압축을 풀어 <strong>[파일 반입으로 이어가기]</strong>로 진행하세요.</li>
+    <li><strong>그 밖의 실패</strong> — 언제든 <a href="#import">파일 반입 · URL 반입</a>이 대안 버튼으로 함께 제시됩니다.
+      이 두 경로는 외부 서비스와 무관하게 항상 동작합니다.</li>
+  </ul>
+  <p>반입된 문제의 내용이 이상한 경우는 <a href="#regenerate">문제 오류 신고</a>로 그 문서만 다시 만들 수 있습니다.</p>
 
   <h3>변환에 실패했는데 다시 해도 똑같이 실패해요</h3>
   <p>"응답이 중간에 잘렸을 수 있습니다"라고 나왔다면 문항이 너무 많은 원본입니다 — 재시도해도 결과가 같습니다.

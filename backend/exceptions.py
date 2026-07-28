@@ -37,3 +37,14 @@ class ConflictError(AppError):
 class ValidationAppError(AppError):
     def __init__(self, message: str = "입력값이 올바르지 않습니다", detail: Any | None = None) -> None:
         super().__init__("VALIDATION_ERROR", message, 422, detail)
+
+
+class UpstreamError(AppError):
+    """외부 공식 API(큐넷 오픈API 등)가 요청을 처리하지 못함 — S14.
+
+    `message`는 항상 **사람이 읽는 한국어**이며 원문 XML/JSON·서비스키는 담지 않는다.
+    설계 §3의 에러 **코드 집합을 늘리지 않기 위해** code는 `INTERNAL`을 쓰고, 상태 코드만
+    502(상류 실패)로 구분한다."""
+
+    def __init__(self, message: str = "외부 서비스 호출에 실패했습니다", detail: Any | None = None) -> None:
+        super().__init__("INTERNAL", message, 502, detail)

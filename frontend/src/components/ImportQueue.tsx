@@ -109,6 +109,17 @@ export default function ImportQueueList({
               </p>
             )}
 
+            {/* 잡 성공 소표기(S14, §4.13) — 서버가 완성해 내려준 문장을 그대로 렌더(가공 금지). */}
+            {item.notes.length > 0 && (
+              <ul className="flex flex-col gap-0.5">
+                {item.notes.map((note, i) => (
+                  <li key={i} className="text-xs text-muted">
+                    {note}
+                  </li>
+                ))}
+              </ul>
+            )}
+
             {/* 진행 표시는 현재 처리 중 1건에만(나머지는 배지만 — 폴링 간격도 완화) */}
             {item.active && item.unavailable == null && (
               <LlmJobProgress

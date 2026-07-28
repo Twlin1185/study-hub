@@ -34,7 +34,13 @@ from database import BASE_DIR, SessionLocal
 from exceptions import AppError, ConflictError, NotFoundError, ValidationAppError
 from schemas.import_schema import PreviewResponse
 from services import document_service, fetch_service, import_service, llm_engine_service, net_safety, settings_service, tag_rule_service
-from services.fetchers.base import FetchedExam, FetchedFile, ParseFailedError
+from services.fetchers.base import (
+    AdapterServiceError,
+    FetchedExam,
+    FetchedFile,
+    ParseFailedError,
+    UnsupportedFormatError,
+)
 
 PROMPTS_DIR = BASE_DIR / "prompts"
 CONVERT_PROMPT_PATH = PROMPTS_DIR / "convert.md"
@@ -643,6 +649,30 @@ def _fallback_error_info(exc: Exception, *, job_kind: str = "convert") -> dict:
 
     `job_kind`는 잡 종류(convert·fetch·regenerate) — 같은 파싱 실패라도 사용자가 있는
     화면이 달라 안내 문구가 달라진다(반입 위저드 vs 문서 상세 재생성 패널)."""
+    if isinstance(exc, UnsupportedFormatError):
+        # S14: 첨부에 변환 가능한 PDF가 없음 — **조용한 스킵 금지**. 원본은 이미 sources/에
+        # 저장했고, 포맷별 다음 행동(압축 해제·한글→PDF 변환)을 안내한다(설계 §4.13).
+        return {
+            "kind": "unsupported_format",
+            "limit_kind": None,
+            "resets_at": None,
+            "message": exc.public_message,
+            "action": exc.action,
+            "fallback_available": False,
+            "alternatives": exc.alternatives,
+        }
+    if isinstance(exc, AdapterServiceError):
+        # S14: 쿼터 초과·서비스키 오류·토큰 만료처럼 원인과 다음 행동이 분명한 실패 —
+        # "사이트 구조 변경"(parse_failed)으로 오안내하지 않는다. 원문 XML/JSON 미포함.
+        return {
+            "kind": "other",
+            "limit_kind": None,
+            "resets_at": None,
+            "message": exc.public_message,
+            "action": exc.action,
+            "fallback_available": False,
+            "alternatives": exc.alternatives,
+        }
     if isinstance(exc, ParseFailedError):
         # 사이트 어댑터 파싱/수집 실패 — 원문 노출 금지, 대안 안내(설계 §4.13).
         alts = exc.alternatives or ["url_import"]
@@ -739,6 +769,10 @@ def _process_job(job_id: str) -> None:
                 job["status"] = "error"
                 if isinstance(exc, (ClaudeCliError, llm_engine_service.ApiEngineError)):
                     # 엔진 원문(CLI stderr·anthropic 예외 문자열)은 error_info로만 노출한다.
+                    job["error"] = None
+                elif isinstance(exc, (AdapterServiceError, ParseFailedError)):
+                    # S14: 원인이 분명한 수집 실패(포맷 비지원·쿼터·키·구조 변경) —
+                    # error_info가 사람 말로 안내하므로 traceback을 남기지 않는다.
                     job["error"] = None
                 elif isinstance(exc, AppError):
                     # SSRF 차단·JSON 파싱 실패 등 이미 안전한 한국어 메시지는 그대로 보존.
@@ -1046,6 +1080,8 @@ def _do_fetch(job_id: str, job: dict) -> dict:
         _set_phase(job_id, "preparing")
         tmp_path = _write_tmp_file(job_id, fetched.filename, fetched.data)
         with _JOBS_LOCK:
+            # S14: 대표 파일 외 원본 확보 소표기(예: 도면 묶음 ZIP) — 성공 응답의 notes.
+            job["_notes"] = list(getattr(fetched, "extra_notes", []) or [])
             job["_tmp_path"] = str(tmp_path)
             job["_source_filename"] = fetched.filename
             job["_source_bytes"] = fetched.data
@@ -1205,6 +1241,7 @@ def _new_job_base(kind: str, *, resolved_engine: str, requested_engine: str, api
         "_usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": None},
         "_error_info": None,
         "_category_path": None,  # S13(F40-③) — 파일·URL 반입의 분류 경로 고정 지시
+        "_notes": [],  # S14 — 성공 결과 소표기(사이트 반입에서 함께 저장한 원본 등)
     }
 
 
@@ -1314,6 +1351,8 @@ def get_convert_job(job_id: str) -> dict:
             "job_id": job_id,
             "status": job["status"],
             "result_preview_id": result.get("result_preview_id"),
+            # S14: 부가 안내(사이트 반입에서 대표 외 원본도 저장한 경우). 기본은 빈 배열.
+            "notes": list(job.get("_notes") or []),
             "error": job.get("error"),
             "error_info": job.get("_error_info"),
             "progress": _progress_snapshot(job),

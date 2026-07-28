@@ -12,8 +12,16 @@ JobPhase = Literal[
 ]
 # S10: 'parse_failed'(사이트 어댑터 파싱 실패) 추가 (설계 §4.13)
 # S13: 'invalid_output'(LLM 출력이 완결된 JSON이 아님 — 대개 출력 상한에서 잘림) 추가 (§4.11)
+# S14: 'unsupported_format'(첨부에 변환 가능한 PDF 없음 — 원본은 sources/에 저장됨) 추가 (§4.13)
 ErrorKind = Literal[
-    "rate_limit", "auth", "not_installed", "timeout", "parse_failed", "invalid_output", "other"
+    "rate_limit",
+    "auth",
+    "not_installed",
+    "timeout",
+    "parse_failed",
+    "invalid_output",
+    "unsupported_format",
+    "other",
 ]
 LimitKind = Literal["session", "daily", "weekly", "model", "overall"]
 EngineChoice = Literal["auto", "cli", "api"]
@@ -57,6 +65,8 @@ class ConvertJobStatus(BaseModel):
     job_id: str
     status: JobStatus
     result_preview_id: Optional[str] = None
+    # S14: 성공 결과 소표기(예: "도면·과제 묶음(ZIP)도 sources/에 함께 저장했습니다") — 기본 빈 배열
+    notes: List[str] = Field(default_factory=list)
     error: Optional[str] = None
     error_info: Optional[ErrorInfo] = None
     progress: Optional[JobProgress] = None

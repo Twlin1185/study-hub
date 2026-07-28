@@ -33,6 +33,9 @@ class ExamEntry:
     question_count: Optional[int] = None  # 목록에서 미상이면 None(estimate가 60 가정)
     source_url: Optional[str] = None
     exam_date: Optional[str] = None  # 'YYYY-MM-DD'(S12) — 병합 자연 키. 미상이면 None(기존 하위 호환)
+    # S14: 공개문제가 아닌 안내·집행 공지(제목 텍스트만으로 판정) — 기본 목록에서 숨기고
+    # "안내문 N건 보기" 토글로만 노출한다(조용한 삭제 아님, 설계 §4.13).
+    is_notice: bool = False
 
 
 @dataclass
@@ -74,6 +77,9 @@ class FetchedFile:
     level_hint: str = "필기"
     source_url: Optional[str] = None
     note: Optional[str] = None  # sources.note에 기록할 수집 출처(URL·어댑터 id)
+    # S14: 대표 파일 외에 함께 확보한 원본에 대한 소표기(예: "도면 묶음(ZIP)도 함께
+    # 저장했습니다") — 잡 성공 응답의 `notes`로 그대로 노출된다.
+    extra_notes: List[str] = field(default_factory=list)
 
 
 FetchResult = Union[FetchedExam, FetchedFile]
@@ -101,6 +107,57 @@ class ParseFailedError(Exception):
         self.detail = detail
 
 
+class AdapterServiceError(Exception):
+    """외부 서비스가 **사람 말로 설명 가능한 이유**로 요청을 거절한 경우 (S14).
+
+    `ParseFailedError`(구조 변경 추정)와 구분한다 — 쿼터 초과·키 오류·토큰 만료·서비스키
+    미등록처럼 원인과 다음 행동이 분명한 실패다. 원문 XML/JSON은 절대 담지 않는다.
+
+    `kind`는 서버 내부 분류('quota'|'key'|'token'|'no_key'|'unsupported_format'|'other')이며
+    응답의 `error_info.kind`(§4.11 Literal)와는 별개다 — 변환은 convert_service가 한다."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str = "other",
+        action: Optional[str] = None,
+        alternatives: Optional[List[str]] = None,
+        detail: Any = None,
+    ) -> None:
+        super().__init__(message)
+        self.public_message = message
+        self.kind = kind
+        self.action = action or "잠시 후 다시 시도하세요."
+        self.alternatives = alternatives or ["file_import", "url_import"]
+        self.detail = detail
+
+
+class UnsupportedFormatError(AdapterServiceError):
+    """LLM에 투입할 수 있는 포맷(PDF)이 첨부에 없는 경우 (S14 — 실측상 대상은 주로 ZIP).
+
+    **조용한 스킵 금지**: 원본은 이미 `sources/`에 저장한 뒤 이 오류로 잡을 종료하고,
+    포맷별 다음 행동(압축 해제 후 파일 반입 / 한글→PDF 변환 등)을 안내한다."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        action: Optional[str] = None,
+        saved_files: Optional[List[str]] = None,
+        formats: Optional[List[str]] = None,
+    ) -> None:
+        super().__init__(
+            message,
+            kind="unsupported_format",
+            action=action,
+            alternatives=["file_import", "url_import"],
+            detail={"saved_files": saved_files or [], "formats": formats or []},
+        )
+        self.saved_files = saved_files or []
+        self.formats = formats or []
+
+
 class Adapter:
     """어댑터 베이스 — 하위 클래스가 세 메서드를 구현한다.
 
@@ -115,6 +172,12 @@ class Adapter:
     def is_available(self, client: "Any") -> tuple[bool, Optional[str]]:
         """(available, notice_override). robots 비허용·접속 불가면 (False, 사유)."""
         raise NotImplementedError
+
+    def status_extra(self) -> dict:
+        """`GET /api/fetch/adapters` 항목에 덧붙일 어댑터별 메타(기본 없음).
+
+        S14 qnet은 `{key_registered, key_suffix?}`를 채운다 — **원문 키는 절대 담지 않는다**."""
+        return {}
 
     def search_certs(self, query: str, client: "Any") -> List[CertRef]:
         raise NotImplementedError
