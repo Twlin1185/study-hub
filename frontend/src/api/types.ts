@@ -781,9 +781,18 @@ export interface ApiKeyResponse {
   key_suffix: string
 }
 
+// POST/DELETE /api/fetch/qnet-key 응답 (backend schemas/fetch.py QnetKeyResponse, §4.13) —
+// ApiKeyResponse(F34 LLM API 키)와 달리 key_registered를 함께 내려준다.
+export interface QnetKeyResponse {
+  key_registered: boolean
+  key_suffix: string | null
+}
+
 // S10(§4.13): 'parse_failed' — 사이트 어댑터 파싱 실패(사이트 구조 변경 가능성). 원문 HTML 노출 금지.
 // S13(§4.11 F40-④): 'invalid_output' — LLM 출력이 완결된 JSON이 아님(대개 문항이 많아 출력 상한에서
 // 잘림). 같은 파일로 재시도하면 같은 실패라 "나눠서 다시 올리기"를 안내한다. 원문(raw) 미노출.
+// S14(§4.13): 'unsupported_format' — qnet 게시물에 LLM 투입 가능한 PDF 첨부가 없음(ZIP·HWP 등).
+// 원본은 sources/에 저장된 뒤 잡이 종료되며, 포맷별 안내 문구(message)는 서버가 내려준다.
 export type LlmErrorKind =
   | 'rate_limit'
   | 'auth'
@@ -791,10 +800,13 @@ export type LlmErrorKind =
   | 'timeout'
   | 'parse_failed'
   | 'invalid_output'
+  | 'unsupported_format'
   | 'other'
 export type LlmLimitKind = 'session' | 'daily' | 'weekly' | 'model' | 'overall'
 
 // convert/regenerate 잡 실패 시 구조화된 오류(설계 §4.11) — 원문 CLI/API JSON은 여기 담기지 않는다.
+// alternatives(S14) — 이 실패에서 유효한 대안 액션 식별자 목록(예: 'file_import'). 프론트는 이
+// 값으로 버튼 노출을 결정하고, 문구는 만들지 않는다(kind별 하드코딩 대신 이 배열을 신뢰).
 export interface LlmErrorInfo {
   kind: LlmErrorKind
   limit_kind?: LlmLimitKind | null
@@ -802,6 +814,7 @@ export interface LlmErrorInfo {
   message: string
   action: string
   fallback_available: boolean
+  alternatives?: string[]
 }
 
 // S10(§4.13): 'fetching' — 사이트 수집(목록·문항·이미지 다운로드), URL 반입의 'downloading'과는
@@ -833,12 +846,16 @@ export interface ConvertJobStartResponse {
 
 // "완료 시 곧장 반입 preview로 연결"(§4.10) — result_preview_id는 GET /api/import/preview/{id}로
 // 다시 조회한다(v1.5 확정 — 백엔드에 추가됨). error_info·progress는 S8 신규(§4.11).
+// notes(S14, §4.13) — 성공 결과에 덧붙는 사람이 읽는 문장 목록(기본 []), 예:
+// "도면·과제 묶음(ZIP)도 sources/에 함께 저장했습니다." 서버가 문구를 완성해 내려주므로
+// 프론트는 포맷을 만들지 않고 그대로 렌더한다.
 export interface ConvertJobResponse {
   status: ConvertJobStatus
   result_preview_id?: string | null
   error?: string | null
   error_info?: LlmErrorInfo | null
   progress?: JobProgress | null
+  notes?: string[]
 }
 
 // 재생성 초안 — 기존 문서와 나란히 비교할 필드 전체(§4.10 확정: title/content/choices/answer/
@@ -890,13 +907,18 @@ export interface RestoreBackupRequest {
 export type FetchAdapterId = 'qnet'
 
 // GET /api/fetch/adapters — S13: 원소 1개(qnet, priority=1 고정) — 채택 경쟁 없음.
-// available:false = S13 종료 시점 스텁이라 항상 false("준비 중"). notice = 이용 고지 문구.
+// available:false = S13 종료 시점 스텁이라 항상 false("준비 중"). notice = 이용 고지 문구
+// (개인 학습 전용·재배포 금지 + 커버리지 한계 문구를 항상 포함 — S14, 설계 §4.13).
+// S14: key_registered·key_suffix 추가 — available은 서비스키 등록 여부를 반영한다(§4.13).
+// 미등록 시 available:false로 하위 호환(프론트 분기 불요).
 export interface FetchAdapter {
   id: FetchAdapterId
   name: string
   priority: number
   available: boolean
   notice: string
+  key_registered?: boolean
+  key_suffix?: string | null
 }
 
 export type FetchAdaptersResponse = FetchAdapter[]
@@ -915,8 +937,12 @@ export interface FetchCertResult {
 export type FetchCertsResponse = FetchCertResult[]
 
 // POST /api/fetch/exams 요청 — 선택한 자격증의 sources 그대로 전달.
+// include_notices(S14, §4.13·§5.9 실측 6) — 안내문 게시물(공개문제가 아닌 공지) 포함 여부.
+// 기본 false(서버 기본값과 동일) — 명시적으로 true를 보내야 안내문까지 돌아온다. 같은 24h
+// 캐시에서 파생되므로 토글로 다시 호출해도 추가 비용이 없다.
 export interface FetchExamsRequest {
   sources: FetchCertSource[]
+  include_notices?: boolean
 }
 
 // 크롤링 예의 강제 조항 6항 — 실행 전 예상 LLM 사용량 안내. assumed=true면 문항 수·평균
@@ -930,9 +956,13 @@ export interface FetchExamEstimate {
 // POST /api/fetch/exams 응답 항목 — S13: 어댑터가 qnet 하나뿐이라 어댑터 간 병합·채택
 // 경쟁이 없다. also_on은 항상 빈 배열, refs는 {qnet: exam_ref} 단일 항목(계약 형태는 유지
 // — 향후 공식 API 어댑터 추가 여지 + 프론트 렌더 코드 불변, 설계 §4.13).
-// imported = 해당 회차 분류 경로 존재 여부(파생).
+// imported = 해당 회차 분류 경로 존재 여부(파생). exam_key가 연도만(`YYYY`)이거나 식별 불가
+// (`qnet-{artlSeq}`)면 분류 경로를 만들 수 없어 imported는 항상 false로 고정된다(서버 판정 —
+// 프론트는 exam_key 형태를 해석·가공하지 않고 label을 그대로 표시한다, S14 실측 6).
 // exam_ref: 어댑터 기준 조회용 참조(§4.13 — refs[adapter]와 동일값, 유지).
 // refs: 어댑터별 exam_ref 맵 — 필드는 유지하되 S13에서는 항상 단일 항목.
+// is_notice(S14, §4.13·§5.9 실측 6) — 공개문제가 아닌 안내문 게시물. include_notices:false로
+// 조회하면 이 값이 true인 항목은 애초에 응답에 포함되지 않는다(서버가 걸러 보낸다).
 export interface FetchExamItem {
   exam_key: string
   exam_ref: string
@@ -943,6 +973,7 @@ export interface FetchExamItem {
   question_count?: number | null
   imported: boolean
   estimate: FetchExamEstimate
+  is_notice: boolean
 }
 
 export type FetchExamsResponse = FetchExamItem[]

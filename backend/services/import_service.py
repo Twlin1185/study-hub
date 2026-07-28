@@ -131,6 +131,13 @@ def _save_source_file(original_name: str, data: bytes, file_hash: str) -> str:
     return saved
 
 
+def save_source_file(original_name: str, data: bytes) -> str:
+    """원본 보존 공개 진입점 (S14) — 반입 미리보기와 무관하게 확보한 원본(큐넷 첨부 전량)을
+    같은 규칙(`{해시12}_{안전한이름}`)으로 sources/에 저장한다. 이미 있으면 덮어쓰지
+    않는다(원본 불변 — 새 파일만 생성)."""
+    return _save_source_file(original_name, data, _sha256_bytes(data))
+
+
 # ---------------------------------------------------------------------------
 # 유틸: 분류 경로 매칭 / 생성
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useFetchAdapters, useFetchCerts, useFetchExams, useFetchImport } from '../api/fetch'
 import { isJobLost, jobUnavailable, useConvertJob, useConvertedPreview } from '../api/convert'
 import { ApiError } from '../api/client'
@@ -57,7 +58,9 @@ function extractLlmErrorInfo(error: unknown): LlmErrorInfo | null {
 }
 
 interface FetchImportWizardProps {
-  onPreviewReady: (data: ImportPreviewResponse) => void
+  // notes(S14, §4.13) — 잡 성공 결과에 덧붙는 사람이 읽는 문장(예: "ZIP도 함께 저장했습니다").
+  // 서버가 문구를 완성해 내려주므로 그대로 전달만 한다(가공 금지).
+  onPreviewReady: (data: ImportPreviewResponse, notes?: string[]) => void
   // parse_failed 대안 버튼 · "준비 중" 안내 대안 버튼 — 다른 진입 모드(URL 반입, §5.9)로 전환.
   onFallbackToUrl: () => void
   // "준비 중" 안내 대안 버튼 — 원본 파일 반입(자동 변환) 모드로 전환.
@@ -73,7 +76,14 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
   const [committedQuery, setCommittedQuery] = useState('')
   const [selectedCert, setSelectedCert] = useState<FetchCertResult | null>(null)
   const [examList, setExamList] = useState<FetchExamItem[] | null>(null)
-  const [selectedExamKey, setSelectedExamKey] = useState<string | null>(null)
+  // 안내문 게시물 토글(S14, §4.13·§5.9 실측 6) — 기본 숨김. fullExamList는 include_notices:true로
+  // 받은 전체 목록(안내문 포함) 캐시본 — 한 번만 받아 두면 토글은 재조회 없이 로컬 전환된다.
+  const [fullExamList, setFullExamList] = useState<FetchExamItem[] | null>(null)
+  const [showNotices, setShowNotices] = useState(false)
+  // 선택 identity·React key는 exam_ref(어댑터 기준 유일 참조, 예: qnet=artlSeq)를 쓴다 —
+  // exam_key는 S14부터 'YYYY'(연도만) 같은 식별 불가 폴백을 가질 수 있어 같은 종목·같은 연도
+  // 게시물이 2건이면 충돌한다(2026-07-27 검토 지적 — 잠재 오반입 버그).
+  const [selectedExamRef, setSelectedExamRef] = useState<string | null>(null)
   const [engine, setEngine] = useState<LlmEngine>('auto')
   const [agreed, setAgreed] = useState(false)
   const [jobId, setJobId] = useState<string | null>(resumed?.jobId ?? null)
@@ -81,6 +91,9 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
   const adaptersQuery = useFetchAdapters()
   const certsQuery = useFetchCerts(committedQuery)
   const examsMutation = useFetchExams()
+  // 안내문 포함 목록 전용 병행 조회 — examsMutation과 상태를 분리해 두 요청의 isPending/isError가
+  // 서로 뒤섞이지 않게 한다(§5.9 "안내문 N건 보기" 토글).
+  const noticesMutation = useFetchExams()
   const importMutation = useFetchImport()
   const jobQuery = useConvertJob(jobId)
   const previewFetch = useConvertedPreview(
@@ -90,7 +103,7 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
   useEffect(() => {
     if (previewFetch.data) {
       clearStoredConvertJob()
-      onPreviewReady(previewFetch.data)
+      onPreviewReady(previewFetch.data, jobQuery.data?.notes)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewFetch.data])
@@ -110,14 +123,21 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
   function handleSearch() {
     setSelectedCert(null)
     setExamList(null)
-    setSelectedExamKey(null)
+    setSelectedExamRef(null)
     setCommittedQuery(searchInput.trim())
+  }
+
+  // 안내문 포함 목록 조회 — selectCert 최초 호출과 실패 후 [다시 시도] 양쪽에서 재사용한다.
+  function fetchNotices(cert: FetchCertResult) {
+    noticesMutation.mutate({ sources: cert.sources, include_notices: true }, { onSuccess: setFullExamList })
   }
 
   function selectCert(cert: FetchCertResult) {
     setSelectedCert(cert)
     setExamList(null)
-    setSelectedExamKey(null)
+    setFullExamList(null)
+    setShowNotices(false)
+    setSelectedExamRef(null)
     examsMutation.mutate(
       { sources: cert.sources },
       {
@@ -127,9 +147,29 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
         },
       },
     )
+    // 안내문 건수를 미리 확보(§5.9 "N건 보기" 표기용) — 같은 24h 캐시에서 파생되므로 추가 비용
+    // 없음. 화면은 계속 기본(숨김) 목록을 보여주고, 이 응답이 도착하면 토글에 건수가 붙는다.
+    fetchNotices(cert)
   }
 
-  const selectedExam = examList?.find((e) => e.exam_key === selectedExamKey) ?? null
+  // 안내문 토글 — 켤 때는 fullExamList가 있어야만(로딩 실패 중엔 무동작 방지, 결함1) 의미가
+  // 있고, 끌 때 지금 선택한 항목이 기본(숨김) 목록에 없으면(=안내문 전용 항목) 선택을 조용히
+  // 들고 있지 않도록 명시적으로 해제한다(결함2 — 상태 정합).
+  function toggleShowNotices() {
+    setShowNotices((prev) => {
+      const next = !prev
+      if (!next && selectedExamRef && !(examList ?? []).some((e) => e.exam_ref === selectedExamRef)) {
+        setSelectedExamRef(null)
+      }
+      return next
+    })
+  }
+
+  // 안내문 포함(fullExamList)이 도착했으면 그것을, 아니면 기본(숨김) 목록을 보여준다 — 기본 목록은
+  // 서버가 이미 안내문을 제외해 보내므로(include_notices 기본 false) 별도 필터가 필요 없다.
+  const noticeCount = fullExamList ? fullExamList.filter((e) => e.is_notice).length : null
+  const visibleExams = showNotices && fullExamList ? fullExamList : (examList ?? [])
+  const selectedExam = visibleExams.find((e) => e.exam_ref === selectedExamRef) ?? null
 
   function startImport(opts?: { adapterOverride?: FetchAdapterId; engineOverride?: LlmEngine }) {
     if (!selectedExam || !selectedCert) return
@@ -168,7 +208,9 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
     setCommittedQuery('')
     setSelectedCert(null)
     setExamList(null)
-    setSelectedExamKey(null)
+    setFullExamList(null)
+    setShowNotices(false)
+    setSelectedExamRef(null)
     setEngine('auto')
     setAgreed(false)
     setJobId(null)
@@ -213,13 +255,26 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
   // 자동 수집 서브플로(①~④) 자체는 손대지 않고, 아직 시작 전(cert 단계)이면 "준비 중" 안내 +
   // 대안 버튼으로 대체한다(빈 화면·오류 없이, 설계 §5.9). 이미 재개된 잡(execute 단계)은 그대로 둔다.
   const allAdaptersUnavailable = adaptersQuery.isSuccess && adaptersQuery.data.every((a) => !a.available)
+  // S14(§5.9): unavailable의 원인이 qnet 서비스키 미등록이면 설계 지정 문구 + 설정 링크로
+  // 갈아끼운다. 그 외 사유(장애 등, key_registered가 true이거나 필드 자체가 없는 구버전 응답)는
+  // 기존 "준비 중" 문구를 유지한다.
+  const qnetKeyMissing = adaptersQuery.data?.[0]?.key_registered === false
   if (subStep === 'cert' && allAdaptersUnavailable) {
     return (
       <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
         <p className="text-sm font-medium text-primary">사이트에서 가져오기 — 준비 중</p>
-        <p className="text-sm text-muted">
-          지금은 자동으로 가져올 수 있는 사이트가 없습니다. 회차 파일이나 URL로 반입해 주세요.
-        </p>
+        {qnetKeyMissing ? (
+          <p className="text-sm text-muted">
+            설정 &gt; 데이터에서 공공데이터포털 서비스키를 등록하세요.{' '}
+            <Link to="/settings" className="text-accent hover:underline">
+              설정으로 이동
+            </Link>
+          </p>
+        ) : (
+          <p className="text-sm text-muted">
+            지금은 자동으로 가져올 수 있는 사이트가 없습니다. 회차 파일이나 URL로 반입해 주세요.
+          </p>
+        )}
         {adaptersQuery.data[0]?.notice && <p className="text-xs text-muted">{adaptersQuery.data[0].notice}</p>}
         <div className="flex flex-wrap gap-2">
           <button
@@ -259,6 +314,17 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
                 ))}
             </div>
           )}
+          {/* 커버리지 한계 문구(§4.13·§5.9 실측 5, 리스크 1) — notice는 등록 여부와 무관하게
+              항상 응답에 실려 온다("응답 메타 그대로 렌더" 원칙 그대로). 등록 후(available:true)
+              에도 자격증을 검색하는 이 시점에 캐치가 보여야 "필기·필답형은 없다"는 기대 어긋남을
+              막을 수 있다 — 위 미등록 안내 블록과 중복되지 않도록 available 어댑터만 별도로 노출. */}
+          {(adaptersQuery.data ?? [])
+            .filter((a) => a.available && a.notice)
+            .map((a) => (
+              <p key={`${a.id}-notice`} className="rounded border border-border bg-surface px-3 py-2 text-xs text-muted">
+                {a.notice}
+              </p>
+            ))}
           <div className="flex gap-2">
             <input
               type="text"
@@ -286,8 +352,12 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
             <p className="text-sm text-wrong">{errMsg(examsMutation.error, '회차 목록을 불러오지 못했습니다.')}</p>
           )}
 
+          {/* 설계 §5.9(S14 실측 5) 지정 문구 — 오류가 아니라 원인을 알려주는 안내(품질경영기사가
+              대표 사례: 이 API는 실기 작업형·도면 공개문제만 다뤄 필기·필답형 종목은 늘 0건). */}
           {certsQuery.data && certsQuery.data.length === 0 && committedQuery && (
-            <p className="text-sm text-muted">검색 결과가 없습니다.</p>
+            <p className="text-sm text-muted">
+              이 종목의 공개문제가 없습니다 — 필기·필답형은 이 API 범위 밖입니다.
+            </p>
           )}
 
           {certsQuery.data && certsQuery.data.length > 0 && (
@@ -329,25 +399,32 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
             </button>
           </div>
 
-          {(examList ?? []).length === 0 ? (
+          {visibleExams.length === 0 ? (
             <p className="text-sm text-muted">가져올 수 있는 회차가 없습니다.</p>
           ) : (
             <ul className="flex flex-col gap-2">
-              {(examList ?? []).map((exam) => {
+              {visibleExams.map((exam) => {
                 // 채택 어댑터 배지는 exam.adapter(선정 어댑터)를 그대로 렌더 — 특정 어댑터 id를
                 // 하드코딩하지 않는다(어댑터 격리 원칙, §5.9). also_on이 있으면(중복 회차) 우선순위
                 // 채택 강조 배지, 없으면(단독 회차) 출처 배지만 소표기.
                 const adopted = exam.also_on.length > 0
                 return (
-                  <li key={exam.exam_key}>
+                  <li key={exam.exam_ref}>
                     <label className="flex w-full cursor-pointer flex-wrap items-center gap-2 rounded border border-border bg-bg px-3 py-2.5 text-sm text-primary hover:bg-surface-raised">
                       <input
                         type="radio"
                         name="fetch-exam"
-                        checked={selectedExamKey === exam.exam_key}
-                        onChange={() => setSelectedExamKey(exam.exam_key)}
+                        checked={selectedExamRef === exam.exam_ref}
+                        onChange={() => setSelectedExamRef(exam.exam_ref)}
                       />
+                      {/* 라벨은 서버가 준 그대로 렌더 — exam_key(연도만/식별 불가 포함)를 프론트가
+                          가공·재구성하지 않는다(S14 실측 6). */}
                       <span className="font-medium">{exam.label}</span>
+                      {exam.is_notice && (
+                        <span className="rounded-full bg-warning px-2 py-0.5 text-[11px] font-medium text-on-accent">
+                          안내문
+                        </span>
+                      )}
                       {adopted ? (
                         <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-on-accent">
                           {adapterName(exam.adapter)} 채택
@@ -377,6 +454,42 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
                 )
               })}
             </ul>
+          )}
+
+          {/* 안내문 게시물 토글(§4.13·§5.9 실측 6) — 회차 목록 하단. 조용한 삭제가 아니라 숨김임을
+              알리기 위해 건수를 감추지 않는다(건수를 아직 모르면 "확인 중"으로 과정을 보여준다).
+              건수가 확정적으로 0이면(fullExamList 도착 + notice 0건) 토글 자체를 접는다. */}
+          {(noticeCount == null || noticeCount > 0) && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleShowNotices}
+                // fullExamList가 없으면(아직 로딩 중이거나 조회 실패) 토글을 눌러도 목록이 바뀌지
+                // 않으므로 무동작 버튼을 막는다(결함1 — 라벨만 바뀌는 상태 방지).
+                disabled={fullExamList == null}
+                className="w-fit rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg disabled:opacity-50"
+              >
+                {showNotices
+                  ? '안내문 숨기기'
+                  : noticeCount != null
+                    ? `안내문 ${noticeCount}건 보기`
+                    : noticesMutation.isPending
+                      ? '안내문 확인 중…'
+                      : '안내문 보기'}
+              </button>
+              {noticesMutation.isError && fullExamList == null && (
+                <span className="flex items-center gap-2 text-xs text-wrong">
+                  안내문 목록을 불러오지 못했습니다.
+                  <button
+                    type="button"
+                    onClick={() => selectedCert && fetchNotices(selectedCert)}
+                    className="rounded border border-border px-2 py-1 text-primary hover:bg-bg"
+                  >
+                    다시 시도
+                  </button>
+                </span>
+              )}
+            </div>
           )}
 
           <div className="flex justify-end">
@@ -499,7 +612,16 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
 
           {jobFailed && (
             <div className="flex flex-col gap-2">
-              <LlmErrorInfoView errorInfo={jobErrorInfo} legacyError={jobQuery.data?.error} />
+              <LlmErrorInfoView
+                errorInfo={jobErrorInfo}
+                legacyError={jobQuery.data?.error}
+                // 렌더 여부는 LlmErrorInfoView가 error_info.alternatives(예: 'file_import')로
+                // 판단한다 — 여기서는 kind를 미리 좁히지 않는다.
+                onContinueWithFile={() => {
+                  resetAll()
+                  onFallbackToFile()
+                }}
+              />
               {isParseFailed && (
                 <div className="flex flex-wrap gap-2">
                   <button

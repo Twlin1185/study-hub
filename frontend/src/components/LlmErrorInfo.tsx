@@ -39,6 +39,9 @@ interface LlmErrorInfoProps {
   // S13(F40-④, 설계 §4.11 `invalid_output`): 출력이 잘려 파싱에 실패한 경우 — 같은 파일로
   // 재시도하면 같은 실패이므로 "원본을 나눠서 다시 올리기"(시작 화면 복귀)를 제공한다.
   onSplitReupload?: () => void
+  // S14(설계 §4.13·§5.9 `unsupported_format`): qnet 게시물에 PDF 첨부가 없는 경우 — 원본은
+  // sources/에 이미 저장돼 있으므로 파일 반입(F40 대기열)으로 이어가는 버튼을 제공한다.
+  onContinueWithFile?: () => void
 }
 
 export default function LlmErrorInfoView({
@@ -47,6 +50,7 @@ export default function LlmErrorInfoView({
   onRetryWithApi,
   retrying,
   onSplitReupload,
+  onContinueWithFile,
 }: LlmErrorInfoProps) {
   if (!errorInfo) {
     return (
@@ -67,6 +71,9 @@ export default function LlmErrorInfoView({
         </p>
       )}
       <p className="mt-1 text-muted">{errorInfo.action}</p>
+      {errorInfo.kind === 'unsupported_format' && (
+        <p className="mt-1 text-muted">원본 파일은 sources/ 폴더에 이미 저장되었습니다.</p>
+      )}
       <div className="mt-2 flex flex-wrap gap-2">
         {errorInfo.fallback_available && onRetryWithApi && (
           <button
@@ -85,6 +92,15 @@ export default function LlmErrorInfoView({
             className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
           >
             파일 나눠서 다시 올리기
+          </button>
+        )}
+        {errorInfo.alternatives?.includes('file_import') && onContinueWithFile && (
+          <button
+            type="button"
+            onClick={onContinueWithFile}
+            className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+          >
+            파일 반입으로 이어가기
           </button>
         )}
       </div>

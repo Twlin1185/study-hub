@@ -13,6 +13,7 @@ import BackupManager from '../components/BackupManager'
 import TagManager from '../components/TagManager'
 import SettingsSection from '../components/settings/SettingsSection'
 import LlmEngineSection from '../components/settings/LlmEngineSection'
+import QnetKeySection from '../components/settings/QnetKeySection'
 
 const FONT_SCALE_OPTIONS: { value: FontScale; label: string }[] = [
   { value: 'small', label: '작게' },
@@ -366,6 +367,10 @@ export default function SettingsPage() {
             </section>
 
             <BackupManager />
+
+            {/* 큐넷 오픈API 서비스키 카드 — 설계 §4.13·§5.11(S14). 데이터 유입(반입 소스) 계열이라
+                이 그룹에 카드로만 추가한다(F38 6그룹 수 불변 — 7번째 그룹 아님). */}
+            <QnetKeySection />
           </SettingsSection>
 
           <SettingsSection id="settings-display" title="화면">

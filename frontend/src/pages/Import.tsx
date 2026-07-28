@@ -102,6 +102,12 @@ export default function ImportPage() {
   const [reviewPreviewId, setReviewPreviewId] = useState<string | null>(null)
   const awaitingReview = useRef(false)
   const reviewQuery = useConvertedPreview(reviewPreviewId)
+  // [검토] 시점에 잡아 둔 큐 항목의 notes — reviewQuery.data가 도착하는 useEffect에서 그대로
+  // applyPreview로 넘긴다(§4.13 — notes는 GET /api/convert/{job_id} 응답 소관이라 preview
+  // 응답에는 없다).
+  const pendingReviewNotes = useRef<string[]>([])
+  // 미리보기와 함께 표시할 잡 성공 소표기(S14, §4.13 notes) — 서버 문구를 그대로 보관.
+  const [previewNotes, setPreviewNotes] = useState<string[]>([])
 
   const previewMutation = useImportPreview()
   const commitMutation = useImportCommit()
@@ -114,7 +120,7 @@ export default function ImportPage() {
     // 재조회가 일어나도 화면이 제멋대로 되돌아가지 않게 하는 가드.
     if (reviewQuery.data && awaitingReview.current && step === 'select') {
       awaitingReview.current = false
-      applyPreview(reviewQuery.data, true)
+      applyPreview(reviewQuery.data, true, pendingReviewNotes.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewQuery.data])
@@ -134,6 +140,7 @@ export default function ImportPage() {
     setPreview(null)
     setDecisions({})
     setPreviewFromJob(false)
+    setPreviewNotes([])
     awaitingReview.current = false
     setReviewPreviewId(null)
     setReviewEntryId(null)
@@ -156,9 +163,10 @@ export default function ImportPage() {
     setEntryMode((mode) => (mode === 'convert' || mode === 'url' ? mode : 'convert'))
   }
 
-  function applyPreview(data: ImportPreviewResponse, fromJob = false) {
+  function applyPreview(data: ImportPreviewResponse, fromJob = false, notes: string[] = []) {
     setPreview(data)
     setPreviewFromJob(fromJob)
+    setPreviewNotes(notes)
     setDecisions(buildInitialDecisions(data.items))
     setExpiredNotice(null)
     setStep('preview')
@@ -167,12 +175,13 @@ export default function ImportPage() {
   function handleReview(item: QueueItem) {
     if (!item.previewId) return
     awaitingReview.current = true
+    pendingReviewNotes.current = item.notes
     setReviewEntryId(item.entry.id)
     setReviewPreviewId(item.previewId)
     // 같은 preview를 다시 여는 경우 캐시된 응답이 즉시 반환된다(refetch는 백그라운드).
     if (reviewPreviewId === item.previewId && reviewQuery.data) {
       awaitingReview.current = false
-      applyPreview(reviewQuery.data, true)
+      applyPreview(reviewQuery.data, true, item.notes)
     }
   }
 
@@ -342,7 +351,7 @@ export default function ImportPage() {
           )}
           {entryMode === 'fetch' && (
             <FetchImportWizard
-              onPreviewReady={(data) => applyPreview(data, true)}
+              onPreviewReady={(data, notes) => applyPreview(data, true, notes ?? [])}
               onFallbackToUrl={() => setEntryMode('url')}
               onFallbackToFile={() => setEntryMode('convert')}
             />
@@ -355,6 +364,7 @@ export default function ImportPage() {
           <ImportQueueSummary items={queue.items} onBackToQueue={backToQueue} />
           <PreviewStep
             preview={preview}
+            notes={previewNotes}
             showJsonDownload={previewFromJob}
             decisions={decisions}
             onUpdateDecision={updateDecision}
@@ -637,6 +647,9 @@ function SelectStep({
 
 interface PreviewStepProps {
   preview: ImportPreviewResponse
+  // 잡 성공 소표기(S14, §4.13 notes) — GET /api/convert/{job_id}.notes를 그대로 전달받아
+  // 렌더한다(직접 JSON 업로드 경로는 잡이 없으므로 항상 빈 배열).
+  notes: string[]
   showJsonDownload: boolean
   decisions: Record<number, ItemDecisionState>
   onUpdateDecision: (index: number, patch: Partial<ItemDecisionState>) => void
@@ -649,6 +662,7 @@ interface PreviewStepProps {
 
 function PreviewStep({
   preview,
+  notes,
   showJsonDownload,
   decisions,
   onUpdateDecision,
@@ -666,6 +680,15 @@ function PreviewStep({
       {preview.recovered && (
         <div className="rounded border border-accent bg-accent-soft px-3 py-2 text-sm text-primary">
           이전 미리보기를 복구했습니다 — 중복 판정은 현재 DB 기준입니다.
+        </div>
+      )}
+
+      {/* 잡 성공 소표기(S14, §4.13 notes) — 서버가 완성한 문장을 그대로 렌더(포맷 분기 금지). */}
+      {notes.length > 0 && (
+        <div className="flex flex-col gap-1 rounded border border-border bg-surface px-3 py-2 text-sm text-muted">
+          {notes.map((note, i) => (
+            <p key={i}>{note}</p>
+          ))}
         </div>
       )}
 

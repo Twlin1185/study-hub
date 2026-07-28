@@ -18,10 +18,10 @@ from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from exceptions import ValidationAppError
+from exceptions import UpstreamError, ValidationAppError
 from services import import_service
 from services.fetchers import registry
-from services.fetchers.base import CertRef, ExamEntry, ParseFailedError
+from services.fetchers.base import AdapterServiceError, CertRef, ExamEntry, ParseFailedError
 
 # 문항당 평균 입력 토큰 이동 평균 표본(설계 §4.13.6) — 표본 없으면 600 가정.
 DEFAULT_TOKENS_PER_QUESTION = 600
@@ -72,15 +72,19 @@ def list_adapters() -> List[dict]:
             available, notice_override = adapter.is_available(client)
         except Exception:  # noqa: BLE001
             available, notice_override = False, "접속 상태를 확인할 수 없습니다"
-        out.append(
-            {
-                "id": adapter.id,
-                "name": adapter.name,
-                "priority": adapter.priority,
-                "available": available,
-                "notice": notice_override or adapter.notice,
-            }
-        )
+        item = {
+            "id": adapter.id,
+            "name": adapter.name,
+            "priority": adapter.priority,
+            "available": available,
+            "notice": notice_override or adapter.notice,
+        }
+        try:
+            # S14: qnet은 `{key_registered, key_suffix}`를 덧붙인다(원문 키 없음 — 상위 호환).
+            item.update(adapter.status_extra() or {})
+        except Exception:  # noqa: BLE001 - 부가 메타 실패가 목록을 막지 않는다
+            pass
+        out.append(item)
     return out
 
 
@@ -106,6 +110,10 @@ def search_certs(query: str) -> List[dict]:
             if not available:
                 continue
             results = adapter.search_certs(query, client)
+        except AdapterServiceError as exc:
+            # 쿼터 초과·키 오류처럼 **사람 말로 설명 가능한 실패**는 0건으로 위장하지 않는다
+            # (0건 = "이 종목의 공개문제가 없습니다" 안내와 뜻이 완전히 다르다 — S14 DoD 9).
+            raise UpstreamError(f"{exc.public_message} — {exc.action}", detail={"reason": exc.kind}) from exc
         except ParseFailedError:
             continue
         except Exception:  # noqa: BLE001 - 한 어댑터 실패가 전체를 막지 않는다
@@ -126,6 +134,9 @@ def search_certs(query: str) -> List[dict]:
 # ---------------------------------------------------------------------------
 _ROUND_KEY_RE = re.compile(r"^\d{4}-\d+$")  # 'YYYY-N' — 회차 번호 보유 키
 _DATE_KEY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")  # 'YYYY-MM-DD' — 날짜형 키
+# S14: 'YYYY' — 연도만 읽힌 키(제목이 "(2026년도)"). **회차를 지어내지 않으므로** 폴더명은
+# 파생되지 않고(분류 경로 자동 생성 없음), 정렬에만 연도를 쓴다.
+_YEAR_KEY_RE = re.compile(r"^\d{4}$")
 
 
 def exam_folder_name(exam_key: str) -> Optional[str]:
@@ -164,10 +175,15 @@ def _sort_key(entry: ExamEntry) -> Tuple[int, int, int]:
     if entry.exam_key and _ROUND_KEY_RE.fullmatch(entry.exam_key):
         year, num = entry.exam_key.split("-", 1)
         return (int(year), 0, int(num))
-    return (0, 0, 0)
+    if entry.exam_key and _YEAR_KEY_RE.fullmatch(entry.exam_key):
+        return (int(entry.exam_key), 0, 0)  # 연도만 확인된 항목(S14)
+    return (0, 0, 0)  # 식별 불가 — 목록 맨 아래(원래 순서 유지: 정렬은 stable)
 
 
-def list_exams(db: Session, sources: List[dict]) -> List[dict]:
+def list_exams(db: Session, sources: List[dict], *, include_notices: bool = False) -> List[dict]:
+    """회차(게시물) 목록. `include_notices=False`(기본)면 안내문 게시물을 숨긴다 —
+    조용한 삭제가 아니라 **기본 숨김**이며, `include_notices=True`로 같은 캐시에서
+    그대로 다시 받을 수 있다(추가 API 호출 0건, 설계 §4.13 S14)."""
     if not sources:
         raise ValidationAppError("sources가 비어 있습니다")
 
@@ -189,12 +205,18 @@ def list_exams(db: Session, sources: List[dict]) -> List[dict]:
         if entries is None:
             try:
                 entries = adapter.list_exams(cert_ref, client)
+            except AdapterServiceError as exc:  # 쿼터·키 오류는 0건으로 위장하지 않는다
+                raise UpstreamError(
+                    f"{exc.public_message} — {exc.action}", detail={"reason": exc.kind}
+                ) from exc
             except ParseFailedError:
                 entries = []
             except Exception:  # noqa: BLE001
                 entries = []
             registry.cache_set(cache_key, entries)
         for entry in entries:
+            if getattr(entry, "is_notice", False) and not include_notices:
+                continue  # 안내문 게시물 기본 숨김(토글로 노출 — 조용한 삭제 아님)
             out.append(
                 (
                     _sort_key(entry),
@@ -212,6 +234,9 @@ def list_exams(db: Session, sources: List[dict]) -> List[dict]:
                         "question_count": entry.question_count,
                         "imported": _is_imported(db, entry.cert_name, entry.level_hint, entry.exam_key),
                         "estimate": estimate_usage(entry.question_count),
+                        # S14: 안내문 게시물 표시(기본 목록에서는 숨겨지므로 항상 False가 온다 —
+                        # include_notices=True로 요청했을 때만 True가 섞인다).
+                        "is_notice": bool(getattr(entry, "is_notice", False)),
                     },
                 )
             )

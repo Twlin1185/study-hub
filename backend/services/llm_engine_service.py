@@ -23,11 +23,14 @@ from sqlalchemy.orm import Session
 
 from database import BASE_DIR
 from exceptions import ConflictError, ValidationAppError
-from services import settings_service
+from services import secrets_store, settings_service
 
 logger = logging.getLogger(__name__)
 
-SECRETS_PATH = BASE_DIR / "secrets.json"
+# S14: secrets.json 접근은 `services.secrets_store` 단일 유틸로 공유한다(qnet 서비스키와
+# 파일을 공유하므로 **병합 저장** 필수 — 통째 덮어쓰면 상대 키가 사라진다).
+SECRETS_PATH = secrets_store.SECRETS_PATH
+ANTHROPIC_KEY_NAME = "anthropic_api_key"
 
 DEFAULT_API_MODEL = "claude-sonnet-5"
 
@@ -68,34 +71,23 @@ class ApiEngineError(Exception):
 # secrets.json — API 키 저장소 (루트, DB/settings 아님)
 # ---------------------------------------------------------------------------
 def _load_secrets() -> Dict[str, Any]:
-    if not SECRETS_PATH.exists():
-        return {}
-    try:
-        data = json.loads(SECRETS_PATH.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError):
-        return {}
+    return secrets_store.load_secrets()
 
 
 def _save_secrets(data: Dict[str, Any]) -> None:
-    SECRETS_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    secrets_store.save_secrets(data)
 
 
 def get_api_key() -> Optional[str]:
     """secrets.json의 `anthropic_api_key` 단일 출처 — 설정 화면에서 사용자가 등록한 값만
     사용한다(환경변수·외부 프로필 폴백 없음)."""
-    secrets = _load_secrets()
-    key = secrets.get("anthropic_api_key")
-    return key.strip() if isinstance(key, str) and key.strip() else None
+    return secrets_store.get_secret(ANTHROPIC_KEY_NAME)
 
 
 def api_key_status() -> Dict[str, Any]:
     """status 응답용 — secrets.json에 등록된 키가 있으면 registered=True(단일 출처와 정확히
     일치). 원문 키는 절대 반환하지 않는다(마지막 4자리만)."""
-    key = get_api_key()
-    if not key:
-        return {"key_registered": False, "key_suffix": None}
-    return {"key_registered": True, "key_suffix": key[-4:]}
+    return secrets_store.key_status(ANTHROPIC_KEY_NAME)
 
 
 def validate_api_key(key: str, *, model: str) -> None:
@@ -136,18 +128,14 @@ def save_api_key(key: str, *, model: str) -> str:
     """즉석 연결 테스트 성공 시에만 secrets.json에 저장. 반환값은 key_suffix(마지막 4자리)뿐."""
     key = (key or "").strip()
     validate_api_key(key, model=model)
-    secrets = _load_secrets()
-    secrets["anthropic_api_key"] = key
-    _save_secrets(secrets)
+    # 병합 저장 — 같은 파일의 qnet 서비스키를 훼손하지 않는다(S14).
+    secrets_store.set_secret(ANTHROPIC_KEY_NAME, key)
     record_engine_result("api", success=True)
     return key[-4:]
 
 
 def delete_api_key() -> None:
-    secrets = _load_secrets()
-    if "anthropic_api_key" in secrets:
-        del secrets["anthropic_api_key"]
-        _save_secrets(secrets)
+    secrets_store.delete_secret(ANTHROPIC_KEY_NAME)
 
 
 # ---------------------------------------------------------------------------
