@@ -1,7 +1,8 @@
-"""Claude CLI/API 변환 라우터 (F23·F34·F35-1, 설계 §4.10·§4.11).
+"""멀티 벤더 LLM 엔진 변환 라우터 (F23·F34·F35-1→F41, 설계 §4.10·§4.11·§4.17).
 
 `POST /api/convert`는 multipart `file` **또는** `url`(폼 필드 혹은 JSON 바디)을 받는다.
-`engine`(`auto|cli|api`, 기본 auto)도 폼 필드/JSON 바디로 함께 받을 수 있다.
+`engine`(`auto` 또는 등록 엔진 id, legacy `cli|api` 별칭도 허용, 기본 auto)도 폼 필드/JSON
+바디로 함께 받을 수 있다.
 S13(F40-③): 선택 파라미터 `category_path`(예 "품질경영기사/필기/2022년 2회") — 지정 시
 LLM에 "모든 문항의 suggest_categories를 이 경로 하나로 고정" 지시를 넣는다(설계 §4.11).
 """
@@ -16,11 +17,13 @@ from starlette import status
 from database import get_db
 from exceptions import ValidationAppError
 from schemas.convert import ConvertJobStart, ConvertJobStatus
-from services import convert_service
+from services import convert_service, llm_engine_service
 
 router = APIRouter(prefix="/api/convert", tags=["convert"])
 
-_ENGINE_CHOICES = ("auto", "cli", "api")
+# 'auto' + 등록 엔진 id + legacy 별칭('cli'|'api') — 별칭은 읽기 시에만 매핑되므로 여기서는
+# 값 검증만 하고 정규화는 resolve_engine에 맡긴다(설계 §4.17 ③, 422 아님).
+_ENGINE_CHOICES = ("auto", *llm_engine_service.ENGINE_REGISTRY.keys(), "cli", "api")
 
 
 @router.post("", response_model=ConvertJobStart, status_code=status.HTTP_202_ACCEPTED)
@@ -68,7 +71,9 @@ async def start_convert(request: Request, db: Session = Depends(get_db)) -> Conv
         )
 
     if engine not in _ENGINE_CHOICES:
-        raise ValidationAppError("engine은 auto|cli|api 중 하나여야 합니다", detail={"engine": engine})
+        raise ValidationAppError(
+            f"engine은 {'|'.join(_ENGINE_CHOICES)} 중 하나여야 합니다", detail={"engine": engine}
+        )
 
     # 분류 경로는 잡 생성 전에 검증한다 — 위반이면 파일 저장·큐 투입 없이 즉시 422(설계 §4.11).
     category_path = convert_service.normalize_category_path(category_path)

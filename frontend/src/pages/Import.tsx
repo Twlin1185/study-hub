@@ -19,7 +19,9 @@ import type {
   ImportCommitResult,
   ImportDecision,
   ImportItem,
+  ImportItemWarning,
   ImportPreviewResponse,
+  LlmEngine,
 } from '../api/types'
 
 type WizardStep = 'select' | 'preview' | 'result'
@@ -55,12 +57,19 @@ function categoryApprovalKey(sc: { category_id: number | null; path: string }): 
   return sc.category_id ?? sc.path
 }
 
+// S15(설계 §4.17⑤·⑥) — solved_answer(정답을 LLM이 풀어 채움)·fabrication_suspect(원문 대조
+// 실패)는 기본 반입 제외(체크 해제) 대상. match_unavailable(대조 불가)은 배지·안내만이고 기본
+// 포함을 유지한다(이미지 PDF 경로 전체가 막히지 않게).
+function hasExclusionWarning(warnings: ImportItemWarning[] | undefined): boolean {
+  return warnings?.some((w) => w === 'solved_answer' || w === 'fabrication_suspect') ?? false
+}
+
 function buildInitialDecisions(items: ImportItem[]): Record<number, ItemDecisionState> {
   const initial: Record<number, ItemDecisionState> = {}
   for (const item of items) {
     if (item.status === 'error') continue
     initial[item.index] = {
-      action: item.status === 'duplicate_suspect' ? 'skip' : 'new',
+      action: item.status === 'duplicate_suspect' || hasExclusionWarning(item.warnings) ? 'skip' : 'new',
       // 분류 제안은 기존/생성 제안 모두 기본 체크
       approvedCategoryIds: item.suggest_categories.map(categoryApprovalKey),
       approvedRelationIds: item.suggest_relations
@@ -330,7 +339,10 @@ export default function ImportPage() {
                 reviewError={reviewError}
                 onReview={handleReview}
                 onRemove={queue.removeEntry}
-                onRetryApi={(id) => queue.retryEntry(id)}
+                // S15(설계 §4.17③) — engineId는 LlmErrorInfoView가 fallback_engine(없으면
+                // legacy 'api')에서 구해 넘겨준다. retryEntry의 기본값 'api'는 engineId 자체가
+                // undefined일 때(레거시 경로에서 호출)만 쓰인다.
+                onRetryApi={(id, engineId) => queue.retryEntry(id, engineId as LlmEngine | undefined)}
                 onSplitReupload={() => {
                   // F40-④ — 시작 화면(파일 선택)으로 되돌려 원본을 나눠 다시 올리게 한다.
                   setEntryMode('convert')
@@ -698,12 +710,22 @@ function PreviewStep({
         </div>
       )}
 
+      {/* S15(설계 §4.17⑥) — 대조 불가는 조용한 통과 금지: 배지(항목별) + 상단 안내 1줄.
+          기본 반입은 유지한다(제외하면 이미지 PDF 경로 전체가 막힘). */}
+      {items.some((i) => i.warnings?.includes('match_unavailable')) && (
+        <div className="rounded border border-border bg-surface px-3 py-2 text-sm text-muted">
+          원본에서 텍스트를 추출하지 못해 원문 대조를 수행하지 못했습니다 — 반입 전 원본과 직접
+          대조하세요.
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface p-3 text-sm">
         <div className="flex flex-wrap gap-3">
           <span className="text-primary">전체 {summary.total}</span>
           <span className="text-correct">정상 {summary.ok}</span>
           <span className="text-warning">중복 의심 {summary.duplicate_suspect}</span>
           <span className="text-wrong">오류 {summary.error}</span>
+          {(summary.warning ?? 0) > 0 && <span className="text-warning">경고 {summary.warning}</span>}
         </div>
         <div className="flex flex-wrap gap-2">
           {showJsonDownload && (
@@ -769,6 +791,30 @@ function StatusBadge({ status }: { status: ImportItem['status'] }) {
   return <span className={`rounded px-2 py-0.5 text-xs font-medium ${conf.className}`}>{conf.label}</span>
 }
 
+// S15(설계 §4.17⑤·⑥) — 변환 신뢰 게이트 경고 배지. 모르는 값은 무시(전방 호환, alternatives 관례).
+const WARNING_BADGE: Record<ImportItemWarning, { label: string; className: string }> = {
+  solved_answer: { label: 'AI가 정답을 직접 채움', className: 'bg-warning text-on-accent' },
+  fabrication_suspect: { label: '원문과 불일치 (창작 의심)', className: 'bg-wrong text-on-accent' },
+  match_unavailable: { label: '원문 대조 불가', className: 'border border-border text-muted' },
+}
+
+function WarningBadges({ warnings }: { warnings: ImportItemWarning[] | undefined }) {
+  if (!warnings || warnings.length === 0) return null
+  return (
+    <>
+      {warnings.map((w) => {
+        const conf = WARNING_BADGE[w]
+        if (!conf) return null
+        return (
+          <span key={w} className={`rounded px-2 py-0.5 text-[11px] font-medium ${conf.className}`}>
+            {conf.label}
+          </span>
+        )
+      })}
+    </>
+  )
+}
+
 interface ItemRowProps {
   item: ImportItem
   state: ItemDecisionState | undefined
@@ -788,7 +834,15 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
         <span className="text-sm font-medium text-primary">
           #{item.index} {item.title}
         </span>
+        <WarningBadges warnings={item.warnings} />
       </div>
+
+      {item.status !== 'error' && hasExclusionWarning(item.warnings) && (
+        <p className="mb-2 text-[11px] text-warning">
+          경고 항목이라 기본적으로 반입에서 제외됩니다 — 포함하려면 아래에서 명시적으로
+          선택하세요.
+        </p>
+      )}
 
       {item.status === 'error' && (
         <ul className="ml-1 list-disc pl-4 text-sm text-wrong">

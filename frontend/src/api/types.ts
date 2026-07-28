@@ -166,7 +166,16 @@ export interface ImportSummary {
   ok: number
   duplicate_suspect: number
   error: number
+  // S15(설계 §4.17 ⑤) — 경고(1개 이상) 항목 수. 변환 파이프라인(convert·fetch) preview에만
+  // 존재 — 필드 부재(구버전 응답·직접 업로드 JSON)는 경고 없음(0)으로 처리한다.
+  warning?: number
 }
+
+// S15(설계 §4.17 ⑤·⑥, R7 보강) — 변환 신뢰 게이트 경고. 변환 파이프라인(convert·fetch) preview
+// 항목에만 존재하고, 직접 업로드 JSON에는 필드 자체가 없다(비적용). 모르는 값은 무시(전방 호환,
+// alternatives 관례). solved_answer·fabrication_suspect는 프론트가 기본 반입 제외로 렌더하고,
+// match_unavailable은 배지·안내만(기본 포함 유지) — 판정 규칙은 §4.17이 단일 출처.
+export type ImportItemWarning = 'solved_answer' | 'fabrication_suspect' | 'match_unavailable'
 
 export interface ImportDuplicateOf {
   id: number
@@ -195,6 +204,8 @@ export interface ImportItem {
   suggest_categories: ImportSuggestCategory[]
   suggest_relations: ImportSuggestRelation[]
   errors: string[]
+  // S15(설계 §4.17 ⑤) — 기본 []. 필드 부재(구버전 응답·직접 업로드 JSON)는 경고 없음으로 처리.
+  warnings?: ImportItemWarning[]
 }
 
 export interface ImportPreviewResponse {
@@ -737,39 +748,61 @@ export interface ApplySuggestionsResult {
   rejected: number
 }
 
-// ---- LLM 엔진 관리 (설계 §4.11, F34·F35 1단계, S8) ----
+// ---- LLM 엔진 관리 (설계 §4.11 F34·F35 1단계, S8 / §4.17 엔진 레지스트리, S15) ----
 
 // 파일 업로드/URL 반입 모두에서 선택 가능한 엔진 (POST /convert, POST .../regenerate 공통).
-// 'auto' = 우선순위 설정(llm.priority) 따름 — 기본값.
-export type LlmEngine = 'auto' | 'cli' | 'api'
-export type LlmPriority = 'cli' | 'api'
+// 'auto' = 우선순위 설정(llm.priority) 따름 — 기본값. 'cli'|'api'는 legacy 별칭(서버가 읽기 시
+// claude-cli/claude-api로 매핑 — 설계 §4.17①, 422 아님) — 신규 엔진 id도 함께 허용한다.
+export type LlmEngine = 'auto' | LlmEngineId | 'cli' | 'api'
+
+// S15(설계 §4.17①) — 엔진 레지스트리 id. F34 cli|api 이항 가정 해체.
+export type LlmEngineId = 'claude-cli' | 'claude-api' | 'codex-cli'
+export type LlmEngineBilling = 'subscription' | 'metered'
+
+// settings `llm.priority` 신 규격 — 엔진 id 배열(순서=시도 순서). legacy 스칼라('cli'|'api')는
+// 서버가 읽기 시 배열로 매핑하고, 쓰기는 항상 이 배열 형식(설계 §4.17①) — 프론트는 이 필드를
+// 직접 읽지 않고 항상 정규화된 `LlmStatusResponse.priority`를 단일 출처로 사용한다.
+export type LlmPriority = LlmEngineId[]
 export type LlmFallbackPolicy = 'auto' | 'ask' | 'off'
 
-export interface LlmCliStatus {
-  installed: boolean
-  logged_in: boolean
+// S15(설계 §4.17②) — 엔진 배열 항목. CLI형(claude-cli·codex-cli) = installed/logged_in만 값이
+// 있고 key_registered/key_suffix는 null. API형(claude-api) = 반대. 프론트는 null 필드를
+// 렌더하지 않는다(필드 유무로 카드 내용을 결정 — 엔진 추가·제거에 프론트 코드 변경 없음).
+export interface LlmEngineStatus {
+  id: LlmEngineId
+  label: string
+  billing: LlmEngineBilling
+  installable: boolean
+  available: boolean
+  installed: boolean | null
+  logged_in: boolean | null
+  key_registered: boolean | null
+  key_suffix: string | null
   last_success_at: string | null
   last_error_kind: string | null
 }
 
-export interface LlmApiStatus {
-  key_registered: boolean
-  key_suffix: string | null
-  last_success_at: string | null
-}
-
 // 최근 429 한도 기억 — resets_at 이전이면 재시도 전 경고 배너 대상 (설계 §4.11 "한도 기억").
+// 어느 엔진의 한도인지는 담지 않는다(계약 불변 — 설계 §4.17②).
 export interface LlmLimitInfo {
   kind: string
   resets_at: string
 }
 
+// S15(설계 §4.17②) — 기존 톱레벨 cli/api 필드는 제거 확정(호환 유지 안 함). priority는 서버가
+// 별칭 매핑+누락 보충을 마친 유효 배열을 내려준다.
 export interface LlmStatusResponse {
-  cli: LlmCliStatus
-  api: LlmApiStatus
+  engines: LlmEngineStatus[]
   limit: LlmLimitInfo | null
-  priority: LlmPriority
+  priority: LlmEngineId[]
   fallback_policy: LlmFallbackPolicy
+}
+
+// S15(설계 §4.17④) — POST /api/llm/engines/{id}/install 응답. installable:true 엔진(현재
+// codex-cli)만 유효 — 그 외는 422.
+export interface InstallEngineResponse {
+  installed: boolean
+  version?: string
 }
 
 export interface ApiKeyRequest {
@@ -815,6 +848,12 @@ export interface LlmErrorInfo {
   action: string
   fallback_available: boolean
   alternatives?: string[]
+  // S15(설계 §4.17③) — 다음 후보 엔진 id(priority 배열상 다음 available 엔진). fallback_available
+  // 이 true일 때만 값이 있을 것으로 기대되지만, 과도기 백엔드 응답은 필드 자체가 없을 수 있다 —
+  // 그 경우 프론트는 legacy 'api' 폴백 동작을 유지한다(설계에 과도기 규칙 명시 없음, 프론트 결정).
+  // 타입은 설계 원문 그대로 string(좁은 유니온 아님) — 버튼 라벨은 이 id로 status.engines[]를
+  // 찾아 완성하고, 찾지 못하면 id 원문을 그대로 보여준다(엔진명 하드코딩 금지).
+  fallback_engine?: string
 }
 
 // S10(§4.13): 'fetching' — 사이트 수집(목록·문항·이미지 다운로드), URL 반입의 'downloading'과는

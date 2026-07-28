@@ -1,14 +1,15 @@
 # Study Hub — 상세 설계 (API 명세 · 화면 상세)
 
-> 상태: **Design v1.16** — v1.15 대비: **S14(큐넷 공식 오픈API) 구현 완료(2026-07-27)에 따른 계약 확정 반영 — 엔드포인트 증감 0건, 기존 응답에 필드 추가만**: ① `POST /api/fetch/exams` **요청 `include_notices?`(기본 false)** + **응답 항목 `is_notice`** — 안내문 게시물 기본 숨김 + "안내문 N건 보기" 토글(같은 24h 캐시에서 파생 — **추가 API 호출 0건**) ② `GET /api/convert/{job_id}` 응답에 **`notes: string[]`(기본 `[]`)** — 성공 소표기(예: ZIP 동시 저장). **문구는 서버가 완성해 내려준다**(프론트 포맷 분기 금지) ③ `error_info.kind`에 **`unsupported_format` 확정** + `alternatives`에 **`'file_import'`** 값 추가 ④ `GET /api/fetch/adapters` qnet 항목에 `key_registered`·`key_suffix?`(예고대로 구현) ⑤ **`exam_key` 3형태 확정** — `YYYY-MM-DD`(폴더 파생 O) · **`YYYY`(연도만 — 폴더 파생 X, 회차를 창작하지 않음)** · `qnet-{artlSeq}`(식별 불가). 뒤 두 형태는 **`imported=false` 고정**·분류 경로 미생성 ⑥ **§3에 상류 실패 규약 명문화**(외부 공식 API 거절 = **HTTP 502 + code `INTERNAL`**, 코드 집합은 4종 유지 — 판단 근거는 §3). **DDL 변경 없음 · Alembic 0건.**
+> 상태: **Design v1.17** — v1.16 대비: **§4.17 신설(S15 — F41 멀티 벤더 LLM 엔진, 계약 확정 2026-07-28 — 착수 게이트 G3 해소. 구현은 게이트 G2 통과 후)**: ① **엔진 레지스트리** — 엔진 id 3종(`claude-cli`·`claude-api`·`codex-cli`)·항목 인터페이스(진단/호출/분류기/한도·헬스 키)·legacy `cli|api` 별칭의 **읽기 시 매핑**(마이그레이션 없음) ② `GET /api/llm/status`를 **엔진 배열로 교체**(기존 `cli`/`api` 톱레벨 필드 **제거 확정** — 소비처 전수 확인 근거는 §4.17 ②) ③ **폴백 = 우선순위 목록**(`llm.priority` 배열화, `error_info.fallback_engine` 추가) ④ codex-cli 어댑터·설치 계약(신규 엔드포인트 **`POST /api/llm/engines/{id}/install` 1개**) ⑤ **변환 신뢰 게이트(전 엔진 공통, R7 보강)** — 계획서 §8.2 v1.1 개정 연동(`answer_source` 필수·순수 JSON 위반=오류·`content` 필수·객관식 `answer` 번호만) + preview `warnings` 필드 ⑥ **원문 대조 검사 알고리즘 확정**(정규화·12자 조각 커버리지 ≥0.6·대조 불가 판정) ⑦ S8 화면(§5.11 그룹 ④) 확장 — 카드 목록 렌더·▲▼ 우선순위·Codex 온보딩·프라이버시 고지. **DDL 변경 0건·Alembic 0건 재확인(§4.17 말미 근거).**
+> (v1.16: v1.15 대비: **S14(큐넷 공식 오픈API) 구현 완료(2026-07-27)에 따른 계약 확정 반영 — 엔드포인트 증감 0건, 기존 응답에 필드 추가만**: ① `POST /api/fetch/exams` **요청 `include_notices?`(기본 false)** + **응답 항목 `is_notice`** — 안내문 게시물 기본 숨김 + "안내문 N건 보기" 토글(같은 24h 캐시에서 파생 — **추가 API 호출 0건**) ② `GET /api/convert/{job_id}` 응답에 **`notes: string[]`(기본 `[]`)** — 성공 소표기(예: ZIP 동시 저장). **문구는 서버가 완성해 내려준다**(프론트 포맷 분기 금지) ③ `error_info.kind`에 **`unsupported_format` 확정** + `alternatives`에 **`'file_import'`** 값 추가 ④ `GET /api/fetch/adapters` qnet 항목에 `key_registered`·`key_suffix?`(예고대로 구현) ⑤ **`exam_key` 3형태 확정** — `YYYY-MM-DD`(폴더 파생 O) · **`YYYY`(연도만 — 폴더 파생 X, 회차를 창작하지 않음)** · `qnet-{artlSeq}`(식별 불가). 뒤 두 형태는 **`imported=false` 고정**·분류 경로 미생성 ⑥ **§3에 상류 실패 규약 명문화**(외부 공식 API 거절 = **HTTP 502 + code `INTERNAL`**, 코드 집합은 4종 유지 — 판단 근거는 §3). **DDL 변경 없음 · Alembic 0건.**)
 > (v1.15: v1.14 대비: **S13 구현 완료(2026-07-27)에 따른 확정 사항 반영 — 계약 변경 없음, 명세 보강만**: ① §5.9 대기열이 **`previewId`를 localStorage에 함께 영속**(잡 레코드가 만료·404가 된 뒤에도 F40-① 디스크 복구로 검토를 이어가기 위함 — 검토 단계의 1차 키는 preview_id) ② **URL 반입을 파일 대기열로 통합**(폴링·재시도·재개 코드 이원화 방지 — 탭 4종·Stepper 3단계는 불변) ③ **10개 상한 = "대기열 잔여 + 신규 선택" 합계 기준** ④ **처리 중인 1건은 취소·건너뛰기 불가**를 알려진 한계로 명시(서버에 잡 취소 API 없음 — 신설하지 않음) ⑤ **[변환 JSON 내려받기]는 보존본이 있는 경로(convert·fetch 잡 preview)에만 노출**(직접 업로드 preview는 404 — §4.3). **DDL 변경 없음 · 엔드포인트 증감 없음.**)
 > (v1.14: **단계 재편(계획서 v0.17 — 큐넷 실측에 따른 우선순위 변경)**: ① 큐넷 오픈API 계약(서비스키 `fetch/qnet-key`·목록/상세·`unsupported_format`·설정 카드)의 단계 태그를 **S13 → S14**로 이관(**내용 삭제 없음** — 계약은 그대로, 착수 시점만 뒤로). 사설 어댑터 제거·단일 어댑터화는 **S13 유지**. ② **F40 수동 반입 UX 계약 신설(S13)**: §4.3에 **변환 결과 디스크 보존·복구**(`GET /api/import/preview/{id}` 캐시 미스 시 복구) + **`GET /api/import/preview/{id}/json`(내려받기, 신규 1개)**, §4.11 `POST /api/convert`에 **`category_path?`**(분류 경로 제안 고정 — 사이트 반입 지시 생성기 공유) + `error_info.kind`에 **`'invalid_output'`**(출력 잘림 오안내 수정), §5.9에 **반입 대기열**(여러 파일 연속 — 새 API 0건, 서버 동시 1개 유지)·분류 경로 입력·복구 표시. **DDL 변경 없음.**)
 > (v1.13: **사이트 어댑터 단일화(S13 — 사설 어댑터 comcbt·cbtbank 제거, 계획서 v0.16 §14 F35-2 제거 이력)**: §4.13에서 어댑터 3종 목록·우선순위 병합(qnet>cbtbank>comcbt)·날짜 자연 키 병합·`also_on`/`refs` 대안 어댑터 재시도·level_hint 오병합 방지 조건을 **큐넷 단일 어댑터 기준으로 정리**. **계약 형태는 유지**(`GET /api/fetch/adapters`는 계속 **배열** 반환, `POST /api/fetch/exams` 항목의 `also_on`(항상 `[]`)·`refs`(단일 항목)·`exam_key?`도 필드 유지) — 프론트 변경은 어댑터 id 유니온 축소(`'qnet'`)와 이름 폴백 맵 정리뿐. §5.9 대안 어댑터 재시도 버튼은 사문화(빈 `also_on`이라 미렌더). DDL 변경 없음.)
 > (v1.12: **S13(M13 큐넷 공식 오픈API) 계약**(§4.13 S13 갱신 — qnet 어댑터를 공공데이터포털 **"국가자격 공개문제 조회 서비스"**(getOpenQstList/getOpenQst)로 실가동: 서비스키 등록 `POST/DELETE /api/fetch/qnet-key`(secrets.json — F34 전례), `fileUrl` JWT 1시간 → **상세 조회·다운로드 같은 잡 연속 수행**, HWP 전용 회차 = 원본 저장 + `error_info.kind:'unsupported_format'` 신설, 병합 그룹 level_hint 동일 조건 명시. **기존 fetch 계약(adapters/certs/exams/import)·프론트 스텝 흐름 불변**) + §5.11 데이터 그룹 서비스키 카드·§5.9 실패 렌더 1종 추가)
 > 이전 이력: v1.11 — S12 계약(§4.13 cbtbank FetchedExam 첫 실사용·날짜 자연 키 병합·`fetch/import` `exam_key?`, §4.15 `GET /manual`) · v1.10 — S11 계약 신설(§4.14 F25·F16) · v1.9 — S10 구현 실측 반영(comcbt PDF 경로, qnet available:false 스텁)
-> 작성일: 2026-07-22 · 갱신: 2026-07-27
-> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.20)
-> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-13-fetch-cleanup-manual-import.plan.md`(S13) · `stage-14-qnet-openapi.plan.md`(S14)
+> 작성일: 2026-07-22 · 갱신: 2026-07-28
+> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.22)
+> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-13-fetch-cleanup-manual-import.plan.md`(S13) · `stage-14-qnet-openapi.plan.md`(S14) · `stage-15-multi-engine-codex.plan.md`(S15 — 착수 게이트 있음, §4.17)
 
 ---
 
@@ -138,6 +139,7 @@ study-hub/
 }
 ```
 - preview 상태는 서버 메모리(TTL 1시간)에 보관. 만료 시 409 → 다시 preview. **S13(F40-①)부터는 만료 전에 디스크 복구를 시도하므로 409는 "복구도 실패"일 때만 도달한다.**
+- **S15 예정(§4.17 ⑤·⑥ — 변환 신뢰 게이트, 순수 추가)**: 항목에 `warnings: string[]`(기본 `[]` — `'solved_answer'|'fabrication_suspect'|'match_unavailable'`) + summary에 `warning`(경고 항목 수, 기본 0). 앞 두 값은 프론트 기본 반입 제외, 셋째는 표시만 — 규칙·판정 알고리즘은 §4.17이 단일 출처.
 
 **변환 결과 보존·복구 (S13 — F40-①, 계획서 §14 F40. "LLM 비용이 증발하지 않게")**
 - **왜**: 변환 산출 JSON이 프로세스 메모리 preview 캐시(TTL 1시간)에만 존재해, 시간 초과·서버 재시작 시 LLM 비용을 치른 결과가 복구 수단 없이 사라진다(원본은 sources/에 남지만 재변환 = 재과금).
@@ -259,7 +261,7 @@ study-hub/
 | `POST /api/convert` 확장 | `{file 업로드}` **또는 `{url}`** (F35-1): url이면 서버가 다운로드(공개 자료, 크기 상한·content-type 화이트리스트·**사설/로컬 IP 차단(SSRF 방지)**) 후 동일 파이프라인. `engine` 선택 파라미터(`'auto'\|'cli'\|'api'`, 기본 auto=우선순위) — 폴백 "물어보기" 시 프론트가 `engine:'api'`로 재요청하는 계약 | S8 |
 | `POST /api/convert` 확장 2 | **S13(F40-③)**: 선택 파라미터 **`category_path`**(예 `"품질경영기사/필기/2022년 2회"`) — 지정 시 서버가 프롬프트에 "모든 문항의 `suggest_categories`는 정확히 이 경로 하나로 고정" 지시를 넣는다. **사이트 반입(§4.13)의 지시 문자열 생성기를 공유**(중복 구현 금지 — 경로·라벨만 받는 형태로 일반화). 검증: 최대 5단계·단계당 60자·빈 단계 금지(위반 시 422). **자동 반입이 아니다** — preview의 제안을 고정할 뿐 확정은 사용자 승인(R7), 없는 노드 생성은 기존 commit `approve_categories` 계약 그대로 | S13 |
 
-- **엔진 설정은 settings 재사용**: `llm.priority`(`'cli'\|'api'`, 기본 cli) · `llm.fallback`(`'auto'\|'ask'\|'off'`, 기본 **ask** — auto는 과금 동의 UI 통과 시에만 설정 가능) · `llm.api_model`(기본 `claude-sonnet-5` — 과금 부담 고려, 변경 가능).
+- **엔진 설정은 settings 재사용**: `llm.priority`(`'cli'\|'api'`, 기본 cli) · `llm.fallback`(`'auto'\|'ask'\|'off'`, 기본 **ask** — auto는 과금 동의 UI 통과 시에만 설정 가능) · `llm.api_model`(기본 `claude-sonnet-5` — 과금 부담 고려, 변경 가능). (**S15 예정**: 이 절의 `cli|api` 이항 계약은 §4.17이 엔진 레지스트리로 일반화한다 — `llm.priority`는 엔진 id 배열, status는 엔진 배열, legacy 값은 읽기 시 별칭 매핑. 이 절 서술은 S8~S14 시점 기준으로 보존.)
 - **API 엔진**: anthropic Python SDK 직접 호출(키는 설정 화면에서 사용자가 등록한 secrets.json **단일 출처** — 환경변수·외부 프로필 자동 탐색 없음). convert/regenerate 프롬프트는 CLI 경로와 동일 템플릿.
 - **오류 구조화**: convert/regenerate 잡 상태 응답에 `error_info` 추가 — `{kind: 'rate_limit'\|'auth'\|'not_installed'\|'timeout'\|'other', limit_kind?: 'session'\|'daily'\|'weekly'\|'model'\|'overall', resets_at?, message(사람이 읽는 한국어), action(다음 행동 안내), fallback_available: bool}`. (S10: kind에 `'parse_failed'` 추가 — 사이트 어댑터 파싱 실패, §4.13. **S13: `'invalid_output'` 추가 — 아래. S14: `'unsupported_format'` 추가 — qnet의 PDF 없는 게시물(ZIP·HWP), §4.13.**) **CLI/API 원문 JSON은 사용자에게 노출 금지.**
   - **`alternatives`(프론트 대안 버튼 힌트, S10 신설)**: 값은 **`'url_import'` · `'file_import'`(S14 추가) · `'other_adapter'`(사문화 — 단일 어댑터라 서버가 더 내려보내지 않지만 값 자체는 남겨 둔다)**. `unsupported_format`·상류 실패 계열은 기본이 `['file_import','url_import']`(원본이 이미 `sources/`에 있으므로 **파일 반입이 첫 번째 행동**), `parse_failed`는 `['url_import']`가 기본. 프론트는 **아는 값만 버튼으로 렌더하고 모르는 값은 무시**한다(전방 호환). CLI 429의 `result` 문자열에서 한도 종류·리셋 시각을 파싱한다.
@@ -489,6 +491,97 @@ backend/services/fetchers/
 - **동작**: 불일치 시 ① 이 서버 빌드로 아직 새로고침한 적 없으면 **자동 1회 새로고침**(sessionStorage 가드) ② 이미 새로고침했는데도 불일치가 남으면(비정상) 무한 새로고침 대신 **배너 + [새로고침] 버튼**. 점검 시점은 앱 마운트 · 창 포커스 · 60초 주기, 서버 응답 실패는 조용히 무시(다음 주기 재시도).
 - **범위 밖**: 서비스 워커 버전 관리·프리캐시 목록 갱신은 건드리지 않는다(현행 network-first 유지 — 서버가 살아 있으면 항상 최신을 받고, 꺼져 있을 때만 캐시 폴백).
 
+### 4.17 멀티 벤더 LLM 엔진 — 레지스트리·변환 신뢰 게이트 (S15 — F41. **계약 확정 2026-07-28, 착수 게이트 G3 해소분**)
+
+> 근거: Codex CLI 격리 PoC 실측(2026-07-27, `codex_engine_test\results\SUMMARY.md` v2 — 조건부 GO)과 그 §5 요구사항 7건. **이 절은 계약 확정본이고 구현은 stage-15 잔여 게이트(G2 품질 재실험) 통과 후** — 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-15 DoD 5).
+> 원칙 재확인: 미리보기 승인 없는 자동 반입 금지(R7 — 아래 신뢰 게이트는 그 기계적 보강) · 오류 원문 노출 금지(`error_info` 구조화, §4.11) · 자격증명은 secrets.json/전역 홈 단일 출처(DB·settings 금지).
+
+**① 엔진 레지스트리 (F34 `cli|api` 이항 가정 해체)**
+
+- **엔진 id**: `'claude-cli' | 'claude-api' | 'codex-cli'`. 표시명: `Claude CLI` · `Claude API` · `Codex CLI`.
+- **엔진 항목 인터페이스**(`llm_engine_service` 내부 레지스트리 — 코드 계약): 항목마다
+  `id` · `label`(표시명) · `billing`(`'subscription'`(구독 — claude-cli·codex-cli) `| 'metered'`(종량 과금 — claude-api)) · `installable`(bool — 앱이 [설치]를 제공하는지, codex-cli만 true) ·
+  `diagnose()`(설치·로그인/키 진단 — TTL 60초 캐시 관례 유지) · `invoke()`(변환 호출 — 프롬프트는 `prompts/convert.md` **벤더 중립 단일본** 공유, `_fetch_directives` 등 지시 생성기 재사용) · `classify()`(실패 원문 → `error_info` 조각 — 원문은 로그 전용) · `available()`(폴백 후보 자격 — CLI형: 설치+로그인, API형: 키 등록).
+- **상태 저장 키의 일반화**: 헬스(`_ENGINE_HEALTH`)·진단 캐시·한도 기억(`llm.last_limit.engine`)은 전부 **엔진 id를 키**로 쓴다.
+- **legacy 별칭 매핑(마이그레이션 없는 하위 호환)**: `'cli'→'claude-cli'` · `'api'→'claude-api'`. **읽기 시에만** 적용 — 대상은 settings `llm.priority`·`llm.last_limit.engine`, 그리고 요청 파라미터 `engine`(아래 ③). **쓰기는 항상 신 id**(설정 화면 저장·한도 기억 갱신 시 자연스럽게 신 형식으로 수렴 — 일괄 변환 스크립트·Alembic 불요).
+- **`llm.priority` 규격 개정**: 신 규격 = **엔진 id 배열**(순서 = 시도 순서, 예 `["claude-cli","codex-cli","claude-api"]`). legacy 스칼라는 읽기 시 매핑 — `'cli'→["claude-cli","claude-api"]` · `'api'→["claude-api","claude-cli"]`(현행 이항 폴백 동작과 동치). 배열에 없는 등록 엔진은 **레지스트리 등록 순서대로 목록 끝에 보충**(`home.layout` 누락 id 보충과 같은 전방 호환 원칙 — codex-cli가 나중에 추가돼도 기존 설정이 깨지지 않는다). 알 수 없는 id는 무시.
+
+**② `GET /api/llm/status` 응답 확장 — 엔진 배열로 교체**
+
+```json
+{
+  "engines": [
+    { "id": "claude-cli", "label": "Claude CLI", "billing": "subscription", "installable": false,
+      "available": true, "installed": true, "logged_in": true,
+      "key_registered": null, "key_suffix": null,
+      "last_success_at": "2026-07-28T09:00:00", "last_error_kind": null },
+    { "id": "claude-api", "label": "Claude API", "billing": "metered", "installable": false,
+      "available": false, "installed": null, "logged_in": null,
+      "key_registered": false, "key_suffix": null,
+      "last_success_at": null, "last_error_kind": null },
+    { "id": "codex-cli", "label": "Codex CLI", "billing": "subscription", "installable": true,
+      "available": false, "installed": false, "logged_in": false,
+      "key_registered": null, "key_suffix": null,
+      "last_success_at": null, "last_error_kind": null }
+  ],
+  "limit": null,
+  "priority": ["claude-cli", "claude-api", "codex-cli"],
+  "fallback_policy": "ask"
+}
+```
+- 엔진별 필드는 **CLI형 = `installed`/`logged_in`, API형 = `key_registered`/`key_suffix`** 만 의미가 있고 해당 없는 쪽은 `null`(프론트는 null 필드를 렌더하지 않는다). `priority`는 위 ①의 정규화(별칭 매핑+누락 보충)를 거친 **유효 배열**을 내려준다.
+- **기존 톱레벨 `cli`/`api` 필드는 제거 확정(호환 유지 안 함)** — 판단 근거(2026-07-28 소비처 전수 확인): 소비처는 `LlmEngineSection`(S15에서 레지스트리 목록 렌더로 **같은 단계에 재작성**)과 `LlmLimitBanner`(**`limit` 필드만** 사용 — 이 필드는 불변) 둘뿐이고, 프론트·백엔드는 같은 배포 단위(FastAPI가 dist 서빙)라 버전 어긋남은 열린 구탭뿐인데 그건 §4.16 자동 새로고침이 해소한다. legacy 필드를 병존시키면 그 자체가 이항 잔재(stage-15 DoD 4 "이항 분기 0건" 위반)로 남는다.
+- `limit`(한도 기억 `{kind, resets_at}`)·`fallback_policy`는 계약 불변. `llm.fallback`(`auto|ask|off`)·auto의 과금 동의 UI(후보 목록에 metered 엔진이 포함되는 한 유지)도 불변.
+
+**③ 폴백 = 우선순위 목록 (이항 분기 전수 제거)**
+
+- **다음 후보 규칙**: 실패(또는 한도 기억 적중)한 엔진의 **priority 배열상 다음 위치부터 순서대로 첫 `available()` 엔진**. 없으면 후보 없음. `other = "api" if engine == "cli" else "cli"` 류 분기는 전수 제거 대상(`build_error_info`·`apply_remembered_limit`·`_handle_engine_failure` — DoD 4).
+- `error_info.fallback_available` = **다음 후보 존재 && `llm.fallback != 'off'`** (의미 일반화, 필드명·타입 불변). **`fallback_engine?: string`(다음 후보 엔진 id) 신설** — ask 정책의 [다시 시도] 버튼이 이 id로 재요청하고, 버튼 라벨은 status `engines[].label`에서 찾는다(서버 `action` 문구도 특정 엔진명 하드코딩 대신 다음 후보 label로 완성해 내려준다).
+- **요청 파라미터 `engine` 확장**(`POST /api/convert`·regenerate — §4.11): `'auto' | 엔진id`. legacy `'cli'|'api'` 값은 별칭 매핑으로 계속 수용(422 아님). `auto` = priority 배열 첫 available 엔진.
+
+**④ codex-cli 어댑터·설치 계약**
+
+| 메서드/경로 | 설명 | 단계 |
+|---|---|---|
+| `POST /api/llm/engines/{id}/install` | **`installable:true` 엔진만**(현재 codex-cli — 그 외는 422). GitHub 릴리스에서 Windows x64 **단일 바이너리** 다운로드(PoC `setup_codex.py` 로직 이식) → 루트 `tools/codex/`에 격리 설치(**PATH 불변**, git·백업 제외). PATH 등 기존 설치본이 감지되면 다운로드 없이 그것을 채택. **동기 처리**(PoC 실측 4.4초 — 잡 큐 불사용, 프론트는 버튼 스피너). 응답 `{installed: true, version}`, 실패는 §3 포맷(다운로드 실패 = 502) | S15 |
+
+- **호출**: `codex exec --json --skip-git-repo-check -C <작업디렉터리> -o <최종메시지파일>` — 최종 메시지는 **`-o` 파일이 1차**(JSONL 이벤트 스캔은 폴백 — PoC 검증에서 두 경로 산출 동일 확인, `-o`가 구현 단순).
+- **진단**: `codex --version`(설치) + `codex login status` **텍스트 파싱**(`--json` 없음 — rc=0 && "logged in" 포함, PoC `check_login_status()` 이식). 자격증명은 **전역 `~/.codex` 공유**(격리 설치본도 재로그인 불필요 — PoC T1) — secrets.json에 codex 항목을 만들지 않는다.
+- **오류 분류기(`classify_codex_failure`)**: 미설치/미로그인/타임아웃/기타 구조화. **429·한도 메시지 형식은 미실측**(PoC 미조우) — 실측 전에는 `kind:'other'` + "Codex 사용량 한도일 수 있습니다" 보수 안내, 실측 후 `rate_limit` 분류·한도 기억을 채운다(구현 단계 과제로 이월 — 계약은 이 문장으로 고정).
+
+**⑤ 변환 신뢰 게이트 — 계획서 §8.2 v1.1 개정 연동 (전 엔진 공통, R7 보강)**
+
+> 규격 원문은 계획서 §8.2(단일 출처 — v1.1로 개정). 여기는 파이프라인 계약만 확정한다. **경로 구분이 핵심**: 아래 강제 규칙은 **LLM 변환 파이프라인(convert·fetch 잡) 산출물에만** 적용하고, **사용자가 직접 올린 반입 JSON은 기존 파일 호환을 유지**한다(사람이 만든 파일 — 검증 책임은 R7 미리보기 승인).
+
+- **`answer_source: "original" | "solved"`** — 문제 타입(question·past_question) **필수**(변환 파이프라인 산출물 기준 — 누락 = 해당 항목 검증 오류). `prompts/convert.md`에 지시 추가("정답이 원본에 명시돼 있으면 original, 네가 풀어 채웠으면 solved"). **직접 업로드 JSON은 누락 허용 → `original` 간주**(기존 파일 무변경 통과). `solved` 항목은 preview **경고 배지 + 기본 반입 제외**(사용자가 항목별 명시 승인 시에만 포함). **DB에는 저장하지 않는다** — 반입 게이트 신호일 뿐, 승인 반입 후에는 일반 문서(DDL 0건 유지. 이력 필요가 실측되면 계획서에 먼저 확정).
+- **순수 JSON 위반 = 오류**: LLM 출력에 코드펜스·전후 잡문이 섞이면 관대한 벗겨내기 없이 **`error_info.kind:'invalid_output'`**(기존 kind 재사용 — "올바른 JSON이 아닙니다" 분기, §4.11)로 실패 처리한다(PoC I1 — 규율 이완 금지). 직접 업로드 파일의 JSON 파싱 실패는 기존 오류 처리 그대로.
+- **`content` 필수**: 개념·문제 타입(concept·question·past_question) 공통 — 변환 파이프라인 산출물에서 누락 = 항목 오류(PoC E4).
+- **객관식 `answer` = 보기 번호만**: `choices`가 있는 문항의 `answer`는 **1-base 보기 번호 문자열**(`"1"`~`"n"`)만 허용(변환 파이프라인 — 위반 = 항목 오류). 해석 규칙: `"1"`~`"n"` 범위의 숫자 문자열은 **항상 번호로 해석**(수치형 보기의 번호/텍스트 이중 해석 제거 — PoC I2). **직접 업로드 호환**: 번호가 아닌 텍스트 answer는 choices와 **전체 문자열 일치(트림 후)** 시 해당 번호로 **서버가 정규화**해 수용, 불일치면 항목 오류(조용한 추측 매칭 금지).
+- **preview 계약 추가(§4.3 연동, 순수 추가)**: 항목에 `warnings: string[]`(기본 `[]`) — 값 `'solved_answer' | 'fabrication_suspect' | 'match_unavailable'`. summary에 `warning`(경고 1개 이상 항목 수, 기본 0) 추가. 프론트는 `solved_answer`·`fabrication_suspect` 항목을 **기본 체크 해제(반입 제외)** 상태로 렌더하고, `match_unavailable`은 **배지·안내만**(기본 포함 유지 — 아래 ⑥). 모르는 warning 값은 무시(전방 호환, `alternatives` 관례).
+
+**⑥ 원문 대조 검사 (서버측 — LLM 아님. 지문·보기 창작 검출)**
+
+> 근거: PoC 최상위 발견 — 추출 불가 글리프를 모델이 침묵 창작으로 메운다(10문항 중 6건, 보기 전체 창작 3건). 프롬프트 규칙만으로 통제 불가가 실측 결론. 목적은 **통째 창작을 확실히 잡는 것**이지 경계 정확도가 아니다 — 개인용 규모에 맞는 단순 알고리즘으로 고정(과설계 금지).
+
+- **적용 범위**: **변환 파이프라인(convert·fetch) preview 생성 시, 문제 타입 문항의 `content`(지문)와 `choices` 각각**. 개념 문서는 제외(요약·재구성이 본질이라 부분 일치가 성립하지 않음). 직접 업로드 JSON은 원본이 서버에 없으므로 비적용(⑤의 경로 구분과 동일 — 배지 없음).
+- **원본 텍스트 소스**: 텍스트 계열 파일 = 원문 그대로 · PDF = **pypdf 추출**(+`cryptography` 의존 동봉 — 암호화 PDF, PoC 실측. requirements 반영은 구현 단계) · 이미지·추출 실패 = 아래 "대조 불가". (M16 F42의 B군 추출기가 들어오면 대조 가능 포맷이 넓어진다 — 계획서 §14 순서 관계.)
+- **정규화(원본·후보 동일 적용)**: 유니코드 문자(letter)·숫자만 남기고 **공백·구두점·기호 전부 제거** + 소문자화. 원본은 잡당 1회 정규화.
+- **판정 알고리즘(문자열 1건당)**: ⓐ 정규화 후 길이 <10 → **판정 생략(통과 취급)**("다음 중 옳은 것은" 류 상투구 오탐 방지) ⓑ 정규화 후보가 원본 정규화 텍스트에 **부분 문자열로 존재 → 통과** ⓒ 아니면 후보를 **길이 12의 비겹침 문자 조각**으로 분할(마지막 조각은 끝에서 12자)해 각 조각의 원본 내 존재 여부를 보고, **커버리지(존재 조각 비율) ≥ 0.6 → 통과, 미만 → 불일치**. 임계 0.6 근거: 추출 시 줄바꿈·하이픈·일부 글리프 소실은 흡수하면서 통째 창작(커버리지 ~0)은 확실히 잡는다.
+- **문항 판정**: 지문·보기 중 **1건이라도 불일치 → `fabrication_suspect`**(경고 배지 + 기본 반입 제외 — ⑤).
+- **"대조 불가" 판정**: 원본이 없거나, 추출 실패, 또는 **원본 정규화 텍스트가 200자 미만**(이미지 PDF·추출 붕괴) → 해당 잡의 전 문항에 `match_unavailable`. **조용한 통과 금지** — 배지 + preview 상단 안내 1줄("원본에서 텍스트를 추출하지 못해 원문 대조를 수행하지 못했습니다 — 반입 전 원본과 직접 대조하세요"). 단 **기본 반입은 유지**한다(제외하면 이미지 PDF 경로 전체가 막힌다 — 최종 방어선은 기존 그대로 R7 사람 검토).
+- **단위 테스트 필수 대상**(불변 규칙 7의 예외 — sm2와 같은 급): 창작 검출(원본에 없는 보기) · `solved` 기본 제외 · 대조 불가 표시 · answer 번호 정합(stage-15 체크리스트 3·5절).
+
+**⑦ S8 화면 변경 (§5.11 그룹 ④ — 카드 목록·온보딩)**
+
+- **엔진 카드**: 고정 2장 → **`status.engines` 배열 렌더**(엔진 추가·제거에 프론트 코드 변경이 없어야 정상 — §4.13 어댑터 격리 원칙과 동일). 카드 내용은 필드 유무로 결정(CLI형 = 설치/로그인, API형 = 키 등록 — null 필드 미렌더).
+- **우선순위 UI**: 카드의 **▲▼ 순서 버튼**으로 확정(엔진 3개에 드래그는 과설계 — stage-15 계획의 "드래그 또는 순서 선택" 중 후자 채택. S7 홈 위젯 드래그 재사용도 하지 않는다) → `llm.priority`에 **엔진 id 배열로 저장**(①).
+- **Codex 온보딩(카드 내 3단계 — 별도 라우트 없음)**: ⓐ **[설치]** = `POST /api/llm/engines/codex-cli/install`(④ — 기존 설치본 감지 시 "설치됨" 표시로 건너뜀) → ⓑ **로그인** = 진단이 `logged_in:true`면(전역 `~/.codex` 자격증명 감지) **건너뛰기**, 아니면 "터미널에서 `codex login`을 실행해 브라우저로 로그인하세요" 안내 + **[다시 확인]**(F34 CLI 카드 패턴 그대로 — 앱이 대화형 로그인을 대행하지 않는다) → ⓒ **진단 표시**(버전·로그인 상태).
+- **프라이버시 고지(1줄, 온보딩 말미 고정)**: "Codex 실행 시 변환 원문이 이 PC의 `~/.codex` 로그·세션 기록에 남습니다."(PoC E2 — 비활성 설정이 공식 지원되면 적용 재검토). 색상은 토큰만(불변 규칙 5).
+
+**DDL 변경 0건·Alembic 0건 — 재확인 근거 (2026-07-28, G3)**
+
+- 이 절의 저장 지점 전수: **settings 키 값 형식 확장**(`llm.priority` 배열화·`llm.last_limit.engine` id화 — settings는 키-값 자유 텍스트라 DDL 무관) · **인메모리**(헬스·진단 캐시·잡 큐) · **secrets.json**(codex는 항목 자체가 없음 — 전역 홈 공유) · **preview JSON 필드**(`warnings` — 메모리 + `import/auto/` 파일) · **디스크 폴더**(`tools/codex/` 바이너리). `answer_source`·대조 결과는 **DB 미저장**(반입 게이트 신호 — 승인 반입 후에는 일반 문서). **새 테이블·컬럼·인덱스 0, Alembic 0.** 계획서 §6.2 무변경 — 구현 중 이 전제가 깨지면 착수 중단 후 보고(임의 확정 금지).
+
 ## 5. 화면 상세 (12개)
 
 라우팅: React Router. 모바일(<768px)은 하단 탭바(홈/커리큘럼/퀴즈/**복습**/오답노트 — 복습 탭은 S9, F36-②: 홈 경유 없이 오늘의 복습 직행) + 트리 드로어.
@@ -601,6 +694,7 @@ backend/services/fetchers/
   - **② 분류 경로 지정(F40-③)**: 시작 화면(파일·URL 공통)에 접이식 **"분류 경로 지정 (선택)"** — 기존 노드는 `CategoryScopePicker` 재사용으로 고르고 뒤에 회차 등 하위 경로를 텍스트로 덧붙인다(완성 경로 미리보기 문자열 표시 — 오타를 시작 전에 드러낸다) → `POST /api/convert`의 `category_path`(§4.11). 대기열에서는 **"모든 파일에 같은 상위 경로 적용"** + 파일별 마지막 칸(회차)만 개별 입력. **제안 고정일 뿐 확정은 ②단계 승인**(R7).
   - **③ 복구·내려받기(F40-①)**: 미리보기가 디스크에서 복구된 경우 상단에 소표기("이전 미리보기를 복구했습니다 — 중복 판정은 현재 DB 기준입니다", §4.3 `recovered`). ②단계와 실패 화면에 **[변환 JSON 내려받기]**(`GET /api/import/preview/{id}/json`) — 최악의 경우에도 JSON을 손에 쥐고 "반입 JSON 파일 선택" 경로로 이어갈 수 있다. **노출 조건(S13 구현 확정)**: 보존본이 존재하는 경로 = **convert·fetch 잡에서 온 preview에만** 버튼을 렌더한다. 사용자가 직접 올린 JSON의 preview는 보존 대상이 아니라 눌러도 404이고, 애초에 파일이 사용자 손에 있으므로 버튼 자체를 두지 않는다(§4.3).
   - **④ 잘림 안내(F40-④)**: `error_info.kind:'invalid_output'` 렌더 1종 추가(§4.11) — 사람 말 메시지 + [파일 나눠서 다시 올리기](시작 화면 복귀). 원문(raw) 미노출, 색상은 토큰만.
+- **변환 신뢰 게이트 배지(S15 예정, §4.17 ⑤·⑥)**: ②(미리보기) 표에 경고 배지 3종 — **`solved`**(정답을 LLM이 풀어 채움 — `answer_source:"solved"`) · **창작 의심**(`fabrication_suspect` — 지문·보기가 원본 추출 텍스트와 불일치) · **대조 불가**(`match_unavailable` — 원본 텍스트 추출 불가). 앞 둘은 **기본 반입 제외(체크 해제)** — 항목별 명시 승인 시에만 포함, 대조 불가는 배지 + 상단 안내 1줄(기본 포함 유지). 변환 파이프라인(convert·fetch) preview에만 나타난다(직접 업로드 JSON은 비적용 — §4.17). 색상은 토큰만.
 - **사이트에서 가져오기(S10, F35-2)**: 반입 화면 진입 방식에 [파일]·[URL](S8)과 나란히 **[사이트에서 가져오기]** 추가 → 공용 Stepper(S9, F36-⑪ 재사용) 4단계 서브플로:
   - **상태(S13 → S14 갱신)**: S13 종료 시점에는 등록 어댑터가 **qnet 스텁 1개(`available:false`)** 뿐이라 이 탭이 **"준비 중" 안내 + [URL로 반입]·[파일로 반입] 대안 버튼**만 렌더했다. **S14 완료 후에는 서비스키 등록 여부가 그 자리를 결정한다** — **미등록이면 같은 안내 화면**(문구만 "설정 > 데이터에서 공공데이터포털 서비스키를 등록하세요" + 설정 링크, 대안 버튼 유지), **등록되면 아래 ①~④ 서브플로가 그대로 살아난다**. 두 상태 모두 `fetch/adapters` 응답 메타로만 갈린다(빈 화면·오류 금지).
   - ① **자격증 검색·선택** — `GET /api/fetch/certs?q=`(어댑터 병합 결과, 출처 사이트 배지 표시). **S14: 결과 0건은 오류가 아니라 안내**("이 종목의 공개문제가 없습니다 — 필기·필답형은 이 API 범위 밖입니다", 실측 근거는 계획서 §14 F35-3)
@@ -618,7 +712,7 @@ backend/services/fetchers/
 
 ### 5.11 설정 — `/settings`
 - 테마(라이트/다크/시스템 — localStorage, §6), 복습 큐 상한, 기본 문항 수, D-Day 관리(S4, 아래), 백업/복원(S6), 태그 병합 도구(S6 — S9에서 태그 관리자로 승격).
-- **6그룹 구성(F38 — 골격은 S8 선반영 완료, S9는 내용 완성)**: 좌측 목차(카테고리 점프, 모바일 아코디언) + ① **학습**(복습 상한·기본 문항 수 + S9: 글자 크기 `study.font_scale`·정답 자동 다음 `quiz.auto_advance` + **S10: 일일 목표** — 문제 수 `goal.daily_questions`·시간(분) `goal.daily_minutes` 숫자 입력, 비움/0 = 목표 없음, 저장 시 스트릭·히트맵 위젯 invalidate. "시간은 문제 풀이 시간 기준" 도움말 소표기 §4.13 + **S11: D-Day 복습 강화 토글** `srs.dday_boost`(기본 on) — "시험 14일 전부터 복습 상한을 늘리고 임박 시험 범위를 우선합니다" 도움말, §4.14) ② **일정**(D-Day 관리) ③ **태그·분류**(태그 규칙 + S9: **태그 관리자** — 아래) ④ **LLM 엔진**(S8 §4.11) ⑤ **데이터**(백업/복원·CSV 내보내기 + S9: 복원 후 강제 리로드 모달 §4.12 + **S14(구현 완료 2026-07-27): 큐넷 오픈API 카드** — 공공데이터포털 서비스키 등록(입력 시 즉석 검증 — 실패 사유 표시)·등록 후 마지막 4자리 마스킹 표시·삭제, 발급 방법(공공데이터포털 활용신청) 안내 소표기 + **커버리지 한계 한 줄**(실기 공개문제 위주 — 필기·필답형은 파일·URL 반입)로 등록 전에 기대치를 맞춘다. `fetch/qnet-key` §4.13 — F34 API 키 카드 UX 미러. 배치 근거: 데이터 유입(반입 소스) 계열 — **F38 6그룹 수 불변**, 그룹 내 카드 추가만) ⑥ **화면**(테마).
+- **6그룹 구성(F38 — 골격은 S8 선반영 완료, S9는 내용 완성)**: 좌측 목차(카테고리 점프, 모바일 아코디언) + ① **학습**(복습 상한·기본 문항 수 + S9: 글자 크기 `study.font_scale`·정답 자동 다음 `quiz.auto_advance` + **S10: 일일 목표** — 문제 수 `goal.daily_questions`·시간(분) `goal.daily_minutes` 숫자 입력, 비움/0 = 목표 없음, 저장 시 스트릭·히트맵 위젯 invalidate. "시간은 문제 풀이 시간 기준" 도움말 소표기 §4.13 + **S11: D-Day 복습 강화 토글** `srs.dday_boost`(기본 on) — "시험 14일 전부터 복습 상한을 늘리고 임박 시험 범위를 우선합니다" 도움말, §4.14) ② **일정**(D-Day 관리) ③ **태그·분류**(태그 규칙 + S9: **태그 관리자** — 아래) ④ **LLM 엔진**(S8 §4.11 — **S15 예정**: 카드 2장 고정 → 레지스트리 목록 렌더 + ▲▼ 우선순위 + Codex 온보딩 마법사·프라이버시 고지, §4.17 ⑦) ⑤ **데이터**(백업/복원·CSV 내보내기 + S9: 복원 후 강제 리로드 모달 §4.12 + **S14(구현 완료 2026-07-27): 큐넷 오픈API 카드** — 공공데이터포털 서비스키 등록(입력 시 즉석 검증 — 실패 사유 표시)·등록 후 마지막 4자리 마스킹 표시·삭제, 발급 방법(공공데이터포털 활용신청) 안내 소표기 + **커버리지 한계 한 줄**(실기 공개문제 위주 — 필기·필답형은 파일·URL 반입)로 등록 전에 기대치를 맞춘다. `fetch/qnet-key` §4.13 — F34 API 키 카드 UX 미러. 배치 근거: 데이터 유입(반입 소스) 계열 — **F38 6그룹 수 불변**, 그룹 내 카드 추가만) ⑥ **화면**(테마).
 - **매뉴얼 링크(S12, F39)**: 좌측 목차 **하단**(모바일 아코디언 하단)에 "사용 설명서 열기" 링크 — `/manual` 새 탭(`target="_blank" rel="noopener"`, §4.15). **7번째 그룹이 아닌 단순 링크**(F38 6그룹 구조 불변). 모바일(<768px)에서는 이것이 유일한 매뉴얼 진입 경로(§5 공통 레이아웃 — 사이드바 없음).
 - **태그 관리자(S9, F38)** — 병합 "도구"(TagMergeTool)를 관리 "화면"으로 승격:
   - **목록 테이블**: 이름 · 사용 문서 수(doc_count) · 규칙 사용 배지(rule_count>0) — 검색·정렬(이름/사용 수). 행 클릭 = 사용 문서 보기(탐색 `?tag=` 필터 링크).

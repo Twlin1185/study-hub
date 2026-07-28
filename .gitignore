@@ -5,6 +5,10 @@ sources/
 TestSources/
 backups/
 backend/convert_tmp/
+# 변환 작업 임시 산출물(LLM 결과 JSON — 기출 원문 포함 가능)의 실제 위치는 **프로젝트 루트**
+# convert_tmp/ 다 (convert_service.CONVERT_TMP_DIR = database.BASE_DIR 기준 — S15 검토 실측).
+# 위 backend/convert_tmp/ 항목은 경로가 어긋나 있었다(보존용으로 남김).
+/convert_tmp/
 # 반입 JSON 전체 — 기출 원문이 담긴 사용자 데이터다. 공개 저장소에는 **도구만** 올리고
 # 데이터는 각자 수집한다(계획서 §14 F35-2 제거 이력의 전제). auto/는 앱이 만든 보존본
 # (S13 F40-① — 최근 50건, 백업(F27) 대상도 아님).
@@ -26,6 +30,10 @@ backend/.bkit/
 
 # 테스터용 포터블 Python (1_Setup.bat 이 내려받아 생성 — 커밋 금지)
 python-embed/
+
+# codex-cli 격리 설치본 (S15/F41 — POST /api/llm/engines/codex-cli/install이 내려받는 바이너리,
+# git·백업 제외. PATH 불변 원칙 — 설정에 저장하지 않으므로 여기 있어도 재현 가능)
+tools/codex/
 
 # 도구 런타임 상태 (세션마다 자동으로 바뀌는 값 — 소스가 아니다)
 .claude/scheduled_tasks.lock

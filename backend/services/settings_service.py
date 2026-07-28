@@ -14,8 +14,9 @@ DEFAULTS: Dict[str, Any] = {
     "srs.daily_limit": 30,  # 계획서 §10 · stage-5 기본값
     "srs.dday_boost": "on",  # S11(F16, 설계 §4.14) — 'on'|'off', D-Day 복습 강도 조절 토글
     "backup.auto": False,
-    # S8 — LLM 엔진 관리 (F34, 설계 §4.11)
-    "llm.priority": "cli",  # 'cli' | 'api' — engine:'auto' 요청 시 이 값을 따른다
+    # S8 — LLM 엔진 관리 (F34→F41, 설계 §4.17)
+    "llm.priority": "cli",  # legacy 스칼라('cli'|'api') 또는 엔진 id 배열 — 읽기 시
+    # llm_engine_service.normalize_priority가 항상 유효 배열로 정규화한다(§4.17 ①)
     "llm.fallback": "ask",  # 'auto' | 'ask' | 'off' — auto는 과금 동의 UI 통과 시에만 프론트가 설정
     "llm.api_model": "claude-sonnet-5",
     "llm.last_limit": None,  # {engine, limit_kind, resets_at} | None — 최근 429 한도 기억

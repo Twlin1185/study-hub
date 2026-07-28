@@ -21,7 +21,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from database import BASE_DIR
 
@@ -31,6 +31,8 @@ SOURCES_DIR = BASE_DIR / "sources"
 
 KEEP_MAX = 50  # 최근 50건 유지 (설계 §4.3 보존 정책)
 NO_SOURCE = "nosrc"
+# S15(F41): 신뢰 게이트 경고 사이드카 키 — §8.2 규격 밖(재반입 시 무시되는 부가 정보)
+WARNINGS_KEY = "preview_warnings"
 _NAME_MAX = 80  # 원본 파일명 성분 길이 상한 (Windows 경로 길이 방어)
 
 _PREVIEW_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -66,9 +68,18 @@ def save(
     *,
     source_filename: Optional[str] = None,
     source_hash: Optional[str] = None,
+    warnings: Optional[Dict[int, List[str]]] = None,
 ) -> Optional[Path]:
     """반입 JSON을 보존한다. 실패는 예외를 올리지 않고 None을 반환한다 —
-    보존 실패가 변환 결과(이미 성공한 preview) 자체를 버리게 만들면 안 된다."""
+    보존 실패가 변환 결과(이미 성공한 preview) 자체를 버리게 만들면 안 된다.
+
+    S15(F41): 최초 preview에서 계산한 변환 신뢰 게이트 경고를 **`preview_warnings`
+    사이드카 키**(`{"항목 index": ["solved_answer", ...]}`)로 같은 파일에 함께 남긴다
+    (설계 §4.17 DDL 재확인 항목 "preview JSON 필드(warnings — 메모리 + `import/auto/`
+    파일)"). 복구는 **상태 복원이지 재판정이 아니므로** 이 값이 정본이다 — 원본 파일이
+    없는 경로(사이트 반입의 구조화 텍스트)에서 복구 시 `fabrication_suspect`가
+    `match_unavailable`로 강등돼 기본 반입에 포함되던 구멍을 막는다.
+    §8.2 규격 밖의 키라 사람이 이 파일을 그대로 재반입해도 무시된다(전방 호환)."""
     if not is_valid_preview_id(preview_id):
         return None
     hash_part = source_hash[:12] if source_hash else NO_SOURCE
@@ -80,6 +91,10 @@ def save(
         # 들여쓰기까지 적용해 다시 직렬화한다(내용·항목 순서는 동일).
         try:
             data = json.loads(json_bytes)
+            if isinstance(data, dict) and warnings is not None:
+                data[WARNINGS_KEY] = {
+                    str(index): list(values) for index, values in sorted(warnings.items())
+                }
             text = json.dumps(data, ensure_ascii=False, indent=2)
         except (json.JSONDecodeError, UnicodeDecodeError):
             path.write_bytes(json_bytes)
@@ -90,6 +105,30 @@ def save(
         return None
     prune()
     return path
+
+
+def load_warnings(json_bytes: bytes) -> Optional[Dict[int, List[str]]]:
+    """보존 JSON에서 `preview_warnings` 사이드카를 읽는다(없으면 None → 호출부가 재계산).
+
+    **구버전 보존본(S15 이전 — 키 없음)은 None**이라 현행 재계산 동작이 그대로 유지된다."""
+    try:
+        data = json.loads(json_bytes)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    raw = data.get(WARNINGS_KEY)
+    if not isinstance(raw, dict):
+        return None
+    result: Dict[int, List[str]] = {}
+    for key, values in raw.items():
+        try:
+            index = int(key)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(values, list):
+            result[index] = [v for v in values if isinstance(v, str)]
+    return result
 
 
 def find(preview_id: str) -> Optional[Path]:

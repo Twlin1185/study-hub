@@ -253,7 +253,10 @@ export function useConvertQueue() {
     [updateEntry],
   )
 
-  // [API로 재시도] — 기존 engine:'api' 계약 그대로. 파일 소스는 이번 세션에 File이 있어야 한다.
+  // [다시 시도] — S15(설계 §4.17③): 엔진은 호출자가 error_info.fallback_engine에서 구해 넘긴다
+  // (다음 후보 엔진, 이항 가정 아님). 인자를 생략하거나 undefined면 legacy 'api' 폴백을 유지한다
+  // (fallback_engine 필드가 없는 과도기 응답 대응 — 프론트 결정, 설계에 별도 규칙 없음).
+  // 파일 소스는 이번 세션에 File이 있어야 한다.
   const retryEntry = useCallback(
     async (id: string, engine: LlmEngine = 'api') => {
       const entry = entries.find((e) => e.id === id)

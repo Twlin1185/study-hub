@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useFetchAdapters, useFetchCerts, useFetchExams, useFetchImport } from '../api/fetch'
 import { isJobLost, jobUnavailable, useConvertJob, useConvertedPreview } from '../api/convert'
+import { useLlmStatus } from '../api/llm'
 import { ApiError } from '../api/client'
 import { clearStoredConvertJob, getStoredConvertJob, setStoredConvertJob } from '../utils/convertJob'
 import LlmJobProgress from './LlmJobProgress'
@@ -37,11 +38,16 @@ const ADAPTER_FALLBACK_NAME: Record<FetchAdapterId, string> = {
   qnet: '큐넷',
 }
 
-const ENGINE_OPTIONS: { value: LlmEngine; label: string }[] = [
-  { value: 'auto', label: '자동' },
-  { value: 'cli', label: 'CLI' },
-  { value: 'api', label: 'API' },
-]
+// S15(설계 §4.17①·②) — 등록 엔진 목록에서 파생(하드코딩 cli/api 2종 고정 제거). 상태 로딩
+// 전에는 항상 유효한 'auto' 하나만 보여준다(빈 선택지 방지). 엔진이 추가·제거돼도 이 컴포넌트는
+// 바뀌지 않아야 정상(어댑터 격리 원칙과 동일한 레지스트리 소비 방식).
+function useEngineOptions(): { value: LlmEngine; label: string }[] {
+  const statusQuery = useLlmStatus()
+  const engines = statusQuery.data?.engines
+  const base: { value: LlmEngine; label: string }[] = [{ value: 'auto', label: '자동' }]
+  if (!engines || engines.length === 0) return base
+  return [...base, ...engines.map((e) => ({ value: e.id as LlmEngine, label: e.label }))]
+}
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -87,6 +93,7 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
   const [engine, setEngine] = useState<LlmEngine>('auto')
   const [agreed, setAgreed] = useState(false)
   const [jobId, setJobId] = useState<string | null>(resumed?.jobId ?? null)
+  const engineOptions = useEngineOptions()
 
   const adaptersQuery = useFetchAdapters()
   const certsQuery = useFetchCerts(committedQuery)
@@ -521,8 +528,8 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
 
           <div>
             <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>
-            <div className="flex gap-2">
-              {ENGINE_OPTIONS.map((opt) => (
+            <div className="flex flex-wrap gap-2">
+              {engineOptions.map((opt) => (
                 <button
                   key={opt.value}
                   type="button"

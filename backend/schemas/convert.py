@@ -24,7 +24,9 @@ ErrorKind = Literal[
     "other",
 ]
 LimitKind = Literal["session", "daily", "weekly", "model", "overall"]
-EngineChoice = Literal["auto", "cli", "api"]
+# S15(F41): 'auto' 또는 등록 엔진 id('claude-cli'|'claude-api'|'codex-cli'), legacy 별칭
+# ('cli'|'api')도 읽기 시 매핑되어 계속 수용된다(설계 §4.17 ③) — 타입은 str로 느슨하게 둔다.
+EngineChoice = str
 
 
 class JobUsage(BaseModel):
@@ -53,6 +55,9 @@ class ErrorInfo(BaseModel):
     message: str
     action: str
     fallback_available: bool
+    # S15(F41, 설계 §4.17 ③): 다음 폴백 후보 엔진 id — ask 정책의 [다시 시도] 버튼이 이 id로
+    # 재요청한다. 후보가 없으면 None(= fallback_available도 False).
+    fallback_engine: Optional[str] = None
     # S10 parse_failed 전용 — 프론트 대안 버튼 힌트('url_import' | 'other_adapter')
     alternatives: Optional[List[str]] = None
 
