@@ -199,6 +199,26 @@ export default function CurriculumDetailPage() {
         />
       ) : (
         <div className="flex flex-col gap-2">
+          {/* 컨테이너 노드라도 직속 문서가 있으면(반입 등으로 회차·과목이 아닌 중간 노드에 연결된 경우)
+              숨겨지면 안 된다 — 자식 목록과 별개로 노드 자신의 문서 패널을 함께 보여준다. */}
+          {node.doc_count > 0 && (
+            <AccordionSection
+              node={node}
+              depth={0}
+              editMode={editMode}
+              stageMap={stageMap}
+              onStudy={(n) => navigate(`/study/${n.id}`)}
+              onQuiz={(catId, types) => startTypedQuiz(catId, types)}
+              onAddDoc={(n, type) => setDocModal({ kind: 'create', categoryId: n.id, categoryName: n.name, type })}
+              onEditDoc={(documentId) => setDocModal({ kind: 'edit', documentId })}
+              onAddChild={(n) => setModal({ kind: 'add-category', parent: n })}
+              onRename={(n) => setModal({ kind: 'rename-category', node: n })}
+              onMove={(n) => setModal({ kind: 'move-category', node: n })}
+              onDelete={(n) => setModal({ kind: 'delete-category', node: n })}
+              forceOpen
+              hideChildren
+            />
+          )}
           {node.children.map((child) => (
             <AccordionSection
               key={child.id}
@@ -384,12 +404,15 @@ interface AccordionSectionProps {
   onMove: (node: CategoryNode) => void
   onDelete: (node: CategoryNode) => void
   forceOpen?: boolean
+  // 루트 노드의 "직속 문서" 섹션으로 재사용할 때 — 자식 트리는 페이지에서 별도로 이미 렌더하므로
+  // 이 인스턴스는 노드 자신의 진도·문서 패널만 보여주고 자식 재귀 렌더는 생략한다.
+  hideChildren?: boolean
 }
 
 function AccordionSection(props: AccordionSectionProps) {
-  const { node, depth, editMode, stageMap, forceOpen } = props
+  const { node, depth, editMode, stageMap, forceOpen, hideChildren } = props
   const [expanded, setExpanded] = useState(forceOpen ?? depth < 1)
-  const hasChildren = node.children.length > 0
+  const hasChildren = !hideChildren && node.children.length > 0
   const sp = stageMap.get(node.id) ?? null
 
   return (
@@ -538,10 +561,20 @@ function NodeDocPanel({
   onAddDoc: (node: CategoryNode, type: DocumentType) => void
   onEditDoc: (documentId: number) => void
 }) {
-  const [tab, setTab] = useState<DocumentType>('concept')
-  // 이 노드에 직접 연결된 문서만(집계 칩은 하위 포함, 문서 목록은 직접 — 혼동 방지).
-  const docsQuery = useDocuments({ category_id: node.id, type: tab, size: 200 })
-  const items = docsQuery.data?.items ?? []
+  // 이 노드에 직접 연결된 문서만(집계 칩은 하위 포함, 문서 목록은 직접 — 혼동 방지). 타입 필터 없이
+  // 한 번만 조회해 탭별로 클라이언트에서 나누면 탭 전환마다 재조회하지 않고, 문서가 실제로 존재하는
+  // 첫 타입을 기본 탭으로 고를 수 있다(예: past_question만 있는 노드가 concept 탭 고정으로
+  // "문서 없음"으로 보이던 결함 수정).
+  const [tab, setTab] = useState<DocumentType | null>(null)
+  const docsQuery = useDocuments({ category_id: node.id, size: 200 })
+  const allItems = docsQuery.data?.items ?? []
+  const defaultTab = useMemo<DocumentType>(() => {
+    const firstWithDocs = DOC_TABS.find((t) => allItems.some((d) => d.type === t.type))
+    return firstWithDocs?.type ?? 'concept'
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docsQuery.data])
+  const activeTab = tab ?? defaultTab
+  const items = allItems.filter((d) => d.type === activeTab)
 
   return (
     <div className="rounded border border-border bg-bg p-2">
@@ -551,9 +584,9 @@ function NodeDocPanel({
             key={t.type}
             type="button"
             onClick={() => setTab(t.type)}
-            aria-pressed={tab === t.type}
+            aria-pressed={activeTab === t.type}
             className={`rounded px-2.5 py-1 text-xs font-medium ${
-              tab === t.type ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-surface'
+              activeTab === t.type ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-surface'
             }`}
           >
             {t.label}
@@ -592,7 +625,7 @@ function NodeDocPanel({
 
       <button
         type="button"
-        onClick={() => onAddDoc(node, tab)}
+        onClick={() => onAddDoc(node, activeTab)}
         className="mt-2 w-full rounded border border-dashed border-border px-2 py-1.5 text-xs font-medium text-accent hover:bg-surface"
       >
         + 문서 추가

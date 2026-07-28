@@ -132,7 +132,28 @@ export default function ExamPage() {
   const perSubjectCount = perSubjectCountAll ? null : clampPositiveInt(perSubjectCountInput, 20)
 
   const examNode = examNodeId != null ? findCategory(pipelineQuery.data ?? [], examNodeId) : null
-  const subjectNodes = useMemo(() => examNode?.children ?? [], [examNode])
+  // 핫픽스 — 시험 노드 자신에 직속 문서가 있으면(중간 노드에 바로 연결된 문서, 합법) 과목 체크리스트가
+  // examNode.children만 훑어서 그 문서를 어떤 과목에도 못 넣어 출제에서 통째로 빠졌다. 시험 노드 자신을
+  // 나타내는 항목을 목록 맨 앞에 추가한다 — category_id=examNode.id로 세션을 만들면 백엔드
+  // collect_descendant_ids가 자기 자신도 포함하므로(§4.14) 정상 출제된다.
+  //
+  // 검토 보완 — 이 항목의 실제 출제 범위는 "직속 문서만"이 아니라 examNode의 collect_descendant_ids
+  // 결과(자기 자신 + 하위 트리 전체)다. 즉 아래 자식 과목들이 이미 포함하는 문서를 전부 다시
+  // 포함하므로, 라벨은 "이 분류 전체"로 실제 동작을 정확히 드러낸다. exam_service가 과목 간 중복
+  // 제거를 하지 않으므로(같은 문서가 두 과목에 중복 출제·이중 채점) 이 항목과 자식 과목은 동시에
+  // 선택될 수 없도록 상호배타를 구조적으로 강제한다(아래 anyChildSelected/toggleSubject) — 완화
+  // 문구는 모바일에서 뜨지 않는 hover 툴팁이 아니라 항상 노출되는 캡션으로 둔다.
+  const hasOwnDocs = (examNode?.doc_count ?? 0) > 0
+  const selfSubjectId = hasOwnDocs ? examNode?.id ?? null : null
+  const subjectNodes = useMemo(
+    () => (hasOwnDocs && examNode ? [examNode, ...examNode.children] : examNode?.children ?? []),
+    [examNode, hasOwnDocs],
+  )
+  // 자식 과목이 하나라도 선택돼 있으면 self("이 분류 전체") 항목은 비활성 — 중복 출제 원천 차단.
+  const anyChildSelected = useMemo(
+    () => (examNode?.children ?? []).some((c) => selectedSubjects.has(c.id)),
+    [examNode, selectedSubjects],
+  )
 
   // 시험 노드가 바뀌면 과목 선택을 새로 초기화(문제 보유 노드 기본 전체 선택, §5.12 — 판정은
   // subjectExamCount, 서브트리 question+past_question 합) — 사용자 수동 조정(문항 수·순서) 터치
@@ -169,8 +190,15 @@ export default function ExamPage() {
   function toggleSubject(id: number) {
     setSelectedSubjects((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+        // 상호배타(검토 권고) — self("이 분류 전체")는 하위 트리 전체를 다시 포함해 자식 과목과
+        // 겹치므로, 자식 과목을 새로 선택하면 self는 자동 해제한다(self는 자식이 하나라도 선택된
+        // 동안 체크박스 자체가 비활성화되어 반대 방향 선택은 UI에서 막힌다).
+        if (selfSubjectId != null && id !== selfSubjectId) next.delete(selfSubjectId)
+      }
       return next
     })
   }
@@ -233,7 +261,10 @@ export default function ExamPage() {
       {examNode && (
         <section className="mb-4">
           <h2 className="mb-2 text-sm font-semibold text-primary">
-            ② 과목 구성 <span className="text-xs font-normal text-muted">(직계 자식 — 0문항은 비활성)</span>
+            ② 과목 구성{' '}
+            <span className="text-xs font-normal text-muted">
+              (직계 자식{hasOwnDocs ? ' + 이 분류 전체(직속 문서 포함)' : ''} — 0문항은 비활성)
+            </span>
           </h2>
           {subjectNodes.length === 0 ? (
             <p className="text-sm text-muted">이 노드는 하위 항목이 없습니다. 다른 노드를 선택하세요.</p>
@@ -241,21 +272,34 @@ export default function ExamPage() {
             <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-surface p-3">
               {subjectNodes.map((c) => {
                 const count = subjectExamCount(c)
-                const disabled = count === 0
+                const isSelfEntry = c.id === examNode?.id
+                const disabled = count === 0 || (isSelfEntry && anyChildSelected)
                 return (
-                  <label
-                    key={c.id}
-                    className={`flex items-center gap-2 text-sm ${disabled ? 'text-muted opacity-50' : 'text-primary'}`}
-                  >
-                    <input
-                      type="checkbox"
-                      disabled={disabled}
-                      checked={selectedSubjects.has(c.id)}
-                      onChange={() => toggleSubject(c.id)}
-                    />
-                    <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                    <span className="shrink-0 text-xs text-muted">{count}문항</span>
-                  </label>
+                  <div key={c.id} className="flex flex-col gap-0.5">
+                    <label
+                      className={`flex items-center gap-2 text-sm ${disabled ? 'text-muted opacity-50' : 'text-primary'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={disabled}
+                        checked={selectedSubjects.has(c.id)}
+                        onChange={() => toggleSubject(c.id)}
+                      />
+                      <span className="min-w-0 flex-1 truncate">
+                        {c.name}
+                        {isSelfEntry && <span className="ml-1 text-xs text-accent">(이 분류 전체)</span>}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted">{count}문항</span>
+                    </label>
+                    {/* 완화 문구는 hover 툴팁이 아니라 항상 노출되는 소문구로(모바일에서는 hover가 없다). */}
+                    {isSelfEntry && (
+                      <p className="pl-6 text-[11px] text-muted">
+                        {anyChildSelected
+                          ? '다른 과목이 선택되어 있어 비활성화됨 — 하위 전체를 다시 포함해 문항이 중복됩니다.'
+                          : '하위 전체(자식 과목 포함)를 한 과목으로 출제합니다. 선택 시 아래 자식 과목은 선택할 수 없습니다.'}
+                      </p>
+                    )}
+                  </div>
                 )
               })}
             </div>

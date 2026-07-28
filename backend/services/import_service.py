@@ -177,6 +177,18 @@ def _resolve_category_path(db: Session, path: str) -> Tuple[Optional[int], bool]
     return (node.id if node else None), True
 
 
+def _has_child_categories(db: Session, category_id: int) -> bool:
+    """category_id가 다른 분류의 부모(=자식이 있는 컨테이너 노드)인지 여부."""
+    return (
+        db.execute(
+            select(models.Category.id)
+            .where(models.Category.parent_id == category_id)
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
 def _create_category_path(db: Session, path: str) -> int:
     """누락 구간 노드를 생성하며 leaf category_id를 반환 (commit 트랜잭션 내부 호출)."""
     names = _path_names(path)
@@ -584,7 +596,16 @@ def create_preview(
 
         # 분류 제안 해석
         sc_results = [
-            SuggestCategoryResult(path=path, category_id=cid, exists=exists)
+            SuggestCategoryResult(
+                path=path,
+                category_id=cid,
+                exists=exists,
+                container=(
+                    True
+                    if (exists and cid is not None and _has_child_categories(db, cid))
+                    else None
+                ),
+            )
             for path in norm["suggest_categories"]
             for cid, exists in [_resolve_category_path(db, path)]
         ]

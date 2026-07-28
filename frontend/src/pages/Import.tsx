@@ -920,10 +920,24 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
                       {!sc.exists && (
                         <span className="rounded bg-accent-soft px-1 text-accent">생성 제안</span>
                       )}
+                      {sc.container && (
+                        <span
+                          className="rounded bg-warning px-1 text-on-accent"
+                          title="하위 분류(회차·과목)에 연결하는 편이 좋습니다"
+                        >
+                          중간 노드
+                        </span>
+                      )}
                     </label>
                   )
                 })}
               </div>
+              {item.suggest_categories.some((sc) => sc.container) && (
+                <p className="mt-1 text-[11px] text-warning">
+                  ⚠ 선택한 분류 중 일부는 자식이 있는 중간 노드입니다. 하위 분류(회차·과목)에 연결하는
+                  편이 커리큘럼·모의고사·인쇄에서 다루기 쉽습니다(막지는 않습니다).
+                </p>
+              )}
             </div>
           )}
 
