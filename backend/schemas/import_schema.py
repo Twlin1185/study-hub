@@ -43,6 +43,10 @@ class SuggestCategoryResult(BaseModel):
     path: str
     category_id: Optional[int] = None
     exists: bool
+    # 경로가 기존 노드에 전부 매칭되고, 그 최종 노드에 자식 분류가 이미 존재하면 True.
+    # (컨테이너 노드에 문서를 직접 붙이는 실수를 프론트가 경고할 수 있도록 하는 신호.
+    #  차단/자동 변경은 하지 않음 — commit 동작은 그대로 허용.)
+    container: Optional[bool] = None
 
 
 class SuggestRelationResult(BaseModel):

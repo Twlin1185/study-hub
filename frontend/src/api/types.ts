@@ -187,6 +187,9 @@ export interface ImportSuggestCategory {
   path: string
   category_id: number | null
   exists: boolean
+  // 핫픽스(백엔드 병렬 작업) — true면 기존 노드인데 자식(하위 분류)이 있는 컨테이너 노드.
+  // 필드 자체가 없는 응답(백엔드 배포 전/구버전)은 미표시로 우아하게 처리 — optional.
+  container?: boolean
 }
 
 export interface ImportSuggestRelation {

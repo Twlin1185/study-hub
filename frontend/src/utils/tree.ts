@@ -73,8 +73,13 @@ export interface LeafGroup {
 // 선택한 분류 노드 아래의 "리프"(하위가 없는) 분류들을 트리 순서 그대로 수집한다.
 // 인쇄 뷰(§5.10)에서 study-track(챕터 단위 정렬)을 리프별로 호출해 목차·섹션을 구성하는 데 사용.
 // 노드 자신이 리프면 자기 자신 1건을 반환한다.
+//
+// 핫픽스 — 리프만 모으면 자식 있는 컨테이너 노드에 직접 연결된 문서(합법적인 구성)가 인쇄에서
+// 통째로 빠진다. 컨테이너 노드도 직속 문서(doc_count > 0)가 있으면 자기 자신을 별도 그룹으로
+// 포함한다(study-track은 deep 미지정이라 해당 노드 직속 문서만 반환 — 하위 리프 그룹과 중복 없음).
 export function collectLeafGroups(node: CategoryNode, parentPath = ''): LeafGroup[] {
   const path = parentPath ? `${parentPath} / ${node.name}` : node.name
   if (node.children.length === 0) return [{ id: node.id, name: node.name, path }]
-  return node.children.flatMap((child) => collectLeafGroups(child, path))
+  const ownDocGroup: LeafGroup[] = node.doc_count > 0 ? [{ id: node.id, name: node.name, path }] : []
+  return [...ownDocGroup, ...node.children.flatMap((child) => collectLeafGroups(child, path))]
 }
