@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useApplyRegenerate, useRegenerate, useRegenerateJob } from '../api/convert'
 import { clearStoredRegenerateJob, getStoredRegenerateJob, setStoredRegenerateJob } from '../utils/regenerateJobs'
-import type { DocumentDetail } from '../api/types'
+import type { DocumentDetail, LlmEngine } from '../api/types'
 import { ApiError } from '../api/client'
 import MarkdownView from './MarkdownView'
 import ReportErrorButton from './ReportErrorButton'
@@ -17,7 +17,7 @@ interface RegenerateJobPanelProps {
 }
 
 // 설계 §5.3, §4.11 — 문서 상세의 오류 신고 진입점 + 잡 진행 중 표시(단계·경과·토큰) + 실패 시
-// error_info 안내([API로 재시도]) + 기존/신규 비교([교체]/[폐기]). job_id·신고 사유는 로컬
+// error_info 안내(§4.17③ — 다음 후보 엔진으로 재시도) + 기존/신규 비교([교체]/[폐기]). job_id·신고 사유는 로컬
 // (localStorage)에서 추적한다 — 백엔드에 "문서별 진행 중 잡 조회" 엔드포인트가 명세돼 있지
 // 않기 때문(utils/regenerateJobs.ts 참고, 명세 갭 — 최종 보고 필요).
 export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
@@ -50,10 +50,12 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
 
   const job = jobQuery.data
 
-  function handleRetryWithApi() {
+  // S15(설계 §4.17③) — engineId는 LlmErrorInfoView가 error_info.fallback_engine(없으면 legacy
+  // 'api' 폴백)에서 구해 넘겨준다. 하드코딩된 engine:'api' 이항 가정 제거.
+  function handleRetry(engineId: string) {
     if (!stored) return
     retryRegenerate.mutate(
-      { documentId: doc.id, reason: stored.reason, engine: 'api' },
+      { documentId: doc.id, reason: stored.reason, engine: engineId as LlmEngine },
       {
         onSuccess: (data) => {
           const next = { jobId: data.job_id, reason: stored.reason }
@@ -94,7 +96,7 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
         <LlmErrorInfoView
           errorInfo={job.error_info}
           legacyError={job.error}
-          onRetryWithApi={stored ? handleRetryWithApi : undefined}
+          onRetry={stored ? handleRetry : undefined}
           retrying={retryRegenerate.isPending}
         />
         <button

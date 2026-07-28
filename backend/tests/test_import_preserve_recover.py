@@ -80,6 +80,10 @@ def test_recovers_from_disk_with_same_items(db):
         source_filename="기출.pdf",
         source_bytes=b"%PDF-1.4 fake",
         preserve=True,
+        # S15: 실제 보존 경로(convert·fetch 잡)는 신뢰 게이트가 켜진 상태다 —
+        # 복구 경로도 게이트를 유지하므로 summary(=warning 포함)가 그대로 일치해야 한다
+        # (설계 §4.17 ⑤ + F40-① 정합. 여기 원본은 가짜 PDF라 양쪽 다 "대조 불가").
+        gate=True,
     )
     assert first.recovered is False
 

@@ -1,12 +1,15 @@
-"""Claude CLI/API 이중 엔진 변환·재생성 (F23·F30·F34, 계획서 §13-B, 설계 §4.10·§4.11).
+"""멀티 벤더 LLM 엔진 변환·재생성 (F23·F30·F34→F41, 계획서 §13-B, 설계 §4.10·§4.11·§4.17).
 
-엔진: CLI(`claude -p --output-format stream-json`) 또는 API(anthropic SDK 스트리밍) —
-`engine` 파라미터(`auto|cli|api`, 기본 auto=`settings:llm.priority`)로 선택한다. 잡은
-인메모리 + TTL(1시간)로 관리하며(서버 재시작 시 소실 허용 — 로컬 개인용), **동시 1개**만
-실행되도록 전용 워커 스레드 1개가 큐를 순차 소비한다(convert·regenerate 공용).
+엔진: `claude-cli`(`claude -p --output-format stream-json`) · `claude-api`(anthropic SDK
+스트리밍) · `codex-cli`(`codex exec --json -o` — 설계 §4.17 ④, 원본은 pypdf 추출 텍스트를
+프롬프트에 삽입하는 경로만 지원). `engine` 파라미터(`auto` 또는 엔진 id, 기본 auto=
+`settings:llm.priority` 우선순위 배열의 첫 available 엔진)로 선택한다. 잡은 인메모리 +
+TTL(1시간)로 관리하며(서버 재시작 시 소실 허용 — 로컬 개인용), **동시 1개**만 실행되도록
+전용 워커 스레드 1개가 큐를 순차 소비한다(convert·regenerate 공용).
 
-오류는 항상 `services.llm_engine_service`를 거쳐 구조화된 `error_info`로 변환된다 —
-CLI/API 원문(JSON·스택트레이스)은 절대 사용자 응답에 노출하지 않는다(로그에만 남긴다).
+오류는 항상 `services.llm_engine_service.classify_engine_failure`를 거쳐 구조화된
+`error_info`로 변환된다 — 엔진 원문(JSON·스택트레이스)은 절대 사용자 응답에 노출하지
+않는다(로그에만 남긴다).
 """
 from __future__ import annotations
 
@@ -16,7 +19,6 @@ import hashlib
 import json
 import logging
 import queue
-import re
 import shutil
 import subprocess
 import threading
@@ -33,7 +35,7 @@ import models
 from database import BASE_DIR, SessionLocal
 from exceptions import AppError, ConflictError, NotFoundError, ValidationAppError
 from schemas.import_schema import PreviewResponse
-from services import document_service, fetch_service, import_service, llm_engine_service, net_safety, settings_service, tag_rule_service
+from services import codex_adapter, document_service, fetch_service, import_service, llm_engine_service, net_safety, settings_service, tag_rule_service
 from services.fetchers.base import (
     AdapterServiceError,
     FetchedExam,
@@ -420,14 +422,17 @@ def _run_api_streaming(
 # 텍스트 파싱 유틸 (기존 유지)
 # ---------------------------------------------------------------------------
 class InvalidLlmOutputError(ValidationAppError):
-    """LLM 출력이 완결된 JSON이 아님 (S13 F40-④, 설계 §4.11 `invalid_output`).
+    """LLM 출력이 완결된 **순수** JSON이 아님 (S13 F40-④ / S15 §8.2 v1.1, 설계 §4.11
+    `invalid_output`).
 
     같은 파일로 재시도하면 같은 실패이므로 "잠시 후 다시 시도"는 오안내다 — 원본 분할·
-    엔진 교체를 안내한다. **원문(잘린 출력·raw)은 detail에도 담지 않는다**(로그에만)."""
+    엔진 교체를 안내한다. **원문(잘린 출력·raw)은 detail에도 담지 않는다**(로그에만).
+    `impure=True`는 JSON 자체는 완결이지만 코드펜스·전후 잡문이 섞인 경우(§8.2 v1.1)."""
 
-    def __init__(self, message: str, *, truncated: bool) -> None:
+    def __init__(self, message: str, *, truncated: bool, impure: bool = False) -> None:
         super().__init__(message, detail=None)
         self.truncated = truncated
+        self.impure = impure
 
 
 # 문항이 많은 기출은 출력 상한에서 잘리는 것이 실제 실패 원인이다. 토큰 수를 직접 알 수
@@ -448,38 +453,54 @@ def _looks_truncated(cleaned: str) -> bool:
     return stripped.count("{") > stripped.count("}") or stripped.count("[") > stripped.count("]")
 
 
-def _parse_json_payload(text: str) -> Any:
-    """앞뒤 설명·코드펜스가 섞여 있어도 최대한 JSON 하나를 뽑아낸다.
-
-    실패하면 `InvalidLlmOutputError` — 원문은 서버 로그에만 남기고 사용자 응답에는
-    싣지 않는다(설계 §4.11 원칙)."""
-    cleaned = text.strip()
-    fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", cleaned, re.DOTALL)
-    if fence:
-        cleaned = fence.group(1).strip()
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
+def _looks_impure(cleaned: str) -> bool:
+    """"JSON은 완결인데 코드펜스·전후 잡문이 섞였다"를 판별 — 안내 문구 분기 전용
+    (§8.2 v1.1: 관대한 벗겨내기는 하지 않는다)."""
+    if cleaned.startswith("```"):
+        return True
     start = cleaned.find("{")
     end = cleaned.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        try:
-            return json.loads(cleaned[start : end + 1])
-        except json.JSONDecodeError as exc:
-            _raise_invalid_output(cleaned, reason=str(exc))
-    _raise_invalid_output(cleaned, reason="출력에서 JSON 객체를 찾지 못함")
+    if start == -1 or end <= start:
+        return False
+    if start == 0 and end == len(cleaned) - 1:
+        return False  # 앞뒤 잡문 없음 — 그냥 깨진 JSON
+    try:
+        json.loads(cleaned[start : end + 1])
+    except json.JSONDecodeError:
+        return False
+    return True
+
+
+def _parse_json_payload(text: str) -> Any:
+    """LLM 출력을 **순수 JSON으로만** 받아들인다 (§8.2 v1.1 / 설계 §4.17 ⑤ — PoC I1).
+
+    코드펜스·전후 잡문을 벗겨내는 관대한 처리는 제거됐다(규율 이완 금지): 출력이 통째로
+    파싱되지 않으면 `InvalidLlmOutputError`(`error_info.kind:'invalid_output'`)로 실패한다.
+    원문은 서버 로그에만 남기고 사용자 응답에는 싣지 않는다(설계 §4.11 원칙)."""
+    cleaned = text.strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        _raise_invalid_output(cleaned, reason=str(exc))
 
 
 def _raise_invalid_output(cleaned: str, *, reason: str) -> None:
-    truncated = _looks_truncated(cleaned)
+    impure = _looks_impure(cleaned)
+    truncated = False if impure else _looks_truncated(cleaned)
     _LOGGER.warning(
-        "LLM 출력 파싱 실패(truncated=%s, %d자): %s | raw(앞 500자)=%r",
+        "LLM 출력 파싱 실패(truncated=%s, impure=%s, %d자): %s | raw(앞 500자)=%r",
         truncated,
+        impure,
         len(cleaned),
         reason,
         cleaned[:500],
     )
+    if impure:
+        raise InvalidLlmOutputError(
+            "LLM 응답이 순수 JSON이 아닙니다 — 코드펜스·설명 문장이 섞여 있습니다",
+            truncated=False,
+            impure=True,
+        )
     # 이 파서는 변환(convert·fetch)과 F30 재생성이 공유한다 — "문항이 많아"처럼 반입에만
     # 맞는 표현 대신 경로 중립 문구를 쓰고, 경로별 다음 행동은 `_invalid_output_action`이
     # 담당한다(재생성 실패에 "과목·회차 단위로 나눠 올리기"가 뜨던 문제).
@@ -587,13 +608,12 @@ def _progress_snapshot(job: dict) -> dict:
 def _handle_engine_failure(
     job_id: str, job: dict, engine: str, exc: Exception, attempted_fallback: bool
 ) -> bool:
-    """엔진 실패를 error_info로 구조화하고 한도를 기억한다. fallback='auto'이고 다른 엔진을
-    쓸 수 있으며 아직 폴백을 시도하지 않았다면 job['_engine']을 바꾸고 True(재시도)를 반환한다.
-    그렇지 않으면 job['_error_info']를 채우고 False를 반환한다(호출부가 그대로 raise)."""
-    if engine == "cli":
-        base = llm_engine_service.classify_cli_failure(str(exc))
-    else:
-        base = llm_engine_service.classify_api_exception(exc)
+    """엔진 실패를 error_info로 구조화하고 한도를 기억한다. fallback='auto'이고 priority상
+    다음 available 엔진이 있으며 아직 폴백을 시도하지 않았다면 job['_engine']을 바꾸고
+    True(재시도)를 반환한다. 그렇지 않으면 job['_error_info']를 채우고 False를 반환한다
+    (호출부가 그대로 raise). 다음 후보는 항상 `llm.priority` 배열에서 찾는다(설계 §4.17 ③)
+    — `other = "api" if engine == "cli" else "cli"` 류의 이항 분기는 두지 않는다."""
+    base = llm_engine_service.classify_engine_failure(engine, exc)
 
     db = SessionLocal()
     try:
@@ -605,15 +625,10 @@ def _handle_engine_failure(
 
     llm_engine_service.record_engine_result(engine, success=False, error_kind=error_info["kind"])
 
-    other_engine = "api" if engine == "cli" else "cli"
-    if (
-        not attempted_fallback
-        and fallback_policy == "auto"
-        and error_info["fallback_available"]
-        and llm_engine_service.is_engine_available(other_engine)
-    ):
+    next_engine = error_info.get("fallback_engine")
+    if not attempted_fallback and fallback_policy == "auto" and next_engine:
         with _JOBS_LOCK:
-            job["_engine"] = other_engine
+            job["_engine"] = next_engine
             job["_fallback_used"] = True
         return True
 
@@ -767,7 +782,7 @@ def _process_job(job_id: str) -> None:
             job = _JOBS.get(job_id)
             if job is not None:
                 job["status"] = "error"
-                if isinstance(exc, (ClaudeCliError, llm_engine_service.ApiEngineError)):
+                if isinstance(exc, (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError)):
                     # 엔진 원문(CLI stderr·anthropic 예외 문자열)은 error_info로만 노출한다.
                     job["error"] = None
                 elif isinstance(exc, (AdapterServiceError, ParseFailedError)):
@@ -819,6 +834,33 @@ def _build_convert_prompt_api(convert_md: str, tmp_path: Path) -> Tuple[str, Lis
     return prompt_text, blocks
 
 
+def _build_convert_prompt_codex(convert_md: str, tmp_path: Path) -> str:
+    """codex-cli 전용 — G2 실증(2026-07-28)에 따라 원본을 pypdf로 추출한 텍스트를 프롬프트에
+    직접 삽입한다(직접 PDF 읽기는 샌드박스 제약으로 재현 불안정 — 설계 §4.17 ④). 추출은
+    `codex_adapter.build_text_for_prompt`가 담당(중복 구현 금지)."""
+    extracted = codex_adapter.build_text_for_prompt(tmp_path)
+    return (
+        f"{convert_md}\n\n---\n\n"
+        "## 이번 변환 대상 — 추출된 원본 텍스트\n"
+        f"원본 파일명: {tmp_path.name}\n"
+        "아래는 원본에서 추출한 텍스트다(PDF는 페이지 구분자 '--- page N ---' 포함 — 추출 "
+        "과정에서 레이아웃이 깨졌을 수 있으니 문맥으로 보정해 읽어라). 파일을 직접 열지 말고 "
+        "이 텍스트만으로 판단하라.\n\n"
+        f"{extracted}\n\n"
+        "위 지시(§0~§8)에 따라 반입 JSON으로 변환하라. "
+        "최종 출력은 설명 문장·코드펜스 없이 순수 JSON 객체 하나만 출력하라."
+    )
+
+
+def _run_codex_streaming(prompt: str, *, timeout_seconds: int, job_id: str) -> str:
+    return codex_adapter.run_exec(
+        prompt,
+        cwd=BASE_DIR,
+        timeout_seconds=timeout_seconds,
+        on_activity=lambda: _touch_activity(job_id),
+    )
+
+
 def _do_convert(job_id: str, job: dict) -> dict:
     if job.get("_url"):
         _set_phase(job_id, "downloading", job["_url"])
@@ -849,9 +891,12 @@ def _do_convert(job_id: str, job: dict) -> dict:
         engine = job["_engine"]
         _set_phase(job_id, "llm_running")
         try:
-            if engine == "cli":
+            if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
                 prompt = _build_convert_prompt_cli(convert_md, tmp_path) + suffix
                 text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+            elif engine == llm_engine_service.ENGINE_CODEX_CLI:
+                prompt = _build_convert_prompt_codex(convert_md, tmp_path) + suffix
+                text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
             else:
                 prompt_text, blocks = _build_convert_prompt_api(convert_md, tmp_path)
                 text_result = _run_api_streaming(
@@ -863,7 +908,7 @@ def _do_convert(job_id: str, job: dict) -> dict:
                 )
             llm_engine_service.record_engine_result(engine, success=True)
             break
-        except (ClaudeCliError, llm_engine_service.ApiEngineError) as exc:
+        except (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError) as exc:
             if _handle_engine_failure(job_id, job, engine, exc, attempted_fallback):
                 attempted_fallback = True
                 continue
@@ -884,6 +929,11 @@ def _do_convert(job_id: str, job: dict) -> dict:
             # S13(F40-①): LLM 비용을 치른 산출 JSON을 import/auto/에 보존해
             # TTL 만료·서버 재시작 뒤에도 복구할 수 있게 한다(설계 §4.3).
             preserve=True,
+            # S15(F41): 변환 파이프라인 산출물 — 신뢰 게이트(원문 대조·answer_source)와
+            # §8.2 v1.1 강화 검증을 적용한다(설계 §4.17 ⑤·⑥). 대조용 원본 텍스트는
+            # `_source_bytes`에서 잡당 1회 추출한다(LLM 재호출·중복 저장 없음).
+            gate=True,
+            strict=True,
         )
     finally:
         db.close()
@@ -1086,8 +1136,9 @@ def _do_fetch(job_id: str, job: dict) -> dict:
             job["_source_filename"] = fetched.filename
             job["_source_bytes"] = fetched.data
             job["_input_size"] = len(fetched.data)
-        directives = _fetch_directives(fetched, cli=job["_engine"] == "cli")
+        directives = _fetch_directives(fetched, cli=job["_engine"] == llm_engine_service.ENGINE_CLAUDE_CLI)
         file_mode = True
+        source_text_for_match = None  # 원본 파일에서 추출(create_preview가 잡당 1회 수행)
     elif isinstance(fetched, FetchedExam):
         _set_phase(job_id, "fetching", "이미지 다운로드")
         _save_fetch_images(job_id, fetched.questions, client)
@@ -1097,6 +1148,9 @@ def _do_fetch(job_id: str, job: dict) -> dict:
         with _JOBS_LOCK:
             job["_input_size"] = len(structured.encode("utf-8"))
         file_mode = False
+        # S15: 이 경로는 원본 파일이 없다 — 어댑터가 만든 구조화 텍스트가 곧 원본이므로
+        # 그대로 원문 대조 소재로 넘긴다(설계 §4.17 ⑥).
+        source_text_for_match = structured
     else:  # pragma: no cover - 인터페이스 위반
         raise ParseFailedError("어댑터가 알 수 없는 결과를 반환했습니다")
 
@@ -1108,9 +1162,12 @@ def _do_fetch(job_id: str, job: dict) -> dict:
         try:
             if file_mode:
                 tmp_path = Path(job["_tmp_path"])
-                if engine == "cli":
+                if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
                     prompt = _build_convert_prompt_cli(convert_md, tmp_path) + "\n\n" + directives
                     text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                elif engine == llm_engine_service.ENGINE_CODEX_CLI:
+                    prompt = _build_convert_prompt_codex(convert_md, tmp_path) + "\n\n" + directives
+                    text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
                 else:
                     prompt_text, blocks = _build_convert_prompt_api(convert_md, tmp_path)
                     text_result = _run_api_streaming(
@@ -1122,8 +1179,10 @@ def _do_fetch(job_id: str, job: dict) -> dict:
                     )
             else:
                 prompt = f"{convert_md}\n\n---\n\n{directives}\n\n최종 출력은 순수 JSON 객체 하나만."
-                if engine == "cli":
+                if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
                     text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                elif engine == llm_engine_service.ENGINE_CODEX_CLI:
+                    text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
                 else:
                     text_result = _run_api_streaming(
                         prompt,
@@ -1134,7 +1193,7 @@ def _do_fetch(job_id: str, job: dict) -> dict:
                     )
             llm_engine_service.record_engine_result(engine, success=True)
             break
-        except (ClaudeCliError, llm_engine_service.ApiEngineError) as exc:
+        except (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError) as exc:
             if _handle_engine_failure(job_id, job, engine, exc, attempted_fallback):
                 attempted_fallback = True
                 continue
@@ -1155,6 +1214,11 @@ def _do_fetch(job_id: str, job: dict) -> dict:
             # S13(F40-①): LLM 비용을 치른 산출 JSON을 import/auto/에 보존해
             # TTL 만료·서버 재시작 뒤에도 복구할 수 있게 한다(설계 §4.3).
             preserve=True,
+            # S15(F41): 사이트 반입도 같은 변환 파이프라인 — 신뢰 게이트 공통 적용
+            # (설계 §4.17 ⑤·⑥ "전 엔진·전 경로 공통").
+            gate=True,
+            strict=True,
+            source_text=source_text_for_match,
         )
     finally:
         db.close()
@@ -1391,7 +1455,7 @@ def _build_regenerate_prompt(
     ]
     if source_note:
         lines += ["", "## 원본 출처", source_note]
-        if engine == "cli":
+        if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
             lines.append("원본 파일이 프로젝트 안에 있으면 Read 도구로 직접 읽어 대조하라(R7 — 원본 대조).")
     lines += [
         "",
@@ -1456,8 +1520,12 @@ def _do_regenerate(job_id: str, job: dict) -> dict:
         engine = job["_engine"]
         _set_phase(job_id, "llm_running")
         try:
-            if engine == "cli":
+            if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
                 text_result = _run_claude_cli_streaming(
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                )
+            elif engine == llm_engine_service.ENGINE_CODEX_CLI:
+                text_result = _run_codex_streaming(
                     job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
                 )
             else:
@@ -1470,7 +1538,7 @@ def _do_regenerate(job_id: str, job: dict) -> dict:
                 )
             llm_engine_service.record_engine_result(engine, success=True)
             break
-        except (ClaudeCliError, llm_engine_service.ApiEngineError) as exc:
+        except (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError) as exc:
             if _handle_engine_failure(job_id, job, engine, exc, attempted_fallback):
                 attempted_fallback = True
                 continue

@@ -50,7 +50,9 @@ interface ImportQueueListProps {
   reviewError: string | null
   onReview: (item: QueueItem) => void
   onRemove: (entryId: string) => void
-  onRetryApi: (entryId: string) => void
+  // S15(설계 §4.17③) — engineId는 error_info.fallback_engine(없으면 legacy 'api' 폴백,
+  // useConvertQueue.retryEntry 기본값이 처리)을 그대로 전달받는다. 이름은 호환을 위해 유지.
+  onRetryApi: (entryId: string, engineId?: string) => void
   // invalid_output(F40-④) — 시작 화면으로 돌아가 원본을 나눠 다시 올리게 한다.
   onSplitReupload: () => void
   onClearFinished: () => void
@@ -151,7 +153,7 @@ export default function ImportQueueList({
               <LlmErrorInfoView
                 errorInfo={item.errorInfo}
                 legacyError={item.legacyError}
-                onRetryWithApi={item.retryable ? () => onRetryApi(item.entry.id) : undefined}
+                onRetry={item.retryable ? (engineId) => onRetryApi(item.entry.id, engineId) : undefined}
                 retrying={starting}
                 onSplitReupload={onSplitReupload}
               />

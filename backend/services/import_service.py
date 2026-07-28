@@ -43,12 +43,16 @@ from schemas.import_schema import (
     SuggestCategoryResult,
     SuggestRelationResult,
 )
-from services import preview_store, tag_rule_service
+from services import preview_store, source_match, tag_rule_service
 from services.document_service import _generate_doc_no
 from services.tag_service import get_or_create_tag
 
 SOURCES_DIR = BASE_DIR / "sources"
 QUESTION_TYPES = {"question", "past_question"}
+# §8.2 v1.1 — `content` 필수 대상(개념·문제). flashcard는 앞/뒷면 쌍이라 제외.
+CONTENT_REQUIRED_TYPES = {"concept", "question", "past_question"}
+# §8.2 v1.1 — 정답 출처. 누락은 직접 업로드에서만 허용(=original 간주).
+ANSWER_SOURCES = {"original", "solved"}
 PREVIEW_TTL = dt.timedelta(hours=1)
 
 # preview 상태 = 서버 메모리 (TTL 1시간). 프로세스 재시작 시 소실 —
@@ -226,10 +230,57 @@ def _link_category(db: Session, category_id: int, document_id: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 항목별 규격 검증 (§8.3)
+# 항목별 규격 검증 (§8.3 — v1.1 강화, 설계 §4.17 ⑤)
 # ---------------------------------------------------------------------------
-def _validate_item(raw: object) -> Tuple[Optional[dict], List[str]]:
-    """반입 문서 1건을 검증. (정규화 dict, errors) 반환. errors 있으면 dict=None."""
+def _normalize_choice_answer(
+    answer: str, choices: List[str], *, strict: bool, errors: List[str]
+) -> str:
+    """객관식 정답을 1-base 보기 번호 문자열로 확정한다(§8.2 v1.1).
+
+    - `"1"`~`"n"` **범위의** 숫자 문자열 = **항상 번호**(보기 텍스트가 숫자여도 번호로 해석).
+    - **범위 밖 숫자는 번호가 아니다** — 수치형 보기의 값일 수 있으므로 아래 텍스트 경로로
+      내려간다(§8.2 v1.1 / 설계 §4.17 ⑤ — PoC I2의 사례: `choices:["10","20","30"]`,
+      `answer:"20"` → `"2"`). 텍스트와도 일치하지 않을 때만 오류.
+    - 텍스트: 변환 파이프라인(strict)에서는 오류, 직접 업로드에서는 보기와
+      **전체 문자열 일치(트림 후)** 하는 보기가 **정확히 하나**일 때만 번호로 정규화한다.
+      일치가 없거나 둘 이상이면 오류(조용한 추측 매칭 금지)."""
+    text = answer.strip()
+    n = len(choices)
+    is_digit = text.isdigit()
+    if is_digit:
+        value = int(text)
+        if 1 <= value <= n:
+            return str(value)
+        # 범위 밖 = 번호로 해석하지 않는다 → 보기 텍스트 일치 경로로 내려간다.
+    if strict:
+        errors.append(
+            f"객관식 'answer'는 보기 번호(\"1\"~\"{n}\") 범위여야 합니다: {text!r}"
+            if is_digit
+            else f"객관식 'answer'는 보기 번호 문자열(\"1\"~\"{n}\")만 허용됩니다: {text!r}"
+        )
+        return text
+    matched = [i + 1 for i, choice in enumerate(choices) if choice.strip() == text]
+    if len(matched) == 1:
+        return str(matched[0])
+    if not matched:
+        errors.append(
+            f"객관식 'answer'는 보기 번호(\"1\"~\"{n}\") 범위여야 합니다: {text!r}"
+            if is_digit
+            else f"'answer'가 보기 번호도 아니고 보기 문자열과도 일치하지 않습니다: {text!r}"
+        )
+    else:
+        errors.append(f"'answer'와 일치하는 보기가 둘 이상입니다: {text!r}")
+    return text
+
+
+def _validate_item(raw: object, *, strict: bool = False) -> Tuple[Optional[dict], List[str]]:
+    """반입 문서 1건을 검증. (정규화 dict, errors) 반환. errors 있으면 dict=None.
+
+    `strict=True` = **LLM 변환 파이프라인(convert·fetch) 산출물**에만 적용하는 §8.2 v1.1
+    강화 규칙(`content` 필수 · 문제 타입 `answer_source` 필수 · 객관식 `answer`는 보기 번호만).
+    `strict=False` = 사용자가 직접 올린 반입 JSON — 하위 호환(§8.2 v1.1 확정 규칙):
+    `answer_source` 누락은 `original` 간주, 텍스트 `answer`는 보기와 **전체 일치**할 때만
+    서버가 번호로 정규화해 수용한다(불일치는 오류 — 조용한 추측 매칭 금지)."""
     errors: List[str] = []
     if not isinstance(raw, dict):
         return None, ["문서 항목이 객체(JSON object)가 아닙니다"]
@@ -246,10 +297,39 @@ def _validate_item(raw: object) -> Tuple[Optional[dict], List[str]]:
     if not title or not isinstance(title, str) or not title.strip():
         errors.append("필수 필드 'title'이 없습니다")
 
+    content = raw.get("content")
+    if content is not None and not isinstance(content, str):
+        errors.append("'content'는 문자열이어야 합니다")
+        content = None
+    if (
+        strict
+        and isinstance(doc_type, str)
+        and doc_type in CONTENT_REQUIRED_TYPES
+        and not (content or "").strip()
+    ):
+        # §8.2 v1.1 (PoC E4) — 변환 산출물에서 본문 누락은 항목 오류.
+        errors.append("필수 필드 'content'가 없습니다")
+
     answer = raw.get("answer")
     if isinstance(doc_type, str) and doc_type in QUESTION_TYPES:
         if answer is None or (isinstance(answer, str) and not answer.strip()):
             errors.append("문제 타입 문서는 정답('answer')이 필요합니다")
+
+    # §8.2 v1.1 — `answer_source`(original|solved). 문제 타입은 변환 산출물에서 필수,
+    # 직접 업로드는 누락 허용(=original 간주 — 기존 파일 무변경 통과).
+    answer_source = raw.get("answer_source")
+    if answer_source is not None and (
+        not isinstance(answer_source, str) or answer_source not in ANSWER_SOURCES
+    ):
+        errors.append("'answer_source'는 \"original\" 또는 \"solved\"여야 합니다")
+        answer_source = None
+    if isinstance(doc_type, str) and doc_type in QUESTION_TYPES and answer_source is None:
+        if strict:
+            errors.append(
+                "문제 타입 문서는 'answer_source'(\"original\" 또는 \"solved\")가 필요합니다"
+            )
+        else:
+            answer_source = "original"
 
     choices = raw.get("choices")
     if choices is not None:
@@ -257,6 +337,12 @@ def _validate_item(raw: object) -> Tuple[Optional[dict], List[str]]:
             isinstance(c, str) for c in choices
         ):
             errors.append("'choices'는 문자열 배열이어야 합니다")
+            choices = None
+
+    # §8.2 v1.1 — 객관식 `answer`는 **1-base 보기 번호 문자열만**. "1"~"n" 범위의 숫자
+    # 문자열은 항상 번호로 해석한다(수치형 보기의 번호/텍스트 이중 해석 제거 — PoC I2).
+    if choices and isinstance(answer, str) and answer.strip():
+        answer = _normalize_choice_answer(answer, choices, strict=strict, errors=errors)
 
     difficulty = raw.get("difficulty")
     if difficulty is not None:
@@ -299,9 +385,11 @@ def _validate_item(raw: object) -> Tuple[Optional[dict], List[str]]:
     normalized = {
         "type": doc_type,
         "title": title.strip(),
-        "content": raw.get("content"),
+        "content": content,
         "choices": choices,
         "answer": answer.strip() if isinstance(answer, str) else answer,
+        # 반입 게이트 신호 — DB에 저장하지 않는다(설계 §4.17 ⑤, DDL 0건).
+        "answer_source": answer_source,
         "explanation": raw.get("explanation"),
         "difficulty": difficulty,
         "tags": norm_tags,
@@ -342,6 +430,33 @@ def _purge_expired() -> None:
         _PREVIEW_CACHE.pop(key, None)
 
 
+def _item_warnings(
+    norm: dict, *, matcher: Optional[source_match.SourceMatcher], gate: bool
+) -> List[str]:
+    """항목별 변환 신뢰 게이트 경고(설계 §4.17 ⑤·⑥ — `warnings` 필드).
+
+    - `solved_answer`: LLM이 스스로 풀어 채운 정답(`answer_source: "solved"`).
+    - `fabrication_suspect`: 지문·보기 중 1건이라도 원본에 없음(창작 의심).
+    - `match_unavailable`: 원본 텍스트 추출 불가 → 대조 자체를 못 함(조용한 통과 금지).
+
+    대상은 **문제 타입만**이다 — 개념(concept)은 요약·재구조화가 본질이라 부분 일치가
+    성립하지 않는다(설계 §4.17 ⑥, G2 실증). 서버는 경고만 싣고 "기본 반입 제외"는
+    프론트가 warnings를 보고 처리한다(설계 §4.17 ⑤ — 이중 구현 금지)."""
+    warnings: List[str] = []
+    if norm["type"] not in QUESTION_TYPES:
+        return warnings
+    if norm.get("answer_source") == "solved":
+        warnings.append("solved_answer")
+    if gate and matcher is not None:
+        if not matcher.available:
+            warnings.append("match_unavailable")
+        else:
+            candidates = [norm.get("content"), *(norm.get("choices") or [])]
+            if not matcher.all_match(candidates):
+                warnings.append("fabrication_suspect")
+    return warnings
+
+
 def create_preview(
     db: Session,
     *,
@@ -351,6 +466,10 @@ def create_preview(
     preview_id: Optional[str] = None,
     preserve: bool = False,
     recovered: bool = False,
+    gate: bool = False,
+    strict: bool = False,
+    source_text: Optional[str] = None,
+    warnings_override: Optional[Dict[int, List[str]]] = None,
 ) -> PreviewResponse:
     """반입 JSON → preview 리포트.
 
@@ -358,6 +477,18 @@ def create_preview(
       - `preserve=True`(convert·fetch 잡 경로)면 성공한 반입 JSON을 `import/auto/`에 보존한다.
       - `preview_id` 지정 = 디스크 복구 재생성(같은 preview_id 유지), `recovered=True`는
         "복구된 미리보기 — 중복 판정은 현재 DB 기준" 소표기용 플래그다.
+
+    S15(F41 — 변환 신뢰 게이트, 설계 §4.17 ⑤·⑥):
+      - `gate=True` = 항목별 `warnings` 계산(원문 대조 + `answer_source`). 변환 파이프라인
+        산출물(convert·fetch)과 그 보존본 복구 경로에서만 켠다 — 직접 업로드 JSON은 원본이
+        서버에 없으므로 비적용(배지 없음).
+      - `strict=True` = §8.2 v1.1 강화 검증(변환 파이프라인 산출물 전용 — `_validate_item`).
+      - `source_text` = 대조용 원본 텍스트를 호출부가 이미 갖고 있을 때(사이트 반입의 구조화
+        텍스트) 전달한다. 없으면 `source_bytes`에서 **잡당 1회** 추출한다(LLM 재호출·파일
+        중복 저장 없음).
+      - `warnings_override` = 보존본 복구 시 **최초 판정을 그대로 복원**한다(재판정 금지 —
+        `import/auto/`의 `preview_warnings` 사이드카가 정본. 원본 파일이 없는 경로에서
+        `fabrication_suspect`가 `match_unavailable`로 강등되던 구멍을 막는다).
     """
     _purge_expired()
 
@@ -410,13 +541,24 @@ def create_preview(
                 "note": envelope.source.note,
             }
 
+    # --- 원문 대조기 준비 (설계 §4.17 ⑥ — 원본은 잡당 1회만 정규화) ---
+    # 복구(warnings_override)에서도 대조기는 준비한다 — 사이드카에 **키가 없는 항목**
+    # (최초에 판정되지 않은 error 항목)이 복구 시 유효 항목으로 살아날 수 있고, 그때는
+    # 재계산이 필요하다("키 없음 = 판정 안 됨" — 조용한 통과 금지).
+    matcher: Optional[source_match.SourceMatcher] = None
+    if gate:
+        text = source_text
+        if text is None:
+            text = source_match.extract_source_text(source_filename, source_bytes)
+        matcher = source_match.SourceMatcher(text)
+
     # --- 항목별 검증 + 중복 + 제안 해석 ---
     existing_hashes = _existing_hash_map(db)
     items: List[PreviewItem] = []
     cache_items: List[dict] = []
 
     for idx, raw in enumerate(envelope.documents):
-        norm, errors = _validate_item(raw)
+        norm, errors = _validate_item(raw, strict=strict)
         raw_title = (
             raw.get("title") if isinstance(raw, dict) and raw.get("title") else None
         )
@@ -459,6 +601,9 @@ def create_preview(
             )
 
         status = "duplicate_suspect" if dup else "ok"
+        saved_item_warnings = (
+            warnings_override.get(idx) if warnings_override is not None else None
+        )
         items.append(
             PreviewItem(
                 index=idx,
@@ -471,6 +616,13 @@ def create_preview(
                 suggest_categories=sc_results,
                 suggest_relations=sr_results,
                 errors=[],
+                # 사이드카에 **키가 있으면**(빈 배열 포함) 최초 판정이 정본, **키가 없으면**
+                # 최초에 판정되지 않은 항목(당시 error)이므로 지금 판정한다.
+                warnings=(
+                    list(saved_item_warnings)
+                    if saved_item_warnings is not None
+                    else _item_warnings(norm, matcher=matcher, gate=gate)
+                ),
             )
         )
         cache_items.append(
@@ -489,6 +641,8 @@ def create_preview(
         ok=sum(1 for i in items if i.status == "ok"),
         duplicate_suspect=sum(1 for i in items if i.status == "duplicate_suspect"),
         error=sum(1 for i in items if i.status == "error"),
+        # S15(설계 §4.17 ⑤) — 경고가 1개 이상인 항목 수(기본 0).
+        warning=sum(1 for i in items if i.warnings),
     )
 
     preview_id = preview_id or f"imp_{uuid.uuid4().hex[:8]}"
@@ -509,11 +663,19 @@ def create_preview(
 
     if preserve:
         # LLM 비용을 치른 산출물이므로 캐시(TTL 1h)와 별개로 디스크에 남긴다(설계 §4.3).
+        # S15: 이때 계산한 신뢰 게이트 경고도 함께 남겨, 복구가 **재판정 없이** 최초
+        # 판정을 그대로 복원하게 한다(설계 §4.17 ⑤ — 원본 없는 경로의 강등 방지).
+        # **판정된 항목은 경고가 없어도 `[]`로 명시 기록한다** — "키 없음"이 곧 "그때는
+        # 판정하지 못한 항목(error)"이라는 뜻이 되어야, 복구 때 살아난 항목이 배지 없이
+        # 조용히 통과하지 않는다(S15 검토 3차 지적).
         preview_store.save(
             preview_id,
             json_bytes,
             source_filename=source_filename,
             source_hash=source_hash,
+            warnings={
+                item.index: item.warnings for item in items if item.status != "error"
+            },
         )
 
     return response
@@ -544,6 +706,9 @@ def recover_preview(db: Session, preview_id: str) -> Optional[PreviewResponse]:
 
     hash12, original_name = preview_store.parse_name(path)
     source_bytes = preview_store.read_source_bytes(hash12)
+    # S15: 최초 판정(preview_warnings 사이드카)이 있으면 그것이 정본이다 — 복구는 상태
+    # 복원이지 재판정이 아니다. 구버전 보존본(키 없음)은 None → 기존 재계산 동작 유지.
+    saved_warnings = preview_store.load_warnings(json_bytes)
     # 원본을 되읽지 못했으면(nosrc이거나 sources/에서 사라짐) 원본 없는 preview로 복구한다
     # — 보존된 변환 결과를 잃는 것보다 낫다(원본 연결만 빠진다).
     source_filename = original_name if source_bytes is not None else None
@@ -556,6 +721,15 @@ def recover_preview(db: Session, preview_id: str) -> Optional[PreviewResponse]:
             source_bytes=source_bytes,
             preview_id=preview_id,
             recovered=True,
+            # S15: 보존본은 변환 파이프라인 산출물이므로 **신뢰 게이트를 유지**한다
+            # (복구해도 경고 배지가 사라지지 않는다 — 설계 §4.17 ⑤).
+            # 단 `strict`(§8.2 v1.1 강화 검증)는 켜지 않는다: 최초 preview에서 이미
+            # 통과한 검증을 복구 때 다시 물리면, S15 이전에 만들어진 보존 파일
+            # (`answer_source` 없음)이 전 항목 오류로 되살아나 "LLM 비용을 지키는"
+            # 복구 계약(F40-①)을 깨뜨린다.
+            gate=True,
+            # 최초 판정이 정본(있으면 재계산하지 않는다 — 없으면 gate가 재계산).
+            warnings_override=saved_warnings,
         )
     except ValidationAppError:
         return None  # 보존 파일이 손상된 경우 — 기존 404/409 안내로 떨어진다

@@ -18,7 +18,8 @@ export const IDLE_POLL_INTERVAL_MS = 10000
 
 // 설계 §4.10·§4.11, F23·F34·F35 — "원본 파일로 시작"(multipart) 또는 "URL로 시작"(JSON {url})
 // 업로드. multipart 필드명은 명세에 없어 import/preview와 동일 관례("file")로 가정 — 최종 보고 참고.
-// engine은 §4.11 신규 파라미터('auto'|'cli'|'api', 생략 시 서버 기본 auto=우선순위 설정).
+// engine은 §4.11 신규 파라미터, §4.17③에서 'auto'|엔진id로 확장(legacy 'cli'|'api'는 별칭
+// 매핑으로 계속 수용) — 생략 시 서버 기본 auto=우선순위 설정.
 // categoryPath는 S13(F40-③) 선택 파라미터 `category_path` — 지정 시 LLM이 모든 문항의 분류
 // 제안을 그 경로 하나로 고정한다(제안 고정일 뿐 반입 확정은 여전히 사용자 승인 — R7).
 export type StartConvertInput =
@@ -106,7 +107,7 @@ export function useConvertedPreview(previewId: string | null) {
 }
 
 // F30 — 문제 오류 신고 → 재생성 잡 시작 (convert 잡 큐 재사용, 동시 1개). engine은 §4.11 신규
-// 파라미터 — 한도 초과 후 [API로 재시도] 시 'api'로 재요청하는 계약.
+// 파라미터 — 한도 초과 후 재시도 시 다음 후보 엔진 id로 재요청하는 계약(§4.17③, 이항 아님).
 export function useRegenerate() {
   return useMutation({
     mutationFn: ({

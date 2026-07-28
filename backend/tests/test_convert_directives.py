@@ -145,5 +145,14 @@ def test_regenerate_invalid_output_action_is_context_appropriate():
 
 
 def test_valid_json_still_parses():
-    payload = convert_service._parse_json_payload('```json\n{"format_version": 1}\n```')
+    payload = convert_service._parse_json_payload('{"format_version": 1}\n')
     assert payload == {"format_version": 1}
+
+
+def test_code_fence_is_no_longer_stripped():
+    """S15(§8.2 v1.1 / 설계 §4.17 ⑤ — PoC I1): 코드펜스·전후 잡문을 벗겨내던 관대한 처리는
+    제거됐다. 순수 JSON이 아니면 `invalid_output`으로 실패한다(규율 이완 금지)."""
+    with pytest.raises(convert_service.InvalidLlmOutputError) as excinfo:
+        convert_service._parse_json_payload('```json\n{"format_version": 1}\n```')
+    assert excinfo.value.impure is True
+    assert convert_service._fallback_error_info(excinfo.value)["kind"] == "invalid_output"

@@ -1,4 +1,4 @@
-"""LLM 엔진 관리 라우터 (F34, 설계 §4.11) — 진단·API 키 등록/삭제."""
+"""LLM 엔진 관리 라우터 (F34→F41, 설계 §4.17) — 레지스트리 진단·API 키 등록/삭제·설치."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from starlette import status
 
 from database import get_db
-from schemas.llm import ApiKeyRequest, ApiKeySaved, LlmStatus
+from exceptions import ValidationAppError
+from schemas.llm import ApiKeyRequest, ApiKeySaved, InstallEngineResponse, LlmStatus
 from services import llm_engine_service, settings_service
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
@@ -14,11 +15,13 @@ router = APIRouter(prefix="/api/llm", tags=["llm"])
 
 @router.get("/status", response_model=LlmStatus)
 def get_status(
-    refresh: bool = Query(default=False, description="CLI 진단 캐시를 무시하고 다시 확인"),
+    refresh: bool = Query(default=False, description="CLI형 엔진 진단 캐시를 무시하고 다시 확인"),
     db: Session = Depends(get_db),
 ) -> LlmStatus:
     if refresh:
-        llm_engine_service.diagnose_cli(force=True)
+        for engine_id, meta in llm_engine_service.ENGINE_REGISTRY.items():
+            if meta["kind"] == "cli":
+                llm_engine_service.diagnose_engine(engine_id, force=True)
     return LlmStatus(**llm_engine_service.get_status(db))
 
 
@@ -33,3 +36,15 @@ def register_api_key(payload: ApiKeyRequest, db: Session = Depends(get_db)) -> A
 @router.delete("/api-key", status_code=status.HTTP_204_NO_CONTENT)
 def remove_api_key() -> None:
     llm_engine_service.delete_api_key()
+
+
+@router.post("/engines/{engine_id}/install", response_model=InstallEngineResponse)
+def install_engine(engine_id: str) -> InstallEngineResponse:
+    """`installable:true` 엔진만(현재 codex-cli) — 그 외는 422(설계 §4.17 ④). 동기 처리,
+    실패는 §3 포맷(다운로드 실패 = 502)."""
+    normalized = llm_engine_service.normalize_engine_id(engine_id)
+    meta = llm_engine_service.ENGINE_REGISTRY.get(normalized)
+    if meta is None or not meta["installable"]:
+        raise ValidationAppError("설치를 지원하지 않는 엔진입니다", detail={"engine": engine_id})
+    result = llm_engine_service.install_engine(normalized)
+    return InstallEngineResponse(**result)

@@ -60,6 +60,11 @@ class PreviewItem(BaseModel):
     suggest_categories: List[SuggestCategoryResult] = Field(default_factory=list)
     suggest_relations: List[SuggestRelationResult] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)
+    # S15(F41 — 변환 신뢰 게이트, 설계 §4.17 ⑤·⑥): 'solved_answer' | 'fabrication_suspect'
+    # | 'match_unavailable'. 기본 []. 변환 파이프라인(convert·fetch) preview에서만 채워지며
+    # (직접 업로드 JSON은 원본이 서버에 없어 비적용), 앞 두 값은 프론트가 **기본 반입 제외**로,
+    # 셋째는 배지·안내만 렌더한다. 서버는 신호만 싣는다(이중 구현 금지).
+    warnings: List[str] = Field(default_factory=list)
 
 
 class PreviewSource(BaseModel):
@@ -72,6 +77,8 @@ class PreviewSummary(BaseModel):
     ok: int
     duplicate_suspect: int
     error: int
+    # S15(설계 §4.17 ⑤) — 경고가 1개 이상인 항목 수(순수 추가, 기본 0).
+    warning: int = 0
 
 
 class PreviewResponse(BaseModel):

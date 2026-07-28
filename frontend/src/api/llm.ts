@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
-import type { ApiKeyResponse, LlmStatusResponse } from './types'
+import type { ApiKeyResponse, InstallEngineResponse, LlmEngineId, LlmStatusResponse } from './types'
 
 // 설계 §4.11 (S8) — 엔진 진단·API 키 관리.
 export const llmKeys = {
@@ -38,6 +38,16 @@ export function useDeleteApiKey() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => api.delete<void>('/llm/api-key'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: llmKeys.status }),
+  })
+}
+
+// S15(설계 §4.17④) — installable:true 엔진(현재 codex-cli)만 유효, 그 외는 백엔드가 422.
+// 동기 처리(PoC 실측 4.4초) — 버튼 스피너로 충분, 별도 잡 큐 폴링 없음.
+export function useInstallEngine() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (engineId: LlmEngineId) => api.post<InstallEngineResponse>(`/llm/engines/${engineId}/install`),
     onSuccess: () => qc.invalidateQueries({ queryKey: llmKeys.status }),
   })
 }
