@@ -829,6 +829,8 @@ export interface QnetKeyResponse {
 // 잘림). 같은 파일로 재시도하면 같은 실패라 "나눠서 다시 올리기"를 안내한다. 원문(raw) 미노출.
 // S14(§4.13): 'unsupported_format' — qnet 게시물에 LLM 투입 가능한 PDF 첨부가 없음(ZIP·HWP 등).
 // 원본은 sources/에 저장된 뒤 잡이 종료되며, 포맷별 안내 문구(message)는 서버가 내려준다.
+// S16(§4.18⑤): 'too_large' — 추출·디코드된 텍스트가 상한(200,000자)을 초과해 LLM 호출 전에
+// 실행이 중단됨(비용 0). message/action은 서버 완성 문장(분할 권고) — 프론트 포맷 분기 없음.
 export type LlmErrorKind =
   | 'rate_limit'
   | 'auth'
@@ -837,6 +839,7 @@ export type LlmErrorKind =
   | 'parse_failed'
   | 'invalid_output'
   | 'unsupported_format'
+  | 'too_large'
   | 'other'
 export type LlmLimitKind = 'session' | 'daily' | 'weekly' | 'model' | 'overall'
 

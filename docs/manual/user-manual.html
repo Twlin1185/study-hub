@@ -487,7 +487,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 
   <h3>방법 B — 원본 파일 그대로 던지기 (여러 개 한 번에) <span class="badge new">v1.x</span></h3>
   <p>
-    <span class="path">/import</span>의 <strong>"원본 파일로 시작"</strong>에 PDF 등 원본을 고르면, 앱이 PC에 설치된
+    <span class="path">/import</span>의 <strong>"원본 파일로 시작"</strong>에 PDF·이미지는 물론 docx·xlsx·md·txt·html·xml·csv
+    원본을 고르면(아래 <strong>지원 파일 포맷</strong> 표 참조), 앱이 PC에 설치된
     claude CLI를 직접 불러 변환부터 해 줍니다. 파일은 <strong>한 번에 최대 10개까지</strong> 고를 수 있고,
     고른 파일은 <strong>반입 대기열</strong>에 쌓여 순서대로 하나씩 변환됩니다.
   </p>
@@ -524,6 +525,25 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <p><strong>지금 변환 중인 1건은 도중에 멈출 수 없습니다</strong> — 건너뛰기는 아직 시작하지 않은 대기 항목에만 됩니다.
     변환은 한 번에 하나씩만 돌아가므로(동시에 여러 개를 돌리지 않습니다) 뒤에 걸린 파일은 그 전에 정리하면 됩니다.
     또 새로고침한 뒤에는 브라우저가 파일 자체를 기억하지 못하므로, 그 파일을 다시 변환하려면 새로 고르면 됩니다.</p>
+  </div>
+
+  <h3>지원 파일 포맷 (방법 B·C 공통) <span class="badge new">v1.x</span></h3>
+  <p>파일 반입과 URL 반입이 받아들이는 포맷은 아래와 같습니다. 목록에 없는 파일을 올려도
+  <strong>조용히 사라지지 않습니다</strong> — 원본은 <code>sources/</code>에 저장되고, 어떻게 하면 되는지 안내 문구가 뜹니다.</p>
+  <table>
+    <tr><th>포맷</th><th>처리 방식</th><th>알아둘 것</th></tr>
+    <tr><td>PDF · 이미지(png/jpg 등)</td><td>LLM이 원본을 직접 읽습니다 (기존 그대로)</td><td>—</td></tr>
+    <tr><td>md · txt · html · xml · csv</td><td>텍스트를 그대로 변환에 투입</td><td>인코딩은 자동 판별(utf-8·한국어 레거시 cp949) — 옛날 파일도 깨지지 않습니다</td></tr>
+    <tr><td>docx · xlsx</td><td>앱이 문단·표 텍스트를 추출해 투입</td><td>수식·이미지는 추출에서 빠질 수 있습니다(빠지면 안내 표시) — 미리보기에서 꼭 확인하세요</td></tr>
+    <tr><td>hwp · hwpx</td><td>지원 안 함</td><td>한글에서 <strong>PDF로 저장</strong>한 뒤 다시 반입하세요</td></tr>
+    <tr><td>zip</td><td>지원 안 함</td><td>압축을 풀어 PDF·이미지·문서 파일을 하나씩 반입하세요</td></tr>
+    <tr><td>doc · xls (구버전)</td><td>지원 안 함</td><td>워드/엑셀에서 <strong>docx·xlsx로 저장</strong>한 뒤 다시 반입하세요</td></tr>
+  </table>
+  <div class="note">
+    <span class="label">참고</span>
+    <p>추출·디코드된 텍스트가 <strong>20만 자를 넘으면</strong> LLM 비용을 쓰기 전에 변환을 멈추고
+    "과목·회차 단위로 나눠 반입하라"고 안내합니다. 암호가 걸렸거나 손상된 docx·xlsx도 마찬가지로
+    원본 저장 + 안내 문구로 끝납니다(변환 비용 지출 없음).</p>
   </div>
 
   <h3>방법 C — URL로 반입 <span class="badge new">v1.x</span></h3>
@@ -1257,6 +1277,10 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
   <h3>변환(원본 파일로 시작)이 실패해요</h3>
   <p>PC에 Claude Code가 설치되어 있고 터미널에서 <code>claude</code> 명령이 되는지 확인하세요.
   안 되면 <a href="#import">방법 A</a>(Claude Code 대화로 JSON 생성)를 쓰면 됩니다. 결과는 같습니다.</p>
+  <p>"이 형식은 자동 변환할 수 없습니다"류 안내로 끝났다면 파일 포맷 문제입니다 —
+  <a href="#import">지원 파일 포맷</a> 표의 "알아둘 것" 열이 해결책입니다(한글 → PDF 저장, zip → 압축 해제,
+  구버전 doc/xls → docx/xlsx 저장). 원본은 이미 <code>sources/</code>에 저장돼 있으니 파일을 잃을 걱정은 없습니다.
+  "추출된 텍스트가 너무 깁니다"는 원본을 과목·회차 단위로 나눠 다시 반입하면 됩니다.</p>
 
   <h3>데이터는 어디에 있나요?</h3>
   <p>전부 프로젝트 폴더 안입니다 — DB는 <code>study.db</code>, 원본은 <code>sources/</code>, 백업은 <code>backups/</code>.

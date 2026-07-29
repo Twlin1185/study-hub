@@ -1,15 +1,18 @@
 # Study Hub — 상세 설계 (API 명세 · 화면 상세)
 
-> 상태: **Design v1.17** — v1.16 대비: **§4.17 신설(S15 — F41 멀티 벤더 LLM 엔진, 계약 확정 2026-07-28 — 착수 게이트 G3 해소. 구현은 게이트 G2 통과 후)**: ① **엔진 레지스트리** — 엔진 id 3종(`claude-cli`·`claude-api`·`codex-cli`)·항목 인터페이스(진단/호출/분류기/한도·헬스 키)·legacy `cli|api` 별칭의 **읽기 시 매핑**(마이그레이션 없음) ② `GET /api/llm/status`를 **엔진 배열로 교체**(기존 `cli`/`api` 톱레벨 필드 **제거 확정** — 소비처 전수 확인 근거는 §4.17 ②) ③ **폴백 = 우선순위 목록**(`llm.priority` 배열화, `error_info.fallback_engine` 추가) ④ codex-cli 어댑터·설치 계약(신규 엔드포인트 **`POST /api/llm/engines/{id}/install` 1개**) ⑤ **변환 신뢰 게이트(전 엔진 공통, R7 보강)** — 계획서 §8.2 v1.1 개정 연동(`answer_source` 필수·순수 JSON 위반=오류·`content` 필수·객관식 `answer` 번호만) + preview `warnings` 필드 ⑥ **원문 대조 검사 알고리즘 확정**(정규화·12자 조각 커버리지 ≥0.6·대조 불가 판정) ⑦ S8 화면(§5.11 그룹 ④) 확장 — 카드 목록 렌더·▲▼ 우선순위·Codex 온보딩·프라이버시 고지. **DDL 변경 0건·Alembic 0건 재확인(§4.17 말미 근거).**
+> 상태: **Design v1.20** — v1.19 대비: **§4.18 ②-1·⑥ 보강(S16 재검토 통과(DoD 6/6) 시 지적된 문서-코드 불일치 1건 해소 — 2026-07-29, 문서만)**: ① **암호화 OOXML 판별 세칙 명문화** — OLE CFB 매직 + 확장자 `.docx`/`.xlsx` = **ECMA-376 암호화 OOXML로 판정 → C군 `unsupported_format`이 아니라 `parse_failed`**(④의 암호 파일 확정을 실현하는 세칙 — 확정 문구·원본 sources/ 저장 포함, ⑥ 표 비적용 주석 추가) ② **hwpx 휴리스틱 알려진 한계 기록** — zip 내부 `mimetype == application/hwp+zip` 또는 최상위 `Contents/` 존재로 판정(구현 확정), `Contents/`만으로는 일반 zip이 hwp 문구로 오안내될 수 있음(C군 거부 자체는 동일 — 강화 여부는 후속 결정). 계약 형태·DDL 증감 0.
+> (v1.19: v1.18 대비: **§4.18 ④·⑥ 보강 + §4.11 주석 (S16 구현의 Opus 검토 적발 2건 해소 — 2026-07-29, 문서 확정·코드 지시는 별도)**: ① **`parse_failed` 종료 시에도 원본을 `sources/`에 저장 후 종료**(`unsupported_format`과 대칭 — 손상·암호 파일도 사용자의 원본 자료이고 잡 tmp는 정리되므로 저장하지 않으면 서버에 남지 않는다. stage-16 DoD 2 문면과 정합 — 종전 §4.18 ⑥이 저장을 unsupported 한정으로 읽히게 한 어긋남 해소) ② **convert 잡(파일·URL 반입)에서 발생한 `unsupported_format`·`parse_failed`의 `alternatives` = 빈 배열 확정**(실패한 반입 경로 자신([파일로 반입] → 같은 화면 회귀)이나 같은 판별·파서에 다시 걸릴 경로는 대안이 아니다 — **fetch 잡 발생분은 기존 기본값 유지**, §4.11 계약 불변). DDL·Alembic·엔드포인트 증감 0.)
+> (v1.18: v1.17 대비: **§4.18 신설(S16 — F42 다양한 문서 포맷 반입, 계약 확정 2026-07-29 — stage-16 선행 절차 D1·D2·D3 해소분. 문서만·코드 0)**: ① 지원 포맷 매트릭스(A군 md·txt·html·xml·**csv** 직투입 / B군 docx·xlsx 서버 추출 / C군 hwp·zip·doc·xls·판별 불가 = 구조화 거부) ② 판별 규칙(**매직 바이트 우선** — zip 내부 판별(docx/xlsx/hwpx도 zip)·OLE 시그니처·텍스트성 검사, content-type·확장자 사칭 방어) ③ 인코딩 판별 확정(utf-8 BOM→utf-8→cp949, chardet류 불도입 — **cp949는 CLI 전달 시 utf-8 재인코딩**) ④ 파서 채택(docx=**python-docx**·xlsx=**openpyxl**, `==` 정확 핀) + xlsx **시트별 Markdown 표**(시트 10·행 500·열 50 상한) + 추출기 `services/doc_extract.py` 분리(원문 대조 §4.17 ⑥ 재사용) + 파서 예외 = **`parse_failed` 재사용 확정** ⑤ **`error_info.kind:'too_large'` 신설**(추출·디코드 텍스트 **200,000자** 상한 — LLM 호출 전 비용 0 차단, 분할 권고 — 서버측 자동 분할 금지) ⑥ `unsupported_format` 포맷별 폴백 **확정 문안**(hwp→PDF 저장·zip→압축 해제·doc/xls→docx/xlsx 저장) ⑦ URL content-type 화이트리스트 확장(xml 2종·text/csv·officedocument 2종 — `application/octet-stream`은 미허용 유지). **DDL 변경 0건·Alembic 0건·신규 엔드포인트 0건 재확인(§4.18 말미 근거).**)
+> (v1.17: v1.16 대비: **§4.17 신설(S15 — F41 멀티 벤더 LLM 엔진, 계약 확정 2026-07-28 — 착수 게이트 G3 해소. 구현은 게이트 G2 통과 후)**: ① **엔진 레지스트리** — 엔진 id 3종(`claude-cli`·`claude-api`·`codex-cli`)·항목 인터페이스(진단/호출/분류기/한도·헬스 키)·legacy `cli|api` 별칭의 **읽기 시 매핑**(마이그레이션 없음) ② `GET /api/llm/status`를 **엔진 배열로 교체**(기존 `cli`/`api` 톱레벨 필드 **제거 확정** — 소비처 전수 확인 근거는 §4.17 ②) ③ **폴백 = 우선순위 목록**(`llm.priority` 배열화, `error_info.fallback_engine` 추가) ④ codex-cli 어댑터·설치 계약(신규 엔드포인트 **`POST /api/llm/engines/{id}/install` 1개**) ⑤ **변환 신뢰 게이트(전 엔진 공통, R7 보강)** — 계획서 §8.2 v1.1 개정 연동(`answer_source` 필수·순수 JSON 위반=오류·`content` 필수·객관식 `answer` 번호만) + preview `warnings` 필드 ⑥ **원문 대조 검사 알고리즘 확정**(정규화·12자 조각 커버리지 ≥0.6·대조 불가 판정) ⑦ S8 화면(§5.11 그룹 ④) 확장 — 카드 목록 렌더·▲▼ 우선순위·Codex 온보딩·프라이버시 고지. **DDL 변경 0건·Alembic 0건 재확인(§4.17 말미 근거).**)
 > (v1.16: v1.15 대비: **S14(큐넷 공식 오픈API) 구현 완료(2026-07-27)에 따른 계약 확정 반영 — 엔드포인트 증감 0건, 기존 응답에 필드 추가만**: ① `POST /api/fetch/exams` **요청 `include_notices?`(기본 false)** + **응답 항목 `is_notice`** — 안내문 게시물 기본 숨김 + "안내문 N건 보기" 토글(같은 24h 캐시에서 파생 — **추가 API 호출 0건**) ② `GET /api/convert/{job_id}` 응답에 **`notes: string[]`(기본 `[]`)** — 성공 소표기(예: ZIP 동시 저장). **문구는 서버가 완성해 내려준다**(프론트 포맷 분기 금지) ③ `error_info.kind`에 **`unsupported_format` 확정** + `alternatives`에 **`'file_import'`** 값 추가 ④ `GET /api/fetch/adapters` qnet 항목에 `key_registered`·`key_suffix?`(예고대로 구현) ⑤ **`exam_key` 3형태 확정** — `YYYY-MM-DD`(폴더 파생 O) · **`YYYY`(연도만 — 폴더 파생 X, 회차를 창작하지 않음)** · `qnet-{artlSeq}`(식별 불가). 뒤 두 형태는 **`imported=false` 고정**·분류 경로 미생성 ⑥ **§3에 상류 실패 규약 명문화**(외부 공식 API 거절 = **HTTP 502 + code `INTERNAL`**, 코드 집합은 4종 유지 — 판단 근거는 §3). **DDL 변경 없음 · Alembic 0건.**)
 > (v1.15: v1.14 대비: **S13 구현 완료(2026-07-27)에 따른 확정 사항 반영 — 계약 변경 없음, 명세 보강만**: ① §5.9 대기열이 **`previewId`를 localStorage에 함께 영속**(잡 레코드가 만료·404가 된 뒤에도 F40-① 디스크 복구로 검토를 이어가기 위함 — 검토 단계의 1차 키는 preview_id) ② **URL 반입을 파일 대기열로 통합**(폴링·재시도·재개 코드 이원화 방지 — 탭 4종·Stepper 3단계는 불변) ③ **10개 상한 = "대기열 잔여 + 신규 선택" 합계 기준** ④ **처리 중인 1건은 취소·건너뛰기 불가**를 알려진 한계로 명시(서버에 잡 취소 API 없음 — 신설하지 않음) ⑤ **[변환 JSON 내려받기]는 보존본이 있는 경로(convert·fetch 잡 preview)에만 노출**(직접 업로드 preview는 404 — §4.3). **DDL 변경 없음 · 엔드포인트 증감 없음.**)
 > (v1.14: **단계 재편(계획서 v0.17 — 큐넷 실측에 따른 우선순위 변경)**: ① 큐넷 오픈API 계약(서비스키 `fetch/qnet-key`·목록/상세·`unsupported_format`·설정 카드)의 단계 태그를 **S13 → S14**로 이관(**내용 삭제 없음** — 계약은 그대로, 착수 시점만 뒤로). 사설 어댑터 제거·단일 어댑터화는 **S13 유지**. ② **F40 수동 반입 UX 계약 신설(S13)**: §4.3에 **변환 결과 디스크 보존·복구**(`GET /api/import/preview/{id}` 캐시 미스 시 복구) + **`GET /api/import/preview/{id}/json`(내려받기, 신규 1개)**, §4.11 `POST /api/convert`에 **`category_path?`**(분류 경로 제안 고정 — 사이트 반입 지시 생성기 공유) + `error_info.kind`에 **`'invalid_output'`**(출력 잘림 오안내 수정), §5.9에 **반입 대기열**(여러 파일 연속 — 새 API 0건, 서버 동시 1개 유지)·분류 경로 입력·복구 표시. **DDL 변경 없음.**)
 > (v1.13: **사이트 어댑터 단일화(S13 — 사설 어댑터 comcbt·cbtbank 제거, 계획서 v0.16 §14 F35-2 제거 이력)**: §4.13에서 어댑터 3종 목록·우선순위 병합(qnet>cbtbank>comcbt)·날짜 자연 키 병합·`also_on`/`refs` 대안 어댑터 재시도·level_hint 오병합 방지 조건을 **큐넷 단일 어댑터 기준으로 정리**. **계약 형태는 유지**(`GET /api/fetch/adapters`는 계속 **배열** 반환, `POST /api/fetch/exams` 항목의 `also_on`(항상 `[]`)·`refs`(단일 항목)·`exam_key?`도 필드 유지) — 프론트 변경은 어댑터 id 유니온 축소(`'qnet'`)와 이름 폴백 맵 정리뿐. §5.9 대안 어댑터 재시도 버튼은 사문화(빈 `also_on`이라 미렌더). DDL 변경 없음.)
 > (v1.12: **S13(M13 큐넷 공식 오픈API) 계약**(§4.13 S13 갱신 — qnet 어댑터를 공공데이터포털 **"국가자격 공개문제 조회 서비스"**(getOpenQstList/getOpenQst)로 실가동: 서비스키 등록 `POST/DELETE /api/fetch/qnet-key`(secrets.json — F34 전례), `fileUrl` JWT 1시간 → **상세 조회·다운로드 같은 잡 연속 수행**, HWP 전용 회차 = 원본 저장 + `error_info.kind:'unsupported_format'` 신설, 병합 그룹 level_hint 동일 조건 명시. **기존 fetch 계약(adapters/certs/exams/import)·프론트 스텝 흐름 불변**) + §5.11 데이터 그룹 서비스키 카드·§5.9 실패 렌더 1종 추가)
 > 이전 이력: v1.11 — S12 계약(§4.13 cbtbank FetchedExam 첫 실사용·날짜 자연 키 병합·`fetch/import` `exam_key?`, §4.15 `GET /manual`) · v1.10 — S11 계약 신설(§4.14 F25·F16) · v1.9 — S10 구현 실측 반영(comcbt PDF 경로, qnet available:false 스텁)
-> 작성일: 2026-07-22 · 갱신: 2026-07-28
-> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.22)
-> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-13-fetch-cleanup-manual-import.plan.md`(S13) · `stage-14-qnet-openapi.plan.md`(S14) · `stage-15-multi-engine-codex.plan.md`(S15 — 착수 게이트 있음, §4.17)
+> 작성일: 2026-07-22 · 갱신: 2026-07-29
+> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.24)
+> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-13-fetch-cleanup-manual-import.plan.md`(S13) · `stage-14-qnet-openapi.plan.md`(S14) · `stage-15-multi-engine-codex.plan.md`(S15 — §4.17) · `stage-16-doc-formats.plan.md`(S16 — 착수 2026-07-29, §4.18)
 
 ---
 
@@ -263,8 +266,8 @@ study-hub/
 
 - **엔진 설정은 settings 재사용**: `llm.priority`(`'cli'\|'api'`, 기본 cli) · `llm.fallback`(`'auto'\|'ask'\|'off'`, 기본 **ask** — auto는 과금 동의 UI 통과 시에만 설정 가능) · `llm.api_model`(기본 `claude-sonnet-5` — 과금 부담 고려, 변경 가능). (**S15 예정**: 이 절의 `cli|api` 이항 계약은 §4.17이 엔진 레지스트리로 일반화한다 — `llm.priority`는 엔진 id 배열, status는 엔진 배열, legacy 값은 읽기 시 별칭 매핑. 이 절 서술은 S8~S14 시점 기준으로 보존.)
 - **API 엔진**: anthropic Python SDK 직접 호출(키는 설정 화면에서 사용자가 등록한 secrets.json **단일 출처** — 환경변수·외부 프로필 자동 탐색 없음). convert/regenerate 프롬프트는 CLI 경로와 동일 템플릿.
-- **오류 구조화**: convert/regenerate 잡 상태 응답에 `error_info` 추가 — `{kind: 'rate_limit'\|'auth'\|'not_installed'\|'timeout'\|'other', limit_kind?: 'session'\|'daily'\|'weekly'\|'model'\|'overall', resets_at?, message(사람이 읽는 한국어), action(다음 행동 안내), fallback_available: bool}`. (S10: kind에 `'parse_failed'` 추가 — 사이트 어댑터 파싱 실패, §4.13. **S13: `'invalid_output'` 추가 — 아래. S14: `'unsupported_format'` 추가 — qnet의 PDF 없는 게시물(ZIP·HWP), §4.13.**) **CLI/API 원문 JSON은 사용자에게 노출 금지.**
-  - **`alternatives`(프론트 대안 버튼 힌트, S10 신설)**: 값은 **`'url_import'` · `'file_import'`(S14 추가) · `'other_adapter'`(사문화 — 단일 어댑터라 서버가 더 내려보내지 않지만 값 자체는 남겨 둔다)**. `unsupported_format`·상류 실패 계열은 기본이 `['file_import','url_import']`(원본이 이미 `sources/`에 있으므로 **파일 반입이 첫 번째 행동**), `parse_failed`는 `['url_import']`가 기본. 프론트는 **아는 값만 버튼으로 렌더하고 모르는 값은 무시**한다(전방 호환). CLI 429의 `result` 문자열에서 한도 종류·리셋 시각을 파싱한다.
+- **오류 구조화**: convert/regenerate 잡 상태 응답에 `error_info` 추가 — `{kind: 'rate_limit'\|'auth'\|'not_installed'\|'timeout'\|'other', limit_kind?: 'session'\|'daily'\|'weekly'\|'model'\|'overall', resets_at?, message(사람이 읽는 한국어), action(다음 행동 안내), fallback_available: bool}`. (S10: kind에 `'parse_failed'` 추가 — 사이트 어댑터 파싱 실패, §4.13. **S13: `'invalid_output'` 추가 — 아래. S14: `'unsupported_format'` 추가 — qnet의 PDF 없는 게시물(ZIP·HWP), §4.13. S16: `'too_large'` 추가 — 추출·디코드 텍스트 길이 상한 초과(LLM 호출 전 차단·분할 권고), §4.18 ⑤.**) **CLI/API 원문 JSON은 사용자에게 노출 금지.**
+  - **`alternatives`(프론트 대안 버튼 힌트, S10 신설)**: 값은 **`'url_import'` · `'file_import'`(S14 추가) · `'other_adapter'`(사문화 — 단일 어댑터라 서버가 더 내려보내지 않지만 값 자체는 남겨 둔다)**. `unsupported_format`·상류 실패 계열은 기본이 `['file_import','url_import']`(원본이 이미 `sources/`에 있으므로 **파일 반입이 첫 번째 행동**), `parse_failed`는 `['url_import']`가 기본. (**S16**: 이 기본값 서술은 **fetch 잡 기준** — **convert 잡(파일·URL 반입)에서 발생한 `unsupported_format`·`parse_failed`는 빈 배열**, 실패한 경로 자신을 대안으로 제시하지 않는다 — §4.18 ⑥.) 프론트는 **아는 값만 버튼으로 렌더하고 모르는 값은 무시**한다(전방 호환). CLI 429의 `result` 문자열에서 한도 종류·리셋 시각을 파싱한다.
 - **`invalid_output`(S13 — F40-④, 잘못된 안내의 교정)**: LLM 출력이 완결된 JSON이 아닐 때(대개 문항이 많아 출력 상한에서 **잘림**) 지금은 `kind:'other'` + "잠시 후 다시 시도하세요"로 안내되는데, **같은 파일로 재시도하면 같은 실패**라 LLM 비용만 반복 소모된다. → 전용 kind로 분류하고 message "LLM 응답이 완결된 JSON이 아닙니다 — 출력이 중간에 잘렸을 수 있습니다"(비잘림이면 "올바른 JSON이 아닙니다"), action은 **잡 종류별**로 — 반입(convert·fetch)은 "원본을 과목·회차 단위로 나눠 올려 다시 변환해 보세요", 재생성(F30)은 "재생성 요청(사유)을 더 짧고 구체적으로 적어 다시 시도해 보세요". **엔진 교체는 권하지 않는다(S13 구현 확정)** — `API_MAX_OUTPUT_TOKENS`가 CLI·API 공통 상한이라 엔진을 바꿔도 잘림은 그대로이고, `fallback_available=false`라 [API로 재시도] 버튼도 뜨지 않는다(문구가 없는 버튼을 가리키지 않게 한다). **원문(잘린 출력·raw)은 응답에 싣지 않는다**(§4.11 원칙 — 로그에만). **서버측 PDF 분할은 하지 않는다**(라이브러리 의존 금지 — §4.13 비지원 포맷 정책과 같은 원칙).
 - **한도 기억**: 최근 429의 `{kind, resets_at}`을 settings `llm.last_limit`에 기록 — status 응답에 포함하고, 리셋 전 변환 시도 시 실행 전에 경고(폴백 정책 적용). 리셋 시각 경과 시 자동 무효화.
 - CLI 로그인은 앱이 대행 불가(대화형) — status의 `logged_in:false`일 때 프론트가 "터미널에서 `claude` 실행해 로그인" 안내 + [다시 확인] 재진단.
@@ -581,6 +584,81 @@ backend/services/fetchers/
 **DDL 변경 0건·Alembic 0건 — 재확인 근거 (2026-07-28, G3)**
 
 - 이 절의 저장 지점 전수: **settings 키 값 형식 확장**(`llm.priority` 배열화·`llm.last_limit.engine` id화 — settings는 키-값 자유 텍스트라 DDL 무관) · **인메모리**(헬스·진단 캐시·잡 큐) · **secrets.json**(codex는 항목 자체가 없음 — 전역 홈 공유) · **preview JSON 필드**(`warnings` — 메모리 + `import/auto/` 파일) · **디스크 폴더**(`tools/codex/` 바이너리). `answer_source`·대조 결과는 **DB 미저장**(반입 게이트 신호 — 승인 반입 후에는 일반 문서). **새 테이블·컬럼·인덱스 0, Alembic 0.** 계획서 §6.2 무변경 — 구현 중 이 전제가 깨지면 착수 중단 후 보고(임의 확정 금지).
+
+### 4.18 다양한 문서 포맷 반입 — 판별·추출 계층 (S16 — F42. **계약 확정 2026-07-29, stage-16 선행 절차 D1·D2·D3 해소분**)
+
+> 근거: 계획서 §14 F42 "실측 현황"(단일 출처) — 파일 반입에 확장자·매직 바이트 검사가 없고, API 엔진의 무조건 utf-8 디코드 폴백(`convert_service._api_content_blocks_for_file`)이 docx/xlsx 바이너리를 **mojibake로 조용히 LLM에 투입**한다. 이 절은 그 결함의 수정 계약이며, 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-16 DoD 6).
+> 원칙 재확인: `sources/` 원본 불변(추출 텍스트는 저장하지 않는 파생물 — R18 정신) · 미리보기 승인 없는 자동 반입 금지(R7) · 오류 원문 노출 금지 + 안내는 **서버 완성 문장**(`error_info`·`notes` — §4.10·§4.11 관례, 프론트 포맷 분기 금지) · **서버측 자동 분할 금지**(F40-④ 결정 유지).
+
+**① 지원 포맷 매트릭스 (포맷 × 경로(파일/URL) × 엔진)**
+
+| 군 | 포맷(확장자) | 파일 반입 | URL 반입 | claude-cli | codex-cli | claude-api |
+|---|---|---|---|---|---|---|
+| 기존 | pdf | O | O(기존) | 파일 경로 전달(Read) | pypdf 추출 텍스트(§4.17) | base64 document 블록 |
+| 기존 | 이미지 png·jpg·jpeg·gif·webp | O | O(기존) | 파일 경로 전달(Read) | 비지원(§4.17 — OCR 없음) | image 블록 |
+| **A군** | md(markdown)·txt·html(htm·xhtml)·xml·**csv**(D2-④ 포함 확정) | O | O(⑦ MIME) | 판별 인코딩으로 디코드 후 **utf-8 tmp 경로 전달**(③) | 디코드 텍스트 프롬프트 삽입 | 디코드 텍스트 본문 삽입 |
+| **B군** | docx·xlsx | O | O(⑦ MIME) | **추출 텍스트 프롬프트 삽입 — 3엔진 공통**(Claude Code Read도 docx/xlsx는 못 읽는다 — 경로 전달 무의미) | 좌동 | 좌동 |
+| **C군** | hwp·hwpx·zip·doc·xls·판별 불가 바이너리 | **구조화 거부**(⑥) | MIME 미허용(⑦) + 다운로드 후 ② 판별에서도 거부 | — | — | — |
+
+- A군의 html·xml은 **원문 그대로 투입**(서버측 태그 제거 파서를 추가하지 않는다 — LLM이 처리, 기존 URL 반입 경로와 동일). csv는 A군 텍스트로 직투입(xlsx 파서와 무관 — 라이브러리 0. 채택 근거는 D2-④: 파서 불요·xlsx 인접 수요·"암호 xlsx는 csv로 저장 후 반입" 폴백 경로 확보. tsv는 별도 등재하지 않고 txt로 취급).
+- 반입 JSON 직접 업로드(§4.3)는 이 절의 대상이 아니다(convert 파이프라인이 아님 — 기존 계약 그대로).
+
+**② 판별 규칙 (`phase='preparing'` — LLM 호출 전, 비용 0)**
+
+판별 우선순위: **매직 바이트 > 내용(텍스트성·인코딩) > 확장자**. content-type은 URL 수신 허용 게이트(⑦)일 뿐 판별 근거가 아니다(사칭 방어 — S12 매직 바이트 교훈·qnet `_magic_ok` 전례).
+
+1. **매직 바이트**: `%PDF`→pdf · PNG/JPEG/GIF/WEBP 시그니처→이미지 · **`PK\x03\x04`(zip 계열)→내부 판별** — zip 목록에 `word/document.xml` 있으면 docx, `xl/workbook.xml` 있으면 xlsx, 그 외는 C군 zip/hwpx(표준 라이브러리 `zipfile`만 사용 — 신규 의존 아님. **hwpx 판정은 내부 `mimetype == application/hwp+zip` 또는 최상위 `Contents/` 존재** — S16 구현 확정. **알려진 한계**: `Contents/` 휴리스틱만 맞은 일반 zip은 hwp 문구로 오안내될 수 있다 — C군 거부라는 결과 자체는 동일하고, 판정 강화 여부는 후속 결정(실수요 확인 시 계획서 먼저)) · **OLE CFB `D0 CF 11 E0 A1 B1 1A E1`→기본 C군**(doc·xls·hwp 구버전 계열 — 확장자로 ⑥ 문구만 분기, 확장자 미상이면 통합 문구). **예외 세칙(S16 구현·재검토 확정 2026-07-29)**: **OLE 매직 + 확장자 `.docx`/`.xlsx` = ECMA-376 암호화 OOXML로 판정**(암호 걸린 docx/xlsx는 OOXML zip이 아니라 OLE 컨테이너에 담긴다) → C군 `unsupported_format`이 아니라 **`parse_failed`**(④의 암호 파일 확정을 판별 단계에서 실현) — message "워드(docx)/엑셀(xlsx) 문서를 열 수 없습니다(암호가 걸려 있는 것으로 보입니다)" · action "원본은 sources/에 저장했습니다. 암호를 해제하거나 PDF로 저장한 뒤 다시 반입하세요."(원본 저장은 ④ 대칭 규칙 그대로).
+2. **텍스트성 검사**: 선두 표본(8KB)에 널 바이트(0x00) 존재 → 바이너리 → C군 판별 불가. UTF-16(BOM 포함)은 널 바이트로 여기서 걸러진다 — **지원하지 않음**(⑥ 판별 불가 문구의 "UTF-8 텍스트로 저장" 안내로 해결).
+3. **인코딩 판별(③) 성공 → A군.** **내용 판별이 정본, 확장자는 보조**(`file_type` 기록·프롬프트 라벨용) — `.docx` 이름의 실제 텍스트 파일은 텍스트로 투입되고, `.txt` 이름의 zip은 C군으로 거부된다. 확장자 미상 텍스트는 txt 취급.
+4. 전부 실패 → `unsupported_format`(⑥). **판별 결과는 잡 상태에 기록**하고, 판별을 거치지 않은 바이트가 `_api_content_blocks_for_file`류 텍스트 폴백에 닿는 경로는 0이어야 한다(stage-16 DoD 2 — utf-8 강제 디코드 폴백은 판별 통과분 전용으로 격하).
+
+**③ 인코딩 판별 (D2-② 확정)**
+
+- 순서: **utf-8 BOM(utf-8-sig) → utf-8(strict) → cp949(strict)**. 전부 실패 = 판별 불가(C군 — ⑥ 문구). **chardet류 추론 라이브러리는 도입하지 않는다**(잠정 반대 → 확정. 3단 폴백으로 국내 실사용(utf-8·cp949)을 덮고, 확률 추측 판별은 mojibake를 다시 조용히 들여오는 경로다 — F42 라이브러리 원칙 "포맷당 1개"에도 반함).
+- **CLI 엔진 경로 보정(실측 결함 예방)**: cp949로 판별된 파일은 tmp를 **utf-8로 재인코딩해 경로 전달**한다 — Claude Code Read는 utf-8 전제라 "기존대로 경로 전달"만으로는 DoD 3(cp949 무깨짐)이 성립하지 않는다. utf-8(BOM 포함) 파일은 기존대로 원본 tmp 그대로 전달(변경 최소화). `sources/` 원본은 어느 경우든 **원 바이트 그대로 불변**(재인코딩은 tmp 파생물뿐).
+
+**④ B군 추출 계약 (D1 확정 — 파서 채택·직렬화·분리)**
+
+- **파서 채택**: docx = **python-docx**, xlsx = **openpyxl** — 포맷당 1개(F42 원칙), requirements에 **`==` 정확 핀**(pypdf 전례 — 구체 버전은 구현 시 설치 검증 후 기록). python-docx의 lxml C 확장 의존은 **수용**한다(Windows 포함 주요 플랫폼 wheel 배포로 설치 무해 — F42 "wheel 배포 C 확장은 개별 판단" 조항 적용). **docx2txt 기각**: 표 텍스트 추출 불완전(stage-16 체크리스트 요구사항 미달)·유지보수 정체.
+- **docx 직렬화**: 문단 텍스트를 문서 순서대로 + 표는 **Markdown 표**로. 수식(OMML)·이미지·텍스트박스는 소실 — **소실 요소 감지 시 잡 `notes`에 서버 완성 문장 1건**을 담는다("수식·그림은 텍스트 추출에서 제외되었습니다 — 미리보기에서 원본과 대조하세요", §4.10 notes 계약 재사용 — 새 API 0건. 소실 표시 여부는 이 문안으로 확정).
+- **xlsx 직렬화(D2-③ 확정)**: **시트별 Markdown 표**(`## 시트: {이름}` 헤더 + 표 — 1행을 헤더 행으로). TSV 기각 근거: 산출물이 LLM 투입용인데 탭 구분은 셀 내 공백·탭과 구분되지 않고 열 경계 정보가 약하다 — Markdown 표는 열 구조를 명시적으로 보존하고 content·프롬프트 관례(Markdown)와 일치. 셀 내 `|`는 `\|` 이스케이프, 셀 내 줄바꿈은 공백 치환, 수식 셀은 **계산값**(openpyxl `data_only=True` — 캐시 없으면 빈 값).
+- **상한(D2-③ 확정)**: 시트 **10개** · 시트당 **500행** · 행당 **50열**. 초과 시 **자르지 않고 실행 전 `too_large`로 중단**(⑤) — message에 초과 지점을 명시한다(예: "시트 'Sheet3'의 501행에서 행 상한(500)을 초과했습니다"). 부분 잘림 투입은 하지 않는다 — "일부만 변환된 회차"는 조용한 손실이고, 진짜 대용량 시트는 출력 상한 잘림(`invalid_output`)으로 비용만 태우게 된다.
+- **추출 함수는 convert 전용이 아니다(M15 접점)**: 신규 **`services/doc_extract.py`**에 `extract_docx_text`·`extract_xlsx_text`(바이트 → 직렬화 텍스트, 실패는 사유를 가진 typed 예외)로 두고, convert 파이프라인과 **`source_match.extract_source_text`(원문 대조 §4.17 ⑥)가 같은 함수를 재사용**한다 — F42의 부수 효과(M15 대조 가능 포맷 확대)가 이 분리로 실현된다(source_match 쪽은 예외를 None="대조 불가"로 흡수). **분리만 한다** — 대조 로직 변경·추출 텍스트 저장·색인은 없음(과설계 금지).
+- **파서 예외 = `parse_failed` 재사용 확정**(신규 kind 없음 — S10 신설 의미 "원본 구조 해석 불가"와 일치). 경계 규칙: **② 판별이 지원 포맷(docx/xlsx)으로 확정한 뒤의 추출 실패 = `parse_failed`**(암호 보호·손상·구조 위장 — message에 추정 사유, action "암호를 해제하거나 PDF로 저장한 뒤 다시 반입하세요"), **판별 자체가 미지원 = `unsupported_format`**(⑥). 파서 예외가 잡 크래시·조용한 실패가 되는 경로 0(stage-16 3절). **원본 저장은 `unsupported_format`과 대칭(2026-07-29 확정 — S16 검토 적발 해소)**: `parse_failed`로 종료할 때도 **원본을 `sources/`에 저장한 뒤 종료**한다 — 손상·암호 파일도 사용자의 원본 자료이고, 잡 tmp는 정리되므로 저장하지 않으면 서버에 남지 않는다(stage-16 DoD 2 "손상 파일은 원본 저장 + 구조화 오류" 문면과 정합). action 앞머리 "원본은 sources/에 저장했습니다." 고정도 ⑥과 동일하게 적용한다.
+
+**⑤ 추출·디코드 텍스트 길이 상한 — `error_info.kind:'too_large'` 신설 (D2-⑥ 확정)**
+
+- 상한: A군 디코드·B군 추출 텍스트 공통 **200,000자**(원문 문자 수 기준). 근거: 회차 단위 기출(60문항 ≈ 3~6만 자)의 3배 이상 여유 — "명백한 과대 입력"만 차단하는 보수 상한이다(실질 병목은 출력 상한 잘림 = `invalid_output`이고, 이 상한은 그 전에 **입력 쪽에서 비용 0으로** 멈추는 안전판). settings 키로 만들지 않는다(YAGNI — 값 변경은 계획서 확정 절차).
+- 판정 시점: `phase='preparing'`(판별·추출·디코드 직후) — **LLM 호출 전**. xlsx 시트·행·열 상한 초과(④)도 같은 kind로 종료.
+- 문구(서버 완성 문장): message "추출된 텍스트가 너무 깁니다(약 N자 — 상한 200,000자)" / action "원본을 과목·회차 단위로 나눠 개별 파일로 반입해 주세요"(F40-④ `invalid_output`의 분할 권고와 같은 계열 — **서버측 자동 분할은 하지 않는다**). `fallback_available=false`(엔진을 바꿔도 같음 — `invalid_output` 전례), `alternatives` 없음. §4.11 kind 목록에 등재 완료.
+
+**⑥ `unsupported_format` 포맷별 폴백 안내 — 확정 문안 (서버 완성 문장, qnet `_unsupported_message` 전례)**
+
+거부 시에도 **원본은 `sources/`에 저장한 뒤 종료**한다(조용한 스킵 금지 — qnet과 동일 정책, stage-16 1절). action 앞머리에 "원본은 sources/에 저장했습니다." 고정, 이후 포맷별 문장:
+
+| 판별 결과 | message | action(뒷부분) |
+|---|---|---|
+| hwp·hwpx | "한글(HWP) 문서는 자동 변환할 수 없습니다" | "한글에서 PDF로 저장한 뒤 다시 반입하세요." |
+| zip(내부에 docx/xlsx 마커 없음) | "압축 파일(ZIP)은 자동 변환할 수 없습니다" | "압축을 풀어 PDF·이미지·문서 파일을 하나씩 반입하세요." |
+| doc(OLE + 확장자 doc) | "구버전 워드(doc) 문서는 지원하지 않습니다" | "워드에서 docx로 저장한 뒤 다시 반입하세요." |
+| xls(OLE + 확장자 xls) | "구버전 엑셀(xls) 문서는 지원하지 않습니다" | "엑셀에서 xlsx로 저장한 뒤 다시 반입하세요." |
+| OLE(확장자 미상) | "구버전 오피스·한글 계열 문서로 보입니다" | "PDF 또는 docx/xlsx로 저장한 뒤 다시 반입하세요." |
+| 판별 불가(널 바이트·인코딩 실패) | "파일 형식을 판별할 수 없습니다(지원하지 않는 바이너리 또는 인코딩)" | "PDF·이미지 또는 UTF-8 텍스트로 저장한 뒤 다시 반입하세요." |
+
+※ **암호화 OOXML(OLE 매직 + 확장자 `.docx`/`.xlsx`)은 이 표의 대상이 아니다** — ②-1 예외 세칙에 따라 **`parse_failed`**로 종료한다(문구·원본 저장은 ②-1·④).
+
+**`alternatives`(2026-07-29 확정 — S16 검토 적발 해소)**: **convert 잡(파일·URL 반입)에서 발생한 `unsupported_format`·`parse_failed`는 빈 배열 `[]`** — 실패한 반입 경로 자신([파일로 반입] 버튼 → 같은 화면 회귀)이나 같은 판별·파서에 다시 걸릴 경로는 대안이 아니다. 해결책은 경로 전환이 아니라 **원본 변환 후 재반입**(위 action 문구가 안내)이며, 빈 배열이면 프론트가 아무 버튼도 렌더하지 않는 기존 계약 그대로다. **fetch 잡 발생분은 기존 기본값 유지**(`['file_import','url_import']` 등 — §4.11·S14 계약 불변: 사이트 반입에는 다른 경로가 실제 대안이다). 프론트는 문구를 그대로 나열한다(포맷 분기 금지 — 렌더 코드 불변).
+
+**⑦ URL 반입 content-type 화이트리스트 확장 (D2-⑤ 확정)**
+
+- **추가 5종**: `application/xml`·`text/xml` → xml · `text/csv` → csv · `application/vnd.openxmlformats-officedocument.wordprocessingml.document` → docx · `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` → xlsx. (기존: pdf·html/xhtml·markdown·text/plain·이미지 4종 — 불변.)
+- **`application/octet-stream`은 계속 미허용**: 내용 미상 다운로드를 전부 여는 폭 대비 실수요 미확인(YAGNI) — 필요가 실측되면 계획서에 먼저 확정. 파일 반입 폴백이 항상 살아 있다. doc/xls/hwp MIME(`application/msword`·`application/vnd.ms-excel`·`application/x-hwp` 등)도 목록에 넣지 않는다 — C군은 내려받아도 거부될 파일이므로 전송 자체를 받지 않는다(거부 문구가 지원 포맷을 안내).
+- 거부 message의 "(pdf/html/이미지/md만 허용)" 문구는 지원 포맷 나열로 갱신한다(구현 시 — 서버 완성 문장 원칙 유지).
+- **다운로드 성공 후에도 ② 판별 계층을 동일하게 통과**한다 — content-type은 수신 허용 게이트일 뿐 판별 근거가 아니다(매직 바이트 우선 — 사칭 방어). 50MB 상한·SSRF 검증·리다이렉트 제한은 불변.
+
+**DDL 변경 0건·Alembic 0건 — 재확인 근거 (2026-07-29, D3)**
+
+- 이 절의 저장 지점 전수: **tmp 파일**(판별·추출·재인코딩 파생물 — 기존 잡 정리 규칙 그대로) · **인메모리 잡 상태**(판별 결과·notes) · **`sources/` 원본 바이트**(불변 — 추출 텍스트는 저장하지 않는 파생물, R18 정신) · **requirements 의존 2건**(python-docx·openpyxl — 계획서 F42 등재). `documents.file_type`은 자유 텍스트(CHECK 없음)라 `'docx'|'xlsx'|'xml'|'csv'` 등 값 확장은 **계획서 §6.2 주석 갱신만**이다. **새 테이블·컬럼·인덱스 0, Alembic 0, 신규 엔드포인트 0**(기존 `POST /api/convert`의 수용 포맷 확장 — 계약 신설은 `error_info.kind:'too_large'` 값 1종뿐). 구현 중 이 전제가 깨지면 착수 중단 후 보고(임의 확정 금지).
 
 ## 5. 화면 상세 (12개)
 

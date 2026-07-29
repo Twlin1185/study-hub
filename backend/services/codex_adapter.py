@@ -256,15 +256,23 @@ def install_or_raise_upstream() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 원본 → 프롬프트 텍스트 (G2 실증 — pypdf 추출이 정본, 직접 PDF 읽기는 사용하지 않는다)
 # ---------------------------------------------------------------------------
-def build_text_for_prompt(tmp_path: Path) -> str:
+def build_text_for_prompt(tmp_path: Path, *, group: Optional[str] = None) -> str:
     """codex 경로 전용 원본 텍스트화. PDF는 pypdf로 추출(레이아웃 붕괴 가능성을 프롬프트에서
     안내), 텍스트 계열(txt/md/html 등)은 원문 그대로 읽는다. 이미지는 아직 지원하지 않는다
     (OCR 없이는 codex가 내용을 판단할 수 없다 — Claude 엔진 사용을 안내).
 
+    `group`은 convert_service 판별 계층(설계 §4.18 ①②③)의 매직 바이트 판정 결과다 —
+    지정되면 확장자 재분기 없이 이 값이 pdf/이미지 여부를 가른다(내용 판별이 정본,
+    §4.18 ②-3 — S16 검토 적발: 확장자 없는 `%PDF`·PNG가 확장자 재분기로 텍스트 폴백에
+    새던 결함의 수정). **미지정(기본값 None)이면 기존처럼 확장자로 판별**한다 — 이 함수를
+    판별 정보 없이 직접 호출하는 기존 테스트·경로와의 하위 호환 유지.
+
     S15: PDF 추출 구현은 `services.source_match.extract_pdf_text` **단일 출처**를 쓴다 —
     프롬프트에 넣는 텍스트와 원문 대조에 쓰는 텍스트가 같아야 판정이 일관된다(중복 구현 금지)."""
     ext = tmp_path.suffix.lower().lstrip(".")
-    if ext == "pdf":
+    is_pdf = (group == "pdf") if group is not None else (ext == "pdf")
+    is_image = (group == "image") if group is not None else (ext in _UNSUPPORTED_EXTENSIONS)
+    if is_pdf:
         text = source_match.extract_pdf_text(tmp_path.read_bytes())
         if text is None:
             raise ValidationAppError(
@@ -272,7 +280,7 @@ def build_text_for_prompt(tmp_path: Path) -> str:
                 "pypdf·cryptography가 없을 수 있습니다). 다른 엔진을 사용하거나 서버 의존성을 확인하세요."
             )
         return text
-    if ext in _UNSUPPORTED_EXTENSIONS:
+    if is_image:
         raise ValidationAppError(
             "Codex 엔진은 이미지 원본을 아직 지원하지 않습니다. Claude CLI/API 엔진을 사용하세요.",
             detail={"extension": ext},

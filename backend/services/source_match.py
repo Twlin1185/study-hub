@@ -23,6 +23,8 @@ import io
 import logging
 from typing import Iterable, List, Optional, Sequence
 
+from services import doc_extract
+
 _LOGGER = logging.getLogger(__name__)
 
 # --- 임계값(설계 §4.17 ⑥ 확정 — 임의 변경 금지) ------------------------------------
@@ -104,16 +106,31 @@ def _extension(filename: Optional[str]) -> str:
 
 
 def extract_source_text(filename: Optional[str], data: Optional[bytes]) -> Optional[str]:
-    """원본 바이트 → 대조용 텍스트. 추출할 수 없으면 None("대조 불가")."""
+    """원본 바이트 → 대조용 텍스트. 추출할 수 없으면 None("대조 불가").
+
+    docx/xlsx는 M16(F42) B군 추출기(`services.doc_extract`)를 재사용한다(§4.18 ④ — 추출
+    함수 분리의 목적). 파서 예외·상한 초과는 "대조 불가"로 흡수한다(대조는 배지·안내일
+    뿐이라 이 경로에서 반입 자체를 막지 않는다 — convert 파이프라인의 판별 계층이 이미
+    같은 예외를 사용자에게 구조화해 보여준다)."""
     if not data:
         return None
     ext = _extension(filename)
     if ext == "pdf":
         return extract_pdf_text(data)
+    if ext == "docx":
+        try:
+            return doc_extract.extract_docx_text(data)
+        except (doc_extract.DocExtractError, doc_extract.DocTooLargeError):
+            return None
+    if ext == "xlsx":
+        try:
+            return doc_extract.extract_xlsx_text(data)
+        except (doc_extract.DocExtractError, doc_extract.DocTooLargeError):
+            return None
     if ext in TEXT_EXTENSIONS:
         return data.decode("utf-8", errors="replace")
     if ext:
-        # 이미지·엑셀 등 — 텍스트 추출기가 없다(M16 F42 B군 추출기가 들어오면 넓어진다).
+        # 이미지 등 — 텍스트 추출기가 없다.
         return None
     # 확장자가 없는 파일은 텍스트일 때만 채택(엄격 디코드 — 실패하면 바이너리로 본다).
     try:

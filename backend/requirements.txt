@@ -9,19 +9,25 @@ colorama==0.4.6
 # 암호화 PDF(빈 암호·AES) 해제 — pypdf의 선택 의존이지만 실제 기출 PDF에 흔하다(S15 PoC 실측).
 # 원문 대조(services/source_match.py)·codex 프롬프트 텍스트 추출이 둘 다 이 경로를 탄다.
 cryptography==49.0.0
+et-xmlfile==2.0.0
 fastapi==0.139.2
 greenlet==3.5.3
 h11==0.16.0
 httptools==0.8.0
 idna==3.18
+lxml==6.1.1
 Mako==1.3.12
 MarkupSafe==3.0.3
+# S16(F42) B군 서버측 텍스트 추출 — docx=python-docx, xlsx=openpyxl(포맷당 1개 원칙,
+# 설계 §4.18 ④). et-xmlfile·lxml은 이 둘의 필수 의존.
+openpyxl==3.1.5
 pydantic==2.13.4
 pycparser==3.0
 pydantic-settings==2.14.2
 pydantic_core==2.46.4
 python-dotenv==1.2.2
 pytest==9.1.1
+python-docx==1.2.0
 python-multipart==0.0.32
 pypdf==6.14.2
 PyYAML==6.0.3
