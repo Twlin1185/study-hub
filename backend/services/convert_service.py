@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import datetime as dt
 import hashlib
+import io
 import json
 import logging
 import queue
@@ -26,6 +27,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -35,7 +38,17 @@ import models
 from database import BASE_DIR, SessionLocal
 from exceptions import AppError, ConflictError, NotFoundError, ValidationAppError
 from schemas.import_schema import PreviewResponse
-from services import codex_adapter, document_service, fetch_service, import_service, llm_engine_service, net_safety, settings_service, tag_rule_service
+from services import (
+    codex_adapter,
+    doc_extract,
+    document_service,
+    fetch_service,
+    import_service,
+    llm_engine_service,
+    net_safety,
+    settings_service,
+    tag_rule_service,
+)
 from services.fetchers.base import (
     AdapterServiceError,
     FetchedExam,
@@ -88,6 +101,14 @@ _ALLOWED_CONTENT_TYPES = {
     "image/jpeg": "image",
     "image/gif": "image",
     "image/webp": "image",
+    # S16(F42) — 설계 §4.18 ⑦ D2-⑤ 확정 5종. octet-stream은 계속 미허용(YAGNI, 파일 반입
+    # 폴백이 항상 살아 있다). 다운로드 성공 후에도 ①②③ 판별 계층을 동일하게 통과한다
+    # (content-type은 수신 허용 게이트일 뿐 판별 근거가 아니다 — 매직 바이트 우선).
+    "application/xml": "xml",
+    "text/xml": "xml",
+    "text/csv": "csv",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
 }
 
 
@@ -108,7 +129,16 @@ def _filename_from_url(url: str, content_type: str) -> str:
     parsed = urllib.parse.urlparse(url)
     name = Path(urllib.parse.unquote(parsed.path)).name
     if not name or "." not in name:
-        ext_map = {"pdf": "pdf", "html": "html", "md": "md", "image": "png"}
+        ext_map = {
+            "pdf": "pdf",
+            "html": "html",
+            "md": "md",
+            "image": "png",
+            "xml": "xml",
+            "csv": "csv",
+            "docx": "docx",
+            "xlsx": "xlsx",
+        }
         kind = _ALLOWED_CONTENT_TYPES.get(content_type, "bin")
         name = f"download.{ext_map.get(kind, 'bin')}"
     return _safe_name(name)
@@ -156,7 +186,7 @@ def _download_source_url(url: str, *, on_activity=None) -> Tuple[str, bytes, str
             content_type = content_type_raw.split(";")[0].strip().lower()
             if content_type not in _ALLOWED_CONTENT_TYPES:
                 raise ValidationAppError(
-                    "허용되지 않는 파일 형식입니다(pdf/html/이미지/md만 허용)",
+                    "허용되지 않는 파일 형식입니다(pdf·html·이미지·md·xml·csv·docx·xlsx만 허용)",
                     detail={"content_type": content_type_raw or None},
                 )
             length_header = resp.headers.get("Content-Length")
@@ -199,6 +229,271 @@ def _write_tmp_file(job_id: str, filename: str, data: bytes) -> Path:
     tmp_path = CONVERT_TMP_DIR / f"{job_id}_{_safe_name(filename)}"
     tmp_path.write_bytes(data)
     return tmp_path
+
+
+# ---------------------------------------------------------------------------
+# 반입 파일 판별 계층 (S16 — F42, 설계 §4.18 ①②③) — phase='preparing', LLM 호출 전 비용 0
+#
+# 우선순위: **매직 바이트 > 텍스트성 > 인코딩 > 확장자**(content-type은 URL 수신 허용
+# 게이트일 뿐 판별 근거가 아니다 — 사칭 방어). 미지원·판별 불가는 원본을 sources/에 저장한
+# 뒤 UnsupportedFormatError로 종료한다(조용한 스킵 금지 — qnet `_unsupported_message` 전례
+# 그대로 재사용). 판별을 거치지 않은 바이트가 API 엔진의 utf-8 강제 디코드 폴백에 닿는
+# 경로는 0이어야 한다 — 이 함수를 통과한 결과(ImportDetection)만 프롬프트 조립에 쓴다.
+# ---------------------------------------------------------------------------
+_PDF_MAGIC = b"%PDF"
+_ZIP_MAGIC = b"PK\x03\x04"
+_OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+_TEXT_FILE_TYPE_MAP = {
+    "md": "md",
+    "markdown": "md",
+    "txt": "txt",
+    "html": "html",
+    "htm": "html",
+    "xhtml": "html",
+    "xml": "xml",
+    "csv": "csv",
+}
+
+# §4.18 ⑥ 확정 문안 — (message, action 뒷부분). action 앞머리 "원본은 sources/에
+# 저장했습니다."는 _unsupported_error가 고정으로 붙인다.
+_UNSUPPORTED_MESSAGES: Dict[str, Tuple[str, str]] = {
+    "hwp": ("한글(HWP) 문서는 자동 변환할 수 없습니다", "한글에서 PDF로 저장한 뒤 다시 반입하세요."),
+    "zip": ("압축 파일(ZIP)은 자동 변환할 수 없습니다", "압축을 풀어 PDF·이미지·문서 파일을 하나씩 반입하세요."),
+    "doc": ("구버전 워드(doc) 문서는 지원하지 않습니다", "워드에서 docx로 저장한 뒤 다시 반입하세요."),
+    "xls": ("구버전 엑셀(xls) 문서는 지원하지 않습니다", "엑셀에서 xlsx로 저장한 뒤 다시 반입하세요."),
+    "ole_unknown": ("구버전 오피스·한글 계열 문서로 보입니다", "PDF 또는 docx/xlsx로 저장한 뒤 다시 반입하세요."),
+    "undetected": (
+        "파일 형식을 판별할 수 없습니다(지원하지 않는 바이너리 또는 인코딩)",
+        "PDF·이미지 또는 UTF-8 텍스트로 저장한 뒤 다시 반입하세요.",
+    ),
+}
+
+
+class TooLargeError(Exception):
+    """추출·디코드 텍스트가 200,000자 상한을 초과(D2-⑥, §4.18 ⑤) — `error_info.kind`에
+    **`'too_large'` 신설**. LLM 호출 전 실행 전 종료(비용 0). `fallback_available=False`
+    (엔진을 바꿔도 같다)·`alternatives` 없음. xlsx 시트/행/열 구조 상한 초과도 같은 kind다."""
+
+    def __init__(self, message: str, *, action: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.public_message = message
+        self.action = action or "원본을 과목·회차 단위로 나눠 개별 파일로 반입해 주세요."
+
+
+_DOC_PARSE_FAILED_ACTION = "원본은 sources/에 저장했습니다. 암호를 해제하거나 PDF로 저장한 뒤 다시 반입하세요."
+
+
+class DocParseFailedError(Exception):
+    """B군(docx/xlsx) 파서 예외 — 판별이 docx/xlsx로 **확정된 뒤**의 추출 실패(암호·손상·
+    구조 위장). `error_info.kind`는 신규 없이 기존 `'parse_failed'`를 재사용한다(§4.18 ④
+    경계 규칙). 판별 자체가 미지원이면 `UnsupportedFormatError`(kind='unsupported_format').
+
+    **원본 저장은 `unsupported_format`과 대칭(설계 v1.19 확정)**: 이 예외로 종료할 때도
+    원본을 `sources/`에 저장한 뒤 종료한다 — action 앞머리 "원본은 sources/에 저장했습니다."
+    고정(호출부가 저장 후 이 예외를 만든다 — 아래 `action` 기본값이 그 문안)."""
+
+    def __init__(self, message: str, *, action: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.public_message = message
+        self.action = action or _DOC_PARSE_FAILED_ACTION
+
+
+@dataclass
+class ImportDetection:
+    """반입 파일 판별 결과 — `group`에 따라 프롬프트 조립 방식이 갈린다.
+
+    - `pdf`·`image`: 기존 경로 그대로(엔진별 기존 함수가 처리 — 이 판별 계층은 조기 분류만).
+    - `text`(A군 md·txt·html·xml·csv): `encoding`으로 디코드한 `text` — CLI는 utf-8 계열은
+      원본 tmp 그대로, cp949는 재인코딩 tmp로 전달(③). codex·api는 `text`를 프롬프트에 직접 삽입.
+    - `docx`·`xlsx`(B군): `text`(추출 결과)를 **3엔진 공통**으로 프롬프트에 직접 삽입.
+    """
+
+    group: str  # 'pdf' | 'image' | 'text' | 'docx' | 'xlsx'
+    file_type: str  # sources.file_type 값(자유 텍스트)
+    encoding: Optional[str] = None  # group == 'text'일 때만('utf-8-sig'|'utf-8'|'cp949')
+    text: Optional[str] = None  # group in ('text','docx','xlsx')일 때 디코드·추출 텍스트
+    notes: List[str] = field(default_factory=list)  # 잡 notes에 붙일 소표기(§4.18 ④)
+
+
+def _ext_of(filename: Optional[str]) -> str:
+    name = Path(filename or "").name
+    return name.rsplit(".", 1)[-1].lower() if "." in name else ""
+
+
+def _detect_image_magic(data: bytes) -> Optional[str]:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+def _is_hwpx(zf: zipfile.ZipFile, names: set) -> bool:
+    """hwpx 식별(§4.18 ② 확정 — S16 검토 적발 수정) — hwpx도 zip이라 내부 마커로만
+    구분한다: `mimetype` 엔트리가 `application/hwp+zip`이거나 `Contents/` 최상위 구조가
+    있으면 hwpx. 둘 다 표준 라이브러리 `zipfile`만 사용(신규 의존 아님)."""
+    if "mimetype" in names:
+        try:
+            mimetype = zf.read("mimetype").decode("ascii", errors="ignore").strip()
+        except Exception:  # noqa: BLE001 - 판별 실패는 그냥 hwpx 아님으로 흡수
+            mimetype = ""
+        if mimetype == "application/hwp+zip":
+            return True
+    return any(name.startswith("Contents/") for name in names)
+
+
+def _detect_zip_kind(data: bytes) -> str:
+    """zip `PK\\x03\\x04` 내부 판별 — docx(`word/document.xml`)·xlsx(`xl/workbook.xml`)·
+    hwpx(§4.18 ②, `_is_hwpx`)·그 외는 'zip'(표준 zipfile만 사용, 신규 의존 아님)."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            names = set(zf.namelist())
+            if "word/document.xml" in names:
+                return "docx"
+            if "xl/workbook.xml" in names:
+                return "xlsx"
+            if _is_hwpx(zf, names):
+                return "hwpx"
+            return "zip"
+    except zipfile.BadZipFile:
+        return "zip"
+
+
+def _detect_text_encoding(data: bytes) -> Optional[str]:
+    """D2-② 확정: utf-8 BOM(utf-8-sig) → utf-8(strict) → cp949(strict). 전부 실패하면
+    None(판별 불가) — chardet류 추론 라이브러리는 도입하지 않는다."""
+    if data.startswith(b"\xef\xbb\xbf"):
+        try:
+            data.decode("utf-8-sig")
+            return "utf-8-sig"
+        except UnicodeDecodeError:
+            return None
+    try:
+        data.decode("utf-8")
+        return "utf-8"
+    except UnicodeDecodeError:
+        pass
+    try:
+        data.decode("cp949")
+        return "cp949"
+    except UnicodeDecodeError:
+        return None
+
+
+def _unsupported_error(filename: str, data: bytes, reason: str) -> UnsupportedFormatError:
+    """C군 판별 — 원본을 sources/에 저장한 뒤 반환한다(호출부가 raise). 조용한 스킵 금지
+    (qnet과 동일 정책, §4.18 ⑥). action 앞머리는 항상 "원본은 sources/에 저장했습니다." 고정."""
+    message, action_tail = _UNSUPPORTED_MESSAGES[reason]
+    saved = import_service.save_source_file(filename, data)
+    return UnsupportedFormatError(
+        message,
+        action=f"원본은 sources/에 저장했습니다. {action_tail}",
+        saved_files=[saved],
+        formats=[reason],
+    )
+
+
+def _doc_parse_failed(filename: str, data: bytes, message: str) -> DocParseFailedError:
+    """B군 파서 예외 → `DocParseFailedError` — **원본을 sources/에 저장한 뒤** 반환한다
+    (호출부가 raise). `unsupported_format`과 대칭(설계 v1.19 확정, §4.18 ④) — 손상·암호
+    파일도 사용자의 원본 자료이고 잡 tmp는 정리되므로 저장하지 않으면 서버에 남지 않는다."""
+    import_service.save_source_file(filename, data)
+    return DocParseFailedError(message, action=_DOC_PARSE_FAILED_ACTION)
+
+
+def _extract_group_text(filename: str, data: bytes, *, kind: str) -> str:
+    """B군 추출(doc_extract 위임) — 파서 예외를 구조화 예외로 좁힌다(§4.18 ④ 경계 규칙:
+    판별이 docx/xlsx로 확정된 뒤의 실패만 여기로 온다)."""
+    try:
+        if kind == "docx":
+            return doc_extract.extract_docx_text(data)
+        return doc_extract.extract_xlsx_text(data)
+    except doc_extract.DocTooLargeError as exc:
+        raise TooLargeError(exc.public_message, action=exc.action) from exc
+    except doc_extract.DocExtractError as exc:
+        raise _doc_parse_failed(filename, data, exc.public_message) from exc
+
+
+def _detect_import_format(filename: str, data: bytes) -> ImportDetection:
+    """반입 파일 판별(§4.18 ①②③) — 매직 바이트 우선. 통과분은 이 함수 안에서 200,000자
+    상한(§4.18 ⑤)까지 확인을 마친다(B군은 doc_extract 내부에서, A군은 아래에서)."""
+    ext = _ext_of(filename)
+
+    if data.startswith(_PDF_MAGIC):
+        return ImportDetection(group="pdf", file_type="pdf")
+
+    image_type = _detect_image_magic(data)
+    if image_type:
+        return ImportDetection(group="image", file_type=image_type)
+
+    if data.startswith(_ZIP_MAGIC):
+        zip_kind = _detect_zip_kind(data)
+        if zip_kind == "docx":
+            text = _extract_group_text(filename, data, kind="docx")
+            notes: List[str] = []
+            if doc_extract.docx_has_lost_elements(data):
+                notes.append(
+                    "수식·그림은 텍스트 추출에서 제외되었습니다 — 미리보기에서 원본과 대조하세요."
+                )
+            return ImportDetection(group="docx", file_type="docx", text=text, notes=notes)
+        if zip_kind == "xlsx":
+            text = _extract_group_text(filename, data, kind="xlsx")
+            return ImportDetection(group="xlsx", file_type="xlsx", text=text)
+        if zip_kind == "hwpx":
+            # hwpx는 hwp와 문구 공통(§4.18 ⑥ "hwp·hwpx" 행 — S16 검토 적발 수정: 일반
+            # zip 문구("압축을 풀어…")로 오안내되던 결함).
+            raise _unsupported_error(filename, data, "hwp")
+        raise _unsupported_error(filename, data, "zip")
+
+    if data.startswith(_OLE_MAGIC):
+        if ext in ("docx", "xlsx"):
+            # ECMA-376 암호화 OOXML(암호 걸린 docx/xlsx)은 zip이 아니라 OLE CFB 컨테이너로
+            # 저장된다 — 판별은 확장자로 docx/xlsx가 **확정**됐으므로 parse_failed(암호 해제
+            # 안내)다, unsupported_format이 아니다(§4.18 ④ 확정 — S16 검토 적발 수정. 신규
+            # 파서 라이브러리 도입 없음 — 판별만 추가).
+            kind_label = "워드(docx)" if ext == "docx" else "엑셀(xlsx)"
+            raise _doc_parse_failed(
+                filename, data, f"{kind_label} 문서를 열 수 없습니다(암호가 걸려 있는 것으로 보입니다)."
+            )
+        if ext == "doc":
+            raise _unsupported_error(filename, data, "doc")
+        if ext == "xls":
+            raise _unsupported_error(filename, data, "xls")
+        if ext == "hwp":
+            raise _unsupported_error(filename, data, "hwp")
+        raise _unsupported_error(filename, data, "ole_unknown")
+
+    if b"\x00" in data[:8192]:
+        raise _unsupported_error(filename, data, "undetected")
+
+    encoding = _detect_text_encoding(data)
+    if encoding is None:
+        raise _unsupported_error(filename, data, "undetected")
+
+    text = data.decode(encoding)
+    try:
+        # S16 검토 6 — §4.18 ⑤ 확정 문안을 그대로 쓴다(레이블 커스터마이즈 없음):
+        # "추출된 텍스트가 너무 깁니다(약 N자 — 상한 200,000자)".
+        doc_extract.enforce_max_chars(text)
+    except doc_extract.DocTooLargeError as exc:
+        raise TooLargeError(exc.public_message, action=exc.action) from exc
+    file_type = _TEXT_FILE_TYPE_MAP.get(ext, "txt")
+    return ImportDetection(group="text", file_type=file_type, encoding=encoding, text=text)
+
+
+def _detection_input_size(detected: ImportDetection, fallback_bytes: int) -> int:
+    """LLM 사용량 사전 안내(ETA 표본, §4.11 progress) 기준 — S16 검토 8: A·B군(text·docx·
+    xlsx)은 실제 LLM에 들어가는 추출·디코드 텍스트 길이(utf-8 인코딩 바이트 수)를 쓰고,
+    pdf·image는 원본 바이트 길이(`fallback_bytes`)를 그대로 쓴다. `_do_convert`·`_do_fetch`
+    가 공유한다(중복 구현 금지)."""
+    if detected.text is not None:
+        return len(detected.text.encode("utf-8"))
+    return fallback_bytes
 
 
 # ---------------------------------------------------------------------------
@@ -331,23 +626,25 @@ _IMAGE_MEDIA_TYPES = {
 }
 
 
-def _api_content_blocks_for_file(path: Path) -> List[dict]:
+def _api_content_blocks_for_file(path: Path, *, group: str, file_type: str) -> List[dict]:
     """CLI는 Read 도구로 파일을 읽지만 API는 도구가 없으므로 파일 내용을 메시지에 직접
-    포함한다 — PDF는 base64 document 블록, 이미지는 image 블록, 그 외 텍스트류는 본문 삽입."""
-    ext = path.suffix.lower().lstrip(".")
+    포함한다 — PDF는 base64 document 블록, 이미지는 image 블록.
+
+    `group`·`file_type`은 판별 계층(§4.18 ①②③, `_detect_import_format`)의 매직 바이트
+    판정 결과를 그대로 받는다 — **확장자 재분기 없음**(S16 검토 적발: 확장자 없는 `%PDF`·
+    PNG가 `path.suffix` 재분기로 utf-8 강제 디코드 텍스트 블록에 새던 결함의 수정. 내용
+    판별이 정본, §4.18 ②-3). 이 함수는 group이 `pdf`·`image`일 때만 호출된다(text·docx·
+    xlsx는 embedded-text 경로로 우회) — 아래 텍스트 폴백은 방어적 코드일 뿐 정상 경로에서
+    도달하지 않는다."""
     data = path.read_bytes()
-    if ext == "pdf":
+    if group == "pdf":
         b64 = base64.b64encode(data).decode("ascii")
         return [{"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}]
-    if ext in _IMAGE_MEDIA_TYPES:
+    if group == "image":
+        media_type = _IMAGE_MEDIA_TYPES.get(file_type, "image/png")
         b64 = base64.b64encode(data).decode("ascii")
-        return [
-            {
-                "type": "image",
-                "source": {"type": "base64", "media_type": _IMAGE_MEDIA_TYPES[ext], "data": b64},
-            }
-        ]
-    text = data.decode("utf-8", errors="replace")
+        return [{"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}}]
+    text = data.decode("utf-8", errors="replace")  # 방어적 폴백(도달 불가 경로)
     return [{"type": "text", "text": f"\n\n## 원본 파일 내용 ({path.name})\n\n{text}\n"}]
 
 
@@ -667,6 +964,10 @@ def _fallback_error_info(exc: Exception, *, job_kind: str = "convert") -> dict:
     if isinstance(exc, UnsupportedFormatError):
         # S14: 첨부에 변환 가능한 PDF가 없음 — **조용한 스킵 금지**. 원본은 이미 sources/에
         # 저장했고, 포맷별 다음 행동(압축 해제·한글→PDF 변환)을 안내한다(설계 §4.13).
+        # S16 검토 5(§4.18 ⑥ v1.19 확정): convert 잡(파일·URL 반입)에서 발생한 분은
+        # alternatives=[] — 실패한 반입 경로 자신([파일로 반입] → 같은 화면 회귀)은
+        # 대안이 아니다. fetch 잡(qnet) 발생분은 기존 기본값을 그대로 쓴다.
+        alts = [] if job_kind == "convert" else exc.alternatives
         return {
             "kind": "unsupported_format",
             "limit_kind": None,
@@ -674,7 +975,7 @@ def _fallback_error_info(exc: Exception, *, job_kind: str = "convert") -> dict:
             "message": exc.public_message,
             "action": exc.action,
             "fallback_available": False,
-            "alternatives": exc.alternatives,
+            "alternatives": alts,
         }
     if isinstance(exc, AdapterServiceError):
         # S14: 쿼터 초과·서비스키 오류·토큰 만료처럼 원인과 다음 행동이 분명한 실패 —
@@ -717,6 +1018,33 @@ def _fallback_error_info(exc: Exception, *, job_kind: str = "convert") -> dict:
             "message": exc.message,
             "action": _invalid_output_action(truncated=exc.truncated, job_kind=job_kind),
             "fallback_available": False,
+        }
+    if isinstance(exc, TooLargeError):
+        # S16(F42): 추출·디코드 텍스트가 200,000자 상한 초과(xlsx 구조 상한 포함) —
+        # LLM 호출 전 비용 0으로 차단한다(§4.18 ⑤). 서버측 자동 분할은 하지 않는다.
+        return {
+            "kind": "too_large",
+            "limit_kind": None,
+            "resets_at": None,
+            "message": exc.public_message,
+            "action": exc.action,
+            "fallback_available": False,
+            "alternatives": [],
+        }
+    if isinstance(exc, DocParseFailedError):
+        # S16(F42): 판별이 docx/xlsx로 확정된 뒤의 파서 예외(암호·손상·구조 위장) — 신규
+        # kind 없이 기존 'parse_failed'를 재사용한다(§4.18 ④ 경계 규칙). action은 예외가
+        # 이미 "원본은 sources/에 저장했습니다." 접두를 포함한다(v1.19 확정 — unsupported와
+        # 대칭). S16 검토 5: convert 잡 발생분은 alternatives=[], fetch 잡은 기존 기본값.
+        alts = [] if job_kind == "convert" else ["url_import"]
+        return {
+            "kind": "parse_failed",
+            "limit_kind": None,
+            "resets_at": None,
+            "message": exc.public_message,
+            "action": exc.action,
+            "fallback_available": False,
+            "alternatives": alts,
         }
     message = exc.message if isinstance(exc, AppError) else "변환 처리 중 알 수 없는 오류가 발생했습니다."
     return {
@@ -785,8 +1113,11 @@ def _process_job(job_id: str) -> None:
                 if isinstance(exc, (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError)):
                     # 엔진 원문(CLI stderr·anthropic 예외 문자열)은 error_info로만 노출한다.
                     job["error"] = None
-                elif isinstance(exc, (AdapterServiceError, ParseFailedError)):
-                    # S14: 원인이 분명한 수집 실패(포맷 비지원·쿼터·키·구조 변경) —
+                elif isinstance(
+                    exc, (AdapterServiceError, ParseFailedError, TooLargeError, DocParseFailedError)
+                ):
+                    # S14: 원인이 분명한 수집 실패(포맷 비지원·쿼터·키·구조 변경).
+                    # S16: 판별·추출 계층 구조화 실패(too_large·docx/xlsx 파서 예외) —
                     # error_info가 사람 말로 안내하므로 traceback을 남기지 않는다.
                     job["error"] = None
                 elif isinstance(exc, AppError):
@@ -805,6 +1136,9 @@ def _process_job(job_id: str) -> None:
         tmp_path = job.get("_tmp_path") if job else None
         if tmp_path:
             Path(tmp_path).unlink(missing_ok=True)
+        # S16(F42 §4.18 ③): cp949 CLI 재인코딩 tmp 등 부가 파생물 정리.
+        for extra in (job.get("_extra_tmp_paths") or []) if job else []:
+            Path(extra).unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -821,8 +1155,12 @@ def _build_convert_prompt_cli(convert_md: str, tmp_path: Path) -> str:
     )
 
 
-def _build_convert_prompt_api(convert_md: str, tmp_path: Path) -> Tuple[str, List[dict]]:
-    blocks = _api_content_blocks_for_file(tmp_path)
+def _build_convert_prompt_api(
+    convert_md: str, tmp_path: Path, *, group: str, file_type: str
+) -> Tuple[str, List[dict]]:
+    """`group`·`file_type`은 판별 계층(§4.18 ①②③) 결과 — `_api_content_blocks_for_file`이
+    확장자 재분기 없이 그대로 쓴다(pdf/image 전용 호출, 검토 적발 수정)."""
+    blocks = _api_content_blocks_for_file(tmp_path, group=group, file_type=file_type)
     prompt_text = (
         f"{convert_md}\n\n---\n\n"
         "## 이번 변환 대상\n"
@@ -834,11 +1172,14 @@ def _build_convert_prompt_api(convert_md: str, tmp_path: Path) -> Tuple[str, Lis
     return prompt_text, blocks
 
 
-def _build_convert_prompt_codex(convert_md: str, tmp_path: Path) -> str:
+def _build_convert_prompt_codex(convert_md: str, tmp_path: Path, *, group: Optional[str] = None) -> str:
     """codex-cli 전용 — G2 실증(2026-07-28)에 따라 원본을 pypdf로 추출한 텍스트를 프롬프트에
     직접 삽입한다(직접 PDF 읽기는 샌드박스 제약으로 재현 불안정 — 설계 §4.17 ④). 추출은
-    `codex_adapter.build_text_for_prompt`가 담당(중복 구현 금지)."""
-    extracted = codex_adapter.build_text_for_prompt(tmp_path)
+    `codex_adapter.build_text_for_prompt`가 담당(중복 구현 금지).
+
+    `group`은 판별 계층(§4.18 ①②③) 결과 — 지정되면 확장자 재분기 없이 pdf/image 여부를
+    가른다(검토 적발 수정). 미지정이면 `build_text_for_prompt`가 확장자로 판별한다."""
+    extracted = codex_adapter.build_text_for_prompt(tmp_path, group=group)
     return (
         f"{convert_md}\n\n---\n\n"
         "## 이번 변환 대상 — 추출된 원본 텍스트\n"
@@ -861,6 +1202,54 @@ def _run_codex_streaming(prompt: str, *, timeout_seconds: int, job_id: str) -> s
     )
 
 
+# ---------------------------------------------------------------------------
+# S16(F42) — A군(codex·api 전체 + CLI cp949)·B군(3엔진 공통) 프롬프트: 판별·추출된
+# 텍스트를 파일 경로가 아니라 프롬프트 본문에 직접 삽입한다(§4.18 ①③④ — Claude Code
+# Read는 docx/xlsx를 못 읽고, cp949는 Read가 utf-8 전제라 그대로 넘기면 깨진다).
+# ---------------------------------------------------------------------------
+def _build_embedded_text_prompt(convert_md: str, filename: str, text: str) -> str:
+    return (
+        f"{convert_md}\n\n---\n\n"
+        "## 이번 변환 대상 — 추출된 원본 텍스트\n"
+        f"원본 파일명: {filename}\n"
+        "아래는 원본에서 그대로 추출·디코드한 텍스트다. 파일을 직접 열지 말고 "
+        "이 텍스트만으로 판단하라.\n\n"
+        f"{text}\n\n"
+        "위 지시(§0~§8)에 따라 반입 JSON으로 변환하라. "
+        "최종 출력은 설명 문장·코드펜스 없이 순수 JSON 객체 하나만 출력하라."
+    )
+
+
+def _build_embedded_text_prompt_api(convert_md: str, filename: str, text: str) -> Tuple[str, List[dict]]:
+    prompt_text = (
+        f"{convert_md}\n\n---\n\n"
+        "## 이번 변환 대상\n"
+        f"원본 파일명: {filename}\n"
+        "이 메시지에 원본에서 그대로 추출·디코드한 텍스트를 함께 첨부했다(도구 호출 없이 "
+        "첨부 내용만으로 판단하라). 위 지시(§0~§8)에 따라 반입 JSON으로 변환하라. "
+        "최종 출력은 설명 문장·코드펜스 없이 순수 JSON 객체 하나만 출력하라."
+    )
+    blocks = [{"type": "text", "text": f"\n\n## 원본 파일 내용 ({filename})\n\n{text}\n"}]
+    return prompt_text, blocks
+
+
+def _ensure_cli_recoded_tmp(job_id: str, job: dict, source_filename: str, text: str) -> Path:
+    """cp949 판별 파일을 CLI 엔진에 넘길 utf-8 재인코딩 tmp — **CLI가 실제로 선택된
+    시점에만** 지연 생성한다(S16 검토 9: codex·api는 `detected.text`를 직접 쓰므로
+    불필요한 파일을 만들지 않는다). 폴백으로 CLI를 여러 번 재시도해도 잡당 1회만 만들고
+    캐시된 경로를 재사용한다. sources/ 원본은 원 바이트 그대로 불변(재인코딩은 파생물뿐,
+    §4.18 ③)."""
+    with _JOBS_LOCK:
+        cached = job.get("_cli_recoded_path")
+    if cached:
+        return Path(cached)
+    recoded_path = _write_tmp_file(job_id, f"utf8_{source_filename}", text.encode("utf-8"))
+    with _JOBS_LOCK:
+        job["_extra_tmp_paths"] = list(job.get("_extra_tmp_paths") or []) + [str(recoded_path)]
+        job["_cli_recoded_path"] = str(recoded_path)
+    return recoded_path
+
+
 def _do_convert(job_id: str, job: dict) -> dict:
     if job.get("_url"):
         _set_phase(job_id, "downloading", job["_url"])
@@ -880,6 +1269,21 @@ def _do_convert(job_id: str, job: dict) -> dict:
     if tmp_path is None:
         raise ValidationAppError("변환할 원본 파일이 없습니다")
 
+    source_bytes = job.get("_source_bytes")
+    if source_bytes is None:
+        source_bytes = tmp_path.read_bytes()
+    source_filename = job.get("_source_filename") or tmp_path.name
+
+    # S16(F42): 반입 파일 판별(§4.18 ①②③) — 미지원·판별 불가·상한 초과는 여기서 예외로
+    # 종료된다(조용한 스킵 금지). 통과분만 아래에서 프롬프트로 조립된다.
+    detected = _detect_import_format(source_filename, source_bytes)
+    with _JOBS_LOCK:
+        if detected.notes:
+            job["_notes"] = list(job.get("_notes") or []) + detected.notes
+        # S16 검토 8: LLM 사용량 사전 안내(ETA 표본)를 텍스트 기준으로 정확화 — A·B군은
+        # 실제 LLM에 들어가는 추출·디코드 텍스트 길이, pdf·image는 기존대로 원본 바이트.
+        job["_input_size"] = _detection_input_size(detected, job.get("_input_size") or 0)
+
     # S13(F40-③): 사용자가 지정한 분류 경로가 있으면 사이트 반입과 **같은 지시 생성기**로
     # "suggest_categories는 정확히 이 경로 하나로 고정" 지시를 붙인다(설계 §4.11).
     directives = _manual_category_directives(job.get("_category_path"))
@@ -892,13 +1296,32 @@ def _do_convert(job_id: str, job: dict) -> dict:
         _set_phase(job_id, "llm_running")
         try:
             if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
-                prompt = _build_convert_prompt_cli(convert_md, tmp_path) + suffix
+                # B군(docx/xlsx)은 Read 도구로 못 읽으므로 3엔진 공통으로 추출 텍스트를
+                # 프롬프트에 직접 삽입한다(§4.18 ④) — A군은 기존대로 파일 경로 전달.
+                if detected.group in ("docx", "xlsx"):
+                    prompt = _build_embedded_text_prompt(convert_md, source_filename, detected.text) + suffix
+                else:
+                    # cp949 재인코딩 tmp는 CLI가 **실제로 선택됐을 때만** 만든다(codex·api는
+                    # detected.text를 직접 쓰므로 불필요 — S16 검토 9, 지연 생성 + 캐시).
+                    cli_path = tmp_path
+                    if detected.group == "text" and detected.encoding == "cp949":
+                        cli_path = _ensure_cli_recoded_tmp(job_id, job, source_filename, detected.text)
+                    prompt = _build_convert_prompt_cli(convert_md, cli_path) + suffix
                 text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
             elif engine == llm_engine_service.ENGINE_CODEX_CLI:
-                prompt = _build_convert_prompt_codex(convert_md, tmp_path) + suffix
+                # codex는 A·B군 모두 판별된 텍스트를 그대로 삽입한다(pdf만 기존 pypdf 경로).
+                if detected.group in ("text", "docx", "xlsx"):
+                    prompt = _build_embedded_text_prompt(convert_md, source_filename, detected.text) + suffix
+                else:
+                    prompt = _build_convert_prompt_codex(convert_md, tmp_path, group=detected.group) + suffix
                 text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
             else:
-                prompt_text, blocks = _build_convert_prompt_api(convert_md, tmp_path)
+                if detected.group in ("text", "docx", "xlsx"):
+                    prompt_text, blocks = _build_embedded_text_prompt_api(convert_md, source_filename, detected.text)
+                else:
+                    prompt_text, blocks = _build_convert_prompt_api(
+                        convert_md, tmp_path, group=detected.group, file_type=detected.file_type
+                    )
                 text_result = _run_api_streaming(
                     prompt_text + suffix,
                     file_blocks=blocks,
@@ -919,6 +1342,10 @@ def _do_convert(job_id: str, job: dict) -> dict:
     json_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
     _set_phase(job_id, "preview_building")
+    # S16: 이 잡의 판별·추출 결과가 곧 원문 대조 소재다(§4.17 ⑥ 재사용) — A군(cp949 포함)·
+    # B군(docx/xlsx)은 `create_preview`가 다시 추출하지 않도록 잡당 계산한 텍스트를 그대로
+    # 넘긴다(pdf·image·utf-8 텍스트는 기존대로 create_preview가 자체 추출).
+    source_text_for_match = detected.text if detected.group in ("text", "docx", "xlsx") else None
     db = SessionLocal()
     try:
         preview: PreviewResponse = import_service.create_preview(
@@ -930,10 +1357,10 @@ def _do_convert(job_id: str, job: dict) -> dict:
             # TTL 만료·서버 재시작 뒤에도 복구할 수 있게 한다(설계 §4.3).
             preserve=True,
             # S15(F41): 변환 파이프라인 산출물 — 신뢰 게이트(원문 대조·answer_source)와
-            # §8.2 v1.1 강화 검증을 적용한다(설계 §4.17 ⑤·⑥). 대조용 원본 텍스트는
-            # `_source_bytes`에서 잡당 1회 추출한다(LLM 재호출·중복 저장 없음).
+            # §8.2 v1.1 강화 검증을 적용한다(설계 §4.17 ⑤·⑥).
             gate=True,
             strict=True,
+            source_text=source_text_for_match,
         )
     finally:
         db.close()
@@ -1129,16 +1556,26 @@ def _do_fetch(job_id: str, job: dict) -> dict:
     if isinstance(fetched, FetchedFile):
         _set_phase(job_id, "preparing")
         tmp_path = _write_tmp_file(job_id, fetched.filename, fetched.data)
+        # S16(F42 §4.18 ②-4 v1.19): file_mode 대표 파일도 convert와 같은 단일 판별 게이트를
+        # 통과한다 — qnet은 현재 항상 PDF만 넘기므로(어댑터 자체 `_magic_ok` 선행 검사)
+        # 실동작 변화는 없지만, 판별 계층이 전 경로 공통이 되도록 구조를 완성한다. 여기서
+        # 발생하는 예외는 job_kind='fetch'로 분류돼 §4.11 alternatives 기존 기본값을 그대로
+        # 쓴다(§4.18 ⑥ v1.19의 `alternatives=[]` 특례는 convert 잡 한정 — 건드리지 않는다).
+        detected = _detect_import_format(fetched.filename, fetched.data)
         with _JOBS_LOCK:
             # S14: 대표 파일 외 원본 확보 소표기(예: 도면 묶음 ZIP) — 성공 응답의 notes.
-            job["_notes"] = list(getattr(fetched, "extra_notes", []) or [])
+            job["_notes"] = list(getattr(fetched, "extra_notes", []) or []) + list(detected.notes)
             job["_tmp_path"] = str(tmp_path)
             job["_source_filename"] = fetched.filename
             job["_source_bytes"] = fetched.data
-            job["_input_size"] = len(fetched.data)
+            # S16 검토 8: 추출 텍스트가 있으면(text/docx/xlsx) 그 길이를, 없으면(pdf/image —
+            # qnet 실사용 경로) 원본 바이트 길이를 ETA 표본 기준으로 쓴다.
+            job["_input_size"] = _detection_input_size(detected, len(fetched.data))
         directives = _fetch_directives(fetched, cli=job["_engine"] == llm_engine_service.ENGINE_CLAUDE_CLI)
         file_mode = True
-        source_text_for_match = None  # 원본 파일에서 추출(create_preview가 잡당 1회 수행)
+        # 판별 계층이 이미 텍스트를 갖고 있으면(text/docx/xlsx) 재추출 없이 그대로 원문
+        # 대조 소재로 쓴다(§4.17 ⑥) — pdf/image는 기존대로 create_preview가 자체 추출.
+        source_text_for_match = detected.text if detected.group in ("text", "docx", "xlsx") else None
     elif isinstance(fetched, FetchedExam):
         _set_phase(job_id, "fetching", "이미지 다운로드")
         _save_fetch_images(job_id, fetched.questions, client)
@@ -1162,14 +1599,22 @@ def _do_fetch(job_id: str, job: dict) -> dict:
         try:
             if file_mode:
                 tmp_path = Path(job["_tmp_path"])
+                # S16(F42 §4.18 ②-4): 판별 계층(`detected`) 결과로 pdf/image를 가른다 —
+                # 확장자 재분기 없음(단일 게이트). qnet은 현재 항상 pdf만 이 경로에 온다.
                 if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
                     prompt = _build_convert_prompt_cli(convert_md, tmp_path) + "\n\n" + directives
                     text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
                 elif engine == llm_engine_service.ENGINE_CODEX_CLI:
-                    prompt = _build_convert_prompt_codex(convert_md, tmp_path) + "\n\n" + directives
+                    prompt = (
+                        _build_convert_prompt_codex(convert_md, tmp_path, group=detected.group)
+                        + "\n\n"
+                        + directives
+                    )
                     text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
                 else:
-                    prompt_text, blocks = _build_convert_prompt_api(convert_md, tmp_path)
+                    prompt_text, blocks = _build_convert_prompt_api(
+                        convert_md, tmp_path, group=detected.group, file_type=detected.file_type
+                    )
                     text_result = _run_api_streaming(
                         prompt_text + "\n\n" + directives,
                         file_blocks=blocks,
@@ -1306,6 +1751,8 @@ def _new_job_base(kind: str, *, resolved_engine: str, requested_engine: str, api
         "_error_info": None,
         "_category_path": None,  # S13(F40-③) — 파일·URL 반입의 분류 경로 고정 지시
         "_notes": [],  # S14 — 성공 결과 소표기(사이트 반입에서 함께 저장한 원본 등)
+        "_extra_tmp_paths": [],  # S16(F42) — cp949 CLI 재인코딩 tmp 등 부가 파생물(정리 대상)
+        "_cli_recoded_path": None,  # S16(F42) — cp949 CLI 재인코딩 tmp 캐시(잡당 1회 생성)
     }
 
 

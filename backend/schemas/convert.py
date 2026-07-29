@@ -13,6 +13,7 @@ JobPhase = Literal[
 # S10: 'parse_failed'(사이트 어댑터 파싱 실패) 추가 (설계 §4.13)
 # S13: 'invalid_output'(LLM 출력이 완결된 JSON이 아님 — 대개 출력 상한에서 잘림) 추가 (§4.11)
 # S14: 'unsupported_format'(첨부에 변환 가능한 PDF 없음 — 원본은 sources/에 저장됨) 추가 (§4.13)
+# S16: 'too_large'(추출·디코드 텍스트 200,000자 상한 초과 — LLM 호출 전 차단) 추가 (§4.18 ⑤)
 ErrorKind = Literal[
     "rate_limit",
     "auth",
@@ -21,6 +22,7 @@ ErrorKind = Literal[
     "parse_failed",
     "invalid_output",
     "unsupported_format",
+    "too_large",
     "other",
 ]
 LimitKind = Literal["session", "daily", "weekly", "model", "overall"]

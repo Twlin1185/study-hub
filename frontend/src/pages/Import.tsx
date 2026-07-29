@@ -517,7 +517,7 @@ function StartConvertPanel({ sourceKind, queue }: StartConvertPanelProps) {
 
       <p className="text-sm text-muted">
         {sourceKind === 'file'
-          ? `PDF·이미지 등 기출 원본 파일을 올리면 LLM이 반입 JSON으로 변환한 뒤 미리보기 단계로 이어집니다. 여러 파일(최대 ${MAX_QUEUE_BATCH}개)을 한 번에 걸어두면 순서대로 변환되고, 끝난 것부터 검토할 수 있습니다.`
+          ? `PDF·이미지(png/jpg 등)·docx·xlsx·md·txt·html·xml·csv 등 기출 원본 파일을 올리면 LLM이 반입 JSON으로 변환한 뒤 미리보기 단계로 이어집니다. 여러 파일(최대 ${MAX_QUEUE_BATCH}개)을 한 번에 걸어두면 순서대로 변환되고, 끝난 것부터 검토할 수 있습니다.`
           : '공개 기출 자료 URL을 입력하면 서버가 다운로드부터 변환까지 처리합니다 (사설·로컬 네트워크 주소는 거부됩니다).'}
       </p>
 
@@ -528,6 +528,7 @@ function StartConvertPanel({ sourceKind, queue }: StartConvertPanelProps) {
             ref={fileInputRef}
             type="file"
             multiple
+            accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.md,.markdown,.txt,.html,.htm,.xhtml,.xml,.csv,.docx,.xlsx"
             onChange={handleFiles}
             className="rounded border border-border bg-bg px-3 py-2 text-sm text-primary"
           />
