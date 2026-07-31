@@ -1,6 +1,7 @@
 # Study Hub — 상세 설계 (API 명세 · 화면 상세)
 
-> 상태: **Design v1.20** — v1.19 대비: **§4.18 ②-1·⑥ 보강(S16 재검토 통과(DoD 6/6) 시 지적된 문서-코드 불일치 1건 해소 — 2026-07-29, 문서만)**: ① **암호화 OOXML 판별 세칙 명문화** — OLE CFB 매직 + 확장자 `.docx`/`.xlsx` = **ECMA-376 암호화 OOXML로 판정 → C군 `unsupported_format`이 아니라 `parse_failed`**(④의 암호 파일 확정을 실현하는 세칙 — 확정 문구·원본 sources/ 저장 포함, ⑥ 표 비적용 주석 추가) ② **hwpx 휴리스틱 알려진 한계 기록** — zip 내부 `mimetype == application/hwp+zip` 또는 최상위 `Contents/` 존재로 판정(구현 확정), `Contents/`만으로는 일반 zip이 hwp 문구로 오안내될 수 있음(C군 거부 자체는 동일 — 강화 여부는 후속 결정). 계약 형태·DDL 증감 0.
+> 상태: **Design v1.21** — v1.20 대비: **§4.19 신설(S17 — F43 문서 상호참조·표현 UX, 계약 확정 2026-07-29 — stage-17 선행 절차 D1·D2·D3 해소분. 문서만·코드 0)**: ① **참조 문법 확정(D1)** — `![[DOC-xxxx]]` 임베드 / `[[DOC-xxxx]]`·`[[DOC-xxxx|표시명]]` 링크(**별칭은 링크만** — 임베드는 별칭부 무시) / `[[#절 제목]]` 앵커, 참조 키 doc_no 고정, 코드 펜스·인라인 코드 구간 제외(충돌 실측 0건 — 실DB 214개 전수 스캔) ② **가리기·접기 확정(D2)** — **remark-directive 컨테이너** `:::fold[제목]`(기본 접힘)·`:::hide[라벨]`(기본 가림·탭 공개), rehype-raw 기각 확정 ③ **임베드 해석 API 신설 1개** — `POST /api/documents/resolve-embeds`(doc_no ≤50 배치 → `{doc_no,id,title,type,content,is_active}` — **answer·explanation·choices는 스키마 부재**, 부재 doc_no = `missing` 배열·404 아님, 삭제 문서 content="") ④ 깊이 상한 **2**(초과 = 링크 칩 강등)·순환 방문 집합·자리표시자 3종 확정 문구 ⑤ embeds 인덱스 동기화 = **본문 변경 4경로**(POST/PATCH/반입 commit/**재생성 apply — 실측 추가**) + `rebuild_embed_index()` 멱등 재계산(엔드포인트 아님) + `GET /documents/{id}`에 `embedded_by[]` 추가·relations[]에서 embed 행 제외 ⑥ rehype-slug(github-slugger) 앵커·인쇄 = 임베드 펼침·fold 펼침·hide 공개·학습 의미론 무기록. **DDL 0건·Alembic 0건 재확인(§4.19 말미)** — 프론트 의존 2건(remark-directive·rehype-slug).
+> (v1.20: v1.19 대비: **§4.18 ②-1·⑥ 보강(S16 재검토 통과(DoD 6/6) 시 지적된 문서-코드 불일치 1건 해소 — 2026-07-29, 문서만)**: ① **암호화 OOXML 판별 세칙 명문화** — OLE CFB 매직 + 확장자 `.docx`/`.xlsx` = **ECMA-376 암호화 OOXML로 판정 → C군 `unsupported_format`이 아니라 `parse_failed`**(④의 암호 파일 확정을 실현하는 세칙 — 확정 문구·원본 sources/ 저장 포함, ⑥ 표 비적용 주석 추가) ② **hwpx 휴리스틱 알려진 한계 기록** — zip 내부 `mimetype == application/hwp+zip` 또는 최상위 `Contents/` 존재로 판정(구현 확정), `Contents/`만으로는 일반 zip이 hwp 문구로 오안내될 수 있음(C군 거부 자체는 동일 — 강화 여부는 후속 결정). 계약 형태·DDL 증감 0.)
 > (v1.19: v1.18 대비: **§4.18 ④·⑥ 보강 + §4.11 주석 (S16 구현의 Opus 검토 적발 2건 해소 — 2026-07-29, 문서 확정·코드 지시는 별도)**: ① **`parse_failed` 종료 시에도 원본을 `sources/`에 저장 후 종료**(`unsupported_format`과 대칭 — 손상·암호 파일도 사용자의 원본 자료이고 잡 tmp는 정리되므로 저장하지 않으면 서버에 남지 않는다. stage-16 DoD 2 문면과 정합 — 종전 §4.18 ⑥이 저장을 unsupported 한정으로 읽히게 한 어긋남 해소) ② **convert 잡(파일·URL 반입)에서 발생한 `unsupported_format`·`parse_failed`의 `alternatives` = 빈 배열 확정**(실패한 반입 경로 자신([파일로 반입] → 같은 화면 회귀)이나 같은 판별·파서에 다시 걸릴 경로는 대안이 아니다 — **fetch 잡 발생분은 기존 기본값 유지**, §4.11 계약 불변). DDL·Alembic·엔드포인트 증감 0.)
 > (v1.18: v1.17 대비: **§4.18 신설(S16 — F42 다양한 문서 포맷 반입, 계약 확정 2026-07-29 — stage-16 선행 절차 D1·D2·D3 해소분. 문서만·코드 0)**: ① 지원 포맷 매트릭스(A군 md·txt·html·xml·**csv** 직투입 / B군 docx·xlsx 서버 추출 / C군 hwp·zip·doc·xls·판별 불가 = 구조화 거부) ② 판별 규칙(**매직 바이트 우선** — zip 내부 판별(docx/xlsx/hwpx도 zip)·OLE 시그니처·텍스트성 검사, content-type·확장자 사칭 방어) ③ 인코딩 판별 확정(utf-8 BOM→utf-8→cp949, chardet류 불도입 — **cp949는 CLI 전달 시 utf-8 재인코딩**) ④ 파서 채택(docx=**python-docx**·xlsx=**openpyxl**, `==` 정확 핀) + xlsx **시트별 Markdown 표**(시트 10·행 500·열 50 상한) + 추출기 `services/doc_extract.py` 분리(원문 대조 §4.17 ⑥ 재사용) + 파서 예외 = **`parse_failed` 재사용 확정** ⑤ **`error_info.kind:'too_large'` 신설**(추출·디코드 텍스트 **200,000자** 상한 — LLM 호출 전 비용 0 차단, 분할 권고 — 서버측 자동 분할 금지) ⑥ `unsupported_format` 포맷별 폴백 **확정 문안**(hwp→PDF 저장·zip→압축 해제·doc/xls→docx/xlsx 저장) ⑦ URL content-type 화이트리스트 확장(xml 2종·text/csv·officedocument 2종 — `application/octet-stream`은 미허용 유지). **DDL 변경 0건·Alembic 0건·신규 엔드포인트 0건 재확인(§4.18 말미 근거).**)
 > (v1.17: v1.16 대비: **§4.17 신설(S15 — F41 멀티 벤더 LLM 엔진, 계약 확정 2026-07-28 — 착수 게이트 G3 해소. 구현은 게이트 G2 통과 후)**: ① **엔진 레지스트리** — 엔진 id 3종(`claude-cli`·`claude-api`·`codex-cli`)·항목 인터페이스(진단/호출/분류기/한도·헬스 키)·legacy `cli|api` 별칭의 **읽기 시 매핑**(마이그레이션 없음) ② `GET /api/llm/status`를 **엔진 배열로 교체**(기존 `cli`/`api` 톱레벨 필드 **제거 확정** — 소비처 전수 확인 근거는 §4.17 ②) ③ **폴백 = 우선순위 목록**(`llm.priority` 배열화, `error_info.fallback_engine` 추가) ④ codex-cli 어댑터·설치 계약(신규 엔드포인트 **`POST /api/llm/engines/{id}/install` 1개**) ⑤ **변환 신뢰 게이트(전 엔진 공통, R7 보강)** — 계획서 §8.2 v1.1 개정 연동(`answer_source` 필수·순수 JSON 위반=오류·`content` 필수·객관식 `answer` 번호만) + preview `warnings` 필드 ⑥ **원문 대조 검사 알고리즘 확정**(정규화·12자 조각 커버리지 ≥0.6·대조 불가 판정) ⑦ S8 화면(§5.11 그룹 ④) 확장 — 카드 목록 렌더·▲▼ 우선순위·Codex 온보딩·프라이버시 고지. **DDL 변경 0건·Alembic 0건 재확인(§4.17 말미 근거).**)
@@ -11,8 +12,8 @@
 > (v1.12: **S13(M13 큐넷 공식 오픈API) 계약**(§4.13 S13 갱신 — qnet 어댑터를 공공데이터포털 **"국가자격 공개문제 조회 서비스"**(getOpenQstList/getOpenQst)로 실가동: 서비스키 등록 `POST/DELETE /api/fetch/qnet-key`(secrets.json — F34 전례), `fileUrl` JWT 1시간 → **상세 조회·다운로드 같은 잡 연속 수행**, HWP 전용 회차 = 원본 저장 + `error_info.kind:'unsupported_format'` 신설, 병합 그룹 level_hint 동일 조건 명시. **기존 fetch 계약(adapters/certs/exams/import)·프론트 스텝 흐름 불변**) + §5.11 데이터 그룹 서비스키 카드·§5.9 실패 렌더 1종 추가)
 > 이전 이력: v1.11 — S12 계약(§4.13 cbtbank FetchedExam 첫 실사용·날짜 자연 키 병합·`fetch/import` `exam_key?`, §4.15 `GET /manual`) · v1.10 — S11 계약 신설(§4.14 F25·F16) · v1.9 — S10 구현 실측 반영(comcbt PDF 경로, qnet available:false 스텁)
 > 작성일: 2026-07-22 · 갱신: 2026-07-29
-> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.24)
-> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-13-fetch-cleanup-manual-import.plan.md`(S13) · `stage-14-qnet-openapi.plan.md`(S14) · `stage-15-multi-engine-codex.plan.md`(S15 — §4.17) · `stage-16-doc-formats.plan.md`(S16 — 착수 2026-07-29, §4.18)
+> 상위 문서: `docs/01-plan/study-app.plan.md` (Draft v0.26)
+> 구현 계획: `docs/01-plan/stage-1-skeleton.plan.md` ~ `stage-13-fetch-cleanup-manual-import.plan.md`(S13) · `stage-14-qnet-openapi.plan.md`(S14) · `stage-15-multi-engine-codex.plan.md`(S15 — §4.17) · `stage-16-doc-formats.plan.md`(S16 — 착수 2026-07-29, §4.18) · `stage-17-doc-transclusion.plan.md`(S17 — 선행 절차 확정 2026-07-29, §4.19)
 
 ---
 
@@ -71,7 +72,7 @@ study-hub/
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S14] = stage 1~14에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
+구현 단계 표기: [S1]~[S17] = stage 1~17에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
 
 ### 4.1 분류 Categories
 
@@ -659,6 +660,108 @@ backend/services/fetchers/
 **DDL 변경 0건·Alembic 0건 — 재확인 근거 (2026-07-29, D3)**
 
 - 이 절의 저장 지점 전수: **tmp 파일**(판별·추출·재인코딩 파생물 — 기존 잡 정리 규칙 그대로) · **인메모리 잡 상태**(판별 결과·notes) · **`sources/` 원본 바이트**(불변 — 추출 텍스트는 저장하지 않는 파생물, R18 정신) · **requirements 의존 2건**(python-docx·openpyxl — 계획서 F42 등재). `documents.file_type`은 자유 텍스트(CHECK 없음)라 `'docx'|'xlsx'|'xml'|'csv'` 등 값 확장은 **계획서 §6.2 주석 갱신만**이다. **새 테이블·컬럼·인덱스 0, Alembic 0, 신규 엔드포인트 0**(기존 `POST /api/convert`의 수용 포맷 확장 — 계약 신설은 `error_info.kind:'too_large'` 값 1종뿐). 구현 중 이 전제가 깨지면 착수 중단 후 보고(임의 확정 금지).
+
+### 4.19 문서 상호참조·표현 UX — 트랜스클루전·가리기/접기·이동 (S17 — F43. **계약 확정 2026-07-29, stage-17 선행 절차 D1·D2·D3 해소분**)
+
+> 근거: 계획서 §14 F43(단일 출처) — 개념 모듈 문서를 여러 상위 문서가 `![[DOC-xxxx]]` 참조로 임베드해 재사용한다. **문법 충돌 실측 0건**(2026-07-29, 실DB 214개 문서 전수 스캔 — `[[`·`:::`·`<details` 포함 문서 각 0개)으로 잠정 문법을 그대로 확정했다.
+> 원칙 재확인: **채점은 서버에서만 — 임베드 해석 응답에 answer·explanation 필드 자체가 부재**(불변 규칙 1, 필터링이 아니라 스키마 부재) · 소프트 삭제(참조가 삭제를 막지 않음 — 자리표시자) · 색상 하드코딩 금지(임베드 카드·접기 효과 전부 토큰) · 에러 규약 §3.
+
+**① 참조 문법 (D1 확정)**
+
+| 종류 | 문법 | 정규식(추출 기준) | 동작 |
+|---|---|---|---|
+| 임베드 | `![[DOC-0012]]` | `!\[\[(DOC-\d{4,})(?:\|[^\]\n]*)?\]\]` | 그 자리에 대상 문서 본문을 **임베드 카드**로 펼침 |
+| 문서 링크 | `[[DOC-0012]]` · `[[DOC-0012\|표시명]]` | `(?<!!)\[\[(DOC-\d{4,})(?:\|([^\]\n]+))?\]\]` | **문서 칩** — 클릭 시 문서 상세(`/docs/:id`) 이동 |
+| 헤딩 앵커 | `[[#절 제목]]` | `(?<!!)\[\[#([^\]\n]+)\]\]` | 같은 렌더 문서 내 해당 헤딩으로 스크롤 |
+
+- **참조 키 = `doc_no` 고정**(`DOC-` + 숫자 4자리 이상 제로패딩 — R1 단순 연번, 재분류에 불변. 실측: `DOC_NO_PREFIX="DOC-"`, 4자리 채번).
+- **별칭(`|표시명`)은 링크에만 유효**: 링크 칩의 표시명을 대체한다(생략 시 대상 문서 제목). 임베드에서는 별칭이 표시될 자리가 없어(카드가 대상 제목 배지를 정본으로 표시) **무시한다** — 단 파서는 `![[DOC-0012|…]]`를 오류로 취급하지 않고 별칭부만 버린다(관용 수용 — 서버 인덱스 파서·프론트 렌더 동일 규칙).
+- **코드 구간 제외**: 코드 펜스(``` ``` ```)와 인라인 코드(백틱 스팬) 내부의 참조 문법은 참조로 취급하지 않는다 — 프론트는 remark AST 단계에서 자연 배제되고, **서버 인덱스 파서도 펜스·인라인 코드 구간을 제거한 뒤 스캔**한다(렌더-인덱스 정합).
+- **§8.2 반입 규격 무영향**: 참조는 `content` 본문 문자열 안의 표기일 뿐이다 — 반입 JSON 스키마·검증·프롬프트 계약에 어떤 변경도 없다(반입된 본문에 참조가 있으면 commit 시 인덱스 동기화(⑤)만 일어난다).
+
+**② 가리기·접기 구간 문법 (D2 확정 — remark-directive 컨테이너 채택)**
+
+- **채택: `remark-directive`**(프론트 플러그인 1개 추가 — 컨테이너 지시자 표준 문법). **rehype-raw(원시 HTML `<details>`)는 기각 확정** — XSS 표면 확대(stage-17 "하지 않는 것" 유지, 기각 번복 시 새니타이즈 계획 선행).
+- 문법(remark-directive 표준 containerDirective):
+
+  ```
+  :::fold[공식 유도 과정]        :::hide[정규화 3단계]
+  (본문 — Markdown 전부 가능)     (본문)
+  :::                            :::
+  ```
+
+  - **`fold`(접기)**: 기본 **접힘** — 제목 줄(라벨)만 표시, 클릭 시 펼침/재접힘 토글. 라벨 생략 시 기본 라벨 **"접힌 내용"**.
+  - **`hide`(가리기)**: 기본 **가림** — 내용 영역이 가림 처리(blur/마스크 — 토큰 기반)되고 탭/클릭으로 공개, 재탭으로 재가림(암기·자가 테스트용). 라벨 생략 시 **"가려진 내용 — 탭하여 공개"**.
+  - 중첩이 필요하면 바깥 컨테이너의 콜론 수를 늘린다(`::::` — remark-directive 표준 동작, 별도 구현 없음).
+  - 미등록 지시자 이름(`:::기타`)은 스타일 없이 내용만 렌더(무해 통과 — 오류 아님).
+- 펼침/공개 상태는 **화면 로컬 상태**(저장 안 함 — 문서를 다시 열면 기본 상태로 복귀).
+
+**③ 임베드 해석 API (신규 엔드포인트 1개 — 이 단계의 유일한 신설)**
+
+| 메서드/경로 | 설명 | 단계 |
+|---|---|---|
+| `POST /api/documents/resolve-embeds` | doc_no 목록 배치 해석 — 본문 전용 조회 | S17 |
+
+- **요청**: `{ "doc_nos": ["DOC-0012", "DOC-0034", …] }` — 서버가 중복 제거, **요청당 최대 50개**(초과 = 422 `VALIDATION_ERROR`). 형식 불일치 doc_no(정규식 위반)도 422.
+- **응답**:
+  ```json
+  {
+    "items": [
+      { "doc_no": "DOC-0012", "id": 12, "title": "산술평균", "type": "concept", "content": "…", "is_active": true }
+    ],
+    "missing": ["DOC-9999"]
+  }
+  ```
+  - **계약 문장(불변 규칙 1 봉인)**: 이 응답의 항목 스키마에는 **`answer`·`explanation`·`choices` 필드 자체가 존재하지 않는다** — 필터링(값 비움)이 아니라 **스키마 부재**다. QuizCard가 같은 MarkdownView를 공유하므로, 문제 타입 문서를 임베드해도 지문(content)만 내려온다(정답·보기·해설은 어떤 경우에도 이 경로로 흐르지 않는다). 문제 풀이는 원문(퀴즈 경로)에서만.
+  - `id`는 [원문 열기]·문서 칩의 `/docs/:id` 내비게이션용(§3 — ID는 정수 PK, doc_no는 표시·참조용).
+  - **존재하지 않는 doc_no = `missing` 배열로 표현**(배치 부분 성공 — **404를 반환하지 않는다**). 프론트는 missing 항목을 "존재하지 않는 참조" 자리표시자로 렌더.
+  - **소프트 삭제 문서(`is_active=0`)는 items에 포함하되 `content`를 빈 문자열로 반환**한다 — 자리표시자("삭제된 문서")에 제목은 쓰되, 삭제된 내용이 네트워크에 실리는 경로 자체를 없앤다(복원하면 다음 해석부터 정상 반환).
+- **서버는 재귀 해석하지 않는다**(경량 유지): 임베드된 content 안의 중첩 참조는 프론트가 깊이 상한(④) 안에서 추가 배치 호출로 해석한다.
+- POST를 쓰는 이유: doc_no 목록이 URL 길이 제약에 안전해야 하고, 캐시는 HTTP가 아니라 react-query가 담당한다(⑥).
+
+**④ 순환·깊이 방어와 자리표시자 3종 (확정 문구)**
+
+- **깊이 상한 = 2** (D3-① 확정): 상위 문서 본문의 임베드(깊이 1) + 임베드된 문서 안의 임베드(깊이 2)까지 카드로 렌더. **깊이 3부터는 오류가 아니라 문서 링크 칩으로 강등**(내용 접근성은 [클릭 → 원문]으로 유지 — 자리표시자보다 유용). 개인용 규모 + "문서는 이미 개념 단위 모듈"(계획서 F43) 전제에서 3단 중첩은 문서 설계 신호이지 렌더 요구가 아니다.
+- **순환 검출**: 렌더 트리의 **방문 집합**(최상위 문서 doc_no 포함, 조상 경로 기준)에 이미 있는 doc_no의 임베드는 펼치지 않는다 — 무한 재귀·무한 fetch 0. 자기 자신 임베드(`![[자기 doc_no]]`)도 같은 규칙으로 걸린다.
+- **자리표시자 3종 — 확정 문구(한국어, 카드형 — 스타일은 토큰만)**:
+
+  | 상황 | 문구 | 부가 동작 |
+  |---|---|---|
+  | 순환 | "순환 참조 — DOC-xxxx은(는) 현재 참조 사슬에 이미 포함되어 여기서는 펼치지 않습니다." | [원문 열기] 버튼 유지 |
+  | 삭제됨 | "삭제된 문서 — DOC-xxxx『{title}』은(는) 삭제되어 내용을 표시하지 않습니다. 복원하면 다시 표시됩니다." | 버튼 없음 |
+  | 부재 | "존재하지 않는 참조 — DOC-xxxx 문서를 찾을 수 없습니다." | 버튼 없음 |
+
+**⑤ embeds 인덱스 동기화 (`document_relations` 파생 행 — 본문이 단일 출처)**
+
+- **행 규칙**: 본문에 임베드 참조(`![[…]]`)가 있으면 `document_relations(from=이 문서, to=대상, relation='embeds', created_by='embed')` 행을 유지한다. **임베드만 인덱스한다** — 링크(`[[…]]`)·앵커는 인덱스하지 않음(용도가 삭제 경고·역참조 표시라 임베드로 충분 — YAGNI).
+- **동기화 시점 = 본문(content) 변경 전 경로 4곳**(2026-07-29 실측 전수 — 저장 트랜잭션 안에서):
+  1. `POST /api/documents` (document_service.create_document)
+  2. `PATCH /api/documents/{id}` (update_document)
+  3. 반입 commit (import_service._create_document 경유)
+  4. **재생성 교체 `apply_regenerate_job`(F30 — convert_service)** — 계획 등록 시점에 누락됐던 4번째 본문 변경 경로. 교체 본문의 참조 증감도 즉시 수렴해야 하므로 **후킹에 포함 확정**.
+- **동기화 알고리즘(멱등)**: 본문 파싱(①의 서버 파서) → 임베드 doc_no 집합 → 실존 문서(소프트 삭제 포함)로 매핑 → 기존 `(from=이 문서, relation='embeds', created_by='embed')` 행 집합과 diff → 추가/삭제. 세칙:
+  - **부재 doc_no는 행을 만들지 않는다**(인덱스는 실존 문서 간 관계만 — 렌더의 "부재" 자리표시자는 해석 API `missing`이 담당).
+  - **자기 참조는 행을 만들지 않는다**(렌더에서 순환 자리표시자 처리 — 인덱스 오염 방지).
+  - **소프트 삭제 대상의 행은 유지**한다(삭제 경고·역참조 표시에 계속 쓰이고, 복원 시 그대로 유효).
+  - `created_by='embed'` 행만 동기화 대상으로 삭제한다(수동 관계 행 불가침). 같은 (from,to) 쌍에 수동 `relation='embeds'` 행이 있어도 PK가 (from,to,relation)이라 **동일 relation 값의 수동 행은 embed 행과 충돌**한다 — 규칙: 동기화 INSERT는 upsert(있으면 created_by를 건드리지 않음), 동기화 DELETE는 `created_by='embed'`인 행만.
+- **관계 API·UI와의 경계**: `GET /api/documents/{id}`의 `relations[]` 응답과 관계 편집 UI(AddRelationModal)에서 **`created_by='embed'` 행은 제외**한다 — 수동으로 지워도 재파싱 시 되살아나는 행을 편집 대상으로 보이면 혼동만 만든다. `POST/DELETE /relations` 경로는 embed 행을 만들지도 지우지도 않는다.
+- **역참조·삭제 경고**: `GET /api/documents/{id}` 응답에 **`embedded_by: [{id, doc_no, title}]`** 필드 추가(relation='embeds'의 from 문서들 — 활성 문서만). 문서 상세 사용처 영역의 "이 문서를 임베드한 문서 N개" 목록과, **삭제 확인 다이얼로그의 "N개 문서에 임베드됨" 경고**가 이 필드를 쓴다(신규 엔드포인트 0 — 삭제 차단은 하지 않는다, §6.3 원칙).
+- **전량 재계산(R20)**: 관리 함수 `rebuild_embed_index()` 1개 — 전 문서(비활성 포함) 본문을 재파싱해 `created_by='embed'` 행을 전량 삭제 후 재삽입(**멱등** — 인덱스는 언제든 버리고 재생성 가능). 도입 시 1회 백필 겸용. **엔드포인트로 만들지 않는다**(backend 스크립트/함수 호출 — 신규 엔드포인트는 ③ 1개 유지).
+
+**⑥ 렌더·이동·캐시·인쇄·학습 의미론**
+
+- **임베드 카드 구성**: 경계 박스(토큰) + **출처 배지(doc_no + 제목 + 타입)** + [원문 열기](`/docs/:id`) + 대상 본문 MarkdownView 렌더(중첩 규칙 ④). 문서 링크 칩도 같은 내비게이션 재사용.
+- **링크 칩 표시명**: 별칭 있으면 별칭, 없으면 해석 응답의 `title`(임베드·링크 doc_no를 **합쳐 배치 1회 호출** — 링크는 content를 소비하지 않고 title만 쓴다). missing인 링크는 비활성 칩 + "존재하지 않는 참조" 툴팁.
+- **헤딩 앵커 (D3-③ 확정)**: **`rehype-slug` 채택**(github-slugger 규칙 — 한글 보존·소문자화·공백→하이픈·구두점 제거·중복 시 `-1` 접미). `[[#절 제목]]`의 대상 텍스트를 **같은 github-slugger로 슬러그화**해 `getElementById` 스크롤 — 자체 슬러그 규칙 재구현 기각(react-markdown 생태계 표준·중복 처리 공짜). 매칭 실패 = 무동작(오류 표시 없음). 임베드 내부 헤딩과 id가 중복되면 문서 순서상 첫 요소로 스크롤(개인 규모 수용).
+- **프론트 캐시 (D3-④ 확정)**: react-query 키 = `['embeds', 정렬된 doc_no 목록 join]` — 문서 열람 1회당 배치 1회(+중첩 시 깊이당 1회). 문서 변경 mutation 후 `['embeds']` prefix invalidate(기존 documents 키 invalidate 지점에 병기). 임베드 다수 문서도 개인 규모에서 배치 1~2회로 수렴 — 개별 doc_no 단위 캐시 분배는 과설계로 기각.
+- **인쇄 뷰(F22 — D3-② 확정)**: 임베드는 **펼침**(A4 정리본 자기완결성 — 깊이·순환 규칙 ④ 동일 적용), **fold는 펼침·hide는 공개**로 렌더한다 — 인쇄 뷰의 목적은 정리본이고, "가린 채 인쇄"(자가 시험지)는 이미 문제집 인쇄(문제 앞·해설 뒤)가 담당한다(옵션 신설은 실수요 확인 후 — YAGNI). `.print-page { break-inside: avoid }` 규칙이 임베드 카드에도 적용되는지 구현에서 확인(stage-17 4절).
+- **학습 의미론 불변**: 임베드 열람은 **임베드 대상 문서의 study_progress·SRS·attempts에 어떤 기록도 만들지 않는다** — 열람한 것은 상위 문서다(이중 진도 방지). 해석 API는 조회 전용이며 어떤 학습 테이블에도 쓰지 않는다. 임베드는 퀴즈 출제 범위·SRS 대상도 아니다(출제 범위는 기존 분류 연결·북마크로만).
+- **적용 지점**: MarkdownView(공용 1곳) 확장으로 전 화면(문서 상세·학습·커리큘럼·탐색·퀴즈·플래시카드·복습·인쇄) 일관 적용 — **화면별 렌더 분기 금지**(stage-17 DoD).
+
+**신규 의존·DDL 재확인 (2026-07-29, D4)**
+
+- **프론트 신규 의존 2건**: `remark-directive`(②) · `rehype-slug`(⑥ — github-slugger 전이 포함). 백엔드 신규 의존 0건(파서는 표준 re로 충분).
+- **DDL 변경 0건·Alembic 0건 재확인**: 참조는 `documents.content` 문자열에 살고, 인덱스는 기존 `document_relations`의 값 확장(`relation`·`created_by`가 자유 텍스트·CHECK 없음 — 계획서 §6.2 주석에 'embeds'/'embed' 등재 완료), 접기/가림 상태는 화면 로컬(저장 안 함). **새 테이블·컬럼·인덱스 0, Alembic 0, 신규 엔드포인트는 ③ 1개.** 구현 중 이 전제가 깨지면 착수 중단 후 보고(임의 확정 금지).
 
 ## 5. 화면 상세 (12개)
 

@@ -324,7 +324,7 @@ function QuizReviewCard({
             </span>
           )}
         </div>
-        <MarkdownView content={item.content} scale={fontScale} />
+        <MarkdownView content={item.content} scale={fontScale} docNo={item.doc_no} docId={item.document_id} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -359,7 +359,7 @@ function QuizReviewCard({
           </p>
           <div className="text-sm text-primary">
             <span className="font-semibold">해설</span>
-            <MarkdownView content={answered.result.explanation} scale={fontScale} />
+            <MarkdownView content={answered.result.explanation} scale={fontScale} docNo={item.doc_no} docId={item.document_id} />
           </div>
         </div>
       )}
@@ -413,7 +413,7 @@ function FlipReviewCard({
         {isConcept ? (
           <p className="text-base font-medium text-primary">{item.title}</p>
         ) : (
-          <MarkdownView content={item.content ?? item.title} scale={fontScale} />
+          <MarkdownView content={item.content ?? item.title} scale={fontScale} docNo={item.doc_no} docId={item.document_id} />
         )}
       </div>
       <p className="mt-3 text-center text-xs text-muted">탭 / 스페이스로 뒤집기</p>
@@ -436,6 +436,8 @@ function FlipReviewCard({
         <MarkdownView
           content={isConcept ? (item.content ?? '내용 없음') : (item.explanation ?? item.content ?? '내용 없음')}
           scale={fontScale}
+          docNo={item.doc_no}
+          docId={item.document_id}
         />
       </div>
       <p className="mt-3 text-center text-xs text-muted">← 모른다 · 안다 →</p>

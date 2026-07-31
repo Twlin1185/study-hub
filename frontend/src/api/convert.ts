@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api } from './client'
 import { documentKeys } from './documents'
+import { embedKeys } from './embeds'
 import type {
   ConvertJobResponse,
   ConvertJobStartResponse,
@@ -142,6 +143,8 @@ export function useApplyRegenerate() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: documentKeys.detail(variables.documentId) })
       qc.invalidateQueries({ queryKey: documentKeys.all })
+      // 재생성 교체는 본문 변경 경로 4곳 중 하나(설계 §4.19 ⑤-4) — embeds 인덱스가 즉시 수렴한다.
+      qc.invalidateQueries({ queryKey: embedKeys.all })
     },
   })
 }

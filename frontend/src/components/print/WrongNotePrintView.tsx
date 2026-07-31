@@ -58,7 +58,12 @@ export default function WrongNotePrintView({ categoryId, dateFrom, dateTo, inclu
                       {note.wrong_reason && <span className="ml-2 text-xs text-muted">[{note.wrong_reason}]</span>}
                       {note.is_resolved && <span className="ml-2 text-xs text-correct">[극복]</span>}
                     </p>
-                    <MarkdownView content={note.document.content} />
+                    <MarkdownView
+                      content={note.document.content}
+                      printMode
+                      docNo={note.document.doc_no}
+                      docId={note.document.id}
+                    />
                     {includeNotes && note.note && (
                       <p className="mt-1 rounded border border-dashed border-border bg-bg p-2 text-xs text-muted">
                         내 메모: {note.note}

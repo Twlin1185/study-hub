@@ -201,7 +201,7 @@ export default function DocumentDetailPage() {
         <div className="flex flex-col gap-4">
           <div className="rounded-lg border border-border bg-surface p-4">
             {hasAnswerSection && <h2 className="mb-2 text-sm font-semibold text-primary">지문</h2>}
-            <MarkdownView content={doc.content} scale={fontScale} />
+            <MarkdownView content={doc.content} scale={fontScale} docNo={doc.doc_no} docId={doc.id} />
           </div>
 
           {hasAnswerSection && (doc.choices ?? []).length > 0 && (
@@ -237,7 +237,7 @@ export default function DocumentDetailPage() {
                   </p>
                   <div className="text-sm text-primary">
                     <span className="font-semibold">해설</span>
-                    <MarkdownView content={doc.explanation} scale={fontScale} />
+                    <MarkdownView content={doc.explanation} scale={fontScale} docNo={doc.doc_no} docId={doc.id} />
                   </div>
                 </div>
               )}
@@ -268,7 +268,7 @@ export default function DocumentDetailPage() {
         </div>
       </div>
 
-      {/* 사용처 */}
+      {/* 사용처 + 트랜스클루전 역참조(설계 §4.19 ⑤, S17 — "N곳에서 사용 중"과 나란히) */}
       <div className="mt-4 rounded-lg border border-border bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold text-primary">
           사용처{doc.usages.length > 0 && ` (${doc.usages.length}곳에서 사용 중)`}
@@ -285,6 +285,28 @@ export default function DocumentDetailPage() {
                 onSaveNote={(note) => updateLocalNote(usage.category_id, note)}
                 onUnlink={() => unlinkDocument.mutate({ id: doc.id, categoryId: usage.category_id })}
               />
+            ))}
+          </ul>
+        )}
+
+        <h2 className="mb-2 mt-4 border-t border-border pt-3 text-sm font-semibold text-primary">
+          이 문서를 임베드한 문서{(doc.embedded_by ?? []).length > 0 && ` (${(doc.embedded_by ?? []).length}개)`}
+        </h2>
+        {(doc.embedded_by ?? []).length === 0 ? (
+          <p className="text-sm text-muted">이 문서를 임베드(![[…]])한 다른 문서가 없습니다.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {(doc.embedded_by ?? []).map((eb) => (
+              <li key={eb.id} className="rounded border border-border bg-bg px-3 py-2 text-sm">
+                <button
+                  type="button"
+                  onClick={() => navigate(`/docs/${eb.id}`)}
+                  className="flex w-full items-center gap-2 text-left text-primary hover:underline"
+                >
+                  <span className="shrink-0 text-xs text-muted">{eb.doc_no}</span>
+                  <span className="truncate">{eb.title}</span>
+                </button>
+              </li>
             ))}
           </ul>
         )}
@@ -403,7 +425,13 @@ export default function DocumentDetailPage() {
       {confirmDelete && (
         <ConfirmDialog
           title="문서 삭제"
-          message={`"${doc.title}" 문서를 삭제할까요? (소프트 삭제 — 학습 기록은 보존됩니다)`}
+          message={
+            (doc.embedded_by ?? []).length > 0
+              ? `"${doc.title}" 문서를 삭제할까요? (소프트 삭제 — 학습 기록은 보존됩니다) — ${
+                  (doc.embedded_by ?? []).length
+                }개 문서에 임베드됨: 삭제해도 참조는 남고 해당 문서들에는 "삭제된 문서" 자리표시자로 표시됩니다.`
+              : `"${doc.title}" 문서를 삭제할까요? (소프트 삭제 — 학습 기록은 보존됩니다)`
+          }
           confirmLabel="삭제"
           danger
           submitting={deleteDocument.isPending}

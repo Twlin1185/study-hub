@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import Modal from './Modal'
+import DocRefPickerModal from './DocRefPickerModal'
 import { useCreateDocument, useDocument, useUpdateDocument } from '../api/documents'
 import { ApiError } from '../api/client'
 import type { DocumentDetail, DocumentType } from '../api/types'
@@ -64,6 +65,10 @@ export default function DocEditor({
 
   const [form, setForm] = useState<FormState>(() => emptyForm(defaultType))
   const [error, setError] = useState<string | null>(null)
+  // 참조 삽입 도우미(설계 §4.19, stage-17 §4) — 본문 textarea의 커서 위치에 선택한 문서의
+  // 임베드/링크 스니펫을 삽입한다. WYSIWYG 미리보기는 만들지 않는다(기존 텍스트 폼 유지).
+  const contentRef = useRef<HTMLTextAreaElement | null>(null)
+  const [refPickerOpen, setRefPickerOpen] = useState(false)
 
   // edit 모드: 상세가 로드되면 폼을 채운다.
   const doc = docQuery.data
@@ -141,6 +146,19 @@ export default function DocEditor({
 
   const loadingDetail = editing && docQuery.isLoading
 
+  // 커서(또는 선택 영역)를 스니펫으로 치환하고, 커서를 삽입한 스니펫 뒤로 옮긴다.
+  function insertRefSnippet(snippet: string) {
+    const el = contentRef.current
+    const start = el?.selectionStart ?? form.content.length
+    const end = el?.selectionEnd ?? form.content.length
+    setForm((f) => ({ ...f, content: f.content.slice(0, start) + snippet + f.content.slice(end) }))
+    requestAnimationFrame(() => {
+      el?.focus()
+      const pos = start + snippet.length
+      el?.setSelectionRange(pos, pos)
+    })
+  }
+
   return (
     <Modal title={editing ? '문서 편집' : '새 문서'} onClose={onClose} widthClass="max-w-lg">
       {loadingDetail ? (
@@ -187,15 +205,32 @@ export default function DocEditor({
             />
           </label>
 
-          <label className="flex flex-col gap-1 text-sm">
-            본문 (Markdown)
+          <div className="flex flex-col gap-1 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span>본문 (Markdown)</span>
+              <button
+                type="button"
+                onClick={() => setRefPickerOpen(true)}
+                className="rounded border border-border px-2 py-1 text-xs text-primary hover:bg-bg"
+              >
+                + 참조 삽입
+              </button>
+            </div>
             <textarea
+              ref={contentRef}
               value={form.content}
               onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
               rows={5}
               className="rounded border border-border bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-accent"
             />
-          </label>
+            <p className="text-[11px] text-muted">
+              문법: <code className="rounded bg-bg px-1">![[DOC-번호]]</code> 임베드 ·{' '}
+              <code className="rounded bg-bg px-1">[[DOC-번호|표시명]]</code> 링크 ·{' '}
+              <code className="rounded bg-bg px-1">[[#절 제목]]</code> 헤딩 이동 ·{' '}
+              <code className="rounded bg-bg px-1">:::fold[제목] … :::</code> 접기 ·{' '}
+              <code className="rounded bg-bg px-1">:::hide[라벨] … :::</code> 가리기
+            </p>
+          </div>
 
           {questionLike && (
             <>
@@ -260,6 +295,14 @@ export default function DocEditor({
             </button>
           </div>
         </form>
+      )}
+
+      {refPickerOpen && (
+        <DocRefPickerModal
+          excludeId={editing ? documentId : null}
+          onClose={() => setRefPickerOpen(false)}
+          onInsert={insertRefSnippet}
+        />
       )}
     </Modal>
   )

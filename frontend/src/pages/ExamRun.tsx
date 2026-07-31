@@ -261,6 +261,7 @@ export default function ExamRunPage() {
         <div className="min-w-0 flex-1">
           <QuestionCard
             docNo={current.doc_no}
+            documentId={current.document_id}
             content={current.content}
             choices={current.choices}
             fontScale={fontScale}
@@ -465,7 +466,7 @@ function ResultRow({
       </button>
       {open && (
         <div className="mt-3 border-t border-border pt-3">
-          {item?.content && <MarkdownView content={item.content} />}
+          {item?.content && <MarkdownView content={item.content} docNo={item.doc_no} docId={item.document_id} />}
           <p className="my-2 text-sm text-primary">
             내 답: {formatChoiceAnswer(result.my_answer)} · 정답: {formatChoiceAnswer(result.answer)}
           </p>
@@ -474,7 +475,7 @@ function ResultRow({
           )}
           <div className="text-sm text-primary">
             <span className="font-semibold">해설</span>
-            <MarkdownView content={result.explanation} />
+            <MarkdownView content={result.explanation} docNo={item?.doc_no} docId={item?.document_id} />
           </div>
         </div>
       )}

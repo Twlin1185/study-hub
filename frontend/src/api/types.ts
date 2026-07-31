@@ -94,6 +94,14 @@ export interface DocumentStats {
   srs?: DocumentSrs | null
 }
 
+// S17(설계 §4.19 ⑤ — 트랜스클루전 역참조) — 이 문서를 `![[DOC-xxxx]]`로 임베드한 상위 문서들
+// (relation='embeds'의 from 문서, 활성 문서만). 백엔드 병렬 구현이라 필드 부재 시 []로 취급.
+export interface EmbeddedByItem {
+  id: number
+  doc_no: string
+  title: string
+}
+
 export interface DocumentDetail {
   id: number
   doc_no: string
@@ -115,6 +123,27 @@ export interface DocumentDetail {
   relations: RelatedDocument[]
   bookmarked: boolean
   stats: DocumentStats
+  // S17 — 옵셔널(백엔드 병렬 구현·과도기 응답 하위 호환). 부재 시 프론트는 빈 배열로 취급.
+  embedded_by?: EmbeddedByItem[]
+}
+
+// ---- 문서 상호참조·트랜스클루전 (설계 §4.19 ③, S17) ----
+
+// POST /api/documents/resolve-embeds 응답 항목 — answer·explanation·choices 필드는 스키마
+// 자체에 존재하지 않는다(불변 규칙 1 봉인, 필터링이 아니라 스키마 부재). 소프트 삭제 문서는
+// items에 포함되되 content=""로 내려온다(§4.19 ③).
+export interface ResolveEmbedItem {
+  doc_no: string
+  id: number
+  title: string
+  type: DocumentType
+  content: string
+  is_active: boolean
+}
+
+export interface ResolveEmbedsResponse {
+  items: ResolveEmbedItem[]
+  missing: string[]
 }
 
 export interface Tag {

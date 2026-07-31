@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type Paginated } from './client'
 import { categoryKeys } from './categories'
+import { embedKeys } from './embeds'
 import type {
   DocumentBatchResponse,
   DocumentDetail,
@@ -85,6 +86,8 @@ export function useCreateDocument() {
       if (!result.linkError) {
         qc.invalidateQueries({ queryKey: categoryKeys.tree })
       }
+      // 새 문서 본문이 다른 문서의 미해결(missing) 참조를 채울 수 있다(설계 §4.19 ⑥).
+      qc.invalidateQueries({ queryKey: embedKeys.all })
     },
   })
 }
@@ -107,6 +110,8 @@ export function useUpdateDocument() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: documentKeys.detail(variables.id) })
       qc.invalidateQueries({ queryKey: documentKeys.all })
+      // 본문(content) 변경 = embeds 인덱스 동기화 지점(설계 §4.19 ⑤) — 해석 캐시도 함께 무효화.
+      qc.invalidateQueries({ queryKey: embedKeys.all })
     },
   })
 }
@@ -118,6 +123,8 @@ export function useDeleteDocument() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: documentKeys.all })
       qc.invalidateQueries({ queryKey: categoryKeys.tree })
+      // 소프트 삭제로 is_active가 바뀌므로 임베드 카드가 자리표시자로 전환돼야 한다.
+      qc.invalidateQueries({ queryKey: embedKeys.all })
     },
   })
 }

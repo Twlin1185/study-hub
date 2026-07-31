@@ -271,7 +271,7 @@ export default function QuizRunPage() {
           </span>
           <QuizCardBookmark documentId={question.document_id} />
         </div>
-        <MarkdownView content={question.content} scale={fontScale} />
+        <MarkdownView content={question.content} scale={fontScale} docNo={question.doc_no} docId={question.document_id} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -315,7 +315,12 @@ export default function QuizRunPage() {
 
           <div className="text-sm text-primary">
             <span className="font-semibold">해설</span>
-            <MarkdownView content={answered.result.explanation} scale={fontScale} />
+            <MarkdownView
+              content={answered.result.explanation}
+              scale={fontScale}
+              docNo={question.doc_no}
+              docId={question.document_id}
+            />
           </div>
           <RelatedConceptLinks documentId={question.document_id} />
           <p className="mt-3 text-[11px] text-muted">단축키: 1~4 보기 · Enter 다음 · B 북마크</p>
