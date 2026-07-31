@@ -88,6 +88,6 @@ FastAPI · SQLAlchemy · SQLite(WAL, FTS5) · Alembic / React · TypeScript · V
 
 ## 라이선스
 
-미지정 (추후 결정 예정). 이 저장소의 코드는 개인 학습 목적으로 공개되었으며,
+코드는 [MIT License](LICENSE)로 공개됩니다.
 기출문제 등 학습 콘텐츠의 저작권은 각 출제·발행 기관에 있습니다 —
 데이터는 저장소에 포함되지 않고, 사용자가 각자 적법하게 확보해 사용합니다.
