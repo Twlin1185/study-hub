@@ -42,6 +42,7 @@ from services import (
     codex_adapter,
     doc_extract,
     document_service,
+    embed_service,
     fetch_service,
     import_service,
     llm_engine_service,
@@ -2098,6 +2099,9 @@ def apply_regenerate_job(db: Session, document_id: int, job_id: str) -> models.D
 
     document_service._apply_tag_replacement(db, document, draft.get("tags") or [])
     tag_rule_service.scan_document(db, document.id)
+    # embeds 인덱스 동기화 — 교체 본문의 참조 증감도 이 트랜잭션 안에서 즉시 수렴
+    # (설계 §4.19 ⑤ — 재생성 apply 경로)
+    embed_service.sync_embed_relations(db, document)
 
     db.commit()
     db.refresh(document)

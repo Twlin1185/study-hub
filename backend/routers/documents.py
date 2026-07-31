@@ -20,11 +20,23 @@ from schemas.document import (
     DocumentUpdate,
     LinkCreate,
     RelationCreate,
+    ResolveEmbedsRequest,
+    ResolveEmbedsResponse,
     TagsReplace,
 )
-from services import convert_service, document_service
+from services import convert_service, document_service, embed_service
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
+
+
+# 고정 경로 — {document_id} 동적 경로보다 먼저 등록해 라우팅 충돌을 피한다
+# (설계 §4.19 ③, 이 단계의 유일한 신규 엔드포인트).
+@router.post("/resolve-embeds", response_model=ResolveEmbedsResponse)
+def resolve_embeds(
+    payload: ResolveEmbedsRequest, db: Session = Depends(get_db)
+) -> ResolveEmbedsResponse:
+    items, missing = embed_service.resolve_embeds(db, payload.doc_nos)
+    return ResolveEmbedsResponse(items=items, missing=missing)
 
 
 @router.get("", response_model=Page[DocumentListItem])

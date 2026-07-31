@@ -43,7 +43,7 @@ from schemas.import_schema import (
     SuggestCategoryResult,
     SuggestRelationResult,
 )
-from services import preview_store, source_match, tag_rule_service
+from services import embed_service, preview_store, source_match, tag_rule_service
 from services.document_service import _generate_doc_no
 from services.tag_service import get_or_create_tag
 
@@ -822,6 +822,8 @@ def _create_document(db: Session, doc: dict, source_id: Optional[int]) -> models
         )
         if exists is None:
             db.add(models.DocumentTag(document_id=document.id, tag_id=tag.id))
+    # embeds 인덱스 동기화 — commit_import의 단일 트랜잭션 안에서 함께 (설계 §4.19 ⑤)
+    embed_service.sync_embed_relations(db, document)
     db.flush()
     return document
 

@@ -19,11 +19,12 @@ from schemas.document import (
     DocumentStats,
     DocumentUsage,
     DocumentUpdate,
+    EmbeddedByItem,
     LastAttempt,
     LinkCreate,
     RelationCreate,
 )
-from services import tag_rule_service
+from services import embed_service, tag_rule_service
 from services.tag_service import get_or_create_tag
 
 DOC_NO_PREFIX = "DOC-"
@@ -207,12 +208,15 @@ def create_document(db: Session, payload: DocumentCreate) -> models.Document:
         )
         db.add(document)
         try:
-            db.commit()
+            db.flush()
         except IntegrityError:
             db.rollback()
             if attempt == 2:
                 raise
             continue
+        # embeds 인덱스 동기화 — 본문 생성 트랜잭션 안에서 함께 커밋 (설계 §4.19 ⑤)
+        embed_service.sync_embed_relations(db, document)
+        db.commit()
         db.refresh(document)
         return document
     raise ConflictError("문서 번호 채번에 실패했습니다")  # pragma: no cover
@@ -231,6 +235,9 @@ def update_document(
         )
     for field, value in data.items():
         setattr(document, field, value)
+    if "content" in data:
+        # embeds 인덱스 동기화 — 본문 변경 트랜잭션 안에서 함께 커밋 (설계 §4.19 ⑤)
+        embed_service.sync_embed_relations(db, document)
     db.commit()
     db.refresh(document)
     return document
@@ -337,6 +344,9 @@ def get_document_detail(db: Session, document_id: int) -> DocumentDetail:
             last_attempt=last_attempt,
             srs=srs_info,
         ),
+        embedded_by=[
+            EmbeddedByItem(**item) for item in embed_service.embedded_by(db, document.id)
+        ],
     )
 
 
@@ -344,15 +354,23 @@ def _relations_for_document(db: Session, document_id: int) -> List[DocumentRelat
     """이 문서와 연결된 관계 전부 — 이 문서가 선언한 것(direction='from')과
     상대가 선언한 것(direction='to') 둘 다 포함한다 (§5.3 "이 문제의 개념"/"확인 문제").
     """
+    # embed 파생 행(created_by='embed')은 제외 — 수동으로 지워도 재파싱 시 되살아나는
+    # 행을 편집 대상으로 보이면 혼동만 만든다(설계 §4.19 ⑤). 별도 embedded_by 필드로 노출.
     outgoing = db.execute(
         select(models.DocumentRelation, models.Document)
         .join(models.Document, models.Document.id == models.DocumentRelation.to_document_id)
-        .where(models.DocumentRelation.from_document_id == document_id)
+        .where(
+            models.DocumentRelation.from_document_id == document_id,
+            models.DocumentRelation.created_by != "embed",
+        )
     ).all()
     incoming = db.execute(
         select(models.DocumentRelation, models.Document)
         .join(models.Document, models.Document.id == models.DocumentRelation.from_document_id)
-        .where(models.DocumentRelation.to_document_id == document_id)
+        .where(
+            models.DocumentRelation.to_document_id == document_id,
+            models.DocumentRelation.created_by != "embed",
+        )
     ).all()
 
     items: List[DocumentRelationOut] = []
@@ -414,10 +432,13 @@ def add_relation(db: Session, document_id: int, payload: RelationCreate) -> None
 
 def remove_relation(db: Session, document_id: int, to_document_id: int) -> None:
     get_document_or_404(db, document_id)
+    # embed 파생 행(created_by='embed')은 이 API로 지울 수 없다 — 관계 API는 embed
+    # 행을 만들지도 지우지도 않는다(설계 §4.19 ⑤). 필터 후 매칭 0건이면 그대로 404.
     rows = db.execute(
         select(models.DocumentRelation).where(
             models.DocumentRelation.from_document_id == document_id,
             models.DocumentRelation.to_document_id == to_document_id,
+            models.DocumentRelation.created_by != "embed",
         )
     ).scalars().all()
     if not rows:
