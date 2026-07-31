@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DOCUMENT_TYPES = {"concept", "question", "past_question", "flashcard"}
+# 'embeds'는 의도적으로 미포함 — document_relations의 embeds 행은 본문 파싱 파생
+# 인덱스 전용(설계 §4.19 ⑤)이며, 관계 API(POST/DELETE relations)로는 만들 수도
+# 지울 수도 없어야 한다.
 RELATION_TYPES = {"explains", "related", "prerequisite"}
+
+# 참조 키 = doc_no 고정 (설계 §4.19 ①): "DOC-" + 숫자 4자리 이상.
+DOC_NO_PATTERN = r"^DOC-\d{4,}$"
+_DOC_NO_RE = re.compile(DOC_NO_PATTERN)
 
 
 def _validate_type(value: str) -> str:
@@ -94,6 +102,14 @@ class DocumentRelationOut(BaseModel):
     direction: Literal["from", "to"]  # from=이 문서가 관계를 선언(설명 등) / to=상대가 선언
 
 
+class EmbeddedByItem(BaseModel):
+    """이 문서를 임베드한 문서 (설계 §4.19 ⑤ — 사용처 표시·삭제 경고용, 활성 문서만)."""
+
+    id: int
+    doc_no: str
+    title: str
+
+
 class DocumentDetail(BaseModel):
     id: int
     doc_no: str
@@ -115,6 +131,7 @@ class DocumentDetail(BaseModel):
     relations: List[DocumentRelationOut] = Field(default_factory=list)
     bookmarked: bool = False
     stats: DocumentStats = Field(default_factory=DocumentStats)
+    embedded_by: List[EmbeddedByItem] = Field(default_factory=list)
 
 
 class TagsReplace(BaseModel):
@@ -137,3 +154,34 @@ class RelationCreate(BaseModel):
         if value not in RELATION_TYPES:
             raise ValueError(f"relation은 {sorted(RELATION_TYPES)} 중 하나여야 합니다")
         return value
+
+
+class ResolveEmbedsRequest(BaseModel):
+    """임베드 배치 해석 요청 (설계 §4.19 ③) — doc_no 1~50개, 각 항목 패턴 검증."""
+
+    doc_nos: List[str] = Field(min_length=1, max_length=50)
+
+    @field_validator("doc_nos")
+    @classmethod
+    def _check_doc_nos(cls, value: List[str]) -> List[str]:
+        for doc_no in value:
+            if not _DOC_NO_RE.match(doc_no):
+                raise ValueError(f"doc_no 형식이 올바르지 않습니다: {doc_no!r}")
+        return value
+
+
+class ResolveEmbedItem(BaseModel):
+    """임베드 해석 응답 항목 — answer·explanation·choices 필드 자체가 없다
+    (불변 규칙 1 봉인, 설계 §4.19 ③ — 필터링이 아니라 스키마 부재)."""
+
+    doc_no: str
+    id: int
+    title: str
+    type: str
+    content: str
+    is_active: bool
+
+
+class ResolveEmbedsResponse(BaseModel):
+    items: List[ResolveEmbedItem] = Field(default_factory=list)
+    missing: List[str] = Field(default_factory=list)

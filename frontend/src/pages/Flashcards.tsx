@@ -259,7 +259,7 @@ function FlashcardSession() {
         {cardLoading ? (
           <p className="text-sm text-muted">불러오는 중…</p>
         ) : (
-          <MarkdownView content={content ?? card.title} scale={fontScale} />
+          <MarkdownView content={content ?? card.title} scale={fontScale} docNo={card.doc_no} docId={card.document_id} />
         )}
       </div>
       <p className="mt-3 text-center text-xs text-muted">탭 / 스페이스로 뒤집기</p>
@@ -279,7 +279,12 @@ function FlashcardSession() {
             {formatAnswer(answer)}
           </p>
         )}
-        <MarkdownView content={explanation ?? content ?? '내용 없음'} scale={fontScale} />
+        <MarkdownView
+          content={explanation ?? content ?? '내용 없음'}
+          scale={fontScale}
+          docNo={card.doc_no}
+          docId={card.document_id}
+        />
       </div>
       <p className="mt-3 text-center text-xs text-muted">← 모른다 · 안다 →</p>
     </>

@@ -349,7 +349,7 @@ function StudyCard({
       {/* 개념: 본문 Markdown. 문제: 지문만 렌더 — 정답·해설은 제출 후에만 노출(서버 채점 원칙). */}
       <div className="mb-4 rounded-lg border border-border bg-surface p-4">
         <h2 className="mb-2 text-base font-semibold text-primary">{doc.title}</h2>
-        <MarkdownView content={doc.content} scale={fontScale} />
+        <MarkdownView content={doc.content} scale={fontScale} docNo={doc.doc_no} docId={doc.id} />
       </div>
 
       {question && (
@@ -391,7 +391,7 @@ function StudyCard({
           {doc.explanation != null && (
             <div className="text-sm text-primary">
               <span className="font-semibold">해설</span>
-              <MarkdownView content={doc.explanation} scale={fontScale} />
+              <MarkdownView content={doc.explanation} scale={fontScale} docNo={doc.doc_no} docId={doc.id} />
             </div>
           )}
           <button
@@ -424,7 +424,7 @@ function StudyCard({
           </p>
           <div className="text-sm text-primary">
             <span className="font-semibold">해설</span>
-            <MarkdownView content={answered.result.explanation} scale={fontScale} />
+            <MarkdownView content={answered.result.explanation} scale={fontScale} docNo={doc.doc_no} docId={doc.id} />
           </div>
         </div>
       )}
@@ -939,7 +939,7 @@ function QuizStage({
           </span>
           <ReportErrorButton documentId={q.document_id} variant="inline" />
         </div>
-        <MarkdownView content={q.content} scale={fontScale} />
+        <MarkdownView content={q.content} scale={fontScale} docNo={q.doc_no} docId={q.document_id} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -974,7 +974,7 @@ function QuizStage({
           </p>
           <div className="text-sm text-primary">
             <span className="font-semibold">해설</span>
-            <MarkdownView content={answered.result.explanation} scale={fontScale} />
+            <MarkdownView content={answered.result.explanation} scale={fontScale} docNo={q.doc_no} docId={q.document_id} />
           </div>
         </div>
       )}

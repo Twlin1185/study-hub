@@ -127,14 +127,14 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
 
       <div className="flex flex-col gap-3">
         <CompareField label="제목" oldValue={doc.title} newValue={draft.title} />
-        <CompareField label="지문" oldValue={doc.content} newValue={draft.content} markdown />
+        <CompareField label="지문" oldValue={doc.content} newValue={draft.content} markdown docNo={doc.doc_no} docId={doc.id} />
         <CompareField
           label="보기"
           oldValue={(doc.choices ?? []).join('\n')}
           newValue={(draft.choices ?? []).join('\n')}
         />
         <CompareField label="정답" oldValue={doc.answer} newValue={draft.answer} />
-        <CompareField label="해설" oldValue={doc.explanation} newValue={draft.explanation} markdown />
+        <CompareField label="해설" oldValue={doc.explanation} newValue={draft.explanation} markdown docNo={doc.doc_no} docId={doc.id} />
         <CompareField label="태그" oldValue={doc.tags.join(', ')} newValue={draft.tags.join(', ')} />
       </div>
 
@@ -182,11 +182,15 @@ function CompareField({
   oldValue,
   newValue,
   markdown,
+  docNo,
+  docId,
 }: {
   label: string
   oldValue: string | null
   newValue: string | null
   markdown?: boolean
+  docNo?: string
+  docId?: number
 }) {
   const changed = (oldValue ?? '') !== (newValue ?? '')
   return (
@@ -198,7 +202,7 @@ function CompareField({
         <div>
           <p className="mb-0.5 text-[11px] font-semibold text-muted">기존</p>
           {markdown ? (
-            <MarkdownView content={oldValue} />
+            <MarkdownView content={oldValue} docNo={docNo} docId={docId} />
           ) : (
             <p className="whitespace-pre-wrap text-sm text-primary">{oldValue || '-'}</p>
           )}
@@ -206,7 +210,7 @@ function CompareField({
         <div>
           <p className="mb-0.5 text-[11px] font-semibold text-accent">신규 초안</p>
           {markdown ? (
-            <MarkdownView content={newValue} />
+            <MarkdownView content={newValue} docNo={docNo} docId={docId} />
           ) : (
             <p className="whitespace-pre-wrap text-sm text-primary">{newValue || '-'}</p>
           )}

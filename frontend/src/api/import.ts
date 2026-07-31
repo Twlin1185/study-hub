@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { categoryKeys } from './categories'
 import { documentKeys } from './documents'
+import { embedKeys } from './embeds'
 import type { ImportCommitRequest, ImportCommitResult, ImportPreviewResponse } from './types'
 
 export interface ImportPreviewInput {
@@ -30,6 +31,8 @@ export function useImportCommit() {
       qc.invalidateQueries({ queryKey: documentKeys.all })
       qc.invalidateQueries({ queryKey: categoryKeys.tree })
       qc.invalidateQueries({ queryKey: ['tags'] })
+      // 반입 commit도 본문 변경 경로 4곳 중 하나(설계 §4.19 ⑤-3).
+      qc.invalidateQueries({ queryKey: embedKeys.all })
     },
   })
 }

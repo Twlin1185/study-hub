@@ -6,6 +6,7 @@ const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', 
 
 interface QuestionCardProps {
   docNo: string
+  documentId?: number
   content: string | null
   choices: string[] | null
   fontScale: FontScale
@@ -20,6 +21,7 @@ interface QuestionCardProps {
 // 별도 컴포넌트로 뒀다(기존 퀴즈 화면은 완전 불변 유지) — 최종 보고 참고.
 export default function QuestionCard({
   docNo,
+  documentId,
   content,
   choices,
   fontScale,
@@ -35,7 +37,7 @@ export default function QuestionCard({
         </span>
         {headerRight}
       </div>
-      <MarkdownView content={content} scale={fontScale} />
+      <MarkdownView content={content} scale={fontScale} docNo={docNo} docId={documentId} />
       <div className="mt-4 flex flex-col gap-2">
         {(choices ?? []).map((choice, i) => {
           const value = String(i + 1)

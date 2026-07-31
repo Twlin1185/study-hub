@@ -80,7 +80,7 @@ export default function ConceptPrintView({ categoryId }: ConceptPrintViewProps) 
                     <span className="mr-2 text-xs font-normal text-muted">{it.doc_no}</span>
                     {it.title}
                   </h3>
-                  <MarkdownView content={doc?.content ?? null} />
+                  <MarkdownView content={doc?.content ?? null} printMode docNo={it.doc_no} docId={it.document_id} />
                 </article>
               )
             })}
