@@ -23,7 +23,7 @@ from schemas.document import (
     LinkCreate,
     RelationCreate,
 )
-from services import tag_rule_service
+from services import embed_service, tag_rule_service
 from services.tag_service import get_or_create_tag
 
 DOC_NO_PREFIX = "DOC-"
@@ -207,6 +207,8 @@ def create_document(db: Session, payload: DocumentCreate) -> models.Document:
         )
         db.add(document)
         try:
+            db.flush()  # id 확보 — embeds 동기화가 from_document_id로 참조한다
+            embed_service.sync_embeds_for_document(db, document)
             db.commit()
         except IntegrityError:
             db.rollback()
@@ -231,6 +233,9 @@ def update_document(
         )
     for field, value in data.items():
         setattr(document, field, value)
+    if "content" in data:
+        # embeds 인덱스 동기화(§4.19 ⑥) — content 변경 시에만, 문서 저장과 같은 트랜잭션
+        embed_service.sync_embeds_for_document(db, document)
     db.commit()
     db.refresh(document)
     return document

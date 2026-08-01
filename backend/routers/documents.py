@@ -22,7 +22,8 @@ from schemas.document import (
     RelationCreate,
     TagsReplace,
 )
-from services import convert_service, document_service
+from schemas.embed import ResolveEmbedsRequest, ResolveEmbedsResponse
+from services import convert_service, document_service, embed_service
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -67,6 +68,16 @@ def get_documents_batch(
             "ids는 콤마로 구분된 정수 목록이어야 합니다", detail={"ids": ids}
         ) from exc
     return document_service.get_documents_batch(db, id_list)
+
+
+@router.post("/resolve-embeds", response_model=ResolveEmbedsResponse)
+def resolve_embeds(
+    payload: ResolveEmbedsRequest, db: Session = Depends(get_db)
+) -> ResolveEmbedsResponse:
+    """임베드·링크 칩 배치 해석 (S17 — F43, 설계 §4.19 ③). 읽기 전용(SELECT만) —
+    answer·explanation은 응답 스키마에 존재하지 않는다(불변 규칙 1)."""
+    items = embed_service.resolve_embeds(db, payload.doc_nos)
+    return ResolveEmbedsResponse(items=items)
 
 
 @router.post("", response_model=DocumentDetail, status_code=status.HTTP_201_CREATED)

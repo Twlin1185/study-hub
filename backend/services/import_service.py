@@ -43,7 +43,7 @@ from schemas.import_schema import (
     SuggestCategoryResult,
     SuggestRelationResult,
 )
-from services import preview_store, source_match, tag_rule_service
+from services import embed_service, preview_store, source_match, tag_rule_service
 from services.document_service import _generate_doc_no
 from services.tag_service import get_or_create_tag
 
@@ -988,6 +988,7 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
                     )
                 )
                 target_id = document.id
+                target_document = document
             elif decision.action == "merge":
                 merge_into = decision.merge_into or citem.get("duplicate_of")
                 if merge_into is None:
@@ -1004,11 +1005,16 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
                 _merge_document(db, target, citem["doc"], source_id)
                 merged += 1
                 target_id = target.id
+                target_document = target
             else:
                 raise ValidationAppError(
                     f"알 수 없는 action: {decision.action!r}",
                     detail={"index": idx, "action": decision.action},
                 )
+
+            # embeds 인덱스 동기화(§4.19 ⑥) — 커밋으로 생성·병합된 문서 전부, commit_import와
+            # 같은 트랜잭션(트랜잭션 전체는 아래 db.commit()에서 한 번에 확정된다).
+            embed_service.sync_embeds_for_document(db, target_document)
 
             categories_created.extend(
                 _apply_categories(
