@@ -28,9 +28,12 @@ const BOX = 'print-avoid-break my-3 rounded-lg border border-border'
 function PlaceholderBox({
   text,
   onOpen,
+  // [원문 열기]를 제공하는 자리표시자에서, 아직 문서 id를 모르는 동안(해석 응답 대기) 비활성.
+  openDisabled,
 }: {
   text: string
   onOpen?: () => void
+  openDisabled?: boolean
 }) {
   return (
     <div className={`${BOX} border-dashed bg-bg px-3 py-2`}>
@@ -40,7 +43,9 @@ function PlaceholderBox({
           <button
             type="button"
             onClick={onOpen}
-            className="shrink-0 rounded border border-border px-2 py-1 text-xs text-primary hover:bg-surface print:hidden"
+            disabled={openDisabled}
+            title={openDisabled ? '문서 정보를 불러오는 중입니다' : '원문 열기'}
+            className="shrink-0 rounded border border-border px-2 py-1 text-xs text-primary hover:bg-surface disabled:opacity-50 print:hidden"
           >
             원문 열기
           </button>
@@ -61,13 +66,18 @@ export default function EmbedCard({ docNo, alias, renderContent }: EmbedCardProp
   // 이 카드가 펼칠 본문의 깊이 = 현재 깊이 + 1. MAX_EMBED_DEPTH 초과면 펼치지 않는다.
   const tooDeep = depth + 1 > MAX_EMBED_DEPTH
 
-  // 순환은 대상 정보가 필요 없으므로 해석 요청 자체를 보내지 않는다(무한 fetch 0).
-  const entry = useEmbedEntry(ctx?.resolver ?? null, docNo, !isCycle)
+  // 해석은 [원문 열기]에 필요한 문서 id·제목만 얻기 위한 읽기 전용 조회다. 순환·깊이 초과에서도
+  // 요청하지만 **본문을 펼치지 않으므로 새 카드가 생기지 않는다** — 재귀·fetch 증식은 없다
+  // (같은 doc_no는 열람 세션 캐시로 1회, 조상 체인 문서는 대개 이미 캐시에 있다).
+  const entry = useEmbedEntry(ctx?.resolver ?? null, docNo, true)
   const item: EmbedResolveItem | undefined = entry?.item
-  const open = () => openDocument(docNo, item)
+  const documentId = item?.id ?? null
+  const open = () => {
+    if (documentId != null) openDocument(documentId)
+  }
 
   if (isCycle) {
-    return <PlaceholderBox text={cyclePlaceholder(docNo)} onOpen={open} />
+    return <PlaceholderBox text={cyclePlaceholder(docNo)} onOpen={open} openDisabled={documentId == null} />
   }
 
   if (entry?.status === 'error') {
@@ -104,7 +114,13 @@ export default function EmbedCard({ docNo, alias, renderContent }: EmbedCardProp
   }
 
   if (tooDeep) {
-    return <PlaceholderBox text={depthPlaceholder(docNo, item.title)} onOpen={open} />
+    return (
+      <PlaceholderBox
+        text={depthPlaceholder(docNo, item.title)}
+        onOpen={open}
+        openDisabled={documentId == null}
+      />
+    )
   }
 
   const displayTitle = alias || item.title || docNo
@@ -130,7 +146,8 @@ export default function EmbedCard({ docNo, alias, renderContent }: EmbedCardProp
         <button
           type="button"
           onClick={open}
-          className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] text-primary hover:bg-bg print:hidden"
+          disabled={documentId == null}
+          className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] text-primary hover:bg-bg disabled:opacity-50 print:hidden"
         >
           원문 열기
         </button>

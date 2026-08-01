@@ -18,8 +18,8 @@ export interface EmbedResolveItem {
   type?: DocumentType | null
   content?: string | null
   is_active?: boolean | null
-  // 설계 §4.19 ③ 확정 스키마에는 문서 id가 없다(2026-08-02). 백엔드가 추후 id를 함께 내려주면
-  // [원문 열기]가 /docs/{id}로 직행하고, 없으면 doc_no 검색 화면으로 폴백한다(RefTargets 참고).
+  // 문서 내부 PK — [원문 열기]·링크 칩이 /docs/{id}로 직행하는 내비게이션 키.
+  // 설계 §4.19 ③ 보완 확정(2026-08-02): **found=true면 항상 제공**(삭제 문서 포함).
   id?: number | null
 }
 

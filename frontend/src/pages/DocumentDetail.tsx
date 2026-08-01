@@ -21,6 +21,7 @@ import RegenerateJobPanel from '../components/RegenerateJobPanel'
 import DocEditor from '../components/DocEditor'
 import { useFontScale } from '../hooks/useFontScale'
 import { ApiError } from '../api/client'
+import { pickEmbeddedBy, pickManualRelations } from '../utils/relations'
 
 const TYPE_LABEL: Record<DocumentType, string> = {
   concept: '개념',
@@ -128,9 +129,9 @@ export default function DocumentDetailPage() {
   const hasAnswerSection = isQuestionLike || doc.type === 'flashcard'
 
   // F43(설계 §4.19 ⑦) — 임베드 인덱스는 파생 관계다. 사용자가 만든 관계 목록에 섞지 않고
-  // 사용처 영역의 역참조 목록·삭제 경고로만 쓴다(신규 API 없음 — 기존 relations 필터).
-  const manualRelations = doc.relations.filter((r) => r.relation !== 'embeds')
-  const embeddedBy = doc.relations.filter((r) => r.relation === 'embeds' && r.direction === 'to')
+  // 사용처 영역의 역참조 목록·삭제 경고로만 쓴다(신규 API 없음 — 공용 필터 utils/relations).
+  const manualRelations = pickManualRelations(doc.relations)
+  const embeddedBy = pickEmbeddedBy(doc.relations)
 
   function handleTagKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key !== 'Enter' && e.key !== ',') return
@@ -459,7 +460,8 @@ export default function DocumentDetailPage() {
       {addRelationOpen && (
         <AddRelationModal
           documentId={doc.id}
-          excludeIds={doc.relations.map((r) => r.document_id)}
+          // 파생 embeds 행은 제외 대상이 아니다 — 임베드한 문서와도 사용자 관계는 따로 맺을 수 있다.
+          excludeIds={manualRelations.map((r) => r.document_id)}
           submitting={addRelation.isPending}
           errorMessage={relationError}
           onClose={() => setAddRelationOpen(false)}

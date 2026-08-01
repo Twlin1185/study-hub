@@ -23,21 +23,25 @@ export function DocLinkChip({ docNo, alias }: { docNo: string; alias?: string })
 
   const missing = entry?.status === 'ready' && item && !item.found
   const deleted = entry?.status === 'ready' && item?.found && item.is_active === false
-  const disabled = Boolean(missing || deleted)
+  // 해석 응답 도착 전에는 문서 id를 몰라 이동할 수 없다 — 잠시 비활성.
+  const documentId = item?.id ?? null
+  const disabled = Boolean(missing || deleted) || documentId == null
 
   const label = alias || item?.title || docNo
   const tooltip = missing
     ? missingPlaceholder(docNo)
     : deleted
       ? deletedPlaceholder(docNo, item?.title)
-      : `${docNo} 문서 열기`
+      : documentId == null
+        ? `${docNo} 정보를 불러오는 중입니다`
+        : `${docNo} 문서 열기`
 
   return (
     <button
       type="button"
       disabled={disabled}
       title={tooltip}
-      onClick={() => !disabled && openDocument(docNo, item)}
+      onClick={() => documentId != null && openDocument(documentId)}
       className={disabled ? CHIP_INACTIVE : CHIP_ACTIVE}
     >
       <span className="shrink-0 text-[0.9em] text-muted">{docNo}</span>

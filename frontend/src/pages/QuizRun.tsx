@@ -12,6 +12,7 @@ import { useDocument, useToggleBookmark } from '../api/documents'
 import { useSettings } from '../api/settings'
 import { useFontScale } from '../hooks/useFontScale'
 import ReportErrorButton from '../components/ReportErrorButton'
+import { pickManualRelations } from '../utils/relations'
 import type { QuizQuestion, WrongReason } from '../api/types'
 
 // 틀린이유 원탭 4버튼 (설계 §5.6, F36-⑤)
@@ -34,10 +35,11 @@ const RELATION_LABEL: Record<string, string> = {
 
 // 해설 영역의 "관련 개념 바로가기" — quiz/session 응답엔 relations가 없어(서버 채점 원칙, §8)
 // 정답 공개 이후 문서 상세를 조회해 relations를 가져온다 (설계 §5.6).
+// 파생 embeds 행은 제외한다(설계 §4.19 ⑦ — 관계 목록에 섞어 표시하지 않는다. 공용 필터 사용).
 function RelatedConceptLinks({ documentId }: { documentId: number }) {
   const navigate = useNavigate()
   const docQuery = useDocument(documentId)
-  const relations = docQuery.data?.relations ?? []
+  const relations = pickManualRelations(docQuery.data?.relations ?? [])
   if (relations.length === 0) return null
 
   return (
