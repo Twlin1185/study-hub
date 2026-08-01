@@ -35,7 +35,8 @@ export default function QuestionCard({
         </span>
         {headerRight}
       </div>
-      <MarkdownView content={content} scale={fontScale} />
+      {/* docNo = 임베드 순환 검출의 시작점(F43) — 없으면 자기 임베드가 1단 펼쳐진 뒤에야 잡힌다. */}
+      <MarkdownView content={content} scale={fontScale} docNo={docNo} />
       <div className="mt-4 flex flex-col gap-2">
         {(choices ?? []).map((choice, i) => {
           const value = String(i + 1)

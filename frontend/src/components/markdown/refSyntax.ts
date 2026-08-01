@@ -26,17 +26,9 @@ export function parseRefMatch(m: RegExpExecArray): ParsedRef | null {
   return null
 }
 
-// 본문에서 doc_no 참조(임베드+링크 칩)를 모두 수집한다 — 배치 해석 요청용.
-export function collectRefDocNos(content: string): string[] {
-  const found = new Set<string>()
-  REF_SCAN_RE.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = REF_SCAN_RE.exec(content)) !== null) {
-    const ref = parseRefMatch(m)
-    if (ref && ref.kind !== 'anchor') found.add(ref.target)
-  }
-  return Array.from(found)
-}
+// 해석 요청(doc_no 수집)은 본문 정규식 스캔이 아니라 **렌더된 참조 노드**가 각자 요청하고
+// embedResolver가 마이크로태스크 단위로 묶는다 — 코드 블록 안 참조까지 긁어오는 본문 스캔 경로는
+// 두지 않는다(§4.19 ① 코드 블록 제외 원칙과 어긋나므로 의도적으로 없음).
 
 // ---- 임베드 깊이 (§4.19 ④) ----
 // 루트 본문 = 깊이 0, 임베드 = 1, 임베드 안 임베드 = 2까지 펼침. 3부터 자리표시자.
