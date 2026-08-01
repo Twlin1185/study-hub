@@ -70,6 +70,16 @@ const UNMATCHED_DOCUMENT_REASON: Record<string, string> = {
   no_item: '답지에 해당 번호 항목 없음',
 }
 
+// apply는 "빈 필드만 채움"이라 이미 값이 있는 필드(conflict)는 항상 skip된다 — 두 필드 모두
+// 이미 채워져 있거나 proposed 자체가 비어 있으면 이 항목을 병합해도 실제 반영은 0이다.
+// stage-reviewer 지적(2026-08-02) — "선택 병합 N건" 표기와 실제 반영 수 불일치 방지를 위해
+// 기본 체크 여부·행 안내에 함께 쓴다.
+function hasFillableField(item: AnswerKeyMatchedItem): boolean {
+  const answerFillable = !item.current.has_answer && Boolean(item.proposed.answer)
+  const explanationFillable = !item.current.has_explanation && Boolean(item.proposed.explanation)
+  return answerFillable || explanationFillable
+}
+
 export default function AnswerKeyImportWizard() {
   const [step, setStep] = useState<Step>('scope')
   const [categoryId, setCategoryId] = useState<number | null>(null)
@@ -94,13 +104,17 @@ export default function AnswerKeyImportWizard() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // 가공 완료(done) 시 매칭 미리보기로 전환 — fabrication_suspect 항목은 기본 체크 해제(설계
-  // §4.20 ①-3 프론트 기본 규칙), 그 외(match_unavailable 포함)는 기본 체크.
+  // §4.20 ①-3 프론트 기본 규칙), proposed에 실제로 채울 필드가 없는 항목(apply가 항상 skip)도
+  // 기본 체크 해제(stage-reviewer 지적 — "선택 병합 N건"과 실제 반영 수 불일치 방지). 그 외
+  // (match_unavailable 포함)는 기본 체크.
   useEffect(() => {
     if (step !== 'process' || statusQuery.data?.status !== 'done') return
     const matched = statusQuery.data.matched ?? []
     const unmatched = statusQuery.data.unmatched ?? { numbers: [], documents: [] }
     const initial: Record<number, boolean> = {}
-    for (const m of matched) initial[m.document_id] = !m.warnings.includes('fabrication_suspect')
+    for (const m of matched) {
+      initial[m.document_id] = !m.warnings.includes('fabrication_suspect') && hasFillableField(m)
+    }
     setSelections(initial)
     setPreviewData({ matched, unmatched })
     setStep('preview')
@@ -535,6 +549,7 @@ function MatchedRow({
   checked: boolean
   onToggle: () => void
 }) {
+  const fillable = hasFillableField(item)
   return (
     <div className="rounded-lg border border-border bg-surface p-3">
       <label className="flex items-start gap-2">
@@ -555,6 +570,13 @@ function MatchedRow({
                 </span>
               )
             })}
+            {/* 두 필드 모두 이미 채워져 있거나 답지에 값이 없어 실제로 채울 내용이 없는 항목 —
+                선택해도 apply가 항상 skip한다(빈 필드만 병합). 수동 선택은 막지 않는다(무해). */}
+            {!fillable && (
+              <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted">
+                채울 내용 없음
+              </span>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">

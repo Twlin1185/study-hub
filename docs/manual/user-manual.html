@@ -779,6 +779,56 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     여러 파일을 걸어둔 경우 이 패널은 <strong>지금 변환 중인 1건</strong>에만 보이고 나머지는 상태 배지로 표시됩니다.
     또 반입 위저드 상단의 단계 표시(①②③)는 지나온 단계를 눌러 되돌아갈 수 있습니다.
   </p>
+
+  <h3>이미 넣은 문제의 정답·해설 채우기 — 답지·해설지 반입 <span class="badge new">v1.x</span></h3>
+  <p>
+    앞의 방법 A~D는 <strong>새 문서를 반입</strong>하는 경로이고, 이 기능은 <strong>이미 반입된 문제</strong> 중
+    정답·해설이 비어 있는 곳만 답지·해설지 파일로 채우는 별도 경로입니다.
+    <span class="path">/import</span>의 <strong>[답지·해설지 반입]</strong> 탭에서 시작합니다.
+  </p>
+  <ol class="steps">
+    <li>
+      <strong>분류 범위 선택</strong>
+      <p>답지를 적용할 분류 범위를 고릅니다(하위 포함). <strong>회차 단위로 범위를 좁히기를 권장합니다</strong> —
+      여러 회차가 섞인 통합 답지는 문항 번호가 충돌해 "매칭 안 됨"이 많이 생깁니다.</p>
+    </li>
+    <li>
+      <strong>답지 파일 업로드</strong>
+      <p>이 단계는 텍스트만 추출합니다 — LLM을 부르지 않아 비용이 들지 않습니다.</p>
+    </li>
+    <li>
+      <strong>예상 사용량 확인</strong>
+      <p>대상 문항 수(정답 없음·해설 없음 건수)와 예상 입력 토큰을 확인해야 다음 단계(LLM 가공)가 시작됩니다.</p>
+    </li>
+    <li>
+      <strong>가공 → 매칭 미리보기</strong>
+      <p>답지에서 뽑아낸 문항 번호별 정답·해설이 범위 안의 문서와 자동으로 짝지어집니다. 항목마다
+      <strong>현재 상태(정답·해설 있음/없음)</strong>와 <strong>채워질 내용</strong>이 나란히 보이고, 원하는 항목만 골라
+      <strong>[선택 병합]</strong>합니다.</p>
+    </li>
+  </ol>
+  <div class="tip">
+    <span class="label">안심 — 기존 정답·해설은 절대 덮어쓰지 않습니다</span>
+    <p>이미 값이 있는 필드는 <strong>"이미 있음"</strong>으로 표시되고 병합에서 자동으로 건너뜁니다 — 채워지는 것은
+    <strong>빈 필드뿐</strong>입니다. 같은 답지를 여러 번 반입해도 안전합니다(멱등).</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <tr><th>표시</th><th>뜻</th></tr>
+      <tr><td><strong>매칭 안 됨</strong></td><td>답지의 번호에 해당하는 문서를 찾지 못했거나(또는 그 반대) 번호가 모호한 경우 —
+      별도 목록으로만 보여주고 <strong>병합 대상에서 제외</strong>됩니다.</td></tr>
+      <tr><td><strong>원문과 불일치 (창작 의심)</strong></td><td>산출된 해설이 답지 원문과 대조되지 않습니다 —
+      <strong>기본적으로 체크가 해제</strong>됩니다.</td></tr>
+      <tr><td><strong>원문 대조 불가</strong></td><td>답지에서 텍스트를 뽑지 못해 대조를 못 했습니다 — 기본 포함,
+      반입 전 원본과 직접 대조를 권장합니다.</td></tr>
+      <tr><td><strong>채울 내용 없음</strong></td><td>정답·해설이 이미 둘 다 있거나 답지에 값이 없어, 선택해도
+      실제로는 아무것도 반영되지 않는 항목입니다.</td></tr>
+    </table>
+  </div>
+  <div class="note">
+    <span class="label">참고</span>
+    <p>반입한 답지 원본 파일은 서버 <code>sources/</code>에 보관되지만, 앱 화면에서 다시 열어보는 기능은 없습니다.</p>
+  </div>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -1243,6 +1293,33 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <span class="label">안심</span>
     <p>교체해도 문서 번호는 그대로라 <strong>풀이 이력·오답노트·복습 일정이 전부 유지</strong>됩니다.
     승인 없이 자동으로 덮어쓰는 일은 없습니다.</p>
+  </div>
+
+  <h3>AI 풀이 생성 — 해설 없는 문제 채우기 <span class="badge new">v1.x</span></h3>
+  <p>
+    <a href="#import">답지·해설지 반입</a>이 정본 경로이고, 답지가 아예 없을 때 쓰는 보조 경로입니다.
+    문서 상세의 <strong>정답·해설 영역</strong>에서 <strong>[AI 풀이 생성]</strong> 버튼으로 LLM이 직접 푼 해설을
+    받을 수 있습니다(<strong>문제 문서 중 해설이 비어 있는 경우에만</strong> 버튼이 보입니다).
+  </p>
+  <ol class="steps">
+    <li><strong>[AI 풀이 생성] 버튼</strong> — 확인 다이얼로그가 뜨고, 사용할 엔진과 과금 형태(구독형/종량 과금)를
+      보여줍니다. 확인하면 LLM을 <strong>1회</strong> 호출합니다.</li>
+    <li><strong>초안 확인</strong> — 생성된 해설(원본에 정답이 없던 문제는 정답도 함께)이
+      <strong>"AI 생성 — 오개념 가능"</strong> 배지와 함께 나타납니다.</li>
+    <li><strong>[승인 반영] / [버리기]</strong> — 승인하면 해설이 저장되고, 마음에 들지 않으면 버려도 원본 문서는
+      그대로입니다.</li>
+  </ol>
+  <div class="tip">
+    <span class="label">생성분 표시 — 마커</span>
+    <p>승인된 해설은 맨 앞에 <code>&gt; [AI 생성 해설] 날짜 · 엔진명 — 원본 자료에 없는 LLM 생성 풀이입니다.
+    오류가 보이면 오류 신고로 재생성하세요.</code> 형태의 인용구가 자동으로 붙습니다(정답까지 함께 채운 경우
+    <code>[AI 생성 해설·정답]</code>). 이 표시로 <strong>원본에서 온 해설과 항상 구분</strong>됩니다 — 오개념이
+    보이면 위의 <strong>[오류 신고]</strong>로 다시 만들 수 있습니다.</p>
+  </div>
+  <div class="note">
+    <span class="label">오답노트에서는</span>
+    <p><a href="#review-notes">오답노트(9장)</a>의 카드에서는 직접 생성하지 않고, <strong>[해설 보완]</strong> 버튼으로
+    문서 상세로 이동해 위 흐름을 이어갑니다.</p>
   </div>
 </section>
 
