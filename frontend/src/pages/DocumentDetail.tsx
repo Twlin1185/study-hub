@@ -18,6 +18,7 @@ import MiniHistoryChart from '../components/MiniHistoryChart'
 import BookmarkButton from '../components/BookmarkButton'
 import AddRelationModal from '../components/AddRelationModal'
 import RegenerateJobPanel from '../components/RegenerateJobPanel'
+import ExplainJobPanel from '../components/ExplainJobPanel'
 import DocEditor from '../components/DocEditor'
 import { useFontScale } from '../hooks/useFontScale'
 import { ApiError } from '../api/client'
@@ -245,6 +246,8 @@ export default function DocumentDetailPage() {
                     <span className="font-semibold">해설</span>
                     <MarkdownView content={doc.explanation} scale={fontScale} docNo={doc.doc_no} />
                   </div>
+                  {/* AI 풀이 생성 (설계 §4.20 ②, F44) — 문제 타입 + 해설 없음 문서에만 노출 */}
+                  <ExplainJobPanel doc={doc} />
                 </div>
               )}
             </div>

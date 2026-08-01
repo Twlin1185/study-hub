@@ -929,6 +929,116 @@ export interface RegenerateJobResponse {
   progress?: JobProgress | null
 }
 
+// ---- 답지·해설지 반입 (설계 §4.20 ①, F44, S18) ----
+// POST /api/import/answer-key 응답 — 판별·추출만 수행(LLM 0). estimate는 fetch estimate_usage
+// 필드 관례(approx_input_tokens·assumed) 재사용.
+export interface AnswerKeyEstimate {
+  approx_input_tokens: number
+  assumed: boolean
+}
+
+export interface AnswerKeyTarget {
+  question_total: number
+  missing_answer: number
+  missing_explanation: number
+}
+
+export interface AnswerKeyUploadResponse {
+  key_id: string
+  filename: string
+  file_type: string
+  extract_available: boolean
+  extracted_chars: number
+  target: AnswerKeyTarget
+  estimate: AnswerKeyEstimate
+}
+
+// 미리보기 matched 항목의 conflicts(이미 값이 있어 병합에서 건너뜀)·warnings(기계 검증 결과).
+export type AnswerKeyConflictField = 'answer_exists' | 'explanation_exists'
+export type AnswerKeyWarning = 'fabrication_suspect' | 'match_unavailable'
+
+export interface AnswerKeyMatchedCurrent {
+  has_answer: boolean
+  has_explanation: boolean
+}
+
+export interface AnswerKeyMatchedProposed {
+  answer?: string | null
+  explanation?: string | null
+}
+
+export interface AnswerKeyMatchedItem {
+  document_id: number
+  doc_no: string
+  title: string
+  no: number
+  current: AnswerKeyMatchedCurrent
+  proposed: AnswerKeyMatchedProposed
+  conflicts: AnswerKeyConflictField[]
+  warnings: AnswerKeyWarning[]
+}
+
+export type AnswerKeyUnmatchedNumberReason = 'no_document' | 'ambiguous'
+export type AnswerKeyUnmatchedDocumentReason = 'no_number' | 'ambiguous' | 'no_item'
+
+export interface AnswerKeyUnmatchedNumber {
+  no: number
+  reason: AnswerKeyUnmatchedNumberReason
+}
+
+export interface AnswerKeyUnmatchedDocument {
+  document_id: number
+  doc_no: string
+  title: string
+  reason: AnswerKeyUnmatchedDocumentReason
+}
+
+export interface AnswerKeyUnmatched {
+  numbers: AnswerKeyUnmatchedNumber[]
+  documents: AnswerKeyUnmatchedDocument[]
+}
+
+// GET /api/import/answer-key/{key_id} — 상태·미리보기 조회(convert 잡 큐 kind 'answer_key' 재사용,
+// progress·error_info는 §4.11 계약 그대로). matched·unmatched는 status:'done'에서만 채워진다.
+export interface AnswerKeyStatusResponse {
+  status: ConvertJobStatus
+  error?: string | null
+  error_info?: LlmErrorInfo | null
+  progress?: JobProgress | null
+  matched?: AnswerKeyMatchedItem[]
+  unmatched?: AnswerKeyUnmatched
+}
+
+export interface AnswerKeyApplySkip {
+  document_id: number
+  reason: string
+}
+
+// POST .../apply 응답 — 빈 필드만 병합(멱등). 유일한 병합 쓰기 경로(§4.20 ①-4).
+export interface AnswerKeyApplyResult {
+  updated: number
+  skipped: AnswerKeyApplySkip[]
+}
+
+// ---- LLM 풀이 생성 (설계 §4.20 ②, F44, S18 — F30 재생성 잡 인프라 재사용) ----
+export interface ExplainDraft {
+  explanation: string
+  // 원본에 정답이 없어 LLM이 함께 산출한 경우만 값이 있다(answer_included로 구분).
+  answer?: string | null
+  answer_included: boolean
+}
+
+// GET .../explain/{job_id} — explanation_source는 §4.17 answer_source 관례와 동일하게
+// 응답 전용·DB 미저장(마커 라인은 apply 시 서버가 explanation 본문에 부착).
+export interface ExplainJobResponse {
+  status: ConvertJobStatus
+  draft?: ExplainDraft | null
+  explanation_source?: 'generated'
+  error?: string | null
+  error_info?: LlmErrorInfo | null
+  progress?: JobProgress | null
+}
+
 // ---- 백업 (설계 §4.10, F27, S6 — v1.5 확정) ----
 // id는 타임스탬프 문자열(숫자 PK 아님). restore는 body {confirm: "RESTORE"} 고정 문자열 필요.
 export interface BackupItem {

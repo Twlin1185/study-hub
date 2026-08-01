@@ -271,14 +271,27 @@ function ReviewNoteCard({ note, onUpdate }: { note: ReviewNote; onUpdate: Return
 
       {error && <p className="mb-2 text-xs text-wrong">{error}</p>}
 
-      <button
-        type="button"
-        onClick={handleRetryOne}
-        disabled={createSession.isPending}
-        className="rounded border border-border px-2.5 py-1 text-xs text-primary hover:bg-surface disabled:opacity-50"
-      >
-        재도전
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={handleRetryOne}
+          disabled={createSession.isPending}
+          className="rounded border border-border px-2.5 py-1 text-xs text-primary hover:bg-surface disabled:opacity-50"
+        >
+          재도전
+        </button>
+        {/* AI 풀이 생성 진입점(설계 §4.20 ②, F44) — 오답노트는 해설 유무를 담지 않아(N+1 방지)
+            여기서는 문서 상세로 대체 연결한다(체크리스트 "어려우면 문서 상세 링크로 대체"). */}
+        {(note.document.type === 'question' || note.document.type === 'past_question') && (
+          <button
+            type="button"
+            onClick={() => navigate(`/docs/${note.document.id}`)}
+            className="rounded border border-border px-2.5 py-1 text-xs text-accent hover:bg-surface"
+          >
+            해설 보완 (문서 상세)
+          </button>
+        )}
+      </div>
     </div>
   )
 }
