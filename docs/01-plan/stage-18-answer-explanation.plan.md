@@ -2,7 +2,7 @@
 
 > 상위: `study-app.plan.md` **v0.29** §14(M18)·**F44**(배경·2경로·확정 결정의 단일 출처) · 설계: **§4.20 신설 완료(2026-08-02, Design v1.22 — 엔드포인트 계약·매칭 세칙·마커 형식·구현 앵커의 정본)**
 > 배경(실사용 결함 보고 2026-07-29): 원본에 애초에 해설/정답이 없는 문항을 채우는 경로가 없다. (해설 "누락"의 다른 원인이었던 convert.md 과잉 주장은 1차 대응 A안으로 기해소 — plan §14 F44 배경.) F44 = **사용자가 선택적으로** 보완하는 2경로: ① 답지·해설지 반입(정본 — 실물 원본이라 원문 대조 적용 가능) ② LLM 풀이 생성(보조 — 승인 게이트 필수, R21).
-> **상태: 착수 가능.** 착수 전 결정 ①~④ 전건 확정(2026-08-02, plan-architect — 계약 정본 = 설계 §4.20). 게이트 없음.
+> **상태: 구현 완료·검토 통과(2026-08-02).** 결정 ①~④ 확정 → 백엔드·프론트 병렬 구현 → stage-reviewer(Opus) 1차 조건부 통과(중요 1: explain apply 덮어쓰기) → 수정 6건 반영 → 재검토 **통과**(새 결함 0). 잔여 = **사용자 확인 3건**(실답지 라이브 완주 DoD 1 · 풀이 생성 라이브 완주 DoD 2 · 표본 검증 10건 R21 — 전부 실 LLM 비용 발생 항목이라 자동 실행하지 않음). 하단 "완료 기록" 참조.
 > 순서 관계(plan §14): M16 완료 전제 충족(판별·추출 계층 재사용). M17과 파일 충돌 없음 — 17은 완료(2026-08-02). **M19(F45)가 이 단계의 표기 관례(결정 ③)를 상속**하므로 F45보다 먼저 한다(선행 권장의 이행).
 > 불변 규칙 재확인: **채점은 서버에서만(1)** — 이 기능은 documents 데이터를 채울 뿐 quiz/session·exam 응시 응답 계약 불변. **퀴즈 진행·시험 응시 화면에 explain 진입점 금지**(정답 우회 방지) · 원본 불변(4 — 답지도 sources/ 저장 후 불변) · 스키마 변경 금지(6 — **DDL 0건 확정**, §4.20 말미) · 색상 토큰만(5) · 에러 규약 §3 · 승인 없는 자동 병합 금지(R7·R8 — 병합 쓰기는 apply 2개뿐).
 
@@ -30,46 +30,46 @@
 
 ### 1. 백엔드 — 답지·해설지 반입 (설계 §4.20 ①)
 
-- [ ] 신설 `backend/services/answer_key_service.py`: 업로드 처리(판별·추출 = `_detect_import_format`·`doc_extract` 재사용, LLM 0) · sources/ 저장(중복 해시 — `import_service` 전례, 거부·추출 실패 시에도 저장 후 종료 — §4.18 대칭) · `estimate`(`approx_input_tokens`·`assumed` — `fetch_service.estimate_usage` 필드 관례) · key 상태 인메모리 TTL 1시간
-- [ ] C군·판별 불가 = §3 에러(422) + §4.18 ⑥ 확정 문구 재사용(동기 에러 — error_info 채널 아님) · 추출 실패(스캔 PDF·이미지)는 `extract_available:false`로 진행 허용(codex-cli 이미지 비지원 등 엔진 매트릭스는 §4.18 그대로)
-- [ ] **번호 추출 함수**(단위 테스트 대상): `source_detail` → `';'` 분할 → 각 조각 `(\d+)\s*번` 최말단 매치 → 번호 집합. 부재·중복(같은 번호에 문서 2+) 판정 포함
-- [ ] **LLM 가공 잡 kind `'answer_key'`**(convert 잡 큐 확장): 프롬프트 코드 내 조립(regenerate 전례 — `prompts/convert.md` 불변), 산출 = 순수 JSON `{"items":[{"no","answer","explanation"}]}`(위반 = `invalid_output`), 창작 금지 지시
-- [ ] **미리보기 조립(서버 결정론 매칭 + 기계 검증)**: 범위(하위 포함)의 문제 타입·is_active=1 문서 전수 ↔ 산출 items 매칭 → `matched[]`(current/proposed/conflicts/warnings) + `unmatched`(numbers·documents, reason 명시). 검증 = explanation **답지 텍스트 기준 `SourceMatcher` 대조**(불일치 = `fabrication_suspect`) · choices 있는 문서의 answer는 1-base 번호 문자열 강제(위반 = 병합 후보 제거) · 추출 불가 = 전 항목 `match_unavailable`(기본 포함 유지) · no 중복 산출 = 무효(ambiguous)
-- [ ] **apply**: 선택 `document_ids`만 · **빈 필드만 채움**(덮어쓰기 없음 — conflict 필드 skip) · `source_detail`에 `정답/해설: {답지 파일명}` `"; "` 병기 · **멱등** · 응답 `{updated, skipped[]}`. **잡 완료 = DB 무변경**(apply가 유일한 병합 쓰기 — R7·R8)
-- [ ] `routers/imports.py`에 4 엔드포인트: `POST /api/import/answer-key` · `POST …/{key_id}/process` · `GET …/{key_id}` · `POST …/{key_id}/apply` (+ `backend/schemas/answer_key.py`)
+- [x] 신설 `backend/services/answer_key_service.py`: 업로드 처리(판별·추출 = `_detect_import_format`·`doc_extract` 재사용, LLM 0) · sources/ 저장(중복 해시 — `import_service` 전례, 거부·추출 실패 시에도 저장 후 종료 — §4.18 대칭) · `estimate`(`approx_input_tokens`·`assumed` — `fetch_service.estimate_usage` 필드 관례) · key 상태 인메모리 TTL 1시간
+- [x] C군·판별 불가 = §3 에러(422) + §4.18 ⑥ 확정 문구 재사용(동기 에러 — error_info 채널 아님) · 추출 실패(스캔 PDF·이미지)는 `extract_available:false`로 진행 허용(codex-cli 이미지 비지원 등 엔진 매트릭스는 §4.18 그대로)
+- [x] **번호 추출 함수**(단위 테스트 대상): `source_detail` → `';'` 분할 → 각 조각 `(\d+)\s*번` 최말단 매치 → 번호 집합. 부재·중복(같은 번호에 문서 2+) 판정 포함
+- [x] **LLM 가공 잡 kind `'answer_key'`**(convert 잡 큐 확장): 프롬프트 코드 내 조립(regenerate 전례 — `prompts/convert.md` 불변), 산출 = 순수 JSON `{"items":[{"no","answer","explanation"}]}`(위반 = `invalid_output`), 창작 금지 지시
+- [x] **미리보기 조립(서버 결정론 매칭 + 기계 검증)**: 범위(하위 포함)의 문제 타입·is_active=1 문서 전수 ↔ 산출 items 매칭 → `matched[]`(current/proposed/conflicts/warnings) + `unmatched`(numbers·documents, reason 명시). 검증 = explanation **답지 텍스트 기준 `SourceMatcher` 대조**(불일치 = `fabrication_suspect`) · choices 있는 문서의 answer는 1-base 번호 문자열 강제(위반 = 병합 후보 제거) · 추출 불가 = 전 항목 `match_unavailable`(기본 포함 유지) · no 중복 산출 = 무효(ambiguous)
+- [x] **apply**: 선택 `document_ids`만 · **빈 필드만 채움**(덮어쓰기 없음 — conflict 필드 skip) · `source_detail`에 `정답/해설: {답지 파일명}` `"; "` 병기 · **멱등** · 응답 `{updated, skipped[]}`. **잡 완료 = DB 무변경**(apply가 유일한 병합 쓰기 — R7·R8)
+- [x] `routers/imports.py`에 4 엔드포인트: `POST /api/import/answer-key` · `POST …/{key_id}/process` · `GET …/{key_id}` · `POST …/{key_id}/apply` (+ `backend/schemas/answer_key.py`)
 
 ### 2. 백엔드 — LLM 풀이 생성 (설계 §4.20 ②)
 
-- [ ] **잡 kind `'explain'`**(F30 regenerate 3종 전례 복제): `POST /api/documents/{id}/explain`(대상 검증 — 문제 타입 + explanation 부재, 있으면 **409**) → `GET …/{job_id}`(draft + `explanation_source:"generated"` — 응답 전용) → `POST …/apply`(승인 병합)
-- [ ] 프롬프트 코드 내 조립(`_build_regenerate_prompt` 전례): content·choices·(있으면) answer 근거 풀이 · answer 부재 시 정답 함께 산출(solved 의미) · source_note 대조 지시 재사용 · 출력 순수 JSON `{"explanation","answer"|null}`
-- [ ] **apply 시 마커 라인 서버 부착**(§4.20 확정 형식 — 접두 `[AI 생성 해설` / 정답 포함 `[AI 생성 해설·정답]`, 날짜·엔진 label 서버 완성) · answer는 **비어 있을 때만** 병합(기존 정답 불변)
-- [ ] 엔진 해석·폴백·error_info는 기존 regenerate 경로 그대로(레지스트리 §4.17 — 신규 분기 금지)
+- [x] **잡 kind `'explain'`**(F30 regenerate 3종 전례 복제): `POST /api/documents/{id}/explain`(대상 검증 — 문제 타입 + explanation 부재, 있으면 **409**) → `GET …/{job_id}`(draft + `explanation_source:"generated"` — 응답 전용) → `POST …/apply`(승인 병합)
+- [x] 프롬프트 코드 내 조립(`_build_regenerate_prompt` 전례): content·choices·(있으면) answer 근거 풀이 · answer 부재 시 정답 함께 산출(solved 의미) · source_note 대조 지시 재사용 · 출력 순수 JSON `{"explanation","answer"|null}`
+- [x] **apply 시 마커 라인 서버 부착**(§4.20 확정 형식 — 접두 `[AI 생성 해설` / 정답 포함 `[AI 생성 해설·정답]`, 날짜·엔진 label 서버 완성) · answer는 **비어 있을 때만** 병합(기존 정답 불변)
+- [x] 엔진 해석·폴백·error_info는 기존 regenerate 경로 그대로(레지스트리 §4.17 — 신규 분기 금지)
 
 ### 3. 프론트 — 답지 반입 UI
 
-- [ ] `pages/Import.tsx`에 "답지·해설지 반입" 진입(범위 선택 = 기존 분류 선택 재사용) → 업로드 → **예상 사용량 확인 스텝**(estimate 표시 + 확인 없이 실행 불가 — FetchImportWizard 509·520행 전례) → 가공 진행(`LlmJobProgress`·`LlmErrorInfo` 재사용)
-- [ ] **매칭 미리보기 화면**: matched 목록(현재 상태 "정답/해설 있음·없음" + proposed + 경고 배지) · `fabrication_suspect` **기본 체크 해제** · conflict 필드 "이미 있음" 표시 · **unmatched "매칭 안 됨" 그룹 분리 표시**(선택 불가) · 통합 답지 안내 1줄("회차 단위로 범위를 지정하세요") · `match_unavailable` 상단 안내(§4.17 ⑥ 문구 관례)
-- [ ] [선택 병합] → apply → 결과 표시(updated·skipped). 색상은 전부 토큰(불변 규칙 5)
+- [x] `pages/Import.tsx`에 "답지·해설지 반입" 진입(범위 선택 = 기존 분류 선택 재사용) → 업로드 → **예상 사용량 확인 스텝**(estimate 표시 + 확인 없이 실행 불가 — FetchImportWizard 509·520행 전례) → 가공 진행(`LlmJobProgress`·`LlmErrorInfo` 재사용)
+- [x] **매칭 미리보기 화면**: matched 목록(현재 상태 "정답/해설 있음·없음" + proposed + 경고 배지) · `fabrication_suspect` **기본 체크 해제** · conflict 필드 "이미 있음" 표시 · **unmatched "매칭 안 됨" 그룹 분리 표시**(선택 불가) · 통합 답지 안내 1줄("회차 단위로 범위를 지정하세요") · `match_unavailable` 상단 안내(§4.17 ⑥ 문구 관례)
+- [x] [선택 병합] → apply → 결과 표시(updated·skipped). 색상은 전부 토큰(불변 규칙 5)
 
 ### 4. 프론트 — 풀이 생성 UI
 
-- [ ] `pages/DocumentDetail.tsx`: 문제 타입 + 해설 없음 문서에 [AI 풀이 생성] 버튼 → **실행 전 확인 다이얼로그**(LLM 1회 호출 · 엔진·과금형 표시 — status `billing`, R21 경고 1줄) → 진행 → **초안 미리보기**(경고 배지 "AI 생성 — 오개념 가능") → [승인 반영] / [버리기] (`RegenerateJobPanel` 전례)
-- [ ] 오답노트(`pages/ReviewNotes.tsx`) 진입점 — 같은 패널 재사용이 가능하면 추가(채점 후 화면이라 안전), 어려우면 문서 상세 링크로 대체
-- [ ] **퀴즈 진행(QuizRun)·시험 응시(ExamRun) 화면에 진입점 없음 확인**(정답 우회 방지 — §4.20 ②, 검토 항목)
-- [ ] 마커 라인은 기존 MarkdownView 인용구 렌더 그대로(최소안 — 배지화는 선택, 하면 접두 `[AI 생성 해설` 감지·토큰 스타일)
+- [x] `pages/DocumentDetail.tsx`: 문제 타입 + 해설 없음 문서에 [AI 풀이 생성] 버튼 → **실행 전 확인 다이얼로그**(LLM 1회 호출 · 엔진·과금형 표시 — status `billing`, R21 경고 1줄) → 진행 → **초안 미리보기**(경고 배지 "AI 생성 — 오개념 가능") → [승인 반영] / [버리기] (`RegenerateJobPanel` 전례)
+- [x] 오답노트(`pages/ReviewNotes.tsx`) 진입점 — 같은 패널 재사용이 가능하면 추가(채점 후 화면이라 안전), 어려우면 문서 상세 링크로 대체
+- [x] **퀴즈 진행(QuizRun)·시험 응시(ExamRun) 화면에 진입점 없음 확인**(정답 우회 방지 — §4.20 ②, 검토 항목)
+- [x] 마커 라인은 기존 MarkdownView 인용구 렌더 그대로(최소안 — 배지화는 선택, 하면 접두 `[AI 생성 해설` 감지·토큰 스타일)
 
 ### 5. 테스트·검증
 
-- [ ] **단위 테스트 필수**(불변 규칙 7의 예외 — 병합 정합·오병합 방지는 핵심 로직 취급): ① 번호 추출(형식·`"; "` 병합·부재·중복) ② 결정론 매칭(모호·범위 밖 번호 = unmatched) ③ **빈 필드만 병합**(기존 값 보존·skip 사유) ④ apply 멱등성 ⑤ explanation 원문 대조 → `fabrication_suspect` ⑥ answer 번호 검증(choices 범위 밖 = 제거) ⑦ explain 대상 제한(해설 있는 문서 409) ⑧ 마커 부착(접두·정답 포함 변형)
-- [ ] 스모크(실기동): 실답지 1건 업로드 → estimate → 가공 → 미리보기 → 선별 apply 완주 · explain 1건 생성·승인 완주 · **quiz/session·exam 응시 응답에 정답·해설 부재 재확인**(기존 회귀 — 계약 불변 증명)
-- [ ] **해설 품질 표본 검증**(R21 — plan §15 "stage-18 착수 시 표본 검증" 이행): 생성 해설 10건 표본을 사람이 검토, 오개념 발견 수치를 완료 기록에 남긴다(추측 확정 금지)
-- [ ] stage-reviewer(Opus) 검토: DoD + 승인 게이트 전수(잡 완료 경로의 DB 쓰기 0) + 덮어쓰기 경로 0 + 진입점 배치
+- [x] **단위 테스트 필수**(불변 규칙 7의 예외 — 병합 정합·오병합 방지는 핵심 로직 취급): ① 번호 추출(형식·`"; "` 병합·부재·중복) ② 결정론 매칭(모호·범위 밖 번호 = unmatched) ③ **빈 필드만 병합**(기존 값 보존·skip 사유) ④ apply 멱등성 ⑤ explanation 원문 대조 → `fabrication_suspect` ⑥ answer 번호 검증(choices 범위 밖 = 제거) ⑦ explain 대상 제한(해설 있는 문서 409) ⑧ 마커 부착(접두·정답 포함 변형)
+- [ ] 스모크(실기동): 실답지 1건 업로드 → estimate → 가공 → 미리보기 → 선별 apply 완주 · explain 1건 생성·승인 완주 · **quiz/session·exam 응시 응답에 정답·해설 부재 재확인**(기존 회귀 — 계약 불변 증명) — **부분 완료: 비-LLM 경로 실기동(업로드 estimate·422·404·409·타입 제한, DB 백업/복원 하) + quiz/session 응답 계약 불변은 검토에서 실증. LLM 가공·생성 완주만 사용자 몫(실비용 발생 — 자동 실행 안 함)**
+- [ ] **해설 품질 표본 검증**(R21 — plan §15 "stage-18 착수 시 표본 검증" 이행): 생성 해설 10건 표본을 사람이 검토, 오개념 발견 수치를 완료 기록에 남긴다(추측 확정 금지) — **사용자 이행 대기(실 LLM 비용)**
+- [x] stage-reviewer(Opus) 검토: DoD + 승인 게이트 전수(잡 완료 경로의 DB 쓰기 0) + 덮어쓰기 경로 0 + 진입점 배치
 
 ### 6. 문서
 
-- [ ] 계획서 F44에 구현 확정 사항 기록(마커 최종 문구·표본 검증 결과) · 설계 §4.20에 구현 중 보완 반영(어긋나면 착수 중단 후 보고 — DDL은 특히)
-- [ ] 사용자 매뉴얼(F39): 답지 반입 사용법(회차 단위 범위 권장 포함)·AI 풀이 생성·마커 의미 추가
-- [ ] 이 문서 체크박스 갱신(불변 규칙 10) · CLAUDE.md 문서 지도 갱신은 오케스트레이터 담당(4.1~4.20·[S18]·stage 18 완료 표기)
+- [x] 계획서 F44에 구현 확정 사항 기록(마커 최종 문구·표본 검증 결과) · 설계 §4.20에 구현 중 보완 반영(어긋나면 착수 중단 후 보고 — DDL은 특히)
+- [x] 사용자 매뉴얼(F39): 답지 반입 사용법(회차 단위 범위 권장 포함)·AI 풀이 생성·마커 의미 추가
+- [x] 이 문서 체크박스 갱신(불변 규칙 10) · CLAUDE.md 문서 지도 갱신은 오케스트레이터 담당(4.1~4.20·[S18]·stage 18 완료 표기)
 
 ## DoD (완료 정의)
 
@@ -98,3 +98,13 @@
 - **R21(계획서 §15)**: LLM 생성 해설의 오개념 — 기본 제외·수동 승인·마커 상시 표기·F30 사후 교정 + **이 단계에서 표본 검증**(체크리스트 5절).
 - **오병합**: 번호 기반 매칭이 잘못된 문항에 병합될 위험 — 서버 결정론 매칭(LLM 판단 배제) + 모호·부재의 명시적 제외 + 빈 필드만 병합(틀려도 기존 데이터 무손상)이 3중 방어. 통합 답지(여러 회차)는 번호 충돌로 unmatched 다발 — 화면 안내로 회차 단위 범위를 유도.
 - **답지 자체의 오류**(오타·정답 정정 전 판) — 기계로 못 잡는다. 최종 방어선은 R7 사람 검토(미리보기)와 F30 사후 신고 — 기존 관례와 동일.
+
+## 완료 기록 (2026-08-02)
+
+- **경위**: 선행 절차(결정 ①~④·§4.20, plan-architect) → 백엔드·프론트(sonnet) 병렬 구현 → 백엔드 자체 실기동 스모크(비-LLM 경로, DB 백업/복원) → stage-reviewer(Opus) 1차 **조건부 통과**(치명 0·중요 1·경미 5) → 수정 6건 + 매뉴얼 → 재검토 **통과**(전건 해소·새 결함 0). 커밋: `fd83747`(선행 문서) → `f05c231`(프론트) → `c92fd89`(백엔드) → `e41d1e2`(백엔드 수정 5건) → `83839a0`(프론트 수정·매뉴얼).
+- **중요 결함 이력**: explain apply가 잡 시작 후 채워진 기존 해설을 덮어쓸 수 있었음(승인 창 최대 1시간) → apply 시점 explanation 재검사(409)로 해소 — DoD 5 충족 실증.
+- **경미 수정 5건**: 번호 추출의 `정답/해설:` 병기 조각 스킵(매칭 키 자기 오염 방지) · match_unavailable 전 항목 부착 · estimate 한국어 보정(chars/1.5) · process 중복 실행 409 가드 · 채울 필드 없는 항목 기본 체크 해제+배지.
+- **DoD 판정**: 자동 검증 가능 6항(3·4·5·6·7·8) 전부 충족(검토 실증 — 병합 쓰기 apply 2곳뿐·SQL 계측 비-SELECT 0·OpenAPI 신규 정확히 7개·DDL 0). **DoD 1·2 라이브 완주는 사용자 확인 대기.**
+- **사용자 확인 항목 3건(실 LLM 비용 — 자동 실행하지 않음)**: ① 실답지 1건 반입 완주(DoD 1) ② AI 풀이 생성→승인 완주(DoD 2) ③ 생성 해설 10건 표본 검증(R21 — 결과 수치를 이 문서와 계획서 F44에 기록할 것).
+- **검토 관찰(결함 아님)**: explain apply 409 후 패널이 초안을 계속 표시(버리기로 정리 가능 — 개선 시 409 수신 시 자동 닫기) · 답지 원본은 sources/ 보관되나 앱 내 열람 경로 없음(설계 준수 — 매뉴얼에 안내 기재됨).
+- **테스트 최종**: test_answer_key_explain.py 22건 · 전체 회귀 320 passed · 프론트 빌드 TS 에러 0.
