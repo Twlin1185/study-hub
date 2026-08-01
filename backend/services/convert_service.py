@@ -2544,6 +2544,14 @@ def apply_explain_job(db: Session, document_id: int, job_id: str) -> models.Docu
         raise ConflictError("풀이 생성 초안이 없습니다")
 
     document = document_service.get_document_or_404(db, document_id)
+    if document.explanation and document.explanation.strip():
+        # 승인 창(최대 1시간) 동안 다른 경로(답지 반입 등)로 해설이 채워졌을 수 있다 —
+        # start의 대상 제한(explanation 비어 있음)과 대칭으로 apply 시점에도 재검사한다
+        # (stage-reviewer 지적 — 정본 해설이 AI 초안으로 덮어써지는 사고 차단).
+        raise ConflictError(
+            "이미 해설이 채워진 문서입니다 — 승인 창이 열린 사이 다른 경로로 채워졌을 수 있습니다",
+            detail={"document_id": document_id},
+        )
     included_answer = bool(draft.get("answer")) and not bool(document.answer and document.answer.strip())
     marker = _build_explain_marker(engine=job["_engine"], included_answer=included_answer)
     document.explanation = f"{marker}\n\n{draft['explanation']}"

@@ -67,6 +67,18 @@ def test_extract_numbers_missing_and_duplicate():
     assert answer_key_service.extract_numbers_from_source_detail("17번; 17번") == [17, 17]
 
 
+def test_extract_numbers_skips_merge_label_pieces():
+    """apply가 병기하는 `"정답/해설: {파일명}"` 조각은 번호 추출 대상이 아니다 — 파일명에
+    "17번" 등이 들어 있어도 다음 반입 때 오매칭되지 않는다(리뷰 지적 #2)."""
+    merged = answer_key_service._merge_source_detail("2023년 1회 5번", "2023년_17번_해설.pdf")
+    assert "정답/해설: 2023년_17번_해설.pdf" in merged
+    assert answer_key_service.extract_numbers_from_source_detail(merged) == [5]
+
+    # 원래 번호가 없는 문서에 라벨만 병기된 경우도 부재로 남는다(라벨 자체가 번호로 오인되지 않음).
+    label_only = answer_key_service._merge_source_detail(None, "2023년_17번_해설.pdf")
+    assert answer_key_service.extract_numbers_from_source_detail(label_only) == []
+
+
 # ---------------------------------------------------------------------------
 # ② 결정론 매칭 — 모호·범위 밖 번호 = unmatched
 # ---------------------------------------------------------------------------
@@ -247,6 +259,22 @@ def test_explanation_match_available_no_warning_when_present_in_source():
     assert "fabrication_suspect" not in matched[0]["warnings"]
 
 
+def test_match_unavailable_attached_to_all_items_regardless_of_explanation():
+    """설계 §4.20 ③ — 추출 불가 답지는 **전 항목** match_unavailable(리뷰 지적 #3).
+    explanation이 없는 항목도 예외가 아니다."""
+    doc_with_expl = _doc(1, source_detail="1번")
+    doc_without_expl = _doc(2, source_detail="2번")
+    items = [
+        {"no": 1, "answer": "1", "explanation": "해설 있음"},
+        {"no": 2, "answer": "2", "explanation": None},
+    ]
+    matcher = SourceMatcher(None)  # 대조 불가(원본 없음)
+    matched, _ = answer_key_service.match_answer_key([doc_with_expl, doc_without_expl], items, matcher)
+    assert len(matched) == 2
+    for entry in matched:
+        assert "match_unavailable" in entry["warnings"]
+
+
 # ---------------------------------------------------------------------------
 # ⑥ answer 번호 검증 — choices 범위 밖은 병합 후보에서 제거
 # ---------------------------------------------------------------------------
@@ -262,6 +290,91 @@ def test_answer_within_choice_range_is_kept():
     items = [{"no": 1, "answer": "2", "explanation": None}]
     matched, _ = answer_key_service.match_answer_key([doc], items, SourceMatcher(None))
     assert matched[0]["proposed"]["answer"] == "2"
+
+
+# ---------------------------------------------------------------------------
+# estimate 보정 — 한국어 과소추정 방지(리뷰 지적 #4, `chars / 1.5`)
+# ---------------------------------------------------------------------------
+def test_estimate_usage_korean_ratio_when_extract_available():
+    result = answer_key_service._estimate_usage(
+        extract_available=True, extracted_chars=300, byte_size=1000
+    )
+    assert result == {"approx_input_tokens": 200, "assumed": False}  # 300 / 1.5 = 200
+
+
+def test_estimate_usage_byte_based_when_extract_unavailable():
+    result = answer_key_service._estimate_usage(
+        extract_available=False, extracted_chars=0, byte_size=600
+    )
+    assert result == {"approx_input_tokens": 100, "assumed": True}  # 현행 유지(bytes // 6)
+
+
+# ---------------------------------------------------------------------------
+# process 중복 실행 가드(리뷰 지적 #5) — running 잡이 있으면 409, done/error 후 재실행 허용
+# ---------------------------------------------------------------------------
+def test_start_processing_rejects_duplicate_while_running():
+    key_id = "akk_test_dup_running"
+    job_id = "ak_test_dup_running_job"
+    answer_key_service._KEYS[key_id] = {
+        "created_at": dt.datetime.now(),
+        "filename": "answer.txt",
+        "file_type": "txt",
+        "category_id": 1,
+        "source_bytes": b"dummy",
+        "extract_available": True,
+        "extracted_chars": 5,
+        "target": {"question_total": 0, "missing_answer": 0, "missing_explanation": 0},
+        "estimate": {"approx_input_tokens": 3, "assumed": False},
+        "job_id": job_id,
+    }
+    with convert_service._JOBS_LOCK:
+        convert_service._JOBS[job_id] = {
+            "kind": "answer_key",
+            "status": "running",
+            "result": None,
+            "error": None,
+            "_error_info": None,
+            "created_at": dt.datetime.now(),
+        }
+
+    # 가드가 잡 큐잉(convert_service.start_answer_key_job, 실제 LLM 호출로 이어짐) 전에
+    # 걸리므로 db=None으로도 안전하게 검증할 수 있다.
+    with pytest.raises(ConflictError):
+        answer_key_service.start_processing(None, key_id)
+
+
+def test_start_processing_allows_rerun_after_done(monkeypatch):
+    key_id = "akk_test_rerun"
+    old_job_id = "ak_test_rerun_old"
+    answer_key_service._KEYS[key_id] = {
+        "created_at": dt.datetime.now(),
+        "filename": "answer.txt",
+        "file_type": "txt",
+        "category_id": 1,
+        "source_bytes": b"dummy",
+        "extract_available": True,
+        "extracted_chars": 5,
+        "target": {"question_total": 0, "missing_answer": 0, "missing_explanation": 0},
+        "estimate": {"approx_input_tokens": 3, "assumed": False},
+        "job_id": old_job_id,
+    }
+    with convert_service._JOBS_LOCK:
+        convert_service._JOBS[old_job_id] = {
+            "kind": "answer_key",
+            "status": "done",
+            "result": {"items": []},
+            "error": None,
+            "_error_info": None,
+            "created_at": dt.datetime.now(),
+        }
+
+    # 실제 LLM 잡을 큐잉하지 않도록 잡 시작 함수를 가짜로 대체(재실행 허용 여부만 검증).
+    monkeypatch.setattr(
+        convert_service, "start_answer_key_job", lambda db, **kwargs: "ak_test_rerun_new"
+    )
+    new_job_id = answer_key_service.start_processing(None, key_id)
+    assert new_job_id == "ak_test_rerun_new"
+    assert answer_key_service._KEYS[key_id]["job_id"] == "ak_test_rerun_new"
 
 
 # ---------------------------------------------------------------------------
@@ -380,3 +493,43 @@ def test_explain_apply_does_not_overwrite_existing_answer(db):
     updated = convert_service.apply_explain_job(db, doc.id, job_id)
     assert updated.answer == "3"  # 기존 정답 불변(정답 미포함 마커)
     assert updated.explanation.startswith("> [AI 생성 해설] ")
+
+
+# ---------------------------------------------------------------------------
+# ⑨ apply 시점 explanation 재검사 — 승인 창이 열린 사이 다른 경로로 채워지면 409(리뷰 지적 #1)
+# ---------------------------------------------------------------------------
+def test_explain_apply_conflicts_when_explanation_filled_meanwhile(db):
+    doc = models.Document(
+        doc_no="DOC-0030",
+        type="question",
+        title="문항30",
+        content="본문",
+        answer="1",
+        explanation=None,
+        is_active=1,
+    )
+    db.add(doc)
+    db.commit()
+
+    job_id = "exp_test_conflict_meanwhile"
+    with convert_service._JOBS_LOCK:
+        convert_service._JOBS[job_id] = {
+            "kind": "explain",
+            "status": "done",
+            "document_id": doc.id,
+            "result": {"draft": {"explanation": "AI 생성 초안", "answer": None}},
+            "error": None,
+            "_error_info": None,
+            "_engine": "claude-cli",
+            "created_at": dt.datetime.now(),
+        }
+
+    # 잡 완료 이후, 승인 전에 다른 경로(답지 반입 등)로 정본 해설이 채워졌다고 가정.
+    doc.explanation = "정본 해설(다른 경로로 채워짐)"
+    db.commit()
+
+    with pytest.raises(ConflictError):
+        convert_service.apply_explain_job(db, doc.id, job_id)
+
+    db.refresh(doc)
+    assert doc.explanation == "정본 해설(다른 경로로 채워짐)"  # 보존 — AI 초안으로 대체되지 않음

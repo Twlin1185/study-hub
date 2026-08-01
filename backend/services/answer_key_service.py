@@ -92,9 +92,11 @@ def _compute_target(documents: Sequence[models.Document]) -> dict:
 
 def _estimate_usage(*, extract_available: bool, extracted_chars: int, byte_size: int) -> dict:
     """`fetch_service.estimate_usage` 필드 관례(`approx_input_tokens`·`assumed`) 재사용 —
-    답지는 문항 수가 아니라 답지 자체 텍스트 길이가 LLM 입력이라 별도 산식을 쓴다."""
+    답지는 문항 수가 아니라 답지 자체 텍스트 길이가 LLM 입력이라 별도 산식을 쓴다.
+    한국어 혼합 텍스트는 토큰당 문자수가 평균 1.5자 안팎(영문 대비 과소추정 방지 —
+    stage-reviewer 지적)이라 `chars // 3`보다 촘촘히 잡는다."""
     if extract_available and extracted_chars > 0:
-        return {"approx_input_tokens": max(extracted_chars // 3, 1), "assumed": False}
+        return {"approx_input_tokens": max(int(extracted_chars / 1.5), 1), "assumed": False}
     # 추출 불가(스캔 PDF·이미지) — 파일 바이트 크기 기반 대략치(가정치임을 명시).
     return {"approx_input_tokens": max(byte_size // 6, 1), "assumed": True}
 
@@ -164,6 +166,18 @@ def upload_answer_key(
 # ---------------------------------------------------------------------------
 def start_processing(db: Session, key_id: str, *, engine: str = "auto") -> str:
     state = _get_key_or_404(key_id)
+    existing_job_id = state.get("job_id")
+    if existing_job_id is not None:
+        # 같은 key_id로 재호출 시 잡 2개가 큐잉되며 LLM 비용이 중복되는 사고 방지
+        # (stage-reviewer 지적). 완료·실패 후 재실행(재가공)은 허용한다.
+        try:
+            existing_job = convert_service.get_answer_key_job(existing_job_id)
+        except NotFoundError:
+            existing_job = None
+        if existing_job is not None and existing_job["status"] == "running":
+            raise ConflictError(
+                "이미 답지 가공이 진행 중입니다", detail={"job_id": existing_job_id}
+            )
     job_id = convert_service.start_answer_key_job(
         db,
         source_filename=state["filename"],
@@ -229,16 +243,24 @@ def get_status(db: Session, key_id: str) -> AnswerKeyStatus:
 # ---------------------------------------------------------------------------
 _NUMBER_RE = re.compile(r"(\d+)\s*번")
 
+# apply가 병기하는 라벨 접두(`_merge_source_detail`과 공유) — 이 접두로 시작하는 조각은
+# 번호 추출 대상에서 제외한다(stage-reviewer 지적: 답지 파일명에 "17번" 등이 들어 있으면
+# 다음 반입 때 그 조각이 번호로 오매칭돼 문서가 영구 ambiguous로 빠지는 사고 방지).
+_MERGE_LABEL_PREFIX = "정답/해설:"
+
 
 def extract_numbers_from_source_detail(source_detail: Optional[str]) -> List[int]:
     """`source_detail`(자유 텍스트, `"; "` 병합)을 `';'`로 분할 → 각 조각의 **최말단**
     `(\\d+)\\s*번` 매치 번호 목록(설계 §4.20 ③). 조각마다 매치가 없으면 건너뛴다 —
     번호가 하나도 없으면 빈 목록(부재), 서로 다른 번호가 여럿이면 문서 자체가 모호하다는
-    신호(호출부 `match_answer_key`가 판정)."""
+    신호(호출부 `match_answer_key`가 판정). `apply`가 병기한 `"정답/해설: {파일명}"` 조각은
+    문항 번호 출처가 아니므로 건너뛴다."""
     if not source_detail:
         return []
     numbers: List[int] = []
     for piece in source_detail.split(";"):
+        if piece.strip().startswith(_MERGE_LABEL_PREFIX):
+            continue
         found = _NUMBER_RE.findall(piece)
         if found:
             numbers.append(int(found[-1]))
@@ -267,12 +289,15 @@ def _build_matched_entry(
     proposed: Dict[str, str] = {}
     warnings: List[str] = []
 
+    # 추출 불가 답지 = **전 항목** match_unavailable(설계 §4.20 ③ — explanation 유무와
+    # 무관하게 대조 자체가 불가능하다는 사실을 매 항목에 알린다. stage-reviewer 지적).
+    if not matcher.available:
+        warnings.append("match_unavailable")
+
     explanation_val = item.get("explanation")
     if explanation_val:
         # 기계 검증 — 답지 추출 텍스트 기준 원문 대조(§4.17 ⑥ 알고리즘·임계 그대로).
-        if not matcher.available:
-            warnings.append("match_unavailable")
-        elif not matcher.matches(explanation_val):
+        if matcher.available and not matcher.matches(explanation_val):
             warnings.append("fabrication_suspect")
         proposed["explanation"] = explanation_val
 
@@ -383,7 +408,7 @@ def match_answer_key(
 # ④ apply — 선택 document_ids만, 빈 필드만 채움(멱등), source_detail 병기
 # ---------------------------------------------------------------------------
 def _merge_source_detail(current: Optional[str], filename: str) -> str:
-    label = f"정답/해설: {filename}"
+    label = f"{_MERGE_LABEL_PREFIX} {filename}"
     if not current:
         return label
     if label in [p.strip() for p in current.split(";")]:
