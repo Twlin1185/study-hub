@@ -22,7 +22,7 @@ from sqlalchemy.pool import StaticPool
 import main
 import models
 from database import Base, get_db
-from schemas.document import DocumentCreate, DocumentUpdate
+from schemas.document import DocumentCreate, DocumentUpdate, RelationCreate
 from schemas.embed import RESOLVE_EMBEDS_MAX, EmbedResolveItem
 from services import document_service, embed_service, import_service, preview_store
 
@@ -185,6 +185,31 @@ def test_sync_does_not_touch_manual_relation_rows(db):
     ).scalars().all()
     assert len(rows) == 1
     assert rows[0].created_by == "manual"
+
+
+def test_remove_relation_does_not_delete_derived_embeds_row(db):
+    """검토 경미-1 — 수동 관계(explains) 해제가 같은 (from, to) 쌍의 파생 embeds 인덱스
+    행까지 지우면 본문엔 `![[...]]`가 그대로인데 인덱스만 소실된다(R20). `remove_relation`은
+    relation='embeds' 행을 삭제 대상에서 제외해야 한다."""
+    a = _create_doc(db, title="A")
+    b = _create_doc(db, title="B", content=f"![[{a.doc_no}]]")
+    assert {row.to_document_id for row in _embed_rows(db, b.id)} == {a.id}
+
+    document_service.add_relation(
+        db, b.id, RelationCreate(to_document_id=a.id, relation="explains")
+    )
+
+    document_service.remove_relation(db, b.id, a.id)
+
+    rows = db.execute(
+        select(models.DocumentRelation).where(
+            models.DocumentRelation.from_document_id == b.id,
+            models.DocumentRelation.to_document_id == a.id,
+        )
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].relation == "embeds"
+    assert rows[0].created_by == "embed"
 
 
 def test_self_reference_and_missing_target_create_no_index_rows(db):

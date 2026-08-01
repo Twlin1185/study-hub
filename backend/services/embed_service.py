@@ -88,6 +88,9 @@ def recompute_all_embeds(db: Session) -> int:
     재구축한다. 멱등(두 번 돌려도 같은 결과). 도입 시 1회 백필 겸용. **신규 API로 노출하지
     않는다** — 관리 스크립트·셸에서 직접 호출하는 서비스 함수로만 존재한다.
 
+    실행 진입점: `backend/scripts/recompute_embeds.py` (검토 경미-6).
+        backend/.venv/Scripts/python.exe scripts/recompute_embeds.py
+
     반환값은 재파싱한 문서 수(호출부 로깅용).
     """
     documents = db.execute(select(models.Document)).scalars().all()
