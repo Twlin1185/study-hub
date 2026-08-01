@@ -127,6 +127,7 @@ def test_resolve_embeds_endpoint_response_excludes_answer_and_explanation(client
     assert "explanation" not in item
     assert item["found"] is True
     assert item["content"] == "본문"
+    assert item["id"] == concept.id  # [원문 열기]·링크 칩이 /docs/{id}로 직행하기 위한 식별자
 
 
 # ---------------------------------------------------------------------------
@@ -256,13 +257,22 @@ def test_recompute_all_embeds_is_idempotent(db):
 
 # ---------------------------------------------------------------------------
 # 해석 조회 — 부재 doc_no(found:false) · 소프트 삭제(found:true, content:null)
+# id 필드(§4.19 계약 변경 2026-08-02) — [원문 열기]·링크 칩의 /docs/{id} 직행용,
+# found:true는 삭제 문서 포함 항상 id 제공 · found:false는 id 없음
 # ---------------------------------------------------------------------------
 def test_resolve_embeds_missing_doc_no_returns_found_false(db):
     items = embed_service.resolve_embeds(db, ["DOC-9999"])
     assert items == [EmbedResolveItem(doc_no="DOC-9999", found=False)]
+    assert items[0].id is None
 
 
-def test_resolve_embeds_soft_deleted_document_hides_content_but_keeps_title(db):
+def test_resolve_embeds_found_document_includes_id(db):
+    a = _create_doc(db, title="산술평균")
+    items = embed_service.resolve_embeds(db, [a.doc_no])
+    assert items[0].id == a.id
+
+
+def test_resolve_embeds_soft_deleted_document_hides_content_but_keeps_id_and_title(db):
     a = _create_doc(db, title="삭제될 문서", content="본문 내용")
     document_service.soft_delete_document(db, a.id)
 
@@ -272,6 +282,7 @@ def test_resolve_embeds_soft_deleted_document_hides_content_but_keeps_title(db):
     assert item.is_active is False
     assert item.content is None
     assert item.title == "삭제될 문서"
+    assert item.id == a.id  # 삭제 문서도 id는 내려간다([원문 열기] 링크용)
 
 
 def test_resolve_embeds_read_only_does_not_write_any_table(db):

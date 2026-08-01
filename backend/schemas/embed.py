@@ -36,6 +36,7 @@ class ResolveEmbedsRequest(BaseModel):
 class EmbedResolveItem(BaseModel):
     doc_no: str
     found: bool
+    id: Optional[int] = None  # 문서 내부 PK — [원문 열기]·링크 칩이 /docs/{id}로 직행하기 위함
     title: Optional[str] = None
     type: Optional[str] = None
     content: Optional[str] = None

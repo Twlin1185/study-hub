@@ -100,8 +100,9 @@ def recompute_all_embeds(db: Session) -> int:
 def resolve_embeds(db: Session, doc_nos: List[str]) -> List[EmbedResolveItem]:
     """배치 해석 조회(§4.19 ③) — 읽기 전용(SELECT만). answer·explanation은 절대 담지 않는다.
 
-    부재 doc_no는 `found=False`(배치 부분 성공, 404 아님). 소프트 삭제(is_active=0) 문서는
-    `found=True, is_active=False, content=None` — 제목만 자리표시자용으로 제공한다.
+    부재 doc_no는 `found=False`(배치 부분 성공, 404 아님) — `id` 없음. 소프트 삭제(is_active=0)
+    문서는 `found=True, id, title` 제공 + `content=None`(자리표시자·[원문 열기] 링크용으로
+    `id`는 삭제 문서도 내려간다).
     """
     rows = db.execute(
         select(models.Document).where(models.Document.doc_no.in_(doc_nos))
@@ -119,6 +120,7 @@ def resolve_embeds(db: Session, doc_nos: List[str]) -> List[EmbedResolveItem]:
             EmbedResolveItem(
                 doc_no=doc_no,
                 found=True,
+                id=document.id,
                 title=document.title,
                 type=document.type,
                 content=document.content if is_active else None,
