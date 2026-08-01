@@ -13,6 +13,7 @@ from schemas.convert import (
     RegenerateJobStatus,
     RegenerateRequest,
 )
+from schemas.explain import ExplainDraft, ExplainJobStart, ExplainJobStatus, ExplainRequest
 from schemas.document import (
     DocumentCreate,
     DocumentDetail,
@@ -181,4 +182,49 @@ def apply_regenerate(
 ) -> DocumentDetail:
     """초안 승인 — 같은 문서 id·doc_no 유지, attempts·오답노트·SRS 이력 보존(R7)."""
     convert_service.apply_regenerate_job(db, document_id, job_id)
+    return document_service.get_document_detail(db, document_id)
+
+
+# ---------------------------------------------------------------------------
+# LLM 풀이 생성 (S18 — F44 ②, 설계 §4.20) — F30 재생성 잡 인프라 재사용
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{document_id}/explain",
+    response_model=ExplainJobStart,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_explain(
+    document_id: int, payload: ExplainRequest, db: Session = Depends(get_db)
+) -> ExplainJobStart:
+    """대상 제한: 문제 타입 + explanation 비어 있음(있으면 409). convert 잡 큐 재사용."""
+    job_id = convert_service.start_explain_job(db, document_id, engine=payload.engine)
+    return ExplainJobStart(job_id=job_id)
+
+
+@router.get("/{document_id}/explain/{job_id}", response_model=ExplainJobStatus)
+def get_explain_status(document_id: int, job_id: str) -> ExplainJobStatus:
+    result = convert_service.get_explain_job(document_id, job_id)
+    draft = result.get("draft")
+    draft_out = None
+    if draft:
+        draft_out = ExplainDraft(
+            explanation=draft["explanation"],
+            answer=draft.get("answer"),
+            answer_included=bool(draft.get("answer")),
+        )
+    return ExplainJobStatus(
+        job_id=result["job_id"],
+        status=result["status"],
+        draft=draft_out,
+        explanation_source=result.get("explanation_source"),
+        error=result.get("error"),
+        error_info=result.get("error_info"),
+        progress=result.get("progress"),
+    )
+
+
+@router.post("/{document_id}/explain/{job_id}/apply", response_model=DocumentDetail)
+def apply_explain(document_id: int, job_id: str, db: Session = Depends(get_db)) -> DocumentDetail:
+    """승인 병합(유일한 쓰기) — 서버가 마커 라인을 부착, answer는 비어 있을 때만 병합."""
+    convert_service.apply_explain_job(db, document_id, job_id)
     return document_service.get_document_detail(db, document_id)
