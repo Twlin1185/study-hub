@@ -59,12 +59,18 @@ export interface DocumentUsage {
 export type RelationType = 'explains' | 'related' | 'prerequisite'
 export type RelationDirection = 'from' | 'to'
 
+// 파생 관계(F43, 설계 §4.19 ⑥) — 본문 임베드 `![[DOC-…]]`를 저장 시 스캔해 만드는 인덱스 행
+// (created_by='embed'). 사용자가 직접 선택·해제할 수 없고, 문서 상세의 역참조 목록·삭제 경고에만
+// 쓰인다. 그래서 사용자 선택용 RelationType과 분리한다.
+export type DerivedRelationType = 'embeds'
+export type AnyRelationType = RelationType | DerivedRelationType
+
 export interface RelatedDocument {
   document_id: number
   doc_no: string
   type: DocumentType
   title: string
-  relation: RelationType
+  relation: AnyRelationType
   direction: RelationDirection
 }
 

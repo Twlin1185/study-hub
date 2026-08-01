@@ -349,7 +349,8 @@ function StudyCard({
       {/* 개념: 본문 Markdown. 문제: 지문만 렌더 — 정답·해설은 제출 후에만 노출(서버 채점 원칙). */}
       <div className="mb-4 rounded-lg border border-border bg-surface p-4">
         <h2 className="mb-2 text-base font-semibold text-primary">{doc.title}</h2>
-        <MarkdownView content={doc.content} scale={fontScale} />
+        {/* docNo = 임베드 순환 검출의 시작점(F43) */}
+        <MarkdownView content={doc.content} scale={fontScale} docNo={item.doc_no} />
       </div>
 
       {question && (

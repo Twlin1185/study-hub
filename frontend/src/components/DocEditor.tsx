@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import Modal from './Modal'
+import RefInsertModal from './RefInsertModal'
 import { useCreateDocument, useDocument, useUpdateDocument } from '../api/documents'
 import { ApiError } from '../api/client'
 import type { DocumentDetail, DocumentType } from '../api/types'
@@ -64,6 +65,27 @@ export default function DocEditor({
 
   const [form, setForm] = useState<FormState>(() => emptyForm(defaultType))
   const [error, setError] = useState<string | null>(null)
+  // 참조 삽입 도우미(F43, 설계 §4.19 ⑨) — 본문 textarea의 커서 위치에 삽입한다.
+  const contentRef = useRef<HTMLTextAreaElement>(null)
+  const [refInsertOpen, setRefInsertOpen] = useState(false)
+
+  function insertAtCursor(snippet: string) {
+    const el = contentRef.current
+    setForm((f) => {
+      const value = f.content
+      const start = el?.selectionStart ?? value.length
+      const end = el?.selectionEnd ?? value.length
+      const next = `${value.slice(0, start)}${snippet}${value.slice(end)}`
+      // 삽입 후 커서를 삽입 문자열 뒤로 옮긴다(다음 렌더에서 적용).
+      requestAnimationFrame(() => {
+        if (!el) return
+        el.focus()
+        const caret = start + snippet.length
+        el.setSelectionRange(caret, caret)
+      })
+      return { ...f, content: next }
+    })
+  }
 
   // edit 모드: 상세가 로드되면 폼을 채운다.
   const doc = docQuery.data
@@ -142,7 +164,13 @@ export default function DocEditor({
   const loadingDetail = editing && docQuery.isLoading
 
   return (
-    <Modal title={editing ? '문서 편집' : '새 문서'} onClose={onClose} widthClass="max-w-lg">
+    // 참조 삽입 팝업이 열려 있는 동안에는 바깥 모달이 Esc·배경 클릭으로 닫히지 않게 한다
+    // (두 모달이 같은 window keydown을 듣기 때문 — 편집 내용 유실 방지).
+    <Modal
+      title={editing ? '문서 편집' : '새 문서'}
+      onClose={refInsertOpen ? () => setRefInsertOpen(false) : onClose}
+      widthClass="max-w-lg"
+    >
       {loadingDetail ? (
         <p className="text-sm text-muted">불러오는 중…</p>
       ) : editing && docQuery.isError ? (
@@ -187,15 +215,33 @@ export default function DocEditor({
             />
           </label>
 
-          <label className="flex flex-col gap-1 text-sm">
-            본문 (Markdown)
+          <div className="flex flex-col gap-1 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label htmlFor="doc-content" className="text-sm text-primary">
+                본문 (Markdown)
+              </label>
+              <button
+                type="button"
+                onClick={() => setRefInsertOpen(true)}
+                className="rounded border border-border px-2 py-1 text-xs text-primary hover:bg-bg"
+              >
+                ＋ 참조 삽입
+              </button>
+            </div>
             <textarea
+              id="doc-content"
+              ref={contentRef}
               value={form.content}
               onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
               rows={5}
               className="rounded border border-border bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-accent"
             />
-          </label>
+            {/* 문법 힌트 1줄 (설계 §4.19 ⑨) */}
+            <p className="text-xs text-muted">
+              {'![[DOC-0012|별칭]]'} 임베드 · {'[[DOC-0012]]'} 문서 이동 · {'[[#절 제목]]'} 앵커 ·{' '}
+              {':::fold[제목] … :::'} 접기 · {':::hide[제목] … :::'} 가리기
+            </p>
+          </div>
 
           {questionLike && (
             <>
@@ -260,6 +306,10 @@ export default function DocEditor({
             </button>
           </div>
         </form>
+      )}
+
+      {refInsertOpen && (
+        <RefInsertModal onInsert={insertAtCursor} onClose={() => setRefInsertOpen(false)} />
       )}
     </Modal>
   )

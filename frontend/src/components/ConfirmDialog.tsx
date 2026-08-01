@@ -24,7 +24,8 @@ export default function ConfirmDialog({
   return (
     <Modal title={title} onClose={onClose}>
       <div className="flex flex-col gap-3">
-        <p className="text-sm text-primary">{message}</p>
+        {/* 줄바꿈이 있는 경고 문구(예: 임베드 사용처 경고)를 그대로 보여준다. */}
+        <p className="whitespace-pre-line text-sm text-primary">{message}</p>
         {errorMessage && <p className="text-sm text-wrong">{errorMessage}</p>}
         <div className="mt-2 flex justify-end gap-2">
           <button
