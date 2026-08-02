@@ -16,8 +16,10 @@ from sqlalchemy.orm import sessionmaker
 import models
 from database import Base
 from exceptions import ValidationAppError
+from schemas.applied_exam import AppliedExamPrepareRequest
 from schemas.exam import ExamAnswerItem, ExamSubmitRequest
 from services import applied_exam_service, convert_service, exam_service, quiz_service
+from services import source_match
 from services.source_match import SourceMatcher
 
 
@@ -154,6 +156,22 @@ def test_validate_items_not_duplicate_when_source_unavailable():
     assert discarded == {}
 
 
+def test_validate_items_short_content_not_flagged_duplicate():
+    """검토 지적 ② — `SourceMatcher.matches()`는 정규화 길이 <`MIN_CANDIDATE_CHARS`(10)면
+    원 용도(상투구 오탐 방지)에서 무조건 True(통과)를 돌려주는데, 역적용(복제 검출)에서
+    그대로 쓰면 True=폐기라 짧은 생성 지문이 전부 오폐기된다. corpus는 대조 가능
+    (>=200자)하지만 후보가 10자 미만이면 복제 판정 자체를 건너뛰어야 한다."""
+    source_text = "가나다라마바사아자차카타파하" * 20  # >=200자 — 대조 가능(available=True)
+    matcher = SourceMatcher(source_text)
+    basis = {"DOC-0001": {"doc_no": "DOC-0001"}}
+    short_content = "지문이짧음"  # 정규화 길이 <10
+    assert len(source_match.normalize(short_content)) < source_match.MIN_CANDIDATE_CHARS
+    items = [_valid_item(content=short_content)]
+    passed, discarded = applied_exam_service.validate_items(items, basis, matcher)
+    assert discarded == {}
+    assert len(passed) == 1
+
+
 def test_validate_items_passes_valid_item_unchanged_fields():
     basis = {"DOC-0001": {"doc_no": "DOC-0001"}}
     items = [_valid_item()]
@@ -218,6 +236,29 @@ def test_finalize_generation_zero_passed_raises_before_any_db_session():
     items = [{"content": None, "choices": None, "answer": None, "explanation": None, "basis": None}]
     with pytest.raises(ValidationAppError):
         applied_exam_service.finalize_generation(job, items)
+
+
+def test_finalize_generation_zero_passed_message_includes_discard_summary():
+    """검토 지적 ④ — `ValidationAppError.detail`은 `_fallback_error_info`의 generic
+    분기(§4.11)에서 버려져 사용자에게 안 보인다. 폐기 사유 요약이 메시지 문자열
+    자체에 합성돼야 한다(사유 코드 → 한국어 라벨, 원문 미노출 원칙 준수)."""
+    job = {
+        "_basis_docs": [{"id": 1, "doc_no": "DOC-0001", "type": "question", "title": "t", "content": "본문"}],
+        "_engine": "claude-cli",
+        "_scope_label": "테스트범위",
+        "_requested_count": 2,
+    }
+    items = [
+        {"content": None, "choices": None, "answer": None, "explanation": None, "basis": None},  # invalid_item
+        _valid_item(answer="9"),  # invalid_answer(basis=["DOC-0001"]은 job의 basis_docs에 실재)
+    ]
+    with pytest.raises(ValidationAppError) as exc_info:
+        applied_exam_service.finalize_generation(job, items)
+    message = exc_info.value.message
+    assert "생성된 문항 전체가 검증에서 폐기되었습니다" in message
+    assert "문항 형식 오류 1건" in message
+    assert "정답 형식 위반 1건" in message
+    assert "범위를 좁히거나 문항 수를 줄여 다시 시도해 보세요." in message
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +405,53 @@ def test_save_generated_rolls_back_all_on_mid_batch_failure(db, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# ① 자기참조 증폭 차단 — prepare 범위에서 applied 서브트리 차집합 제거(검토 지적 ①, R22)
+# ---------------------------------------------------------------------------
+def test_collect_basis_documents_excludes_applied_subtree(db):
+    """사용자가 범위에 applied 런 분류를 섞어 골라도(직접 선택) AI 생성 문항은 다음
+    생성의 근거로 수집되지 않는다 — 서버 결정론 차집합 제거."""
+    real_cat, basis_doc = _seed_basis(db)
+    job = {
+        "_basis_docs": [
+            {"id": basis_doc.id, "doc_no": "DOC-0001", "type": "past_question", "title": "기출1", "content": "기출 본문"}
+        ],
+        "_engine": "claude-cli",
+        "_scope_label": "범위",
+        "_requested_count": 1,
+    }
+    result = applied_exam_service._save_generated(db, job, [_valid_item()])
+    run_cat_id = result["run_category_id"]
+    gen_doc_id = result["document_ids"][0]
+
+    docs = applied_exam_service._collect_basis_documents(db, [real_cat.id, run_cat_id])
+    doc_ids = {d.id for d in docs}
+    assert basis_doc.id in doc_ids
+    assert gen_doc_id not in doc_ids
+
+
+def test_prepare_rejects_when_scope_entirely_applied_subtree(db):
+    """범위 전체가 applied 서브트리(예약 루트 자신 포함)면 실전 문서가 하나도 섞이지
+    않으므로 기존 "근거 0건" 422로 자연 귀결된다(별도 에러 코드를 신설하지 않는다)."""
+    real_cat, basis_doc = _seed_basis(db)
+    job = {
+        "_basis_docs": [
+            {"id": basis_doc.id, "doc_no": "DOC-0001", "type": "past_question", "title": "기출1", "content": "기출 본문"}
+        ],
+        "_engine": "claude-cli",
+        "_scope_label": "범위",
+        "_requested_count": 1,
+    }
+    result = applied_exam_service._save_generated(db, job, [_valid_item()])
+    run_cat_id = result["run_category_id"]
+    root_id = json.loads(db.get(models.Setting, applied_exam_service.ROOT_CATEGORY_SETTING_KEY).value)
+
+    with pytest.raises(ValidationAppError):
+        applied_exam_service.prepare(db, AppliedExamPrepareRequest(category_ids=[run_cat_id], count=1))
+    with pytest.raises(ValidationAppError):
+        applied_exam_service.prepare(db, AppliedExamPrepareRequest(category_ids=[root_id], count=1))
+
+
+# ---------------------------------------------------------------------------
 # ③ 격리 — 생성 문항이 실전 분류 기준 quiz/exam 세션에 미등장(quiz_service 재사용 검증)
 # ---------------------------------------------------------------------------
 def test_isolation_generated_doc_absent_from_real_scope_present_in_run_scope(db):
@@ -461,3 +549,22 @@ def test_submit_applied_exam_wrong_answer_still_records_and_creates_review_note(
     assert report.results[0].review_note_id is not None
     note = db.get(models.ReviewNote, report.results[0].review_note_id)
     assert note is not None and note.document_id == gen_doc_id
+
+
+# ---------------------------------------------------------------------------
+# ③ invalid_output 안내 문구 — applied_exam 분기(검토 지적 ③). convert(원본 분할) 문구가
+# 아니라 범위·문항 수 조정 안내로 갈라진다 — 응용 생성은 "원본"이 아니라 범위 문서·
+# 요청 문항 수가 입력이다.
+# ---------------------------------------------------------------------------
+def test_invalid_output_action_applied_exam_branch_differs_from_convert():
+    applied_msg = convert_service._invalid_output_action(truncated=False, job_kind="applied_exam")
+    convert_msg = convert_service._invalid_output_action(truncated=False, job_kind="convert")
+    assert applied_msg != convert_msg
+    assert "범위를 좁히거나 문항 수를 줄여 다시 시도해 보세요." == applied_msg
+    assert "원본" not in applied_msg  # "원본을 과목·회차 단위로…" 류 문구가 새지 않는다
+
+
+def test_invalid_output_action_applied_exam_truncated_variant():
+    msg = convert_service._invalid_output_action(truncated=True, job_kind="applied_exam")
+    assert "문항 수를 줄이거나" in msg
+    assert "원본" not in msg

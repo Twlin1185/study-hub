@@ -942,12 +942,21 @@ def _invalid_output_action(*, truncated: bool, job_kind: str) -> str:
        이 error_info는 `fallback_available=False`라 [API로 재시도] 버튼 자체가 렌더되지
        않는다(문구와 버튼 불일치 = 오안내).
     ② 경로별 문맥: 반입(convert·fetch)은 원본 분할이 유효하지만, F30 재생성은 문서 1건
-       재작성이라 "원본을 과목·회차 단위로 나눠 올리기"가 성립하지 않는다."""
+       재작성이라 "원본을 과목·회차 단위로 나눠 올리기"가 성립하지 않는다.
+    ③ S19(F45, 설계 §4.21, 검토 지적 ③): 응용 모의고사 생성(`applied_exam`)은 "원본"이
+       아니라 범위 문서·요청 문항 수가 입력이라 "과목·회차 단위로 나눠 올리기" 문구가
+       성립하지 않는다 — 범위·문항 수 조정 안내로 분기한다."""
     if job_kind == "regenerate":
         return (
             "재생성 요청(사유)을 더 짧고 구체적으로 적어 다시 시도해 보세요."
             if truncated
             else "재생성을 한 번 더 시도해 보세요. 반복되면 재생성 사유를 더 구체적으로 적어 보세요."
+        )
+    if job_kind == "applied_exam":
+        return (
+            "문항 수를 줄이거나 범위를 좁혀 다시 생성해 보세요."
+            if truncated
+            else "범위를 좁히거나 문항 수를 줄여 다시 시도해 보세요."
         )
     return (
         "원본을 과목·회차 단위로 나눠 올려 다시 변환해 보세요."

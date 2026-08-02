@@ -65,6 +65,25 @@ DISCARD_MISSING_EXPLANATION = "missing_explanation"
 DISCARD_BAD_BASIS = "bad_basis"
 DISCARD_DUPLICATE = "duplicate_of_source"
 
+# 폐기 사유 코드 → 한국어 라벨(검토 지적 ④ — 통과 0건 실패 메시지 합성용. §4.11 원문
+# 미노출 원칙 — LLM 원문이 아니라 서버가 분류한 사유 코드만 사람 말로 번역한다).
+_DISCARD_LABELS: Dict[str, str] = {
+    DISCARD_INVALID_ITEM: "문항 형식 오류",
+    DISCARD_INVALID_ANSWER: "정답 형식 위반",
+    DISCARD_MISSING_EXPLANATION: "해설 누락",
+    DISCARD_BAD_BASIS: "근거 불일치",
+    DISCARD_DUPLICATE: "기출 복제 의심",
+}
+
+
+def _format_discard_summary(discard_counts: Dict[str, int]) -> str:
+    """`{"bad_basis": 3, "invalid_answer": 2}` → "근거 불일치 3건·정답 형식 위반 2건"
+    (원문 미노출 — 사유 코드를 한국어 라벨로 번역, §4.11 원칙)."""
+    parts = [
+        f"{_DISCARD_LABELS.get(reason, reason)} {count}건" for reason, count in discard_counts.items()
+    ]
+    return "·".join(parts)
+
 _GENS: Dict[str, dict] = {}
 _GENS_LOCK = threading.Lock()
 
@@ -107,6 +126,14 @@ def _collect_basis_documents(db: Session, category_ids: Sequence[int]) -> List[m
     all_ids: set = set()
     for cid in category_ids:
         all_ids.update(tree_utils.collect_descendant_ids(db, cid))
+    # 자기참조 증폭 차단(검토 지적 ① — R22 최상위) — 사용자가 지정한 범위에 예약 루트
+    # ("AI 응용 모의고사") 서브트리가 섞여 있어도(직접 선택하거나 상위 노드 선택으로
+    # 우연히 포함되는 경우 모두) 서버가 결정론으로 차집합 제거한다. AI 생성 문항이 다음
+    # 생성의 근거가 되면 오류가 세대를 거치며 증폭될 수 있다(설계 §5.12 "실전 트리에서
+    # 고른다" 문언 정합 — 실전/응용 교차 제출을 막는 submit 검증(applied_subtree_ids)과
+    # 대칭). 범위 전체가 applied 서브트리였다면 이후 "생성 근거가 될 문서가 없습니다"
+    # 422로 자연 귀결된다.
+    all_ids -= applied_subtree_ids(db)
     if not all_ids:
         return []
     stmt = (
@@ -273,6 +300,11 @@ def validate_items(
     ⓓ 복제 검출 — `content`가 근거 corpus에 커버리지 ≥0.6로 실재하면 `duplicate_of_source`
        (`SourceMatcher.matches` 재사용 — §4.17 ⑥ 역적용). corpus가 너무 짧아 "대조 불가"
        상태(`matcher.available=False`)면 판정을 생략한다(오탐으로 전량 폐기되는 사고 방지).
+       **반전 가드**: `SourceMatcher.matches()`는 정규화 길이가 `MIN_CANDIDATE_CHARS`(10)
+       미만이면 원 용도(반입 대조 — 상투구 오탐 방지)에서 무조건 True(통과)를 돌려준다.
+       이 역적용(생성 — True=복제 폐기)에서 그대로 쓰면 10자 미만의 짧은 생성 지문이
+       전부 오폐기되므로, 같은 임계값 미만이면 복제 판정 자체를 건너뛴다(검토 지적 ②
+       — `source_match`의 정규화 함수·상수를 그대로 재사용, 중복 구현 금지).
     """
     passed: List[dict] = []
     discard_counts: Dict[str, int] = defaultdict(int)
@@ -312,7 +344,11 @@ def validate_items(
             # 문항만 bad_basis 폐기"가 의도).
             discard_counts[DISCARD_BAD_BASIS] += 1
             continue
-        if matcher.available and matcher.matches(content):
+        if (
+            matcher.available
+            and len(source_match.normalize(content)) >= source_match.MIN_CANDIDATE_CHARS
+            and matcher.matches(content)
+        ):
             discard_counts[DISCARD_DUPLICATE] += 1
             continue
 
@@ -474,8 +510,15 @@ def finalize_generation(job: dict, items: List[dict]) -> dict:
 
     passed, discard_counts = validate_items(items, basis_by_doc_no, matcher)
     if not passed:
+        # 검토 지적 ④ — ValidationAppError.detail은 `_fallback_error_info`의 generic
+        # 분기(§4.11)에서 사용자 응답에 실리지 않고 버려진다. 사유 요약을 메시지 문자열
+        # 자체에 합성해 "왜 전량 폐기됐는지"가 사용자에게 보이게 한다(원문 미노출 —
+        # 사유 코드→한국어 라벨만 사용).
+        summary = _format_discard_summary(discard_counts)
+        suffix = f" — {summary}." if summary else "."
         raise ValidationAppError(
-            "생성된 문항이 전부 검증에서 제외되어 저장할 문항이 없습니다 — 통과 0건(DB 무변경)",
+            f"생성된 문항 전체가 검증에서 폐기되었습니다{suffix} "
+            "범위를 좁히거나 문항 수를 줄여 다시 시도해 보세요.",
             detail={"discarded": discard_counts},
         )
 
