@@ -461,15 +461,22 @@ def get_selected_model(db: Session, engine: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 def resolve_engine(db: Session, requested: str) -> str:
     """`requested`가 등록된 엔진 id(legacy 별칭 포함)면 그대로 쓴다. `auto`(그 외 값 포함)는
-    priority 배열 순서대로 첫 후보(`available()` && enabled) 엔진 — 전부 불가면 배열 첫
-    엔진을 그대로 반환해(기존 동작처럼) 그 엔진의 실패를 통해 사람이 읽는 안내가 나가게
-    한다."""
+    priority 배열 순서대로 첫 후보(`available()` && enabled) 엔진 — 후보가 없으면(설계
+    §4.23 결정 ② 2026-08-03 검토 반영 개정) **priority 중 첫 enabled 엔진**(`available()`
+    무시)으로 좁혀 반환한다(비가용-전멸 — 환경 문제라 그 엔진의 호출 실패가 기존
+    미설치·미로그인·키 error_info로 안내하게 둔다, 신규 kind 0). enabled 엔진이 하나도
+    없는 경우(꺼짐-포함 전멸)는 **호출부(`assert_engine_selectable`)가 잡 생성 전에 이미
+    422로 막는다** — 이 함수까지 도달하지 않는 것이 정상이나, 방어적으로 priority 첫
+    엔진을 반환한다(실행하면 안 되는 상태이므로 이 반환값이 실제 invoke에 쓰이면 안 됨)."""
     normalized = normalize_engine_id(requested)
     if normalized in ENGINE_REGISTRY:
         return normalized
     priority = get_priority(db)
     for eid in priority:
         if is_engine_candidate(db, eid):
+            return eid
+    for eid in priority:
+        if is_engine_enabled(db, eid):
             return eid
     return priority[0] if priority else ENGINE_CLAUDE_CLI
 
@@ -495,12 +502,21 @@ def next_fallback_engine(db: Session, engine: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 def assert_engine_selectable(db: Session, engine: str) -> None:
     """`engine`이 auto가 아닌 명시 엔진 id(legacy 별칭 포함)이고 그 엔진이 비활성·비가용이면
-    잡 생성 전 422(§3 `VALIDATION_ERROR`)로 거부한다. `auto`·미등록 값은 검증하지 않는다
-    (auto의 후보 산출 자체가 `is_engine_candidate`를 경유하므로 비활성 엔진은 애초에
-    후보가 아니다 — '422 아님' 계약은 값 형식에 대한 것). 이 후보·상태 판정은 위
-    `is_engine_enabled`/`is_engine_available`만 재사용한다(검증 로직 이원화 금지)."""
+    잡 생성 전 422(§3 `VALIDATION_ERROR`)로 거부한다. `auto`·미등록 값은 상태를 검증하지
+    않는 것이 원칙이나(auto의 후보 산출 자체가 `is_engine_candidate`를 경유하므로 비활성
+    엔진은 애초에 후보가 아니다 — '422 아님' 계약은 값 형식에 대한 것), **명시 예외
+    1건(설계 §4.23 결정 ②ⓑ·⑥, 2026-08-03 검토 반영)**: enabled 엔진이 0(사용자가 전부
+    껐다)이면 `auto`도 잡 생성 전 422로 막는다 — 그렇지 않으면 `resolve_engine`의 최종
+    폴백이 꺼진 엔진을 반환·실행해 DoD 1("꺼진 엔진 호출 경로 0")을 위반한다. 이 후보·
+    상태 판정은 위 `is_engine_enabled`/`is_engine_available`만 재사용한다(검증 로직
+    이원화 금지)."""
     normalized = normalize_engine_id(engine)
     if normalized not in ENGINE_REGISTRY:
+        if not any(is_engine_enabled(db, eid) for eid in ENGINE_REGISTRY):
+            raise ValidationAppError(
+                "모든 엔진이 꺼져 있습니다 — 설정에서 엔진을 켜세요",
+                detail={"engine": normalized, "reason": "all_disabled"},
+            )
         return
     meta = ENGINE_REGISTRY[normalized]
     label = meta["label"]

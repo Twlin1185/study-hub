@@ -933,15 +933,20 @@ def _handle_engine_failure(
         error_info = llm_engine_service.build_error_info(db, engine, base)
         llm_engine_service.remember_limit(db, engine, error_info)
         fallback_policy = settings_service.get_setting(db, "llm.fallback", "ask")
+        next_engine = error_info.get("fallback_engine")
+        # 검토 지적 ① — 폴백 시 선택 모델도 다음 엔진 기준으로 함께 갱신한다(같은 db
+        # 세션 안에서 조회). 갱신하지 않으면 이전 엔진의 모델 id가 새 엔진에 그대로
+        # 넘어가 존재하지 않는 모델로 호출되는 사고가 난다(설계 §4.23 ⓑ).
+        next_model = llm_engine_service.get_selected_model(db, next_engine) if next_engine else None
     finally:
         db.close()
 
     llm_engine_service.record_engine_result(engine, success=False, error_kind=error_info["kind"])
 
-    next_engine = error_info.get("fallback_engine")
     if not attempted_fallback and fallback_policy == "auto" and next_engine:
         with _JOBS_LOCK:
             job["_engine"] = next_engine
+            job["_model"] = next_model
             job["_fallback_used"] = True
         return True
 
@@ -2126,6 +2131,10 @@ def start_regenerate_job(
 ) -> str:
     _purge_expired_jobs()
     document = document_service.get_document_or_404(db, document_id)
+    # 검토 지적 ③ — 422(엔진 비활성·비가용)로 거부될 요청이 F46 제안함 사례로 잘못 남는
+    # 것을 막기 위해, 부수 효과(사례 수집)보다 먼저 검증한다(문서 조회 직후 — 404는
+    # 여전히 사례 수집보다 앞이어야 하므로 이 순서 유지).
+    llm_engine_service.assert_engine_selectable(db, engine)
     tags = document_service._tags_for_document(db, document_id)
     choices = json.loads(document.choices) if document.choices else None
 
@@ -2154,7 +2163,6 @@ def start_regenerate_job(
     except Exception:  # noqa: BLE001 - 수집 실패가 신고(F30) 자체를 막으면 안 된다
         _LOGGER.warning("F30 신고 사례 수집 중 오류(신고 자체는 계속 진행)", exc_info=True)
 
-    llm_engine_service.assert_engine_selectable(db, engine)
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
     pre_fallback = applied_engine != resolved_engine
