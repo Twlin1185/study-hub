@@ -954,7 +954,10 @@ def _invalid_output_action(*, truncated: bool, job_kind: str) -> str:
        재작성이라 "원본을 과목·회차 단위로 나눠 올리기"가 성립하지 않는다.
     ③ S19(F45, 설계 §4.21, 검토 지적 ③): 응용 모의고사 생성(`applied_exam`)은 "원본"이
        아니라 범위 문서·요청 문항 수가 입력이라 "과목·회차 단위로 나눠 올리기" 문구가
-       성립하지 않는다 — 범위·문항 수 조정 안내로 분기한다."""
+       성립하지 않는다 — 범위·문항 수 조정 안내로 분기한다.
+    ④ S20(F46, 설계 §4.22, 검토 지적 ③): 반입 개선 제안 생성(`improve_proposal`)·회귀
+       재검증(`improve_regression`)도 "원본"이 아니라 선택한 실패 사례 조합이 입력이라
+       "과목·회차 단위로 나눠 올리기"가 성립하지 않는다 — 사례 수·조합 조정 안내로 분기."""
     if job_kind == "regenerate":
         return (
             "재생성 요청(사유)을 더 짧고 구체적으로 적어 다시 시도해 보세요."
@@ -966,6 +969,12 @@ def _invalid_output_action(*, truncated: bool, job_kind: str) -> str:
             "문항 수를 줄이거나 범위를 좁혀 다시 생성해 보세요."
             if truncated
             else "범위를 좁히거나 문항 수를 줄여 다시 시도해 보세요."
+        )
+    if job_kind in ("improve_proposal", "improve_regression"):
+        return (
+            "사례 수를 줄이거나 다른 사례 조합으로 다시 생성해 보세요."
+            if truncated
+            else "다시 생성해 보세요. 반복되면 사례 수를 줄이거나 다른 사례 조합으로 시도해 보세요."
         )
     return (
         "원본을 과목·회차 단위로 나눠 올려 다시 변환해 보세요."
@@ -1065,12 +1074,22 @@ def _fallback_error_info(exc: Exception, *, job_kind: str = "convert") -> dict:
             "alternatives": alts,
         }
     message = exc.message if isinstance(exc, AppError) else "변환 처리 중 알 수 없는 오류가 발생했습니다."
+    # S20(F46, 검토 지적 ③ 부수 지적): improve_proposal 잡의 "제안 전량 폐기"는
+    # `_do_improve_proposal_job`이 통과 0건일 때 던지는 결정론적 `ValidationAppError`다
+    # (같은 사례 조합으로 재시도해도 검증 게이트 결과가 같다) — "잠시 후 다시 시도하세요"는
+    # 오안내이므로 이 job_kind에서는 사례 조정을 안내한다. error_info 구조(§4.11)·kind
+    # 집합은 그대로 두고 action 문구만 바꾼다.
+    action = (
+        "사례를 바꾸거나 제안 내용을 검토한 뒤 다시 생성해 보세요(같은 사례로 재시도해도 결과는 같습니다)."
+        if job_kind == "improve_proposal"
+        else "잠시 후 다시 시도하세요."
+    )
     return {
         "kind": "other",
         "limit_kind": None,
         "resets_at": None,
         "message": message,
-        "action": "잠시 후 다시 시도하세요.",
+        "action": action,
         "fallback_available": False,
     }
 
@@ -3103,6 +3122,13 @@ def _regression_run_case(job_id: str, job: dict, record: dict) -> Tuple[str, Opt
             fabrication = True
 
     if original_kind == "fabrication_suspect":
+        # S20(F46, 검토 지적 ⑥) — 원본 정규화 텍스트가 짧으면(§4.17 ⑥ <200자 규칙)
+        # `matcher.available=False`가 되어 전 항목이 `match_unavailable`로 떨어지고
+        # `fabrication`은 항상 False로 남는다(대조를 시도조차 못 했을 뿐 "재발 없음"이
+        # 아니다) — 이 상태를 `passed`로 오기록하면 R23 ③ 회귀 수치를 왜곡한다. 판정
+        # 불가는 `unavailable`로 정직하게 기록한다(outcome 4종 계약은 그대로).
+        if not matcher.available:
+            return "unavailable", "원문 대조 불가(원본이 짧음) — 창작 의심 재발 여부를 판정할 수 없습니다"
         outcome = "passed" if not fabrication else "still_failing"
         detail_text = "창작 의심(fabrication_suspect) 재발" if fabrication else "창작 의심 재발 없음"
     else:

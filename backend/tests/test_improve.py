@@ -15,7 +15,7 @@ import pytest
 
 from database import BASE_DIR
 from exceptions import ConflictError, NotFoundError, ValidationAppError
-from services import convert_service, import_service, improve_service
+from services import convert_service, import_service, improve_service, preview_store
 
 SAMPLE_CONVERT_MD = (
     "# 샘플 프롬프트\n\n"
@@ -497,3 +497,147 @@ def test_delete_case_removes_output_sidecar(isolated_dirs):
     improve_service.delete_case(case_id)
     assert not improve_service._case_path(case_id).exists()
     assert not improve_service._case_output_path(case_id).exists()
+
+
+# ===========================================================================
+# Opus 검토 경미 결함 수정분 (2026-08-02, 사용자 승인) — ③ invalid_output 안내 문구 분기
+# 누락 · ⑥ 회귀 판정이 '대조 불가'를 passed로 오기록 · ⑦ hash12 없는 사례의 과대 병합
+# ===========================================================================
+
+
+# --- ③ improve 잡의 invalid_output 안내 문구 분기 ---------------------------------
+def test_invalid_output_action_improve_proposal_branch_has_no_source_wording():
+    """제안 생성엔 '원본'이 없다 — 반입(convert·fetch)용 "과목·회차 단위로 나눠 올리기"
+    문구가 나오면 오안내(검토 지적 ③)."""
+    truncated_action = convert_service._invalid_output_action(truncated=True, job_kind="improve_proposal")
+    plain_action = convert_service._invalid_output_action(truncated=False, job_kind="improve_proposal")
+    assert "원본" not in truncated_action
+    assert "원본" not in plain_action
+    assert "사례" in truncated_action
+    assert "사례" in plain_action
+
+
+def test_invalid_output_action_improve_regression_branch_has_no_source_wording():
+    action = convert_service._invalid_output_action(truncated=False, job_kind="improve_regression")
+    assert "원본" not in action
+    assert "사례" in action
+
+
+def test_fallback_error_info_improve_proposal_all_discarded_action_is_accurate():
+    """'전량 폐기'는 같은 사례로 재시도해도 검증 게이트 결과가 같은 결정론적 실패다 —
+    "잠시 후 다시 시도하세요"는 오안내(검토 지적 ③ 부수 지적). error_info 구조(kind 포함)는
+    불변, action 문구만 사례 조정 안내로 바뀐다."""
+    exc = ValidationAppError("생성된 제안 전체가 검증에서 폐기되었습니다 — 허용되지 않는 kind 1건.")
+    info = convert_service._fallback_error_info(exc, job_kind="improve_proposal")
+    assert info["kind"] == "other"  # §4.11 kind 집합 불변
+    assert info["action"] != "잠시 후 다시 시도하세요."
+    assert "사례" in info["action"]
+
+
+def test_fallback_error_info_other_job_kinds_action_unchanged():
+    """부수 지적 수정이 improve_proposal 외 잡 종류의 기존 문구를 건드리지 않았는지 확인."""
+    exc = ValidationAppError("알 수 없는 오류")
+    info = convert_service._fallback_error_info(exc, job_kind="convert")
+    assert info["action"] == "잠시 후 다시 시도하세요."
+
+
+# --- ⑥ 회귀 판정 — 대조 불가는 unavailable로, passed로 오기록하지 않는다 -------------------
+def test_regression_gate_case_short_source_reports_unavailable_not_passed(tmp_path, monkeypatch):
+    """검토자 실측 재현: 정규화 <200자 원본(대조 불가) + 명백한 창작 산출 → 종전엔 `passed`
+    ("창작 의심 재발 없음")로 잘못 기록됐다. 원문 대조를 시도조차 못 한 상태이므로
+    `unavailable`로 정직하게 기록해야 한다(R23 ③ 회귀 수치 신뢰)."""
+    monkeypatch.setattr(convert_service, "CONVERT_TMP_DIR", tmp_path)
+
+    short_source_text = "가" * 150  # 정규화 150자 — MIN_SOURCE_NORM_CHARS(200) 미만
+    short_source_bytes = short_source_text.encode("utf-8")
+    monkeypatch.setattr(preview_store, "read_source_bytes", lambda hash12: short_source_bytes)
+
+    fabricated_json = json.dumps(
+        {
+            "documents": [
+                {
+                    "type": "question",
+                    "title": "제목",
+                    "content": "완전히 다른 창작된 지문 — 원본과 무관한 내용입니다",
+                    "answer": "1",
+                    "answer_source": "solved",
+                }
+            ]
+        },
+        ensure_ascii=False,
+    )
+    monkeypatch.setattr(
+        convert_service,
+        "_run_claude_cli_streaming",
+        lambda prompt, *, timeout_seconds, job_id: fabricated_json,
+    )
+
+    record = {
+        "case_id": "fc_short01",
+        "kind": "fabrication_suspect",
+        "origin": "gate",
+        "source": {"path": "x", "hash12": "a" * 12, "filename": "short.txt"},
+    }
+    job = {"_engine": "claude-cli", "_timeout": 5, "_extra_tmp_paths": []}
+
+    outcome, detail = convert_service._regression_run_case("job_short", job, record)
+
+    assert outcome == "unavailable"
+    assert isinstance(detail, str) and "대조 불가" in detail
+    # 회귀했다면 이 값이 True(사실은 대조 불가일 뿐 재발 여부를 알 수 없다)로 잘못 나온다 —
+    # 판정 자체가 unavailable이므로 fabrication 여부를 outcome에 반영하지 않았는지 확인.
+    assert outcome != "passed"
+    assert outcome != "still_failing"
+
+
+# --- ⑦ hash12 없는 사례의 과대 병합 방지 -------------------------------------------
+def test_collect_gate_case_without_hash12_uses_preview_ref_to_avoid_merge(isolated_dirs):
+    """FetchedExam(큐넷 구조화 텍스트 — 원본 파일이 없어 source_bytes가 없음) 경로의 서로
+    다른 회차 실패가 kind별 1건으로 합쳐지면 안 된다(검토 지적 ⑦)."""
+    improve_service.collect_gate_case(
+        source_filename=None,
+        source_bytes=None,
+        item_indices=[0],
+        total_items=1,
+        preview_ref="imp_aaa1111__nosrc__2023년1회.json",
+    )
+    improve_service.collect_gate_case(
+        source_filename=None,
+        source_bytes=None,
+        item_indices=[0],
+        total_items=1,
+        preview_ref="imp_bbb2222__nosrc__2023년2회.json",
+    )
+    files = improve_service._list_case_files()
+    assert len(files) == 2
+    kinds_refs = {improve_service._read_json(f)["preview_ref"] for f in files}
+    assert kinds_refs == {
+        "imp_aaa1111__nosrc__2023년1회.json",
+        "imp_bbb2222__nosrc__2023년2회.json",
+    }
+
+
+def test_collect_gate_case_without_hash12_same_preview_ref_still_merges(isolated_dirs):
+    """대체 식별자(preview_ref)가 같으면 기존처럼 count 병합이 동작해야 한다(과잉 분리 방지)."""
+    for _ in range(2):
+        improve_service.collect_gate_case(
+            source_filename=None,
+            source_bytes=None,
+            item_indices=[0],
+            total_items=1,
+            preview_ref="imp_ccc3333__nosrc__같은회차.json",
+        )
+    files = improve_service._list_case_files()
+    assert len(files) == 1
+    assert improve_service._read_json(files[0])["count"] == 2
+
+
+def test_collect_gate_case_without_hash12_or_preview_ref_falls_back_to_legacy_merge(isolated_dirs):
+    """대체 식별자마저 없으면 기존 동작(과대 병합) 유지가 명시적으로 허용된다."""
+    for _ in range(2):
+        improve_service.collect_gate_case(
+            source_filename=None, source_bytes=None, item_indices=[0], total_items=1, preview_ref=None
+        )
+    files = improve_service._list_case_files()
+    assert len(files) == 1
+    assert improve_service._read_json(files[0])["count"] == 2

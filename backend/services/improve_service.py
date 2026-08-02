@@ -187,10 +187,28 @@ def _safe_name(name: str) -> str:
 
 
 def _dedup_key(
-    *, kind: str, origin: str, hash12: Optional[str], document_id: Optional[int]
+    *,
+    kind: str,
+    origin: str,
+    hash12: Optional[str],
+    document_id: Optional[int],
+    preview_ref: Optional[str] = None,
 ) -> Tuple[Any, ...]:
+    """중복 병합 키(결정 ②) — (kind, source.hash12), report는 (kind, document_id).
+
+    S20(F46, 검토 지적 ⑦): `hash12`가 없는 경로(사이트 반입의 `FetchedExam` 구조화
+    텍스트 — 원본 파일 자체가 없어 `source_bytes`가 채워지지 않는다)에서 무조건
+    `(kind, None)`으로 묶으면 **서로 다른 회차의 실패가 kind별 1건으로 과대 병합**되어
+    detail·preview_ref가 최신 것으로 덮인다. `preview_ref`(있으면)를 대체 식별자로 키에
+    포함해 서로 다른 원천이 섞이지 않게 한다 — 매 시도가 새 preview_id라 완전한 재발
+    카운트 병합(같은 회차 반복 실패의 count 누적)은 못 하지만, **다른 원천이 합쳐지는
+    사고가 우선순위가 높다**(대체 식별자마저 없으면 기존 동작 유지)."""
     if origin == "report":
         return ("report", kind, document_id)
+    if hash12:
+        return ("other", kind, hash12)
+    if preview_ref:
+        return ("other", kind, "preview_ref", preview_ref)
     return ("other", kind, hash12)
 
 
@@ -207,6 +225,7 @@ def _find_existing_case(dedup_key: Tuple[Any, ...]) -> Optional[Path]:
             origin=data.get("origin"),
             hash12=source.get("hash12"),
             document_id=document.get("id"),
+            preview_ref=data.get("preview_ref"),
         )
         if key == dedup_key:
             return path
@@ -228,7 +247,9 @@ def _record_case(
     _ensure_dirs()
     hash12 = _hash12_of(source_bytes)
     document_id = document.get("id") if document else None
-    dedup_key = _dedup_key(kind=kind, origin=origin, hash12=hash12, document_id=document_id)
+    dedup_key = _dedup_key(
+        kind=kind, origin=origin, hash12=hash12, document_id=document_id, preview_ref=preview_ref
+    )
     now = dt.datetime.now().isoformat()
 
     existing_path = _find_existing_case(dedup_key)
