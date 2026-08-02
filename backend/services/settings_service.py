@@ -20,6 +20,11 @@ DEFAULTS: Dict[str, Any] = {
     "llm.fallback": "ask",  # 'auto' | 'ask' | 'off' — auto는 과금 동의 UI 통과 시에만 프론트가 설정
     "llm.api_model": "claude-sonnet-5",
     "llm.last_limit": None,  # {engine, limit_kind, resets_at} | None — 최근 429 한도 기억
+    # S21 — 엔진 운용 제어(F47, 설계 §4.23). llm.disabled: 비활성 엔진 id 배열(부정 목록,
+    # 빈 배열 = 전 엔진 활성). llm.models: {엔진id: 모델id}(소목록 밖 값은 무시·기본값
+    # 폴백 — llm_engine_service가 판정).
+    "llm.disabled": [],
+    "llm.models": {},
     # S10 — 일일 학습 목표 (F26, 설계 §4.13). 양의 정수, None/0 = 목표 없음
     "goal.daily_questions": None,
     "goal.daily_minutes": None,

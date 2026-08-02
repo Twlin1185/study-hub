@@ -511,11 +511,18 @@ def _find_claude_executable() -> str:
     )
 
 
-def _run_claude_cli_streaming(prompt: str, *, timeout_seconds: int, job_id: str) -> str:
+def _run_claude_cli_streaming(
+    prompt: str, *, timeout_seconds: int, job_id: str, model: Optional[str] = None
+) -> str:
     """`--output-format stream-json`으로 실행해 스트림 이벤트마다 잡의 last_activity_at·
-    usage를 갱신한다. 반환값은 최종 result 텍스트(기존 `_extract_text_result`와 동일 의미)."""
+    usage를 갱신한다. 반환값은 최종 result 텍스트(기존 `_extract_text_result`와 동일 의미).
+
+    `model`(설계 §4.23 ⓑ) — `None`이면 `--model` 플래그를 전달하지 않는다(사용자 CLI
+    구성 기본값 — 무설정 시 동작 불변)."""
     exe = _find_claude_executable()
     args = [exe, "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions"]
+    if model:
+        args.extend(["--model", model])
     try:
         proc = subprocess.Popen(
             args,
@@ -1278,12 +1285,16 @@ def _build_convert_prompt_codex(convert_md: str, tmp_path: Path, *, group: Optio
     )
 
 
-def _run_codex_streaming(prompt: str, *, timeout_seconds: int, job_id: str) -> str:
+def _run_codex_streaming(
+    prompt: str, *, timeout_seconds: int, job_id: str, model: Optional[str] = None
+) -> str:
+    """`model`(설계 §4.23 ⓑ) — `None`이면 `-m` 플래그를 전달하지 않는다(현행 동작 불변)."""
     return codex_adapter.run_exec(
         prompt,
         cwd=BASE_DIR,
         timeout_seconds=timeout_seconds,
         on_activity=lambda: _touch_activity(job_id),
+        model=model,
     )
 
 
@@ -1396,14 +1407,18 @@ def _do_convert(job_id: str, job: dict) -> dict:
                     if detected.group == "text" and detected.encoding == "cp949":
                         cli_path = _ensure_cli_recoded_tmp(job_id, job, source_filename, detected.text)
                     prompt = _build_convert_prompt_cli(convert_md, cli_path) + suffix
-                text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                text_result = _run_claude_cli_streaming(
+                    prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+                )
             elif engine == llm_engine_service.ENGINE_CODEX_CLI:
                 # codex는 A·B군 모두 판별된 텍스트를 그대로 삽입한다(pdf만 기존 pypdf 경로).
                 if detected.group in ("text", "docx", "xlsx"):
                     prompt = _build_embedded_text_prompt(convert_md, source_filename, detected.text) + suffix
                 else:
                     prompt = _build_convert_prompt_codex(convert_md, tmp_path, group=detected.group) + suffix
-                text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                text_result = _run_codex_streaming(
+                    prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+                )
             else:
                 if detected.group in ("text", "docx", "xlsx"):
                     prompt_text, blocks = _build_embedded_text_prompt_api(convert_md, source_filename, detected.text)
@@ -1416,7 +1431,7 @@ def _do_convert(job_id: str, job: dict) -> dict:
                     file_blocks=blocks,
                     timeout_seconds=job["_timeout"],
                     job_id=job_id,
-                    model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                    model=job.get("_model") or llm_engine_service.DEFAULT_API_MODEL,
                 )
             llm_engine_service.record_engine_result(engine, success=True)
             break
@@ -1696,14 +1711,18 @@ def _do_fetch(job_id: str, job: dict) -> dict:
                 # 확장자 재분기 없음(단일 게이트). qnet은 현재 항상 pdf만 이 경로에 온다.
                 if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
                     prompt = _build_convert_prompt_cli(convert_md, tmp_path) + "\n\n" + directives
-                    text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                    text_result = _run_claude_cli_streaming(
+                        prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+                    )
                 elif engine == llm_engine_service.ENGINE_CODEX_CLI:
                     prompt = (
                         _build_convert_prompt_codex(convert_md, tmp_path, group=detected.group)
                         + "\n\n"
                         + directives
                     )
-                    text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                    text_result = _run_codex_streaming(
+                        prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+                    )
                 else:
                     prompt_text, blocks = _build_convert_prompt_api(
                         convert_md, tmp_path, group=detected.group, file_type=detected.file_type
@@ -1713,21 +1732,25 @@ def _do_fetch(job_id: str, job: dict) -> dict:
                         file_blocks=blocks,
                         timeout_seconds=job["_timeout"],
                         job_id=job_id,
-                        model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                        model=job.get("_model") or llm_engine_service.DEFAULT_API_MODEL,
                     )
             else:
                 prompt = f"{convert_md}\n\n---\n\n{directives}\n\n최종 출력은 순수 JSON 객체 하나만."
                 if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
-                    text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                    text_result = _run_claude_cli_streaming(
+                        prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+                    )
                 elif engine == llm_engine_service.ENGINE_CODEX_CLI:
-                    text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                    text_result = _run_codex_streaming(
+                        prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+                    )
                 else:
                     text_result = _run_api_streaming(
                         prompt,
                         file_blocks=None,
                         timeout_seconds=job["_timeout"],
                         job_id=job_id,
-                        model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                        model=job.get("_model") or llm_engine_service.DEFAULT_API_MODEL,
                     )
             llm_engine_service.record_engine_result(engine, success=True)
             break
@@ -1788,14 +1811,15 @@ def start_fetch_job(
     if not cert_ref or not exam_ref:
         raise ValidationAppError("cert_ref·exam_ref가 필요합니다")
 
+    llm_engine_service.assert_engine_selectable(db, engine)
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
     pre_fallback = applied_engine != resolved_engine
     resolved_engine = applied_engine
-    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
 
     job_id = f"ftc_{uuid.uuid4().hex[:8]}"
-    job = _new_job_base("fetch", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    job = _new_job_base("fetch", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model)
     if pre_fallback:
         job["_fallback_used"] = True
     job.update(
@@ -1817,7 +1841,7 @@ def start_fetch_job(
     return job_id
 
 
-def _new_job_base(kind: str, *, resolved_engine: str, requested_engine: str, api_model: str) -> dict:
+def _new_job_base(kind: str, *, resolved_engine: str, requested_engine: str, model: Optional[str]) -> dict:
     now = dt.datetime.now()
     return {
         "kind": kind,
@@ -1834,7 +1858,7 @@ def _new_job_base(kind: str, *, resolved_engine: str, requested_engine: str, api
         "_engine": resolved_engine,
         "_engine_requested": requested_engine,
         "_fallback_used": False,
-        "_api_model": api_model,
+        "_model": model,  # 설계 §4.23 ⓑ — 엔진별 선택 모델(공통 필드, invoke 시 엔진별 전달 방식 적용)
         "_input_size": 0,
         "_started_at": now,
         "_last_activity_at": now,
@@ -1865,18 +1889,19 @@ def start_convert_job(
             "prompts/convert.md 프롬프트 파일을 찾을 수 없습니다",
             detail={"path": str(CONVERT_PROMPT_PATH)},
         )
+    llm_engine_service.assert_engine_selectable(db, engine)
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
     pre_fallback = applied_engine != resolved_engine
     resolved_engine = applied_engine
-    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
 
     CONVERT_TMP_DIR.mkdir(exist_ok=True)
     job_id = f"cvt_{uuid.uuid4().hex[:8]}"
     tmp_path = CONVERT_TMP_DIR / f"{job_id}_{_safe_name(upload_filename)}"
     tmp_path.write_bytes(upload_bytes)
 
-    job = _new_job_base("convert", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    job = _new_job_base("convert", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model)
     if pre_fallback:
         job["_fallback_used"] = True  # 사전 자동 전환 — 런타임 재전환(원 엔진 복귀) 낭비 방지
     job.update(
@@ -1915,14 +1940,15 @@ def start_convert_job_from_url(
         )
     if not url or not url.strip():
         raise ValidationAppError("url이 비어 있습니다")
+    llm_engine_service.assert_engine_selectable(db, engine)
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
     pre_fallback = applied_engine != resolved_engine
     resolved_engine = applied_engine
-    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
 
     job_id = f"cvt_{uuid.uuid4().hex[:8]}"
-    job = _new_job_base("convert", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    job = _new_job_base("convert", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model)
     if pre_fallback:
         job["_fallback_used"] = True
     job.update(
@@ -2062,11 +2088,11 @@ def _do_regenerate(job_id: str, job: dict) -> dict:
         try:
             if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
                 text_result = _run_claude_cli_streaming(
-                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
                 )
             elif engine == llm_engine_service.ENGINE_CODEX_CLI:
                 text_result = _run_codex_streaming(
-                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
                 )
             else:
                 text_result = _run_api_streaming(
@@ -2074,7 +2100,7 @@ def _do_regenerate(job_id: str, job: dict) -> dict:
                     file_blocks=None,
                     timeout_seconds=job["_timeout"],
                     job_id=job_id,
-                    model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                    model=job.get("_model") or llm_engine_service.DEFAULT_API_MODEL,
                 )
             llm_engine_service.record_engine_result(engine, success=True)
             break
@@ -2128,16 +2154,17 @@ def start_regenerate_job(
     except Exception:  # noqa: BLE001 - 수집 실패가 신고(F30) 자체를 막으면 안 된다
         _LOGGER.warning("F30 신고 사례 수집 중 오류(신고 자체는 계속 진행)", exc_info=True)
 
+    llm_engine_service.assert_engine_selectable(db, engine)
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
     pre_fallback = applied_engine != resolved_engine
     resolved_engine = applied_engine
-    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
 
     prompt = _build_regenerate_prompt(document, tags, choices, reason, source_note, engine=resolved_engine)
 
     job_id = f"rgn_{uuid.uuid4().hex[:8]}"
-    job = _new_job_base("regenerate", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    job = _new_job_base("regenerate", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model)
     if pre_fallback:
         job["_fallback_used"] = True
     job.update(
@@ -2353,13 +2380,17 @@ def _do_answer_key_job(job_id: str, job: dict) -> dict:
                     if detected.group == "text" and detected.encoding == "cp949":
                         cli_path = _ensure_cli_recoded_tmp(job_id, job, source_filename, detected.text)
                     prompt = _build_answer_key_prompt_cli(cli_path, source_filename)
-                text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                text_result = _run_claude_cli_streaming(
+                    prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+                )
             elif engine == llm_engine_service.ENGINE_CODEX_CLI:
                 if detected.group in ("text", "docx", "xlsx"):
                     prompt = _build_answer_key_embedded_prompt(source_filename, detected.text)
                 else:
                     prompt = _build_answer_key_prompt_codex(tmp_path, source_filename, group=detected.group)
-                text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+                text_result = _run_codex_streaming(
+                    prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+                )
             else:
                 if detected.group in ("text", "docx", "xlsx"):
                     prompt_text, blocks = _build_answer_key_embedded_prompt_api(source_filename, detected.text)
@@ -2372,7 +2403,7 @@ def _do_answer_key_job(job_id: str, job: dict) -> dict:
                     file_blocks=blocks,
                     timeout_seconds=job["_timeout"],
                     job_id=job_id,
-                    model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                    model=job.get("_model") or llm_engine_service.DEFAULT_API_MODEL,
                 )
             llm_engine_service.record_engine_result(engine, success=True)
             break
@@ -2398,18 +2429,19 @@ def start_answer_key_job(
 ) -> str:
     """답지 가공 잡 시작(convert 잡 큐 재사용 — kind='answer_key', 동시 1개)."""
     _purge_expired_jobs()
+    llm_engine_service.assert_engine_selectable(db, engine)
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
     pre_fallback = applied_engine != resolved_engine
     resolved_engine = applied_engine
-    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
 
     CONVERT_TMP_DIR.mkdir(exist_ok=True)
     job_id = f"ak_{uuid.uuid4().hex[:8]}"
     tmp_path = CONVERT_TMP_DIR / f"{job_id}_{_safe_name(source_filename)}"
     tmp_path.write_bytes(source_bytes)
 
-    job = _new_job_base("answer_key", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    job = _new_job_base("answer_key", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model)
     if pre_fallback:
         job["_fallback_used"] = True
     job.update(
@@ -2505,11 +2537,11 @@ def _do_explain_job(job_id: str, job: dict) -> dict:
         try:
             if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
                 text_result = _run_claude_cli_streaming(
-                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
                 )
             elif engine == llm_engine_service.ENGINE_CODEX_CLI:
                 text_result = _run_codex_streaming(
-                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
                 )
             else:
                 text_result = _run_api_streaming(
@@ -2517,7 +2549,7 @@ def _do_explain_job(job_id: str, job: dict) -> dict:
                     file_blocks=None,
                     timeout_seconds=job["_timeout"],
                     job_id=job_id,
-                    model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                    model=job.get("_model") or llm_engine_service.DEFAULT_API_MODEL,
                 )
             llm_engine_service.record_engine_result(engine, success=True)
             break
@@ -2564,16 +2596,17 @@ def start_explain_job(
     if document.source_detail:
         source_note = f"{source_note + chr(10) if source_note else ''}원본 위치: {document.source_detail}"
 
+    llm_engine_service.assert_engine_selectable(db, engine)
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
     pre_fallback = applied_engine != resolved_engine
     resolved_engine = applied_engine
-    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
 
     prompt = _build_explain_prompt(document, choices, source_note, engine=resolved_engine)
 
     job_id = f"exp_{uuid.uuid4().hex[:8]}"
-    job = _new_job_base("explain", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    job = _new_job_base("explain", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model)
     if pre_fallback:
         job["_fallback_used"] = True
     job.update(
@@ -2760,11 +2793,11 @@ def _do_applied_exam_job(job_id: str, job: dict) -> dict:
         try:
             if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
                 text_result = _run_claude_cli_streaming(
-                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
                 )
             elif engine == llm_engine_service.ENGINE_CODEX_CLI:
                 text_result = _run_codex_streaming(
-                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
                 )
             else:
                 text_result = _run_api_streaming(
@@ -2772,7 +2805,7 @@ def _do_applied_exam_job(job_id: str, job: dict) -> dict:
                     file_blocks=None,
                     timeout_seconds=job["_timeout"],
                     job_id=job_id,
-                    model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                    model=job.get("_model") or llm_engine_service.DEFAULT_API_MODEL,
                 )
             llm_engine_service.record_engine_result(engine, success=True)
             break
@@ -2806,17 +2839,18 @@ def start_applied_exam_job(
     """생성 잡 시작(convert 잡 큐 재사용 — kind='applied_exam', 동시 1개). `basis_docs`는
     prepare가 이미 수집한 문서 스냅샷(첨부 파일 없음 — 텍스트 프롬프트에 그대로 삽입)."""
     _purge_expired_jobs()
+    llm_engine_service.assert_engine_selectable(db, engine)
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
     pre_fallback = applied_engine != resolved_engine
     resolved_engine = applied_engine
-    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
 
     prompt = _build_applied_exam_prompt(basis_docs, requested_count)
 
     job_id = f"apx_{uuid.uuid4().hex[:8]}"
     job = _new_job_base(
-        "applied_exam", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model
+        "applied_exam", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model
     )
     if pre_fallback:
         job["_fallback_used"] = True
@@ -2875,11 +2909,11 @@ def _do_improve_proposal_job(job_id: str, job: dict) -> dict:
         try:
             if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
                 text_result = _run_claude_cli_streaming(
-                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
                 )
             elif engine == llm_engine_service.ENGINE_CODEX_CLI:
                 text_result = _run_codex_streaming(
-                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
                 )
             else:
                 text_result = _run_api_streaming(
@@ -2887,7 +2921,7 @@ def _do_improve_proposal_job(job_id: str, job: dict) -> dict:
                     file_blocks=None,
                     timeout_seconds=job["_timeout"],
                     job_id=job_id,
-                    model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                    model=job.get("_model") or llm_engine_service.DEFAULT_API_MODEL,
                 )
             llm_engine_service.record_engine_result(engine, success=True)
             break
@@ -2940,15 +2974,16 @@ def start_improve_proposal_job(
     `prompt`는 prepare가 이미 조립·검증(200,000자 상한)을 마친 텍스트 그대로 쓴다
     (재조립하지 않는다 — prepare와 generate 사이 드리프트 방지)."""
     _purge_expired_jobs()
+    llm_engine_service.assert_engine_selectable(db, engine)
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
     pre_fallback = applied_engine != resolved_engine
     resolved_engine = applied_engine
-    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
 
     job_id = f"ipp_{uuid.uuid4().hex[:8]}"
     job = _new_job_base(
-        "improve_proposal", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model
+        "improve_proposal", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model
     )
     if pre_fallback:
         job["_fallback_used"] = True
@@ -3067,14 +3102,18 @@ def _regression_run_case(job_id: str, job: dict, record: dict) -> Tuple[str, Opt
                 else:
                     cli_path = _tmp_for_case(filename, data)
                 prompt = _build_convert_prompt_cli(convert_md, cli_path)
-            text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+            text_result = _run_claude_cli_streaming(
+                prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+            )
         elif engine == llm_engine_service.ENGINE_CODEX_CLI:
             if detected.group in ("text", "docx", "xlsx"):
                 prompt = _build_embedded_text_prompt(convert_md, filename, detected.text)
             else:
                 tmp_path = _tmp_for_case(filename, data)
                 prompt = _build_convert_prompt_codex(convert_md, tmp_path, group=detected.group)
-            text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+            text_result = _run_codex_streaming(
+                prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+            )
         else:
             if detected.group in ("text", "docx", "xlsx"):
                 prompt_text, blocks = _build_embedded_text_prompt_api(convert_md, filename, detected.text)
@@ -3088,7 +3127,7 @@ def _regression_run_case(job_id: str, job: dict, record: dict) -> Tuple[str, Opt
                 file_blocks=blocks,
                 timeout_seconds=job["_timeout"],
                 job_id=job_id,
-                model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                model=job.get("_model") or llm_engine_service.DEFAULT_API_MODEL,
             )
         llm_engine_service.record_engine_result(engine, success=True)
     except (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError) as exc:
@@ -3169,15 +3208,16 @@ def start_improve_regression_job(
 ) -> str:
     """회귀 재검증 잡 시작(convert 잡 큐 재사용 — kind='improve_regression', 동시 1개)."""
     _purge_expired_jobs()
+    llm_engine_service.assert_engine_selectable(db, engine)
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
     pre_fallback = applied_engine != resolved_engine
     resolved_engine = applied_engine
-    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
 
     job_id = f"irg_{uuid.uuid4().hex[:8]}"
     job = _new_job_base(
-        "improve_regression", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model
+        "improve_regression", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model
     )
     if pre_fallback:
         job["_fallback_used"] = True

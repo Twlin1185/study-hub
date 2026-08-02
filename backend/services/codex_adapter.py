@@ -318,6 +318,7 @@ def run_exec(
     cwd: Path,
     timeout_seconds: int,
     on_activity: Optional[Callable[[], None]] = None,
+    model: Optional[str] = None,
 ) -> str:
     """codex exec 실행 — 반환값은 최종 agent 메시지 텍스트. 실패는 `CodexCliError`
     (원문은 로그에만, `classify_codex_failure`를 거쳐야 사용자에게 노출된다).
@@ -331,7 +332,10 @@ def run_exec(
     인자로 넘기면 모델이 원본을 못 받은 것처럼 반응). `codex exec --help`가 명시하는
     "PROMPT를 생략하거나 `-`를 주면 stdin에서 읽는다" 경로로 전환하면 `.cmd`/`.exe` 어느
     쪽이든 동일하게 안전하고, **Windows 명령줄 길이 상한(약 32,767자)도 구조적으로
-    회피**한다(대형 원본 추출 텍스트가 길어져도 인자 길이 문제가 발생하지 않는다)."""
+    회피**한다(대형 원본 추출 텍스트가 길어져도 인자 길이 문제가 발생하지 않는다).
+
+    `model`(설계 §4.23 ⓑ) — 지정되면 `-m {model}`을 추가한다. `None`이면 플래그를
+    전달하지 않는다(codex-cli 소목록이 비어 있는 한 항상 이 경로 — 현행 동작 불변)."""
     exe = find_executable()
     if exe is None:
         raise CodexCliError(
@@ -349,8 +353,10 @@ def run_exec(
             str(cwd),
             "-o",
             str(last_msg_path),
-            "-",  # stdin에서 프롬프트를 읽으라는 명시 표시(codex exec --help)
         ]
+        if model:
+            args.extend(["-m", model])
+        args.append("-")  # stdin에서 프롬프트를 읽으라는 명시 표시(codex exec --help)
         try:
             proc = subprocess.Popen(
                 args,

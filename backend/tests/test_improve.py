@@ -569,7 +569,7 @@ def test_regression_gate_case_short_source_reports_unavailable_not_passed(tmp_pa
     monkeypatch.setattr(
         convert_service,
         "_run_claude_cli_streaming",
-        lambda prompt, *, timeout_seconds, job_id: fabricated_json,
+        lambda prompt, *, timeout_seconds, job_id, model=None: fabricated_json,
     )
 
     record = {

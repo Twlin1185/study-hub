@@ -57,10 +57,41 @@ ENGINE_CODEX_CLI = "codex-cli"
 ENGINE_ORDER: tuple[str, ...] = (ENGINE_CLAUDE_CLI, ENGINE_CLAUDE_API, ENGINE_CODEX_CLI)
 
 # 각 엔진의 진단 방식(`kind`): 'cli' = 설치+로그인 진단, 'api' = 키 등록 진단.
+# `models`/`default_model`(설계 §4.23 ⓑ, D4 — 무과금 확정): claude-cli는 `claude --help`가
+# 명시하는 별칭('sonnet'|'opus')만 수용값으로 쓴다(전체 id도 되지만 별칭이 더 안정적).
+# claude-api는 현행 `DEFAULT_API_MODEL` 승계 + 즉석 검증 가능한 최신 소목록. codex-cli는
+# `codex exec --help`로 `-m` 플래그 존재만 확인됐고 모델 id는 무과금으로 확정할 수 없어
+# 소목록을 빈 배열로 둔다(추측 하드코딩 금지) — 셋 다 `default_model=None`이면 플래그
+# 미전달(무설정 시 동작 불변).
 ENGINE_REGISTRY: Dict[str, Dict[str, Any]] = {
-    ENGINE_CLAUDE_CLI: {"label": "Claude CLI", "billing": "subscription", "installable": False, "kind": "cli"},
-    ENGINE_CLAUDE_API: {"label": "Claude API", "billing": "metered", "installable": False, "kind": "api"},
-    ENGINE_CODEX_CLI: {"label": "Codex CLI", "billing": "subscription", "installable": True, "kind": "cli"},
+    ENGINE_CLAUDE_CLI: {
+        "label": "Claude CLI",
+        "billing": "subscription",
+        "installable": False,
+        "kind": "cli",
+        "models": [{"id": "sonnet", "label": "Sonnet"}, {"id": "opus", "label": "Opus"}],
+        "default_model": None,
+    },
+    ENGINE_CLAUDE_API: {
+        "label": "Claude API",
+        "billing": "metered",
+        "installable": False,
+        "kind": "api",
+        "models": [
+            {"id": "claude-sonnet-5", "label": "Sonnet 5"},
+            {"id": "claude-opus-5", "label": "Opus 5"},
+            {"id": "claude-haiku-4-5-20251001", "label": "Haiku 4.5"},
+        ],
+        "default_model": DEFAULT_API_MODEL,
+    },
+    ENGINE_CODEX_CLI: {
+        "label": "Codex CLI",
+        "billing": "subscription",
+        "installable": True,
+        "kind": "cli",
+        "models": [],
+        "default_model": None,
+    },
 }
 
 _LEGACY_ENGINE_ALIASES = {"cli": ENGINE_CLAUDE_CLI, "api": ENGINE_CLAUDE_API}
@@ -363,25 +394,90 @@ def is_engine_available(engine: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# 엔진 선택 (auto|엔진id, 설계 §4.17 ③)
+# 활성 토글 (설계 §4.23 ① — settings `llm.disabled`, 부정 목록)
+# ---------------------------------------------------------------------------
+def get_disabled_engines(db: Session) -> List[str]:
+    """settings `llm.disabled`(비활성 엔진 id 배열) 읽기 — 키 부재·빈 배열 = 전 엔진 활성.
+    알 수 없는 id는 무시(전방 호환), legacy 별칭(`'cli'|'api'`)은 읽기 시 매핑(§4.17 ① 관례).
+    쓰기는 설정 화면 저장(settings PUT) 경유뿐 — 이 함수는 읽기만 한다."""
+    raw = settings_service.get_setting(db, "llm.disabled", [])
+    if not isinstance(raw, list):
+        return []
+    result: List[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        eid = normalize_engine_id(item)
+        if eid in ENGINE_REGISTRY and eid not in result:
+            result.append(eid)
+    return result
+
+
+def is_engine_enabled(db: Session, engine: str) -> bool:
+    """`llm.disabled`에 없으면 활성(설계 §4.23 ①·②) — `available()`과 직교하는 사용자 의사
+    축이다(꺼진 엔진도 진단·카드 표시는 정상, 켜면 즉시 복귀)."""
+    engine = normalize_engine_id(engine) or engine
+    return engine not in get_disabled_engines(db)
+
+
+def is_engine_candidate(db: Session, engine: str) -> bool:
+    """후보 자격(설계 §4.23 ②) = `available()` && enabled — auto 해석·폴백 다음 후보·
+    `error_info.fallback_available`/`fallback_engine` 파생이 전부 이 함수 하나를 경유한다
+    (호출처별 개별 판정 금지). `available()` 자체 의미는 불변(진단·카드 표시는 꺼진 엔진도
+    정상)."""
+    engine = normalize_engine_id(engine) or engine
+    return is_engine_available(engine) and is_engine_enabled(db, engine)
+
+
+# ---------------------------------------------------------------------------
+# 엔진별 모델 선택 (설계 §4.23 ⓑ)
+# ---------------------------------------------------------------------------
+def get_selected_model(db: Session, engine: str) -> Optional[str]:
+    """유효 선택 모델 = `llm.models[엔진id]`가 그 엔진의 소목록에 있으면 그 값, 아니면
+    `default_model`(소목록 밖 값·구 설정 잔존은 조용히 기본값 폴백 — 전방 호환).
+    `claude-api`는 `llm.models['claude-api']` 부재 시 legacy `llm.api_model`을 읽기
+    별칭으로 쓴다(쓰기는 항상 `llm.models`). CLI형 기본값 `None` = 모델 플래그 미전달
+    (현행 동작 그대로)."""
+    engine = normalize_engine_id(engine) or engine
+    meta = ENGINE_REGISTRY.get(engine)
+    if meta is None:
+        return None
+    valid_ids = {m["id"] for m in meta.get("models") or []}
+    default_model = meta.get("default_model")
+
+    raw_map = settings_service.get_setting(db, "llm.models", {})
+    if not isinstance(raw_map, dict):
+        raw_map = {}
+    selected = raw_map.get(engine)
+    if selected is None and engine == ENGINE_CLAUDE_API:
+        selected = settings_service.get_setting(db, "llm.api_model", None)
+    if isinstance(selected, str) and selected in valid_ids:
+        return selected
+    return default_model
+
+
+# ---------------------------------------------------------------------------
+# 엔진 선택 (auto|엔진id, 설계 §4.17 ③ · §4.23 ②)
 # ---------------------------------------------------------------------------
 def resolve_engine(db: Session, requested: str) -> str:
     """`requested`가 등록된 엔진 id(legacy 별칭 포함)면 그대로 쓴다. `auto`(그 외 값 포함)는
-    priority 배열 순서대로 첫 available() 엔진 — 전부 불가면 배열 첫 엔진을 그대로 반환해
-    (기존 동작처럼) 그 엔진의 실패를 통해 사람이 읽는 안내가 나가게 한다."""
+    priority 배열 순서대로 첫 후보(`available()` && enabled) 엔진 — 전부 불가면 배열 첫
+    엔진을 그대로 반환해(기존 동작처럼) 그 엔진의 실패를 통해 사람이 읽는 안내가 나가게
+    한다."""
     normalized = normalize_engine_id(requested)
     if normalized in ENGINE_REGISTRY:
         return normalized
     priority = get_priority(db)
     for eid in priority:
-        if is_engine_available(eid):
+        if is_engine_candidate(db, eid):
             return eid
     return priority[0] if priority else ENGINE_CLAUDE_CLI
 
 
 def next_fallback_engine(db: Session, engine: str) -> Optional[str]:
     """실패(또는 한도 기억 적중)한 `engine`의 priority 배열상 **다음 위치부터** 순서대로 첫
-    available() 엔진(설계 §4.17 ③ — wraparound 없음, 배열 끝까지 없으면 후보 없음)."""
+    후보(`available()` && enabled) 엔진(설계 §4.17 ③·§4.23 ② — wraparound 없음, 배열
+    끝까지 없으면 후보 없음)."""
     engine = normalize_engine_id(engine) or engine
     priority = get_priority(db)
     try:
@@ -389,9 +485,41 @@ def next_fallback_engine(db: Session, engine: str) -> Optional[str]:
     except ValueError:
         idx = -1
     for candidate in priority[idx + 1 :]:
-        if is_engine_available(candidate):
+        if is_engine_candidate(db, candidate):
             return candidate
     return None
+
+
+# ---------------------------------------------------------------------------
+# 명시 지정 422 방어 (설계 §4.23 ⓒ·결정 ⑥) — 공통 헬퍼 1개, 8곳 잡 시작 지점이 공유
+# ---------------------------------------------------------------------------
+def assert_engine_selectable(db: Session, engine: str) -> None:
+    """`engine`이 auto가 아닌 명시 엔진 id(legacy 별칭 포함)이고 그 엔진이 비활성·비가용이면
+    잡 생성 전 422(§3 `VALIDATION_ERROR`)로 거부한다. `auto`·미등록 값은 검증하지 않는다
+    (auto의 후보 산출 자체가 `is_engine_candidate`를 경유하므로 비활성 엔진은 애초에
+    후보가 아니다 — '422 아님' 계약은 값 형식에 대한 것). 이 후보·상태 판정은 위
+    `is_engine_enabled`/`is_engine_available`만 재사용한다(검증 로직 이원화 금지)."""
+    normalized = normalize_engine_id(engine)
+    if normalized not in ENGINE_REGISTRY:
+        return
+    meta = ENGINE_REGISTRY[normalized]
+    label = meta["label"]
+    if not is_engine_enabled(db, normalized):
+        raise ValidationAppError(
+            f"{label} 엔진이 '사용 안 함' 상태입니다 — 설정에서 켜거나 다른 엔진을 선택하세요",
+            detail={"engine": normalized, "reason": "disabled"},
+        )
+    if not is_engine_available(normalized):
+        if meta["kind"] == "cli":
+            message = f"{label} 엔진이 설치되어 있지 않습니다 — 설치하거나 다른 엔진을 선택하세요"
+            reason = "not_installed"
+        else:
+            message = (
+                f"{label} 엔진에 API 키가 등록되어 있지 않습니다 — 설정에서 키를 등록하거나 "
+                "다른 엔진을 선택하세요"
+            )
+            reason = "key_not_registered"
+        raise ValidationAppError(message, detail={"engine": normalized, "reason": reason})
 
 
 # ---------------------------------------------------------------------------
@@ -711,7 +839,7 @@ def _iso(value: Optional[dt.datetime]) -> Optional[str]:
     return value.isoformat() if isinstance(value, dt.datetime) else None
 
 
-def _engine_status(engine_id: str) -> Dict[str, Any]:
+def _engine_status(db: Session, engine_id: str) -> Dict[str, Any]:
     meta = ENGINE_REGISTRY[engine_id]
     health = engine_health(engine_id)
     entry: Dict[str, Any] = {
@@ -720,6 +848,11 @@ def _engine_status(engine_id: str) -> Dict[str, Any]:
         "billing": meta["billing"],
         "installable": meta["installable"],
         "available": is_engine_available(engine_id),
+        # 설계 §4.23 ⑤ — 순수 추가 4종(톱레벨·기존 필드 불변).
+        "enabled": is_engine_enabled(db, engine_id),
+        "models": list(meta.get("models") or []),
+        "default_model": meta.get("default_model"),
+        "selected_model": get_selected_model(db, engine_id),
         "installed": None,
         "logged_in": None,
         "key_registered": None,
@@ -742,7 +875,7 @@ def get_status(db: Session) -> Dict[str, Any]:
     priority = get_priority(db)
     fallback = settings_service.get_setting(db, "llm.fallback", "ask")
     return {
-        "engines": [_engine_status(eid) for eid in ENGINE_ORDER],
+        "engines": [_engine_status(db, eid) for eid in ENGINE_ORDER],
         "limit": get_remembered_limit(db),
         "priority": priority,
         "fallback_policy": fallback if fallback in ("auto", "ask", "off") else "ask",
