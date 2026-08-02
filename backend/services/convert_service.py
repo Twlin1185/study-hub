@@ -1098,6 +1098,10 @@ def _process_job(job_id: str) -> None:
         elif job["kind"] == "answer_key":
             # S18(F44 ①, 설계 §4.20) — 답지 반입 LLM 가공 잡(convert 잡 큐 재사용).
             result = _do_answer_key_job(job_id, job)
+        elif job["kind"] == "applied_exam":
+            # S19(F45, 설계 §4.21) — 응용 모의고사 생성 잡: LLM 산출 + 검증 게이트 +
+            # 저장까지 이 잡 안에서 끝난다(미리보기 승인 단계 없음 — 결정 ⑤).
+            result = _do_applied_exam_job(job_id, job)
         else:
             # kind == 'explain' — S18(F44 ②, 설계 §4.20) — F30 재생성 잡 인프라 복제.
             result = _do_explain_job(job_id, job)
@@ -2565,3 +2569,184 @@ def apply_explain_job(db: Session, document_id: int, job_id: str) -> models.Docu
         _JOBS.pop(job_id, None)  # 적용 완료된 잡은 캐시에서 제거(재적용 방지)
 
     return document
+
+
+# ---------------------------------------------------------------------------
+# 응용 모의고사 생성(S19 — F45, 설계 §4.21) — 잡 kind='applied_exam'
+#
+# 다른 LLM 잡(반입·재생성·답지·풀이)과 달리 **별도 apply 승인 엔드포인트가 없다** —
+# 사전 미리보기 승인이 원리상 불가능한 기능이라(시험 문제를 미리 보면 무의미) 검증
+# 게이트 통과 후 저장까지 이 잡 안에서 끝난다(결정 ⑤). 텍스트 전용 프롬프트(첨부 파일
+# 없음 — prepare가 이미 범위 문서를 수집해 잡에 스냅샷으로 실어 보낸다), 그 점에서
+# `_do_explain_job`(파일 없는 텍스트 프롬프트) 구조를 따른다.
+# ---------------------------------------------------------------------------
+_APPLIED_EXAM_INSTRUCTIONS = (
+    "너는 Study Hub의 응용 모의고사 출제자다. 아래 범위의 기출 문제·개념 문서를 근거로, "
+    "같은 개념을 다루되 기출에 없던 새로운 표현·상황으로 변형한 응용 문항을 생성한다.\n"
+    "- 전 문항 4지선다 객관식으로만 작성하라(단답·서술형 금지).\n"
+    "- 기출 문항을 그대로 베끼거나 표현만 살짝 바꾸지 마라 — 반드시 새로운 문장·예시로 재구성하라.\n"
+    "- 근거 문서에 없는 사실을 지어내지 마라.\n"
+    "- 각 문항마다 근거로 삼은 문서의 doc_no를 basis 배열에 명시하라(최소 1개, 아래 근거 문서 "
+    "목록에 실제로 있는 값만 사용하라 — 서버가 결정론으로 검증한다).\n\n"
+    "## 출력 형식(엄수)\n"
+    "코드펜스·설명 문장 없이, 아래 형식의 JSON 객체 하나만 출력하라:\n"
+    '{"items": [{"content": "...", "choices": ["...", "...", "...", "..."], '
+    '"answer": "1", "explanation": "...", "basis": ["DOC-0012"]}, ...]}\n'
+    "- content: 문항 지문.\n"
+    "- choices: 보기 4개(배열 길이 정확히 4).\n"
+    "- answer: 정답 보기 번호(1~4, 1부터 시작하는 문자열).\n"
+    "- explanation: 해설.\n"
+    "- basis: 근거로 삼은 문서의 doc_no 목록.\n"
+)
+
+
+def _build_applied_exam_prompt(basis_docs: List[dict], requested_count: int) -> str:
+    lines = [
+        _APPLIED_EXAM_INSTRUCTIONS,
+        "---",
+        "",
+        f"## 이번 생성 대상 — 객관식 응용 문항 {requested_count}개",
+        "",
+        "## 근거 문서",
+    ]
+    for doc in basis_docs:
+        lines.append(f"### {doc['doc_no']} ({doc['type']}) — {doc['title']}")
+        lines.append(doc.get("content") or "(본문 없음)")
+        if doc.get("choices"):
+            lines.append(f"choices: {json.dumps(doc['choices'], ensure_ascii=False)}")
+        if doc.get("answer"):
+            lines.append(f"answer: {doc['answer']}")
+        lines.append("")
+    lines.append("최종 출력은 설명 문장·코드펜스 없이 순수 JSON 객체 하나만 출력하라.")
+    return "\n".join(lines)
+
+
+def _normalize_applied_exam_items(payload: Any) -> List[dict]:
+    """산출 = 순수 `{"items":[...]}`(위반 = `invalid_output`, 설계 §4.21 생성 규약 2). 항목
+    자체의 필드 검증(정답 1-base·basis 실재·복제 검출)은 `applied_exam_service.validate_items`
+    (기계 검증 게이트)가 맡는다 — 여기는 봉투 형태만 확인한다(§4.17 ⑤ 규율과 동일 경계)."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        raise InvalidLlmOutputError(
+            "생성 결과가 지정된 JSON 스키마({\"items\": [...]})가 아닙니다", truncated=False
+        )
+    items: List[dict] = []
+    for raw in payload["items"]:
+        if not isinstance(raw, dict):
+            continue
+        items.append(
+            {
+                "content": raw.get("content") if isinstance(raw.get("content"), str) else None,
+                "choices": raw.get("choices") if isinstance(raw.get("choices"), list) else None,
+                "answer": raw.get("answer") if isinstance(raw.get("answer"), str) else None,
+                "explanation": raw.get("explanation") if isinstance(raw.get("explanation"), str) else None,
+                "basis": raw.get("basis") if isinstance(raw.get("basis"), list) else [],
+            }
+        )
+    return items
+
+
+def _do_applied_exam_job(job_id: str, job: dict) -> dict:
+    _set_phase(job_id, "preparing")
+    attempted_fallback = False
+    text_result: Optional[str] = None
+    while True:
+        engine = job["_engine"]
+        _set_phase(job_id, "llm_running")
+        try:
+            if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
+                text_result = _run_claude_cli_streaming(
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                )
+            elif engine == llm_engine_service.ENGINE_CODEX_CLI:
+                text_result = _run_codex_streaming(
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                )
+            else:
+                text_result = _run_api_streaming(
+                    job["_prompt"],
+                    file_blocks=None,
+                    timeout_seconds=job["_timeout"],
+                    job_id=job_id,
+                    model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                )
+            llm_engine_service.record_engine_result(engine, success=True)
+            break
+        except (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError) as exc:
+            if _handle_engine_failure(job_id, job, engine, exc, attempted_fallback):
+                attempted_fallback = True
+                continue
+            raise
+
+    _set_phase(job_id, "parsing")
+    payload = _parse_json_payload(text_result)
+    items = _normalize_applied_exam_items(payload)
+
+    # 검증 게이트 + 저장(잡 말미 한 트랜잭션) — 지연 import로 순환 의존을 피한다
+    # (applied_exam_service가 모듈 최상단에서 이 모듈을 import하므로 역방향은 지연시킨다).
+    from services import applied_exam_service
+
+    return applied_exam_service.finalize_generation(job, items)
+
+
+def start_applied_exam_job(
+    db: Session,
+    *,
+    gen_id: str,
+    scope_label: str,
+    requested_count: int,
+    basis_docs: List[dict],
+    engine: str = "auto",
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """생성 잡 시작(convert 잡 큐 재사용 — kind='applied_exam', 동시 1개). `basis_docs`는
+    prepare가 이미 수집한 문서 스냅샷(첨부 파일 없음 — 텍스트 프롬프트에 그대로 삽입)."""
+    _purge_expired_jobs()
+    resolved_engine = llm_engine_service.resolve_engine(db, engine)
+    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
+    pre_fallback = applied_engine != resolved_engine
+    resolved_engine = applied_engine
+    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+
+    prompt = _build_applied_exam_prompt(basis_docs, requested_count)
+
+    job_id = f"apx_{uuid.uuid4().hex[:8]}"
+    job = _new_job_base(
+        "applied_exam", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model
+    )
+    if pre_fallback:
+        job["_fallback_used"] = True
+    job.update(
+        {
+            "gen_id": gen_id,
+            "_prompt": prompt,
+            "_timeout": timeout_seconds,
+            "_input_size": len(prompt.encode("utf-8")),
+            "_basis_docs": basis_docs,
+            "_requested_count": requested_count,
+            "_scope_label": scope_label,
+        }
+    )
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+    _ensure_worker()
+    _QUEUE.put(job_id)
+    return job_id
+
+
+def get_applied_exam_job(gen_id: str, job_id: str) -> dict:
+    _purge_expired_jobs()
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None or job["kind"] != "applied_exam" or job.get("gen_id") != gen_id:
+        raise NotFoundError(
+            "응용 모의고사 생성 작업을 찾을 수 없습니다(만료되었을 수 있습니다)",
+            detail={"job_id": job_id},
+        )
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "result": job.get("result"),
+        "error": job.get("error"),
+        "error_info": job.get("_error_info"),
+        "progress": _progress_snapshot(job),
+    }

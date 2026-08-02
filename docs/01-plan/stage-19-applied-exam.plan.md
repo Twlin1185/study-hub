@@ -32,18 +32,18 @@
 
 ### 1. 백엔드 — 생성 파이프라인 (설계 §4.21 생성 규약 1~5)
 
-- [ ] 신설 `backend/services/applied_exam_service.py` — **prepare(LLM 0)**: 범위(하위 포함) 기출·개념 수집 · `source_counts` · `estimate`(`approx_input_tokens`·`assumed` — chars/1.5 보정 관례) · 근거 0건 422 · count 1~20 검증 · 컨텍스트 200,000자 초과 422(too_large 문구 관례 — LLM 호출 전 차단) · gen 상태 인메모리 TTL 1시간
-- [ ] **격리 분류 관리**: 예약 루트 "AI 응용 모의고사" find-or-create + settings `applied_exam.root_category_id` 포인터(부재·삭제 시 재생성·갱신) · 런 분류 생성(이름 = `{scope_label} — {YYYY-MM-DD HH:MM}`)
-- [ ] **생성 잡 kind `'applied_exam'`**(공용 잡 큐 확장 — 동시 1개·§4.11 progress 계약): 프롬프트 코드 내 조립(regenerate 전례 — `prompts/convert.md` 불변) — 객관식 4지선다 고정·문항별 `basis` doc_no 필수·기출에 없던 표현 지시·순수 JSON `{"items":[{content,choices,answer,explanation,basis}]}`(위반 = `invalid_output`)
-- [ ] **검증 게이트**(단위 테스트 대상 — §4.21 생성 규약 3): content·choices(4)·explanation 필수 · answer 1-base 강제(위반 = **문항 전체 폐기** — F44 "answer만 제거" 해석 부적용) · **basis 서버 결정론 검증**(prepare 수집 집합 대조 — 부재·범위 밖 = 폐기) · **복제 검출**(`SourceMatcher` — 근거 텍스트와 커버리지 ≥0.6 일치 = `duplicate_of_source` 폐기) · `discarded[]` 사유 구조화
-- [ ] **저장(잡 말미 한 트랜잭션)**: 통과 문항만 — documents INSERT(**content 서두 마커 서버 부착**(접두 `[AI 생성 문항]`·날짜·엔진 label) · `source_detail="AI 응용 생성 {날짜}"`(**"N번" 패턴 금지** — F44 답지 매칭 키 오염 방지) · **태그 미부여**(규칙 자동 연결 차단)) + category_documents(`linked_by='applied_exam'`·sort_order=생성 순번) + document_relations(`'derived_from'`/`'applied_exam'`). **통과 0건 = 잡 실패·DB 무변경**
-- [ ] `routers/applied_exam.py`에 3 엔드포인트: `POST /api/applied-exam/prepare` · `POST …/{gen_id}/generate`(202) · `GET …/{gen_id}`(result: run_category_id·requested·generated·discarded·document_ids) + `backend/schemas/applied_exam.py`
+- [x] 신설 `backend/services/applied_exam_service.py` — **prepare(LLM 0)**: 범위(하위 포함) 기출·개념 수집 · `source_counts` · `estimate`(`approx_input_tokens`·`assumed` — chars/1.5 보정 관례) · 근거 0건 422 · count 1~20 검증 · 컨텍스트 200,000자 초과 422(too_large 문구 관례 — LLM 호출 전 차단) · gen 상태 인메모리 TTL 1시간
+- [x] **격리 분류 관리**: 예약 루트 "AI 응용 모의고사" find-or-create + settings `applied_exam.root_category_id` 포인터(부재·삭제 시 재생성·갱신) · 런 분류 생성(이름 = `{scope_label} — {YYYY-MM-DD HH:MM}`)
+- [x] **생성 잡 kind `'applied_exam'`**(공용 잡 큐 확장 — 동시 1개·§4.11 progress 계약): 프롬프트 코드 내 조립(regenerate 전례 — `prompts/convert.md` 불변) — 객관식 4지선다 고정·문항별 `basis` doc_no 필수·기출에 없던 표현 지시·순수 JSON `{"items":[{content,choices,answer,explanation,basis}]}`(위반 = `invalid_output`) — `convert_service.py`에 kind 추가(`_do_applied_exam_job`·`start_applied_exam_job`·`get_applied_exam_job`)
+- [x] **검증 게이트**(단위 테스트 대상 — §4.21 생성 규약 3): content·choices(4)·explanation 필수 · answer 1-base 강제(위반 = **문항 전체 폐기** — F44 "answer만 제거" 해석 부적용) · **basis 서버 결정론 검증**(prepare 수집 집합 대조 — 부재·범위 밖 = 폐기) · **복제 검출**(`SourceMatcher` — 근거 텍스트와 커버리지 ≥0.6 일치 = `duplicate_of_source` 폐기) · `discarded[]` 사유 구조화 — `applied_exam_service.validate_items`(순수 함수)
+- [x] **저장(잡 말미 한 트랜잭션)**: 통과 문항만 — documents INSERT(**content 서두 마커 서버 부착**(접두 `[AI 생성 문항]`·날짜·엔진 label) · `source_detail="AI 응용 생성 {날짜}"`(**"N번" 패턴 금지** — F44 답지 매칭 키 오염 방지) · **태그 미부여**(규칙 자동 연결 차단)) + category_documents(`linked_by='applied_exam'`·sort_order=생성 순번) + document_relations(`'derived_from'`/`'applied_exam'`). **통과 0건 = 잡 실패·DB 무변경** — `applied_exam_service._save_generated`(별도 apply 승인 엔드포인트 없이 잡 워커 스레드가 직접 `SessionLocal()`로 커밋 — 미리보기 승인이 원리상 불가능한 기능이라는 설계 §4.21 결정 ⑤에 따른 의도적 구조)
+- [x] `routers/applied_exam.py`에 3 엔드포인트: `POST /api/applied-exam/prepare` · `POST …/{gen_id}/generate`(202) · `GET …/{gen_id}`(result: run_category_id·requested·generated·discarded·document_ids) + `backend/schemas/applied_exam.py`
 
 ### 2. 백엔드 — 응시·제출·이력 (설계 §4.21 응시 절)
 
-- [ ] **응시 구성 = 기존 `POST /api/exam/session` 재사용 확인**(신규 세션 API 금지 — 런 분류 1과목·전체 문항. 응답 QuizQuestionOut에 정답·해설·basis 부재 그대로 — 계약 불변)
-- [ ] `POST /api/applied-exam/submit`: **채점 코어 공유**(§4.14 공용 함수 — 채점 규칙 이원화 금지) · `mode='applied_exam'` 기록 · **subject_category_id가 applied 루트 서브트리인지 검증**(아니면 422 — 실전/응용 교차 제출 차단) · attempts+오답노트+SM-2+study_progress **배치 한 트랜잭션**(불변 규칙 2) · 리포트에 `results[].basis[]`(derived_from 파생) 추가
-- [ ] `GET /api/applied-exam/history?limit=20`: mode='applied_exam' 그룹 파생(exam/history 로직 재사용 — 라벨 = 런 분류 이름). **기존 `exam/history`에 applied 혼입 0** 확인
+- [x] **응시 구성 = 기존 `POST /api/exam/session` 재사용 확인**(신규 세션 API 금지 — 런 분류 1과목·전체 문항. 응답 QuizQuestionOut에 정답·해설·basis 부재 그대로 — 계약 불변) — `exam_service.py`·`schemas/exam.py` 무변경 확인(신규 함수 미추가)
+- [x] `POST /api/applied-exam/submit`: **채점 코어 공유**(§4.14 공용 함수 — 채점 규칙 이원화 금지) · `mode='applied_exam'` 기록 · **subject_category_id가 applied 루트 서브트리인지 검증**(아니면 422 — 실전/응용 교차 제출 차단) · attempts+오답노트+SM-2+study_progress **배치 한 트랜잭션**(불변 규칙 2) · 리포트에 `results[].basis[]`(derived_from 파생) 추가 — `applied_exam_service.submit_applied_exam`(`attempt_service.grade_and_record` 공유)
+- [x] `GET /api/applied-exam/history?limit=20`: mode='applied_exam' 그룹 파생(exam/history 로직 재사용 — 라벨 = 런 분류 이름). **기존 `exam/history`에 applied 혼입 0** 확인 — 단위 테스트로 검증
 
 ### 3. 프론트 — 생성 위저드
 
@@ -59,7 +59,7 @@
 
 ### 5. 테스트·검증
 
-- [ ] **단위 테스트 필수**(불변 규칙 7의 예외 — 격리·게이트는 핵심 로직 취급): ① 검증 게이트(answer 위반 폐기·basis 범위 밖 폐기·복제 검출·통과 0건 = 잡 실패·DB 무변경) ② 마커 부착(접두·날짜·엔진 label) ③ **격리**(생성 문항이 실전 분류 기준 quiz/exam 세션에 미등장 + 태그 0 + source_detail "번" 패턴 부재) ④ submit(applied 루트 밖 422·mode='applied_exam' 기록·exam/history 혼입 0) ⑤ 부분 성공 저장 트랜잭션(통과분만·relations·sort_order)
+- [x] **단위 테스트 필수**(불변 규칙 7의 예외 — 격리·게이트는 핵심 로직 취급): ① 검증 게이트(answer 위반 폐기·basis 범위 밖 폐기·복제 검출·통과 0건 = 잡 실패·DB 무변경) ② 마커 부착(접두·날짜·엔진 label) ③ **격리**(생성 문항이 실전 분류 기준 quiz/exam 세션에 미등장 + 태그 0 + source_detail "번" 패턴 부재) ④ submit(applied 루트 밖 422·mode='applied_exam' 기록·exam/history 혼입 0) ⑤ 부분 성공 저장 트랜잭션(통과분만·relations·sort_order) — `backend/tests/test_applied_exam.py`(20건, 전체 pytest 340 passed)
 - [ ] 스모크(실기동): 비-LLM 경로(prepare 422 계열·상태 404·submit 검증) + **exam/session 응답에 정답·해설 부재 재확인**(기존 회귀 — 계약 불변 증명) + srs/today에 응용 오답 카드 등장(복습 루프 편입) — LLM 생성·응시 완주는 사용자 몫(실비용 — 자동 실행 안 함)
 - [ ] **생성 문항 정답 품질 표본 검증(R22 — plan §15 "stage-19 착수 시 표본 검증" 이행)**: 생성 문항 10건 표본을 사람이 검토(정답 오류·오개념·복제 여부), 수치를 완료 기록과 plan F45·R22에 남긴다(추측 확정 금지) — **사용자 이행(실 LLM 비용)**
 - [ ] stage-reviewer(Opus) 검토: DoD + 격리 전수(일반 출제·이력·통계 혼입 0) + 응시 응답 계약 + 사용량 안내 없는 LLM 호출 0 + 트랜잭션(규칙 2)

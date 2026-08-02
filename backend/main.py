@@ -19,6 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from database import SessionLocal
 from exceptions import AppError
 from routers import (
+    applied_exam,
     backups,
     categories,
     convert,
@@ -60,6 +61,7 @@ app.include_router(backups.router)
 app.include_router(llm.router)
 app.include_router(fetch.router)
 app.include_router(exam.router)
+app.include_router(applied_exam.router)
 
 
 @app.on_event("startup")
