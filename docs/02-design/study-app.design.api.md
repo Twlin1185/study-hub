@@ -857,19 +857,19 @@ backend/services/fetchers/
 
 | 메서드/경로 | 설명 |
 |---|---|
-| `GET /api/improve/cases?page=&size=&kind=` | 실패 사례 목록(§3 페이지 봉투 — 최신순). item = 레코드 요약(`has_llm_output` bool 포함·원문 미포함) |
+| `GET /api/improve/cases?page=&size=&kind=` | 실패 사례 목록(§3 페이지 봉투 — 최신순). item = **상세와 동일한 전체 레코드 필드**(`detail`·`preview_ref`·`regressions` 포함 + `has_llm_output` bool — output 원문만 미포함. **구현 확정 2026-08-02**: 프론트가 목록·상세 공용 타입(`ImproveCaseItem`)으로 소비해 별도 요약형을 두지 않는다 — 총량 50건 상한이라 과대 응답 미성립) |
 | `GET /api/improve/cases/{case_id}` | 사례 상세(재현 정보 — detail·source·preview_ref·regressions. 원문 미포함) |
 | `DELETE /api/improve/cases/{case_id}` | 사례 제거(파일 삭제 — 노이즈 정리. 부속 output 동반 삭제) |
 | `POST /api/improve/gen/prepare` | body `{case_ids: [...]}` — **입력 조립·견적만(LLM 0 · 비용 0)**. 아래 1 |
 | `POST /api/improve/gen/{gen_id}/generate` | body `{engine?: 'auto'\|엔진id}` → `202 {job_id}` — 제안 생성 잡(convert 잡 큐 재사용 — kind `'improve_proposal'`, 동시 1개 · §4.11 progress 계약 그대로) |
 | `GET /api/improve/gen/{gen_id}` | `{status, progress, error_info, result?: {proposal_ids, discarded: [{reason, count}]}}` |
-| `GET /api/improve/proposals?status=` | 제안 목록(기본 pending — 제안함 화면이 소비). item = `{proposal_id, kind, title, rationale, case_ids, status, created_at, decided_at}` |
-| `GET /api/improve/proposals/{proposal_id}` | 상세 — payload 전문 + **적용 미리보기**(아래 3: casebook = 추가될 엔트리 전문 · prompt_edit = 헝크별 before/after + 적용 후 전문 `preview_after` + `policy_check`) |
+| `GET /api/improve/proposals?status=` | 제안 목록(기본 pending — 제안함 화면이 소비). 응답 = **평면 배열(§3 페이지 봉투 아님 — 구현 확정 2026-08-02**: 총량 50건 상한이라 페이지네이션 무의미, 페이지 봉투는 cases만). item = `{proposal_id, kind, title, rationale, case_ids, status, created_at, decided_at}` |
+| `GET /api/improve/proposals/{proposal_id}` | 상세 — **평면 필드(구현 확정 2026-08-02 — 중첩 `preview{}` 객체 없음)**: prompt_edit은 `preview_after`(적용 후 전문)·`policy_check`가 **최상위 필드**, casebook·code_issue는 `payload`가 이미 전문(엔트리/재현 패키지)을 보유해 추가 미리보기 필드 없음(아래 3) |
 | `POST /api/improve/proposals/{proposal_id}/apply` | **승인 반영 — 이 기능의 유일한 파일 쓰기 경로**. 아래 4. pending 아니면 409, 정책 잠금 위반 422, 헝크 불일치 409 |
 | `POST /api/improve/proposals/{proposal_id}/reject` | 거절 — `status='rejected'`·decided_at (pending 아니면 409) |
 | `POST /api/improve/regression/prepare` | body `{case_ids: [...]}` — **회귀 견적만(LLM 0)**. 1~10건·`user_report` 포함 시 422("신고 사례는 자동 회귀 판정 대상이 아닙니다"). 응답 `{reg_id, case_count, estimate}` |
 | `POST /api/improve/regression/{reg_id}/run` | body `{engine?}` → `202 {job_id}` — 회귀 재변환 잡(kind `'improve_regression'` — 사례별 순차) |
-| `GET /api/improve/regression/{reg_id}` | `{status, progress, error_info, results: [{case_id, outcome, detail?}]}` |
+| `GET /api/improve/regression/{reg_id}` | `{status, progress, error_info, results: [{case_id, outcome, detail?}]}` — `detail` = **한국어 사람 말 문자열(구조화 객체 아님 — 구현 확정 2026-08-02**, 프론트가 그대로 렌더 · §4.11 원문 미노출 원칙 준수) |
 
 **② 제안 생성 규약**
 
@@ -882,7 +882,7 @@ backend/services/fetchers/
 **③ 제안함 일반화·승인 규약 (F21 확장 — UI 계층, 결정 ①)**
 
 - 제안함 페이지(`/suggestions` — `pages/Suggestions.tsx`)에 수신함 2탭: **[분류 연결]**(기존 §4.9 — 무변경) + **[반입 개선]**(신규 — 실패 사례 목록·제안 생성 위저드·제안 카드·회귀 패널). nav 배지(`SuggestionsNavBadge`) = 두 pending 합산.
-- 제안 카드 = kind 배지(사례집 추가 / 프롬프트 수정 / **코드 수정 필요**) + title + rationale + 근거 사례 링크. 상세 = 적용 미리보기(casebook 엔트리 전문 / prompt_edit 헝크 before-after + `preview_after` + `policy_check: 'ok'|'violation'` / code_issue 재현 패키지 전문) — **승인 전에 반영 결과 전문을 본다**(diff/미리보기 — R8·미리보기 승인 관례).
+- 제안 카드 = kind 배지(사례집 추가 / 프롬프트 수정 / **코드 수정 필요**) + title + rationale + 근거 사례 링크. 상세 = 적용 미리보기 — prompt_edit은 헝크 before-after(`payload.hunks`) + **최상위 필드** `preview_after`·`policy_check: 'ok'|'violation'`(**평면 구조 — 구현 확정 2026-08-02**), casebook·code_issue는 `payload` 전문 그대로가 미리보기 재료 — **승인 전에 반영 결과 전문을 본다**(diff/미리보기 — R8·미리보기 승인 관례).
 - **apply(kind별 반영 — 유일한 파일 쓰기)**:
   - `casebook`: `prompts/convert.cases.md` **말미 append**(엔트리 헤더 `## 사례 {case_id 목록}: {title}` — 서버가 부착). append 결과 사례집 총량 **20,000자 초과 = 422**("사례집이 상한을 넘습니다 — git에서 직접 정리하세요") — 땜질 규칙 무한 누적의 기계 상한(R23 ②).
   - `prompt_edit`: 헝크 순차 치환 적용 — 사전 검증 ① before 정확·유일 일치(불일치 = **409** "프롬프트 본문이 변경되었습니다 — 제안을 다시 생성하세요") ② 적용 결과의 **잠금 구간 개수·순서·내용 바이트 불변**(위반 = **422** — 결정 ⑦). 앱은 파일만 수정한다 — git 커밋·롤백은 저장소 워크플로 몫(자동 git 실행 없음. 이력·롤백 공짜는 git 관리 파일이라는 사실에서 온다 — R23 ④).
