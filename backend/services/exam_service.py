@@ -33,7 +33,7 @@ from schemas.exam import (
     ExamTotal,
 )
 from schemas.quiz import QuizQuestionOut
-from services import attempt_service, category_service, exam_scoring, quiz_service
+from services import attempt_service, category_service, exam_scoring, quiz_service, srs_service
 from services.tree_utils import category_path, collect_descendant_ids
 
 SUBJECT_UPPER_BOUND = 200  # 계획서 §4.14 — count 미지정(전체 요청) 시 과목당 상한
@@ -176,7 +176,7 @@ def submit_exam(db: Session, payload: ExamSubmitRequest) -> ExamSubmitReport:
                 },
             )
 
-    run_key = dt.datetime.utcnow()  # 배치 공통 answered_at — 응시 런 키(설계 §4.14)
+    run_key = srs_service.utc_now()  # 배치 공통 answered_at — 응시 런 키(설계 §4.14)
     tallies: Dict[int, exam_scoring.SubjectTally] = {
         cid: exam_scoring.SubjectTally(category_id=cid, name=category_by_id[cid].name)
         for cid in subject_ids

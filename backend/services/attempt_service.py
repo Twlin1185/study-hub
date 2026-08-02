@@ -125,7 +125,7 @@ def grade_and_record(
             )
             db.add(progress)
         progress.status = "done"
-        progress.completed_at = dt.datetime.utcnow()
+        progress.completed_at = srs_service.utc_now()
 
     # SM-2 갱신 — 첫 풀이면 카드 자동 생성. 같은 트랜잭션에서 처리(불변 규칙 2).
     q = sm2.quality_for_attempt(
