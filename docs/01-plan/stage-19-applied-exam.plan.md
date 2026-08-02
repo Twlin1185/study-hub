@@ -47,15 +47,15 @@
 
 ### 3. 프론트 — 생성 위저드
 
-- [ ] 모의고사 구성 화면(§5.12)에 모드 탭 **[실전(기출)] / [AI 응용]** — AI 응용: 범위 선택(기존 분류 트리 재사용)·문항 수(1~20)·엔진 선택 → [생성 준비](prepare)
-- [ ] **사용량 확인 스텝(필수 — 확인 없이 생성 불가)**: estimate·source_counts·엔진·과금형(`billing`) 표시(FetchImportWizard 전례) → [생성 시작](generate) → 진행 `LlmJobProgress`·`LlmErrorInfo` 재사용 · 422(범위 과대·근거 0건)는 서버 메시지 렌더
-- [ ] 생성 결과 요약: generated/requested + **미달 시 경고 배지·폐기 사유 건수**(조용한 축소 금지) → [응시 시작]
+- [x] 모의고사 구성 화면(§5.12)에 모드 탭 **[실전(기출)] / [AI 응용]** — AI 응용: 범위 선택(기존 분류 트리 재사용)·문항 수(1~20)·엔진 선택 → [생성 준비](prepare) — `pages/Exam.tsx`(모드 탭) + `components/AppliedExamPanel.tsx`(신설, setup 단계)
+- [x] **사용량 확인 스텝(필수 — 확인 없이 생성 불가)**: estimate·source_counts·엔진·과금형(`billing`) 표시(FetchImportWizard 전례) → [생성 시작](generate) → 진행 `LlmJobProgress`·`LlmErrorInfo` 재사용 · 422(범위 과대·근거 0건)는 서버 메시지 렌더 — `AppliedExamPanel.tsx`(confirm·process 단계)
+- [x] 생성 결과 요약: generated/requested + **미달 시 경고 배지·폐기 사유 건수**(조용한 축소 금지) → [응시 시작] — `AppliedExamPanel.tsx`(summary 단계)
 
 ### 4. 프론트 — 응시·리포트
 
-- [ ] [응시 시작] = `exam/session`(런 분류·sequential 기본) → **ExamRun·타이머·네비게이터 재사용**(content 마커 인용구 그대로 렌더 — 숨기지 않음) · zustand `examSession`에 applied 컨텍스트 확장(런 분류 id·플래그 — §7, 신규 스토어 없음)
-- [ ] 제출 분기: applied면 `applied-exam/submit` → 리포트 = F25 재사용 + **문항별 [근거 문서] 링크(basis)** + **[오류 신고](F30 `ReportErrorButton` 재사용)** + "AI 생성 모의고사" 배지 · 틀린 문제 재도전·오답노트 가기 기존 그대로
-- [ ] AI 응용 탭 하단 응시 이력 소표기(`applied-exam/history` — 실전 이력과 분리 표시). 색상은 전부 토큰(불변 규칙 5)
+- [x] [응시 시작] = `exam/session`(런 분류·sequential 기본) → **ExamRun·타이머·네비게이터 재사용**(content 마커 인용구 그대로 렌더 — 숨기지 않음) · zustand `examSession`에 applied 컨텍스트 확장(런 분류 id·플래그 — §7, 신규 스토어 없음) — `stores/examSession.ts`(`applied`·`appliedRunCategoryId` 필드 추가), `AppliedExamPanel.tsx`(exam/session 호출·start()·navigate)
+- [x] 제출 분기: applied면 `applied-exam/submit` → 리포트 = F25 재사용 + **문항별 [근거 문서] 링크(basis)** + **[오류 신고](F30 `ReportErrorButton` 재사용)** + "AI 생성 모의고사" 배지 · 틀린 문제 재도전·오답노트 가기 기존 그대로 — `pages/ExamRun.tsx`(doSubmit 분기·ResultRow basis/신고 버튼·배지), `api/appliedExam.ts`(useSubmitAppliedExam)
+- [x] AI 응용 탭 하단 응시 이력 소표기(`applied-exam/history` — 실전 이력과 분리 표시). 색상은 전부 토큰(불변 규칙 5) — `AppliedExamPanel.tsx` 하단 섹션, `api/appliedExam.ts`(useAppliedExamHistory)
 
 ### 5. 테스트·검증
 
@@ -67,7 +67,7 @@
 ### 6. 문서
 
 - [ ] 계획서 F45에 구현 확정 사항 기록(마커 최종 문구·표본 검증 결과) · 설계 §4.21에 구현 중 보완 반영(어긋나면 착수 중단 후 보고 — DDL은 특히)
-- [ ] 사용자 매뉴얼(F39): AI 응용 모의고사 사용법(비용 확인·격리 분류·마커 의미·근거 링크·오류 신고 경로) 추가
+- [x] 사용자 매뉴얼(F39): AI 응용 모의고사 사용법(비용 확인·격리 분류·마커 의미·근거 링크·오류 신고 경로) 추가 — `docs/manual/user-manual.html` §8 "AI 응용 모의고사" 신설
 - [ ] 이 문서 체크박스 갱신(불변 규칙 10) · CLAUDE.md 문서 지도 갱신은 오케스트레이터 담당(4.1~4.21·[S19]·stage 19 완료 표기)
 
 ## DoD (완료 정의)

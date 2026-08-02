@@ -7,6 +7,7 @@ import { findCategory } from '../utils/tree'
 import { ApiError } from '../api/client'
 import type { CategoryNode, ExamOrder, ExamSessionRequest } from '../api/types'
 import QuizExamTabs from '../components/QuizExamTabs'
+import AppliedExamPanel from '../components/AppliedExamPanel'
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -111,6 +112,10 @@ export default function ExamPage() {
   const pipelineQuery = useCategoryTreePipeline()
   const createSession = useCreateExamSession()
   const start = useExamSessionStore((s) => s.start)
+
+  // S19(§4.21·§5.12) — 모드 탭 [실전(기출)] / [AI 응용]. AI 응용은 별도 위저드(AppliedExamPanel)로
+  // 완전히 분리한다 — 이 아래 실전 흐름(F25)은 손대지 않는다(계약 불변).
+  const [examMode, setExamMode] = useState<'real' | 'applied'>('real')
 
   const [examNodeId, setExamNodeId] = useState<number | null>(null)
   const [selectedSubjects, setSelectedSubjects] = useState<Set<number>>(new Set())
@@ -249,6 +254,32 @@ export default function ExamPage() {
 
       <QuizExamTabs />
 
+      {/* AI 응용 모드 탭(설계 §4.21·§5.12) — [실전(기출)]은 아래 기존 흐름 그대로(F25 계약 불변),
+          [AI 응용]은 완전히 분리된 별도 위저드(AppliedExamPanel)로 전환한다. */}
+      <div className="mb-4 flex gap-1 rounded-lg border border-border bg-surface p-1">
+        {(
+          [
+            { value: 'real', label: '실전(기출)' },
+            { value: 'applied', label: 'AI 응용' },
+          ] as const
+        ).map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => setExamMode(opt.value)}
+            className={`flex-1 rounded-md px-3 py-2 text-center text-sm font-medium transition-colors ${
+              examMode === opt.value ? 'bg-accent text-on-accent' : 'text-muted hover:bg-bg hover:text-primary'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {examMode === 'applied' && <AppliedExamPanel />}
+
+      {examMode === 'real' && (
+        <>
       <section className="mb-4">
         <h2 className="mb-2 text-sm font-semibold text-primary">① 시험 노드 선택</h2>
         {pipelineQuery.isLoading && <p className="text-sm text-muted">불러오는 중…</p>}
@@ -418,6 +449,8 @@ export default function ExamPage() {
       >
         {createSession.isPending ? '준비 중…' : '응시 시작'}
       </button>
+        </>
+      )}
     </div>
   )
 }

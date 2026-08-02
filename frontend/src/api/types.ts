@@ -429,6 +429,9 @@ export interface ExamResultItem {
   answer: string | null
   explanation: string | null
   review_note_id: number | null
+  // S19(§4.21) — applied-exam/submit 응답에서만 채워진다(일반 exam/submit엔 없음, undefined).
+  // document_relations 'derived_from'에서 파생된 근거 문서 목록 — 사후 검토(R22 ②)의 핵심.
+  basis?: AppliedExamBasisDoc[]
 }
 
 export interface ExamSubmitResponse {
@@ -459,6 +462,89 @@ export interface ExamHistoryItem {
 }
 
 export type ExamHistoryResponse = ExamHistoryItem[]
+
+// ---- 응용 모의고사 Applied Exam (설계 §4.21, S19, F45) ----
+//
+// 원칙(강제 재확인): 응시 구성은 기존 exam/session 재사용(신규 세션 API 없음) — subjects=
+// [{category_id: run_category_id}] 1과목, QuizQuestionOut 재사용이라 정답·해설·basis 전부
+// 부재(계약 수준 봉인, 불변 규칙 1). 이 블록의 타입은 신규 5개 엔드포인트(prepare·generate·
+// 상태·submit·history)만 다룬다. submit 응답은 ExamSubmitResponse를 그대로 재사용하고
+// results[].basis(위 ExamResultItem 참조)만 추가로 채워진다 — 별도 응답 타입을 두지 않는다.
+// history 응답도 파생 로직 재사용이라 ExamHistoryResponse와 동일 형태(mode='applied_exam' 그룹).
+
+export interface AppliedExamPrepareRequest {
+  category_ids: number[]
+  count: number
+}
+
+export interface AppliedExamSourceCounts {
+  past_question: number
+  question: number
+  concept: number
+}
+
+// estimate 필드 관례 = fetch_service.estimate_usage(§4.13)·answer-key(§4.20 ①) 재사용.
+export interface AppliedExamEstimate {
+  approx_input_tokens: number
+  assumed: boolean
+}
+
+export interface AppliedExamPrepareResponse {
+  gen_id: string
+  scope_label: string
+  source_counts: AppliedExamSourceCounts
+  requested_count: number
+  estimate: AppliedExamEstimate
+}
+
+export interface AppliedExamGenerateRequest {
+  engine?: LlmEngine
+}
+
+export interface AppliedExamGenerateResponse {
+  job_id: string
+}
+
+// 검증 게이트(§4.21 결정 ⑦) 폐기 사유 — 조용한 축소 금지, 상태 응답에 구조화되어 내려온다.
+export type AppliedExamDiscardReason =
+  | 'invalid_item'
+  | 'invalid_answer'
+  | 'missing_explanation'
+  | 'bad_basis'
+  | 'duplicate_of_source'
+
+export interface AppliedExamDiscardGroup {
+  reason: AppliedExamDiscardReason
+  count: number
+}
+
+export interface AppliedExamResult {
+  run_category_id: number
+  requested: number
+  generated: number
+  discarded: AppliedExamDiscardGroup[]
+  document_ids: number[]
+}
+
+// GET /api/applied-exam/{gen_id} — 상태·결과 조회. convert 잡 큐 kind 'applied_exam' 재사용이라
+// progress·error_info 계약은 §4.11 그대로(ConvertJobResponse와 동형이나 result 필드가 다름).
+export interface AppliedExamStatusResponse {
+  status: ConvertJobStatus
+  error?: string | null
+  error_info?: LlmErrorInfo | null
+  progress?: JobProgress | null
+  result?: AppliedExamResult | null
+}
+
+export interface AppliedExamBasisDoc {
+  document_id: number
+  doc_no: string
+  title: string
+  type: DocumentType
+}
+
+// 파생값 재사용 — mode='applied_exam' 그룹(실전 exam/history와 상호 불간섭, §4.21 결정 ②).
+export type AppliedExamHistoryResponse = ExamHistoryResponse
 
 // ---- 복습 SRS (설계 §4.7, stage-5) ----
 //

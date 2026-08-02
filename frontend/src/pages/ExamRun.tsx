@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import MarkdownView from '../components/MarkdownView'
 import QuestionCard from '../components/QuestionCard'
 import ExamNavigator from '../components/ExamNavigator'
 import ProgressBar from '../components/ProgressBar'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Modal from '../components/Modal'
+import ReportErrorButton from '../components/ReportErrorButton'
 import { useExamSessionStore } from '../stores/examSession'
 import type { ExamFlatItem } from '../stores/examSession'
 import { useSubmitExam, useExamHistory } from '../api/exam'
+import { useSubmitAppliedExam } from '../api/appliedExam'
 import { useUpdateReviewNote } from '../api/reviewNotes'
 import { useCreateQuizSession } from '../api/quiz'
 import { useQuizSessionStore } from '../stores/quizSession'
@@ -60,12 +62,14 @@ export default function ExamRunPage() {
   const startedAt = useExamSessionStore((s) => s.startedAt)
   const deadlineAt = useExamSessionStore((s) => s.deadlineAt)
   const report = useExamSessionStore((s) => s.report)
+  const applied = useExamSessionStore((s) => s.applied)
   const setAnswerStore = useExamSessionStore((s) => s.setAnswer)
   const goTo = useExamSessionStore((s) => s.goTo)
   const submitted = useExamSessionStore((s) => s.submitted)
   const reset = useExamSessionStore((s) => s.reset)
 
   const submitExam = useSubmitExam()
+  const submitAppliedExam = useSubmitAppliedExam()
   const updateReviewNote = useUpdateReviewNote()
   const createQuizSession = useCreateQuizSession()
   const startQuiz = useQuizSessionStore((s) => s.start)
@@ -180,7 +184,11 @@ export default function ExamRunPage() {
   function doSubmit() {
     setSubmitError(null)
     const elapsedSeconds = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 1000)) : 0
-    submitExam.mutate(buildSubmitBody(elapsedSeconds), {
+    const body = buildSubmitBody(elapsedSeconds)
+    // S19(§4.21) — applied 세션은 채점 코어를 공유하는 applied-exam/submit으로 분기(mode
+    // 'applied_exam' 기록 + results[].basis 추가, 요청 형태는 exam/submit과 동일).
+    const mutation = applied ? submitAppliedExam : submitExam
+    mutation.mutate(body, {
       onSuccess: (data) => submitted(data),
       onError: (e) => setSubmitError(errMsg(e, '제출에 실패했습니다.')),
     })
@@ -212,6 +220,7 @@ export default function ExamRunPage() {
       <ExamReport
         report={report}
         items={items}
+        applied={applied}
         updateReviewNote={updateReviewNote}
         createQuizSession={createQuizSession}
         startQuiz={startQuiz}
@@ -230,11 +239,19 @@ export default function ExamRunPage() {
   const remainingSec = Math.floor(remainingMs / 1000)
   const warn = remainingSec <= 5 * 60
   const unansweredCount = items.filter((it) => answers[it.document_id] == null).length
+  const submitPending = applied ? submitAppliedExam.isPending : submitExam.isPending
 
   return (
     <div className="mx-auto max-w-5xl p-4 pb-24">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-base font-semibold text-primary">모의고사 응시 중</h1>
+        <h1 className="text-base font-semibold text-primary">
+          모의고사 응시 중
+          {applied && (
+            <span className="ml-2 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent">
+              AI 생성 모의고사
+            </span>
+          )}
+        </h1>
         <div className="flex items-center gap-3">
           <span className={`text-lg font-semibold tabular-nums ${warn ? 'text-warning' : 'text-primary'}`}>
             ⏱ {formatCountdown(remainingSec)}
@@ -242,7 +259,7 @@ export default function ExamRunPage() {
           <button
             type="button"
             onClick={handleSubmitClick}
-            disabled={submitExam.isPending}
+            disabled={submitPending}
             className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
           >
             제출
@@ -335,7 +352,7 @@ export default function ExamRunPage() {
           message={`미응답 문항이 ${unansweredCount}개 있습니다. 그래도 제출할까요? (미응답은 오답으로 채점됩니다)`}
           confirmLabel="제출"
           danger
-          submitting={submitExam.isPending}
+          submitting={submitPending}
           onClose={() => setSubmitConfirmOpen(false)}
           onConfirm={() => {
             setSubmitConfirmOpen(false)
@@ -476,6 +493,28 @@ function ResultRow({
             <span className="font-semibold">해설</span>
             <MarkdownView content={result.explanation} />
           </div>
+          {/* S19(§4.21) — 생성 문항 사후 검토 방어선: 근거 문서 링크 + 오류 신고(F30 재사용). */}
+          {result.basis && result.basis.length > 0 && (
+            <div className="mt-3 border-t border-border pt-3">
+              <p className="mb-1.5 text-xs font-semibold text-muted">근거 문서</p>
+              <div className="flex flex-wrap gap-1.5">
+                {result.basis.map((b) => (
+                  <Link
+                    key={b.document_id}
+                    to={`/docs/${b.document_id}`}
+                    className="rounded border border-border px-2 py-1 text-xs text-accent hover:bg-bg"
+                  >
+                    {b.doc_no} {b.title}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+          {result.basis != null && (
+            <div className="mt-3">
+              <ReportErrorButton documentId={result.document_id} variant="inline" />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -485,6 +524,7 @@ function ResultRow({
 function ExamReport({
   report,
   items,
+  applied,
   updateReviewNote,
   createQuizSession,
   startQuiz,
@@ -492,13 +532,15 @@ function ExamReport({
 }: {
   report: ExamSubmitResponse
   items: ExamFlatItem[]
+  applied: boolean
   updateReviewNote: ReturnType<typeof useUpdateReviewNote>
   createQuizSession: ReturnType<typeof useCreateQuizSession>
   startQuiz: ReturnType<typeof useQuizSessionStore.getState>['start']
   onExit: () => void
 }) {
   const navigate = useNavigate()
-  const historyQuery = useExamHistory(5)
+  // S19(§4.21) — applied 세션은 이 페이지에서 실전 이력을 조회하지 않는다(요청 §4.21 "이력" 항).
+  const historyQuery = useExamHistory(5, !applied)
   const [retryError, setRetryError] = useState<string | null>(null)
 
   const itemMap = useMemo(() => new Map(items.map((it) => [it.document_id, it])), [items])
@@ -526,8 +568,15 @@ function ExamReport({
 
   return (
     <div className="mx-auto max-w-2xl p-4">
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold text-primary">모의고사 결과</h1>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="flex items-center gap-2 text-xl font-semibold text-primary">
+          모의고사 결과
+          {applied && (
+            <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
+              AI 생성 모의고사
+            </span>
+          )}
+        </h1>
         <span
           className={`rounded-full px-3 py-1 text-sm font-semibold ${
             report.passed ? 'bg-correct/10 text-correct' : 'bg-wrong/10 text-wrong'
