@@ -528,8 +528,14 @@ export interface AppliedExamResult {
 
 // GET /api/applied-exam/{gen_id} — 상태·결과 조회. convert 잡 큐 kind 'applied_exam' 재사용이라
 // progress·error_info 계약은 §4.11 그대로(ConvertJobResponse와 동형이나 result 필드가 다름).
+// 'prepared'(2026-08-02 검토 경미⑤, 라이브 실측) — generate 호출 전(prepare 직후) gen 상태를
+// 나타내는 값. ConvertJobStatus('running'|'done'|'error')에는 없는 상태라 유니온으로 확장한다.
+// 프론트는 이 값을 process 단계 폴링 중에는 만나지 않는다(generate 성공 후에만 폴링 시작 —
+// AppliedExamPanel.tsx) — 타입만 정확히 맞추고 소비처 동작은 바꾸지 않는다.
+export type AppliedExamStatus = ConvertJobStatus | 'prepared'
+
 export interface AppliedExamStatusResponse {
-  status: ConvertJobStatus
+  status: AppliedExamStatus
   error?: string | null
   error_info?: LlmErrorInfo | null
   progress?: JobProgress | null
