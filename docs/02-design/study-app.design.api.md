@@ -5,7 +5,7 @@
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S18] = stage 1~18에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
+구현 단계 표기: [S1]~[S19] = stage 1~19에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
 
 ### 4.1 분류 Categories
 
@@ -766,4 +766,62 @@ backend/services/fetchers/
 - `backend/services/fetch_service.py` — `estimate_usage`(52행 — `approx_input_tokens`·`assumed` 필드 관례)
 - 신설 제안: `backend/services/answer_key_service.py`(업로드·판별 연계·번호 매칭·미리보기·apply를 한 파일에) + `backend/schemas/answer_key.py`·`backend/schemas/explain.py`
 - 프론트: `pages/Import.tsx`(답지 반입 진입) · `components/FetchImportWizard.tsx`(509·520행 부근 — 사용량 확인 스텝·고정 고지 전례) · `components/RegenerateJobPanel.tsx`·`ReportErrorButton.tsx`(F30 초안 패널·진입 전례) · `components/LlmJobProgress.tsx`·`LlmErrorInfo.tsx`(진행·오류 렌더 재사용) · `pages/DocumentDetail.tsx`(explain 진입점) · `pages/ReviewNotes.tsx`(선택 진입점)
+
+### 4.21 응용 모의고사 — 범위 기반 LLM 응용 문항 생성·응시 (S19 — F45. **계약 확정 2026-08-02, stage-19 착수 전 결정 ①~⑦ 해소분**)
+
+> 근거: 계획서 §14 F45(단일 출처 — 배경·①②③·R22). 이 절은 착수 전 결정 ①~⑦의 확정 계약이며, 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-19 DoD).
+> 원칙 재확인: **채점은 서버에서만(불변 규칙 1)** — 응시 구성은 기존 `POST /api/exam/session` 재사용이라 응시 응답에 정답·해설이 **스키마 수준으로 부재**하다(QuizQuestionOut — 필터링이 아니라 부재, 계약 불변). **이 기능은 사전 미리보기 승인이 원리상 불가능하다**(시험 문제를 미리 보면 무의미 — R7 최종 방어선 사용 불가) → **방어선은 사후 검토로 이동**(제출 후 리포트의 문항별 근거 문서 링크 + F30 오류 신고·재생성 — R22 ②)하고, 생성물은 **격리 분류에만 저장**해 문서고 본류·일반 퀴즈·SRS를 오염시키지 않는다(R22 ③). 실행 전 LLM 사용량 안내(F35 원칙) · 오류 원문 노출 금지(§4.11 `error_info`) · 에러 규약 §3.
+
+**착수 전 결정 ①~⑦ 확정 (2026-08-02)**
+
+- **① 생성 문항 저장 방식 = 격리 저장(격리 분류 문서) 확정** — 일회용 기각. 생성 문항은 `documents` 정식 행(type=`'question'` — 기출이 아니므로 past_question 금지)으로 저장하되, **예약 루트 분류 "AI 응용 모의고사"**(settings `applied_exam.root_category_id` 포인터로 추적 — 부재·삭제 시 재생성 후 포인터 갱신, 이름 변경에 무관) 아래 **런(run) 단위 자식 분류**에만 연결한다(`category_documents.linked_by='applied_exam'`). 근거 = 불변 규칙 2: 오답 시 attempts + 오답노트 + SM-2가 **참조할 실문서**가 있어야 오답이 복습 루프에 들어간다(일회용이면 루프 단절, 무표기 정식 저장이면 문서고 오염 — §14 F45 ③의 중간항 그대로). 실전 분류 트리에는 연결하지 않는다(격리의 구조적 실현 — 아래 격리 규약).
+- **② `attempts.mode` = `'applied_exam'` 신설** — 기존 `'exam'` 재사용 기각. 근거 = 이력 간섭: `GET /api/exam/history`의 런 키가 **mode='exam' 배치 그룹**이라 재사용 시 응용 응시가 실전 모의고사 이력에 혼입되고(라벨·R15 기본 컷 재평가 오염), 분리하면 파생 로직 재사용만으로 `applied-exam/history`가 성립한다. 자유 텍스트 컬럼(CHECK 없음)이라 **DDL 0** — §6.2 주석 갱신만.
+- **③ 생성분 표기 = F44 결정 ③ 확정 관례 상속(무-DDL)** — `content` **서두 고정 마커 라인**(Markdown 인용구 1줄, 저장 시 **서버가 부착**). 문항용 접두 = **`[AI 생성 문항]`**: `> [AI 생성 문항] {YYYY-MM-DD} · {엔진 label} — 기출 원본이 아닌 LLM 응용 생성 문항입니다. 오류가 보이면 오류 신고로 재생성하세요.` 마커는 content에 살므로 응시·문서 상세·오답노트·SRS 카드 어디서든 상시 표시된다(생성 표시 상시 — R22 ①·③). `answer_source:'solved'` 의미는 §4.17 관례 그대로 **응답·게이트 신호 전용, DB 미저장**(별도 explanation 마커는 두지 않는다 — 문서 전체가 생성물이라 content 마커 1개가 정본).
+- **④ 근거 문서 연결 = `document_relations` 값 확장(F43 'embeds' 전례)** — 생성 문항(from) → 근거 기출/개념 문서(to)에 `relation='derived_from'`, `created_by='applied_exam'` 행 저장. 자유 텍스트라 **DDL 0**(§6.2 주석 갱신만). 리포트의 근거 링크·DocumentDetail의 관계 표시(F24)가 이 행에서 파생되고, 전량 재계산이 아닌 생성 시 1회 기록(본문 파싱 파생인 'embeds'와 달리 **생성 사실의 기록**이라 원본이 따로 없다).
+- **⑤ 생성 실패·부분 실패 = 부분 성공 저장·부분 응시 허용(보수 확정)** — 검증 게이트(아래 3) 통과 문항만 잡 말미 **한 트랜잭션**으로 저장(문서+마커+격리 연결+근거 relations), 통과 0건 = 잡 실패(저장 0·런 분류 미생성). 요청 N 미달은 상태 응답에 `requested`/`generated`/`discarded[]`로 정직하게 표시(조용한 축소 금지). **응시는 잡 성공(=저장 완료) 후에만 시작 가능**(§14 F45 ① "생성 완료·서버 저장 후에만 응시" — 응시 무결성). 부족분 보충은 새 생성 실행(비용 안내 재경유 — 전량 자동 재시도는 비용 재청구라 기각).
+- **⑥ 비용 규약 = F35 사용량 안내 + F44 비용 규약 관례 재사용** — `prepare`(LLM 0)가 범위 문서를 수집해 `estimate`(`approx_input_tokens`·`assumed` — `fetch_service.estimate_usage` 필드 관례, 한국어 보정 chars/1.5 전례)를 반환하고, 프론트는 **확인 스텝 표시 후에만** `generate`를 호출한다(FetchImportWizard 전례 + 엔진·과금형 `billing` 표시). 신규 estimate 전용 API 없음(prepare에 내장). 컨텍스트 **200,000자 상한**(§4.18 `too_large` 관례 — 초과 시 prepare가 422로 즉시 중단 + "범위를 좁혀 주세요" 안내, LLM 호출 전 비용 0 차단).
+- **⑦ 품질 게이트 = 기계 검증 확정(원문 대조의 역방향 포함) + 자기 검증 불채택** — 상세는 아래 3. §4.17 검증 재사용(순수 JSON 위반=`invalid_output` · content 필수 · 객관식 answer 1-base 번호 강제) + **근거 doc_no 서버 결정론 검증**(F44 결정 ② 관례 — LLM 판단 불신, 서버가 범위 대조) + **복제 검출**(`SourceMatcher` 역적용 — 생성이 목적이므로 "원본에 있으면 실패"). **자기 검증(2차 LLM 패스)은 하지 않는다** — 비용 2배에 프롬프트는 약한 레버(R7 실측)이며, R22의 확정 대응은 사후 검토 이동·근거 링크·F30 경로다. 정답 품질은 stage-19에서 **표본 검증 10건(R22 — 사용자 이행)**으로 실측한다(추측 확정 금지).
+
+**신규 엔드포인트 5개 (전부 [S19])**
+
+| 메서드/경로 | 설명 |
+|---|---|
+| `POST /api/applied-exam/prepare` | body `{category_ids: [...], count}` — **범위 수집·견적만(LLM 0 · 비용 0)**. 범위(하위 포함)의 기출·개념 문서 수집 + `estimate` 산출 + gen 상태 인메모리 TTL 1시간. 아래 1 |
+| `POST /api/applied-exam/{gen_id}/generate` | body `{engine?: 'auto'\|엔진id}` → `202 {job_id}` — 생성 잡 시작(convert 잡 큐 재사용 — kind `'applied_exam'`, 동시 1개 · §4.11 progress 계약 그대로) |
+| `GET /api/applied-exam/{gen_id}` | 상태·결과 조회. 아래 4 |
+| `POST /api/applied-exam/submit` | **일괄 제출 채점** — 요청·채점 규칙은 `exam/submit`(§4.14)과 동일(**같은 채점 코어 공유** — 채점 규칙 이원화 금지), 차이 = `mode='applied_exam'` 기록 + 과목 분류가 **applied 루트 서브트리인지 검증**(아니면 422 — 실전/응용 이력 상호 오염 차단) + 리포트 `results[]`에 `basis[]`(근거 문서) 추가. 아래 5 |
+| `GET /api/applied-exam/history?limit=20` | 응시 이력 — **파생값**(attempts mode=`'applied_exam'` 그룹, exam/history 파생 로직 재사용·저장 없음). 라벨 = 런 분류 이름 |
+
+**생성 규약**
+
+1. **prepare(LLM 0)**: 범위 = `category_ids` 각각의 하위 트리 전체(§4.6 deep 원칙). 수집 대상 = `is_active=1`의 question·past_question(응용의 원형)·concept(개념 근거). 문제·개념 문서 합계 0건 = 422("생성 근거가 될 문서가 없습니다"). `count` = 1~**20**(1회 실행 상한 — 초과 요청 422, 더 필요하면 분할 실행). 컨텍스트 합계 200,000자 초과 = 422(결정 ⑥). 응답: `{gen_id, scope_label, source_counts: {past_question, question, concept}, requested_count, estimate: {approx_input_tokens, assumed}}`. gen 상태(수집 문서 id·정규화 텍스트)는 인메모리 TTL 1시간 — 서버 재시작 시 소실 = prepare 재실행(LLM 0이라 무비용).
+2. **생성 잡(kind `'applied_exam'`)**: 프롬프트는 코드 내 조립(regenerate 전례 — `prompts/convert.md` 불변·반입 규격 §8.2와 무관). 지시 = 범위 문서(doc_no 라벨 포함)를 근거로 **기출에 없던 표현의 응용 문항** N개 생성, **전 문항 객관식(4지선다) 고정**(단답·서술 생성 금지 — 생성 단답의 정규화 채점은 표현 변형에 취약해 채점 오염(R22)을 키운다), 문항마다 `basis`(근거 doc_no 배열) 명시 필수. 출력 = 순수 JSON `{"items":[{"content","choices":[4],"answer":"1"~"4","explanation","basis":["DOC-0012",…]}]}`(위반 = `invalid_output` — §4.17 ⑤ 규율 그대로).
+3. **검증 게이트(문항 단위 — 서버 기계 검증, 결정 ⑦)**: 각 문항에 대해 ⓐ `content`·`choices`(4개)·`explanation` 필수(explanation은 사후 검토 방어선의 재료 — 누락 = 폐기) ⓑ `answer` = 1-base 번호 문자열 강제 — 위반 = **문항 전체 폐기**(F44의 "answer 필드만 제거" 해석은 여기 부적용: 정답 없는 생성 문항은 채점 불가라 응시에 쓸 수 없다) ⓒ **basis 서버 결정론 검증** — basis의 각 doc_no가 prepare 수집 집합에 실재해야 함(부재·범위 밖 = 문항 폐기, LLM의 매칭 판단을 신뢰하지 않는다 — F44 결정 ② 관례) ⓓ **복제 검출** — 생성 `content`를 근거 문서 정규화 텍스트에 `SourceMatcher`(§4.17 ⑥ 알고리즘·임계 그대로)로 대조해 **일치(커버리지 ≥0.6) = 복제 판정·문항 폐기**(응용 훈련이 목적 — 기출 통째 재출제는 실패. §4.17 ⑥의 역적용: 반입은 "원본에 없으면 의심", 생성은 "원본에 있으면 실패"). 폐기 사유는 `discarded[]`에 구조화(`invalid_item|invalid_answer|missing_explanation|bad_basis|duplicate_of_source`).
+4. **저장(잡 말미 한 트랜잭션 — 결정 ⑤)**: 통과 문항만 — ⓐ 예약 루트 확인·생성(settings 포인터) ⓑ 런 분류 생성(이름 = `{scope_label} — {YYYY-MM-DD HH:MM}`) ⓒ documents INSERT(type='question', content 서두 마커 서버 부착, answer·explanation·choices 저장, `source_id=null`, `source_detail="AI 응용 생성 {YYYY-MM-DD}"` — **"N번" 패턴 금지**(F44 답지 매칭 키 오염 방지), **태그 미부여**(태그 규칙 자동 연결로 본류 유입되는 뒷문 차단)) ⓓ `category_documents` 연결(linked_by='applied_exam', sort_order=생성 순번) ⓔ `document_relations('derived_from','applied_exam')` 기록. 통과 0건 = 잡 실패(§4.11 error_info — DB 무변경). **미리보기 승인 단계가 없는 대신, 쓰기 목적지가 격리 분류로 한정**되는 것이 이 기능의 방어선이다(R7 관례의 명시적 예외 — 근거·대응은 R22).
+5. **상태 조회(GET)**: `{status, progress, error_info, result?: {run_category_id, requested, generated, discarded: [{reason, count}], document_ids}}`. 잡 성공 = 저장 완료 — 이후 gen 상태가 TTL로 소실돼도 응시는 런 분류만으로 가능(exam/session — 아래).
+
+**응시·제출·리포트 (F25 §4.14 재사용 — 차이 전수)**
+
+- **응시 구성 = 기존 `POST /api/exam/session` 재사용(신규 세션 API 없음)**: subjects = `[{category_id: run_category_id}]` 1과목(회차 모의 패턴과 동일 — 전체 문항·`sequential`이 화면 기본값). 응답 = QuizQuestionOut 배열 — **정답·해설·basis 전부 부재**(basis 링크도 응시 전엔 힌트가 되므로 리포트에만 — 계약 수준 봉인, 불변 규칙 1). 재응시도 같은 경로(런 분류가 남아 있는 한 가능).
+- **제출 = `POST /api/applied-exam/submit`**: 채점 코어·트랜잭션 규칙은 §4.14 그대로 — 전 문항 attempts INSERT(**mode='applied_exam'**, category_id=런 분류, 배치 공통 answered_at) + 오답 시 오답노트 생성 + SM-2 갱신 + study_progress = **배치 전체가 한 트랜잭션**(불변 규칙 2). 미응답 null = 오답. 검증 차이: `subject_category_id`가 **applied 루트(settings 포인터) 서브트리**에 속해야 한다(아니면 422 — 실전 문서를 applied로, 생성 문항을 실전으로 제출하는 교차 경로 차단).
+- **리포트(제출 응답 — 제출 후이므로 정답·해설 공개)**: §4.14 리포트 + `results[]`에 **`basis: [{document_id, doc_no, title, type}]`**(document_relations 'derived_from'에서 파생 — R22 ② 사후 검토의 핵심) 추가. 이상 문항은 기존 **F30 오류 신고·재생성** 경로(생성 문항도 일반 문서라 그대로 동작).
+- **이력 = `GET /api/applied-exam/history`**: mode='applied_exam' 그룹 파생(로직 재사용). `exam/history`(mode='exam')와 상호 불간섭 — 결정 ②의 목적.
+
+**격리 규약 (본류 제외 지점 전수 — 구조적 격리, 필터 코드 아님)**
+
+- **일반 퀴즈·실전 모의고사(F25)**: quiz/session·exam/session은 분류 범위로 출제한다 — 생성 문항은 실전 트리에 연결되지 않으므로 **자연 제외**(제외 필터 코드가 없어도 성립. 사용자가 런 분류를 명시 선택하면 출제됨 — "기본 제외"의 옵트인 예외로 수용).
+- **SRS**: 생성 문항이 SRS에 들어가는 경로는 **응용 응시의 오답(불변 규칙 2 트랜잭션)뿐** — 그 카드는 srs/today에 정상 등장한다(**격리의 예외가 아니라 격리 저장을 택한 이유 그 자체** — 오답 복습 루프, §14 F45 ③). 그 외 유입 경로 0: flashcard 타입 아님·study 학습 트랙은 사용자가 런 분류를 열지 않는 한 무관·태그 미부여(규칙 자동 연결 차단 — 위 4-ⓒ).
+- **탐색·검색·통계**: 문서 목록·검색에는 나타난다(숨기지 않는다 — 조용한 은닉보다 **격리 분류 경로 + content 마커 상시 표기**가 원칙). 분류 서브트리 기준 파생 뷰(시험별 통계·약점 분석·D-Day 부스트)는 실전 트리 기준이라 자연 제외, 전역 집계(히트맵·스트릭)에는 포함(실제 학습 활동이므로 — 명문화).
+- **정리**: 런 분류·생성 문항의 삭제는 기존 분류 관리·소프트 삭제 경로 그대로(자동 만료·정리 없음 — YAGNI).
+
+**DDL 변경 0건·Alembic 0건 — 재확인 근거 (2026-08-02, 결정 ①~⑦ 전건)**
+
+- 이 절의 저장 지점 전수: **documents INSERT**(기존 컬럼 전부 — content 마커 포함) · **categories INSERT**(예약 루트·런 분류 — 기존 테이블 행 추가) · **category_documents**(`linked_by='applied_exam'` — 자유 텍스트 값 확장) · **document_relations**(`relation='derived_from'`·`created_by='applied_exam'` — 자유 텍스트 값 확장) · **attempts·review_notes·srs_cards·study_progress**(제출 채점 — 기존 트랜잭션 규칙, `mode='applied_exam'` 값 확장) · **settings 키 1개**(`applied_exam.root_category_id`) · **인메모리**(gen 상태 TTL 1시간·생성 잡). `answer_source`·게이트 판정·estimate는 응답 전용·DB 미저장(§4.17 관례). **새 테이블·컬럼·인덱스 0, Alembic 0. 신규 엔드포인트 5개**(prepare·generate·상태·submit·history — 응시 구성은 exam/session 재사용). §6.2는 mode·linked_by·relation·created_by **주석 갱신만**. 구현 중 이 전제가 깨지면 착수 중단 후 보고(임의 확정 금지).
+
+**구현 앵커 (2026-08-02 — 재탐색 방지용. 공유 앵커의 행 번호는 §4.20 말미 실측 참조)**
+
+- 잡 큐·프롬프트 코드 내 조립·estimate 필드·`SourceMatcher` = **§4.20 구현 앵커 절의 실측 그대로**(`convert_service` 잡 큐·`_build_regenerate_prompt` 전례 · `fetch_service.estimate_usage` · `source_match.SourceMatcher`).
+- 채점 코어 = `backend/services/exam_service.py`(§4.14 — 커밋 없는 공용 채점 함수·배치 트랜잭션·history 파생 로직. submit·history 재사용 지점) · 출제 자격 판정 = quiz_service(§4.14 관례).
+- 신설 제안: `backend/services/applied_exam_service.py`(prepare·격리 분류 관리·검증 게이트·저장 트랜잭션) + `backend/routers/applied_exam.py` + `backend/schemas/applied_exam.py`.
+- 프론트: 퀴즈 설정(§5.6)·모의고사 구성(§5.12) 확장 + `ExamRun`·결과 리포트 재사용(제출 엔드포인트 분기·basis 렌더) · `FetchImportWizard`(사용량 확인 스텝 전례) · `LlmJobProgress`·`LlmErrorInfo`(진행·오류) · zustand `examSession` 확장(applied 컨텍스트 — §7).
 
