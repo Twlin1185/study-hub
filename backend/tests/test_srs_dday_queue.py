@@ -81,7 +81,7 @@ def test_ahead_excludes_card_reviewed_today(db):
     """오늘 이미 푼(last_reviewed=오늘) 카드는 due_date>오늘이어도 ahead 후보에서 빠진다."""
     subject_id, _ = _make_exam_subtree(db, d_day=3)  # D<=7 — 선행 복습 발동 대상
     reviewed_today = _make_ahead_card(
-        db, subject_id, due_in_days=5, last_reviewed=dt.datetime.utcnow()
+        db, subject_id, due_in_days=5, last_reviewed=srs_service.utc_now()
     )
     not_yet_reviewed = _make_ahead_card(db, subject_id, due_in_days=5, last_reviewed=None)
     db.commit()
@@ -97,7 +97,7 @@ def test_ahead_excludes_card_reviewed_today(db):
 def test_ahead_allows_card_reviewed_before_today(db):
     """last_reviewed가 오늘 이전(어제)이면 ahead 후보로 정상 포함된다."""
     subject_id, _ = _make_exam_subtree(db, d_day=3)
-    yesterday_reviewed = dt.datetime.utcnow() - dt.timedelta(days=1)
+    yesterday_reviewed = srs_service.utc_now() - dt.timedelta(days=1)
     doc_id = _make_ahead_card(db, subject_id, due_in_days=5, last_reviewed=yesterday_reviewed)
     db.commit()
 
@@ -158,7 +158,7 @@ def test_due_path_unaffected_by_review_today_filter(db):
             interval_days=1,
             repetitions=1,
             due_date=today,  # 오늘 due
-            last_reviewed=dt.datetime.utcnow(),  # 과거에 이미 풀었던 적 있음 — 무관해야 함
+            last_reviewed=srs_service.utc_now(),  # 과거에 이미 풀었던 적 있음 — 무관해야 함
         )
     )
     db.commit()
