@@ -35,7 +35,7 @@
 
 - [x] `llm_engine_service`에 **enabled 판정** 추가: settings `llm.disabled`(JSON 배열) 읽기 — 키 부재·빈 배열 = 전 엔진 활성, **알 수 없는 id 무시**(전방 호환), legacy 별칭(`'cli'|'api'`)은 읽기 시 매핑(§4.17 ① 관례). 쓰기는 설정 화면 저장(settings PUT) 경유뿐 — 서비스는 읽기만. (`get_disabled_engines`·`is_engine_enabled`)
 - [x] **후보 산출 함수 1곳 개정**: 후보 자격 = "`available()` && enabled" — auto 해석·폴백 다음 후보·`error_info.fallback_available`/`fallback_engine` 파생이 **전부 이 함수를 경유**하는지 확인(호출처별 개별 판정 잔존 = 실패. `available()` 자체 의미는 불변 — 진단·카드 표시는 꺼진 엔진도 정상). (`is_engine_candidate` 신설 — `resolve_engine`·`next_fallback_engine`이 경유)
-- [x] 후보 0(전 엔진 꺼짐 포함) = **기존 "후보 없음" 경로 그대로**(신규 오류 kind·경로 변경 0 — 회귀 확인만). `resolve_engine`의 "전부 불가면 priority[0] 반환" 폴백 경로 무변경 확인.
+- [x] 후보 0(전 엔진 꺼짐 포함) = **기존 "후보 없음" 경로 그대로**(신규 오류 kind·경로 변경 0 — 회귀 확인만). ~~`resolve_engine`의 "전부 불가면 priority[0] 반환" 폴백 경로 무변경 확인.~~ → **검토에서 이 문장이 DoD 1과 모순임이 실증돼 §4.23 결정 ② 개정(2026-08-03)으로 대체**: 최종 폴백 = priority 첫 enabled(비가용-전멸) · enabled 0이면 auto도 422(꺼짐-전멸). 완료 기록 [중요②] 참조.
 - [x] `GET /api/llm/status` `engines[]`에 `enabled: bool` 추가(순수 추가 — 기존 필드·톱레벨 불변).
 
 ### 2. 백엔드 — 엔진별 모델 선택 (설계 §4.23 ⓑ)
@@ -66,16 +66,16 @@
 
 ### 6. 테스트·검증
 
-- [x] **단위 테스트**(후보·게이트는 핵심 로직 취급 — 불변 규칙 7의 예외, §4.17 ⑥ 전례): ① **후보 자격**(disabled 엔진이 auto·다음 후보·fallback_engine에서 배제 · 켜면 복귀 · 알 수 없는 id 무시 · legacy 별칭 매핑) ② **모델 유효 선택**(소목록 밖 값 = 기본값 폴백 · llm.api_model 별칭 · null = 미전달) ③ **422 방어**(비활성·비가용 명시 지정 거부 · auto 무검증 · 8곳 공통 헬퍼 경유) ④ **status 필드 4종**(기존 필드·톱레벨 불변). — 신규 `backend/tests/test_engine_controls.py`(27건), 기존 스위트(399건) 포함 전체 426건 통과.
-- [ ] 스모크(실기동): 무설정 상태에서 기존 변환·폴백 경로 회귀 무영향(**무설정 시 동작 불변** — DoD 2) · disabled 설정 후 auto 요청이 해당 엔진을 건너뜀 · 422 문구 §3 봉투 준수 · S8 카드 토글·모델 저장 왕복.
+- [x] **단위 테스트**(후보·게이트는 핵심 로직 취급 — 불변 규칙 7의 예외, §4.17 ⑥ 전례): ① **후보 자격**(disabled 엔진이 auto·다음 후보·fallback_engine에서 배제 · 켜면 복귀 · 알 수 없는 id 무시 · legacy 별칭 매핑) ② **모델 유효 선택**(소목록 밖 값 = 기본값 폴백 · llm.api_model 별칭 · null = 미전달) ③ **422 방어**(비활성·비가용 명시 지정 거부 · auto 무검증 · 8곳 공통 헬퍼 경유) ④ **status 필드 4종**(기존 필드·톱레벨 불변). — 신규 `backend/tests/test_engine_controls.py`(27건 → 검토 반영 후 34건 — 진입점 경유 회귀 포함), 기존 스위트 포함 **전체 433건 통과**.
+- [x] 스모크(실기동): 오케스트레이터가 uvicorn(포트 8021)으로 수행 — status 필드 4종·settings 왕복(끄기→422→켜기 복귀)·비활성 422("사용 안 함")·비가용 422(키 미등록 사유)·dist 신규 번들 서빙 확인. **스모크 절차 고정: `engine=auto` 실행 금지, 422 유발 값·무LLM 엔드포인트만 사용**(완료 기록 사고 재발 방지).
 - [ ] **모델 실호출 확인(사용자 이행 — 실 LLM 소비용)**: 엔진별 선택 모델로 소형 변환 각 1회 — 모델 인자가 실제 반영되는지(로그·usage로 확인).
-- [ ] stage-reviewer(Opus) 검토: DoD + disabled 엔진 호출 경로 0 + 모델 적용 공통 경로 1곳 + 422 대상 8곳 전수 + DDL 0·신규 엔드포인트 0 + 기존 소비처 회귀 무영향.
+- [x] stage-reviewer(Opus) 검토: 1차(치명 0·중요 2·경미 6 — DoD 4/6) → 수정 반영 → **표적 재검토 최종 통과(DoD 자동 검증 6/6·치명 0·중요 0)**. 완료 기록 참조.
 
 ### 7. 문서
 
 - [x] 계획서 F47·설계 §4.23에 **모델 소목록 실측 확정 값 기입**(D4 이월 과제 — 구현 중 계약과 어긋나면(특히 DDL) 착수 중단 후 보고) · 구현 확정 사항 기록. — 아래 완료 기록 참조(설계 §4.23은 이 문서 완료 기록을 갱신하는 별도 편집 없이, 결정 ④ 문장 자체가 이월 계약이므로 실측 결과는 이 stage 문서에 고정 기록한다).
-- [ ] 사용자 매뉴얼(F39): 엔진 끄기(과금 차단 용도)·모델 선택·"쓸 수 없는 엔진" 사유 표시·[다시 확인] 사용법 추가.
-- [ ] 이 문서 체크박스 갱신(불변 규칙 10) · CLAUDE.md 문서 지도 갱신(F47·M21·4.1~4.23·[S21] — 오케스트레이터 담당).
+- [x] 사용자 매뉴얼(F39): 엔진 끄기(과금 차단 용도)·모델 선택·"쓸 수 없는 엔진" 사유 표시·[다시 확인] 사용법 추가. — 15장에 켜기/끄기·모델 선택 불릿 + "쓸 수 없는 엔진은 눌리지 않습니다" 소절 추가(2026-08-03).
+- [x] 이 문서 체크박스 갱신(불변 규칙 10) · CLAUDE.md 문서 지도 갱신(F47·M21·4.1~4.23·[S21] — 오케스트레이터 담당, 2026-08-03 구현 완료 상태 반영).
 
 ## DoD (완료 정의)
 
@@ -119,10 +119,13 @@
 - **스모크(uvicorn 실기동)**: alembic upgrade head로 로컬 DB 스키마 생성 후 확인 — `GET /api/llm/status`에 `enabled`/`models`/`default_model`/`selected_model` 4종 정상 노출 · `PUT /api/settings`로 `llm.disabled:["claude-api"]` 저장 후 status가 즉시 반영 · `POST /api/convert`·`POST /api/fetch/import`에 `engine=claude-api`(비활성) 명시 지정 시 **422 `VALIDATION_ERROR`** + 서버 완성 문장("Claude API 엔진이 '사용 안 함' 상태입니다 — 설정에서 켜거나 다른 엔진을 선택하세요") 확인 · `llm.disabled` 초기화 후 정상 왕복.
 - **경위 보고(사고 기록)**: 스모크 중 `POST /api/convert`를 `engine=auto`로 1회 호출했을 때, 이 개발 환경의 `claude` CLI가 실제 로그인된 실행 파일이라 **후보가 자동으로 `claude-cli`로 해석되어 실제로 호출됐다**(input/output 각 2토큰 — 대상 파일이 변환 프롬프트에 맞지 않아 `other` 오류로 즉시 종료, 과금은 사실상 0에 가깝지만 "실 LLM 유료 실행 금지" 지시를 어긴 것은 사실). 확인 즉시 서버 프로세스를 종료했다. 이후 스모크는 **명시 비활성 엔진 지정(422 유발) 값만** 사용해 실호출 경로를 피했다 — 나머지 6개 엔드포인트의 422는 코드 검토(9곳 전수 삽입 확인) + 단위 테스트로 갈음했다(문서·URL·PDF 등 실제 반입 페이로드 없이 `auto`/가용 엔진으로 HTTP 스모크를 재현하지 않는다).
 - **계약과 어긋나 보류한 것**: 없음(DDL·Alembic·신규 엔드포인트 0 확인 — settings 키 2개만 추가, `llm.disabled`·`llm.models`).
-- **2026-08-03 stage-reviewer(Opus) 검토 반영 — 중요 2·경미 2건 수정(설계 §4.23 결정 ②·⑤·⑥ 개정 동기화 포함)**:
+- **2026-08-03 stage-reviewer(Opus) 검토 반영 — 백엔드 중요 2·경미 3건 + 프론트 2건 수정(설계 §4.23 결정 ②·⑤·⑥·ⓒ 개정 동기화 포함)**:
   - **[중요①] 런타임 폴백 모델 누출 수정**: `_handle_engine_failure`가 `job["_engine"]`을 다음 후보로 바꿀 때 `job["_model"]`도 같은 db 세션 안에서 `get_selected_model(db, next_engine)`으로 함께 갱신하도록 수정(이전엔 이전 엔진의 모델 id가 그대로 남아 존재하지 않는 모델로 호출되는 사고 경로였다).
   - **[중요②] `resolve_engine` 최종 폴백 개정 + auto 전부 꺼짐 422**: 설계 §4.23 결정 ② 개정(2026-08-03 검토 반영)에 따라 후보 0("비가용-전멸")의 최종 폴백을 `priority[0]` 무조건 반환에서 **priority 중 첫 enabled 엔진**(`available()` 무시)으로 좁혔고, `assert_engine_selectable`에 **"꺼짐-포함 전멸"(enabled 0) 시 auto도 잡 생성 전 422**("모든 엔진이 꺼져 있습니다 — 설정에서 엔진을 켜세요")로 막는 명시 예외 1건을 추가했다(9개 진입점 전부 같은 헬퍼 경유 — 변경 없음).
   - **[경미③] F30 신고 사례 수집보다 엔진 검증 선행**: `start_regenerate_job`에서 `assert_engine_selectable` 호출을 문서 조회 직후·`improve_service.collect_report_case` 호출 이전으로 이동(422로 거부될 요청이 제안함 사례로 잘못 남는 결함 해소).
   - **[경미⑤] API 키 검증 핑 모델**: `routers/llm.py` `register_api_key`가 legacy `llm.api_model` 직접 조회 대신 `llm_engine_service.get_selected_model(db, ENGINE_CLAUDE_API)`(유효 선택값)로 핑하도록 교체.
   - **[경미⑦] 진입점-헬퍼 경유 회귀 테스트**: `assert_engine_selectable`을 monkeypatch로 예외 발생시켜 9개 `start_*_job` 함수 전부가 잡 생성 전에 예외를 전파하는지 확인하는 테스트 추가(`test_all_nine_entrypoints_propagate_assert_engine_selectable`).
   - **신규 테스트 7건 추가**(모델 누출 2·resolve_engine 최종 폴백 2·auto 전부 꺼짐 422 2·진입점 경유 1) — **전체 433건 통과**(기존 426 + 신규 7, 회귀 0). 이번 수정 검증은 전부 in-memory SQLite 단위 테스트로만 수행했고 **uvicorn 재기동·실 LLM 호출은 하지 않았다**(이전 사고 재발 방지 지시 준수).
+  - **[프론트 경미④] S8 모델 select "엔진 기본" 유령 옵션 제거**: `LlmEngineSection.tsx` — §4.23 ⑤ 개정(selected_model = 유효 적용값)에 따라 `default_model`이 non-null인 엔진(claude-api)은 빈 옵션을 렌더하지 않고, CLI형(default null)만 "엔진 기본(미전달)" 옵션 유지.
+  - **[프론트 개선 (b)] explain 과금 인지 소표기 복원**: `ExplainJobPanel.tsx` — EngineSelect 교체로 사라졌던 "사용 엔진: {label} ({과금형})" 1줄 복원(auto = priority 첫 available && enabled로 예상 엔진 산출 — 서버 후보 규칙과 동일 기준).
+- **2026-08-03 표적 재검토(stage-reviewer, Opus) — 최종 통과**: 수정 6개 항목 전부 실행 재현으로 해소 확인(중요① 양방향 시나리오 재실행·중요② 1차 재현 시나리오 422 차단 실증) · 전체 pytest 433 passed · `npm run build` 성공 · dist 바이트 동일(재빌드 후 git clean) · **DoD 자동 검증 6/6 충족 · 치명 0 · 중요 0**. 잔여 관찰(게이트 사유 아님): 진입점 회귀 테스트에 예외 메시지 단언 1줄 추가 권장 · ExplainJobPanel/LlmLimitBanner의 auto 근사 로직 훅 추출 권장 · `assert_engine_selectable`의 settings 반복 조회 축약 가능.
