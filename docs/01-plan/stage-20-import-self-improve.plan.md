@@ -33,33 +33,39 @@
 
 ### 1. 백엔드 — 실패 사례 수집·저장소 (설계 §4.22 ①)
 
-- [ ] 신설 `backend/services/improve_service.py` — **사례 저장소**: `improve/cases/` JSON 레코드 읽기/쓰기(`fc_`+hex6 · 레코드 필드 = §4.22 형식 그대로) · **중복 병합**((kind, source.hash12) — report는 (kind, document_id) — 기존 레코드면 count+1·last_seen_at 갱신) · **프루닝 50건**(오래된 것부터 — 부속 `.output.txt` 동반 삭제) · `improve/` 폴더 git 제외(.gitignore) — 백업(F27) 대상에 넣지 않음 확인
-- [ ] **수집 훅 3지점**(전부 best-effort — 수집 실패가 원 플로우를 실패시키지 않는다, 로그만): ① convert·fetch 잡 실패 시 `error_info.kind ∈ {parse_failed, unsupported_format, invalid_output}`만 수집(**제외**: too_large·rate_limit·미설치·타임아웃 등 환경·정책 실패) — invalid_output이면 LLM 산출물 원문을 `{case_id}.output.txt`로 저장(**로그 전용 — API 미노출**) ② preview 생성 시 `fabrication_suspect` 항목 ≥1이면 **잡 단위 1건**(origin='gate' — 항목 인덱스·건수를 detail에, `preview_ref`=import/auto 파일명) ③ `start_regenerate_job`(F30)에 origin='report' 레코드(reason·문서 참조·source_detail 스냅샷 — **F30 요청·응답·플로우 무변경**)
-- [ ] `routers/improve.py`에 cases 3 엔드포인트: `GET /api/improve/cases`(§3 페이지 봉투·kind 필터·`has_llm_output` bool — 원문 미포함) · `GET /api/improve/cases/{case_id}` · `DELETE /api/improve/cases/{case_id}`(부속 output 동반 삭제) + `backend/schemas/improve.py`
+- [x] 신설 `backend/services/improve_service.py` — **사례 저장소**: `improve/cases/` JSON 레코드 읽기/쓰기(`fc_`+hex6 · 레코드 필드 = §4.22 형식 그대로) · **중복 병합**((kind, source.hash12) — report는 (kind, document_id) — 기존 레코드면 count+1·last_seen_at 갱신) · **프루닝 50건**(오래된 것부터 — 부속 `.output.txt` 동반 삭제) · `improve/` 폴더 git 제외(.gitignore) — 백업(F27) 대상에 넣지 않음 확인
+- [x] **수집 훅 3지점**(전부 best-effort — 수집 실패가 원 플로우를 실패시키지 않는다, 로그만): ① convert·fetch 잡 실패 시 `error_info.kind ∈ {parse_failed, unsupported_format, invalid_output}`만 수집(**제외**: too_large·rate_limit·미설치·타임아웃 등 환경·정책 실패) — invalid_output이면 LLM 산출물 원문을 `{case_id}.output.txt`로 저장(**로그 전용 — API 미노출**) ② preview 생성 시 `fabrication_suspect` 항목 ≥1이면 **잡 단위 1건**(origin='gate' — 항목 인덱스·건수를 detail에, `preview_ref`=import/auto 파일명) ③ `start_regenerate_job`(F30)에 origin='report' 레코드(reason·문서 참조·source_detail 스냅샷 — **F30 요청·응답·플로우 무변경**)
+- [x] `routers/improve.py`에 cases 3 엔드포인트: `GET /api/improve/cases`(§3 페이지 봉투·kind 필터·`has_llm_output` bool — 원문 미포함) · `GET /api/improve/cases/{case_id}` · `DELETE /api/improve/cases/{case_id}`(부속 output 동반 삭제) + `backend/schemas/improve.py`
+
+  **구현 메모(백엔드, 2026-08-02)**: 프론트(§5, 이미 구현됨)가 목록·상세에 같은 타입(`ImproveCaseItem`)을 쓰는 것을 확인해, cases 목록도 `detail`·`preview_ref`·`regressions`를 상세와 동일하게 전부 채워 돌려주도록 맞춤(설계 문서 표기 "레코드 요약"보다 프론트 실계약을 우선 — `ImproveCaseList.tsx`가 목록 항목에서 바로 `c.regressions.length`를 참조).
 
 ### 2. 백엔드 — 제안 생성 파이프라인 (설계 §4.22 ②)
 
-- [ ] **gen prepare(LLM 0)**: `case_ids` 1~20건·실재 검증(부재 422) · 입력 조립(사례 레코드 + 원본 추출 텍스트 발췌(`extract_source_text` 재사용) + output 원문(있으면) + 현행 convert.md·convert.cases.md 전문) · 합계 200,000자 초과 422(too_large 문구 관례 — LLM 호출 전 차단) · `estimate`(`approx_input_tokens`·`assumed` — chars/1.5 보정) · gen 상태 인메모리 TTL 1시간
-- [ ] **생성 잡 kind `'improve_proposal'`**(공용 잡 큐 확장 — 동시 1개·§4.11 progress 계약): 프롬프트 코드 내 조립(regenerate 전례 — `prompts/convert.md` 불변·잠금 구간 수정 금지·정책 완화 금지 지시 포함) · 순수 JSON `{"proposals":[{kind,title,rationale,case_ids,payload}]}`(위반 = `invalid_output`)
-- [ ] **제안 검증 게이트**(단위 테스트 대상 — 순수 함수로): kind 화이트리스트(`casebook|prompt_edit|code_issue`) 외 폐기 · `case_ids` ⊆ 요청 집합(부재 = 폐기 — 서버 결정론, F44 ② 관례) · **prompt_edit 즉시 적용 시뮬레이션**(before 0회/2회+ = `hunk_unappliable` 폐기 · **잠금 구간 접촉 = `policy_locked` 폐기**) · 빈 payload 폐기 · **통과 0건 = 잡 실패**(error_info — 파일 무변경) · `discarded[]` 사유 구조화
-- [ ] **제안 저장**: 통과분을 `improve/proposals/{pr_hex6}.json`(status='pending')으로 저장(**저장 = 카드 등록이지 반영 아님**) · 프루닝 50건(**결정 완료(applied/rejected/acknowledged) 먼저, pending 최후**)
-- [ ] gen 3 엔드포인트: `POST /api/improve/gen/prepare` · `POST …/{gen_id}/generate`(202) · `GET …/{gen_id}`(result: proposal_ids·discarded)
+- [x] **gen prepare(LLM 0)**: `case_ids` 1~20건·실재 검증(부재 422) · 입력 조립(사례 레코드 + 원본 추출 텍스트 발췌(`extract_source_text` 재사용) + output 원문(있으면) + 현행 convert.md·convert.cases.md 전문) · 합계 200,000자 초과 422(too_large 문구 관례 — LLM 호출 전 차단) · `estimate`(`approx_input_tokens`·`assumed` — chars/1.5 보정) · gen 상태 인메모리 TTL 1시간
+- [x] **생성 잡 kind `'improve_proposal'`**(공용 잡 큐 확장 — 동시 1개·§4.11 progress 계약): 프롬프트 코드 내 조립(regenerate 전례 — `prompts/convert.md` 불변·잠금 구간 수정 금지·정책 완화 금지 지시 포함) · 순수 JSON `{"proposals":[{kind,title,rationale,case_ids,payload}]}`(위반 = `invalid_output`)
+- [x] **제안 검증 게이트**(단위 테스트 대상 — 순수 함수로): kind 화이트리스트(`casebook|prompt_edit|code_issue`) 외 폐기 · `case_ids` ⊆ 요청 집합(부재 = 폐기 — 서버 결정론, F44 ② 관례) · **prompt_edit 즉시 적용 시뮬레이션**(before 0회/2회+ = `hunk_unappliable` 폐기 · **잠금 구간 접촉 = `policy_locked` 폐기**) · 빈 payload 폐기 · **통과 0건 = 잡 실패**(error_info — 파일 무변경) · `discarded[]` 사유 구조화
+- [x] **제안 저장**: 통과분을 `improve/proposals/{pr_hex6}.json`(status='pending')으로 저장(**저장 = 카드 등록이지 반영 아님**) · 프루닝 50건(**결정 완료(applied/rejected/acknowledged) 먼저, pending 최후**)
+- [x] gen 3 엔드포인트: `POST /api/improve/gen/prepare` · `POST …/{gen_id}/generate`(202) · `GET …/{gen_id}`(result: proposal_ids·discarded)
 
 ### 3. 백엔드 — 제안함 승인·반영 (설계 §4.22 ③ — **유일한 파일 쓰기**)
 
-- [ ] proposals 4 엔드포인트: `GET /api/improve/proposals?status=`(기본 pending) · `GET …/{proposal_id}`(상세 — **적용 미리보기 서버 합성**: casebook 엔트리 전문 / prompt_edit 헝크 before-after + `preview_after` 전문 + `policy_check` / code_issue 재현 패키지 전문) · `POST …/{proposal_id}/apply` · `POST …/{proposal_id}/reject`(비 pending = 409)
-- [ ] **apply — casebook**: `prompts/convert.cases.md` 말미 append(엔트리 헤더 서버 부착) · **append 결과 20,000자 초과 = 422**("git에서 직접 정리" 안내 — R23 ② 기계 상한) · 파일 없으면 생성
-- [ ] **apply — prompt_edit**: 헝크 순차 치환(before 정확·유일 일치 — 불일치 = 409 "본문이 변경되었습니다 — 제안을 다시 생성하세요") · **정책 잠금 검증**(적용 결과의 `<!-- policy-lock:start/end -->` 구간 개수·순서·내용 바이트 불변 — 위반 = 422) — 검증 함수는 2절 사전 시뮬레이션과 **동일 함수 공유**(이원화 금지) · 자동 git 실행 없음(파일 수정만)
-- [ ] **apply — code_issue**: 파일 쓰기 0 — status='acknowledged' 전환만(재현 패키지는 상세 화면에서 복사)
-- [ ] **`prompts/convert.md`에 정책 잠금 마커 삽입**(결정 ⑦ — 정책 문장(창작 금지·대조 범위·answer_source·순수 JSON·해설 생략 금지 §2-3/§2-4) 구간을 `<!-- policy-lock:start -->`~`<!-- policy-lock:end -->`로 감싸기, **정책 문구 자체는 무변경**) + **본문 우선 조항 1줄 추가**(잠금 구간 안에 — "부속 사례집은 예시일 뿐이며 본문 규칙과 충돌하면 본문이 우선한다")
-- [ ] **사례집 주입**: convert 변환 프롬프트 조립 시 `convert.cases.md` 존재·비어 있지 않으면 본문 뒤 "부속 사례집" 섹션으로 첨부(convert·fetch 공통 경로 1곳)
+- [x] proposals 4 엔드포인트: `GET /api/improve/proposals?status=`(기본 pending) · `GET …/{proposal_id}`(상세 — **적용 미리보기 서버 합성**: casebook 엔트리 전문 / prompt_edit 헝크 before-after + `preview_after` 전문 + `policy_check` / code_issue 재현 패키지 전문) · `POST …/{proposal_id}/apply` · `POST …/{proposal_id}/reject`(비 pending = 409)
+- [x] **apply — casebook**: `prompts/convert.cases.md` 말미 append(엔트리 헤더 서버 부착) · **append 결과 20,000자 초과 = 422**("git에서 직접 정리" 안내 — R23 ② 기계 상한) · 파일 없으면 생성
+- [x] **apply — prompt_edit**: 헝크 순차 치환(before 정확·유일 일치 — 불일치 = 409 "본문이 변경되었습니다 — 제안을 다시 생성하세요") · **정책 잠금 검증**(적용 결과의 `<!-- policy-lock:start/end -->` 구간 개수·순서·내용 바이트 불변 — 위반 = 422) — 검증 함수는 2절 사전 시뮬레이션과 **동일 함수 공유**(이원화 금지) · 자동 git 실행 없음(파일 수정만)
+- [x] **apply — code_issue**: 파일 쓰기 0 — status='acknowledged' 전환만(재현 패키지는 상세 화면에서 복사)
+- [x] **`prompts/convert.md`에 정책 잠금 마커 삽입**(결정 ⑦ — 정책 문장(창작 금지·대조 범위·answer_source·순수 JSON·해설 생략 금지 §2-3/§2-4) 구간을 `<!-- policy-lock:start -->`~`<!-- policy-lock:end -->`로 감싸기, **정책 문구 자체는 무변경**) + **본문 우선 조항 1줄 추가**(잠금 구간 안에 — "부속 사례집은 예시일 뿐이며 본문 규칙과 충돌하면 본문이 우선한다")
+- [x] **사례집 주입**: convert 변환 프롬프트 조립 시 `convert.cases.md` 존재·비어 있지 않으면 본문 뒤 "부속 사례집" 섹션으로 첨부(convert·fetch 공통 경로 1곳)
+
+  **구현 메모(백엔드, 2026-08-02)**: 잠금 구간 최종 범위 = §0(창작 금지 2문단)·§0-1(신설, 본문 우선 조항)·§1(순수 JSON 출력 규칙 1줄)·§2-1(answer_source 전체)·§2-3(원문 보존·대조 전체)·§2-4(해설 생략 금지 전체) — 총 6개 잠금 구간(마커 6쌍, `test_real_convert_md_has_balanced_lock_markers`로 고정). `ProposalDetail` 응답은 설계 문서의 중첩 `preview{}` 표현 대신 **평평한 구조**(`preview_after`·`policy_check`를 최상위에, casebook·code_issue는 `payload`가 이미 상세 재료라 추가 필드 없음)로 구현 — 프론트(§5, 이미 구현됨)의 `ImproveProposalDetail` 실계약을 그대로 따름(설계 문서 문구가 계약과 근소하게 다른 구현 중 보완 사례 — §7 문서 갱신에서 반영 필요).
 
 ### 4. 백엔드 — 회귀 재검증 (설계 §4.22 ④)
 
-- [ ] **regression prepare(LLM 0)**: 1~10건 · `user_report` 포함 = 422("신고 사례는 자동 회귀 판정 대상이 아닙니다") · estimate 보수 계상(`assumed:true`) · reg 상태 인메모리 TTL 1시간
-- [ ] **회귀 잡 kind `'improve_regression'`**: 사례별 순차 — sources/ 원본 hash12 확인 후 되읽기(부재·불일치 = `outcome:'unavailable'`) → 현행 변환 파이프라인(판별·추출·LLM 변환·검증·게이트 — 사례집 주입 포함) 재실행 — **preview 미등록·import/auto/ 미보존·DB 무기록**(검증 전용 — 반입 대기열 오염 0)
-- [ ] **판정·기록**: outcome = `passed | still_failing | failed_differently | unavailable`(gate 사례 = 재변환 산출의 fabrication_suspect 재발 여부로 판정) · reg 상태 응답 `results[]` + **각 사례 레코드 `regressions[]` append**(reg_id·run_at·outcome)
-- [ ] regression 3 엔드포인트: `POST /api/improve/regression/prepare` · `POST …/{reg_id}/run`(202) · `GET …/{reg_id}`
+- [x] **regression prepare(LLM 0)**: 1~10건 · `user_report` 포함 = 422("신고 사례는 자동 회귀 판정 대상이 아닙니다") · estimate 보수 계상(`assumed:true`) · reg 상태 인메모리 TTL 1시간
+- [x] **회귀 잡 kind `'improve_regression'`**: 사례별 순차 — sources/ 원본 hash12 확인 후 되읽기(부재·불일치 = `outcome:'unavailable'`) → 현행 변환 파이프라인(판별·추출·LLM 변환·검증·게이트 — 사례집 주입 포함) 재실행 — **preview 미등록·import/auto/ 미보존·DB 무기록**(검증 전용 — 반입 대기열 오염 0)
+- [x] **판정·기록**: outcome = `passed | still_failing | failed_differently | unavailable`(gate 사례 = 재변환 산출의 fabrication_suspect 재발 여부로 판정) · reg 상태 응답 `results[]` + **각 사례 레코드 `regressions[]` append**(reg_id·run_at·outcome)
+- [x] regression 3 엔드포인트: `POST /api/improve/regression/prepare` · `POST …/{reg_id}/run`(202) · `GET …/{reg_id}`
+
+  **구현 메모(백엔드, 2026-08-02)**: `results[].detail`은 설계 문서상 형식 미지정이었으나 프론트(§5)가 `string`으로 렌더(JSX에 직접 삽입)하는 계약이라 **한국어 문자열**로 구현(구조화 dict 아님). 엔진 실패 시 자동 폴백 루프는 미적용(검증 전용 — 사례별 결과를 즉시 기록해야 해 "잡 전체 재시도" 모델과 불일치, 단일 시도로 충분하다고 판단).
 
 ### 5. 프론트 — 제안함 일반화·개선 탭 (설계 §4.22 ③ UI)
 
@@ -75,7 +81,7 @@
 
 ### 6. 테스트·검증
 
-- [ ] **단위 테스트 필수**(불변 규칙 7의 예외 — 잠금·게이트·수집은 핵심 로직 취급): ① **정책 잠금**(잠금 구간 접촉 헝크 폐기·apply 422·마커 소실/개수 변경 검출·잠금 밖 수정은 통과) ② **헝크 적용**(정확 1회 일치 적용·0회/2회+ 거부) ③ **제안 검증 게이트**(kind 화이트리스트·case_ids 범위 밖 폐기·통과 0건 = 잡 실패·파일 무변경) ④ **수집**(대상 kind만 수집 — too_large·rate_limit 미수집 · 중복 count 병합 · 프루닝 50건·pending 최후) ⑤ **사례집**(append·20,000자 상한 422·주입 조립) ⑥ **회귀 무흔적**(preview 미등록·DB 무변경·regressions append) — `backend/tests/test_improve.py`
+- [x] **단위 테스트 필수**(불변 규칙 7의 예외 — 잠금·게이트·수집은 핵심 로직 취급): ① **정책 잠금**(잠금 구간 접촉 헝크 폐기·apply 422·마커 소실/개수 변경 검출·잠금 밖 수정은 통과) ② **헝크 적용**(정확 1회 일치 적용·0회/2회+ 거부) ③ **제안 검증 게이트**(kind 화이트리스트·case_ids 범위 밖 폐기·통과 0건 = 잡 실패·파일 무변경) ④ **수집**(대상 kind만 수집 — too_large·rate_limit 미수집 · 중복 count 병합 · 프루닝 50건·pending 최후) ⑤ **사례집**(append·20,000자 상한 422·주입 조립) ⑥ **회귀 무흔적**(preview 미등록·DB 무변경·regressions append) — `backend/tests/test_improve.py`(41건 신규, 전체 391건 통과. 기존 `test_convert_trust_gate.py`·`test_import_preserve_recover.py`의 `isolated_dirs` 픽스처에 `improve_service.CASES_DIR`·`PROPOSALS_DIR` 격리를 추가해 신규 게이트 수집 훅이 그 테스트들의 실제 `improve/` 디렉터리를 오염시키지 않게 함 — 회귀 무영향 유지)
 - [ ] 스모크(실기동): 비-LLM 경로 전수(cases CRUD·prepare 422 계열·apply/reject 409·정책 잠금 422) §3 에러 포맷 준수 + **기존 태그 제안 플로우(§4.9) 회귀 무영향 확인**(suggestions 테이블·API 무변경 증명) + F30 신고 시 사례 레코드 생성·신고 응답 불변 — LLM 생성·회귀 완주는 사용자 몫(실비용 — 자동 실행 안 함)
 - [ ] **제안 품질 표본 점검(R23 — 추측 확정 금지)**: 생성 제안 5건 표본을 사람이 검토(정책 완화 시도·마지막 실패 과적합 징후·사례집 엔트리 품질) — 수치를 완료 기록과 plan R23에 기록 — **사용자 이행(실 LLM 비용)**
 - [ ] stage-reviewer(Opus) 검토: DoD + 자동 반영 경로 0 + 코드 자기 수정 경로 0(쓰기 경로 전수 = improve/·prompts/ 한정) + 사용량 안내 없는 LLM 호출 0 + DB 쓰기 0 + 수집 best-effort(원 플로우 무영향)

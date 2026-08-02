@@ -22,7 +22,7 @@ import models
 from database import Base
 from exceptions import ConflictError, NotFoundError
 from schemas.import_schema import CommitRequest, ImportDecision
-from services import import_service, preview_store
+from services import import_service, improve_service, preview_store
 
 
 @pytest.fixture()
@@ -48,6 +48,10 @@ def isolated_dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(preview_store, "AUTO_DIR", auto_dir)
     monkeypatch.setattr(preview_store, "SOURCES_DIR", sources_dir)
     monkeypatch.setattr(import_service, "SOURCES_DIR", sources_dir)
+    # S20(F46) — 게이트 실패 사례 수집 훅이 실제 프로젝트 improve/ 디렉터리를 오염시키지
+    # 않도록 격리(test_convert_trust_gate.py 전례).
+    monkeypatch.setattr(improve_service, "CASES_DIR", tmp_path / "improve" / "cases")
+    monkeypatch.setattr(improve_service, "PROPOSALS_DIR", tmp_path / "improve" / "proposals")
     import_service._PREVIEW_CACHE.clear()
     import_service._COMMITTED.clear()
     yield

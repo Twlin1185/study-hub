@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
 import re
 import uuid
 from pathlib import Path
@@ -46,6 +47,8 @@ from schemas.import_schema import (
 from services import embed_service, preview_store, source_match, tag_rule_service
 from services.document_service import _generate_doc_no
 from services.tag_service import get_or_create_tag
+
+_LOGGER = logging.getLogger(__name__)
 
 SOURCES_DIR = BASE_DIR / "sources"
 QUESTION_TYPES = {"question", "past_question"}
@@ -682,6 +685,7 @@ def create_preview(
         "recovered": recovered,
     }
 
+    saved_path = None
     if preserve:
         # LLM 비용을 치른 산출물이므로 캐시(TTL 1h)와 별개로 디스크에 남긴다(설계 §4.3).
         # S15: 이때 계산한 신뢰 게이트 경고도 함께 남겨, 복구가 **재판정 없이** 최초
@@ -689,7 +693,7 @@ def create_preview(
         # **판정된 항목은 경고가 없어도 `[]`로 명시 기록한다** — "키 없음"이 곧 "그때는
         # 판정하지 못한 항목(error)"이라는 뜻이 되어야, 복구 때 살아난 항목이 배지 없이
         # 조용히 통과하지 않는다(S15 검토 3차 지적).
-        preview_store.save(
+        saved_path = preview_store.save(
             preview_id,
             json_bytes,
             source_filename=source_filename,
@@ -698,6 +702,28 @@ def create_preview(
                 item.index: item.warnings for item in items if item.status != "error"
             },
         )
+
+    # S20(F46, 설계 §4.22 ① — 수집 훅 지점 2) — 신뢰 게이트 탈락(fabrication_suspect)
+    # 수집. convert·fetch 잡 경로에서만(gate=True·preserve=True) — 잡 단위 1건, best-effort
+    # (수집 실패가 preview 생성 자체를 막지 않는다). 직접 업로드 JSON(gate=False)·복구
+    # 재생성(preserve=False)은 대상 아니다.
+    if gate and preserve:
+        fabrication_indices = [
+            item.index for item in items if "fabrication_suspect" in (item.warnings or [])
+        ]
+        if fabrication_indices:
+            try:
+                from services import improve_service
+
+                improve_service.collect_gate_case(
+                    source_filename=source_filename,
+                    source_bytes=source_bytes,
+                    item_indices=fabrication_indices,
+                    total_items=len(items),
+                    preview_ref=saved_path.name if saved_path else None,
+                )
+            except Exception:  # noqa: BLE001 - 수집 실패가 preview 생성을 막으면 안 된다
+                _LOGGER.warning("게이트 실패 사례 수집 중 오류(원 플로우 영향 없음)", exc_info=True)
 
     return response
 
