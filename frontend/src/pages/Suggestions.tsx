@@ -2,13 +2,19 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApplySuggestions, useSuggestions } from '../api/suggestions'
 import { ApiError } from '../api/client'
+import ImproveInbox from '../components/ImproveInbox'
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
 }
 
-// 설계 §4.9 — 제안함. 대기 중(pending) 연결 제안 목록 + 개별/일괄 승인·거절.
+type InboxTab = 'classify' | 'improve'
+
+// 설계 §4.9·§4.22 — 제안함. 두 수신함: [분류 연결](기존 — 대기 중 연결 제안 개별/일괄 승인·거절,
+// 무변경) / [반입 개선](S20, F46 — 실패 사례·개선 제안·회귀 재검증, ImproveInbox). nav 배지는
+// 두 pending 합산(SuggestionsNavBadge — 결정 ①).
 export default function SuggestionsPage() {
+  const [tab, setTab] = useState<InboxTab>('classify')
   const navigate = useNavigate()
   const suggestionsQuery = useSuggestions()
   const applySuggestions = useApplySuggestions()
@@ -58,14 +64,42 @@ export default function SuggestionsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-4">
+    <div className={`mx-auto p-4 ${tab === 'improve' ? 'max-w-3xl' : 'max-w-2xl'}`}>
       <h1 className="mb-1 text-xl font-semibold text-primary">제안함</h1>
-      <p className="mb-4 text-sm text-muted">
-        태그 규칙이 찾아낸 분류 연결 제안입니다. 승인하면 실제로 연결되고, 거절하면 같은 제안이 다시
-        올라오지 않습니다.
-      </p>
 
-      {suggestionsQuery.isLoading && <p className="text-sm text-muted">불러오는 중…</p>}
+      <div className="mb-4 flex gap-2 border-b border-border">
+        <button
+          type="button"
+          onClick={() => setTab('classify')}
+          aria-pressed={tab === 'classify'}
+          className={`px-3 py-2 text-sm font-medium ${
+            tab === 'classify' ? 'border-b-2 border-accent text-accent' : 'text-muted hover:text-primary'
+          }`}
+        >
+          분류 연결
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('improve')}
+          aria-pressed={tab === 'improve'}
+          className={`px-3 py-2 text-sm font-medium ${
+            tab === 'improve' ? 'border-b-2 border-accent text-accent' : 'text-muted hover:text-primary'
+          }`}
+        >
+          반입 개선
+        </button>
+      </div>
+
+      {tab === 'improve' && <ImproveInbox />}
+
+      {tab === 'classify' && (
+        <>
+          <p className="mb-4 text-sm text-muted">
+            태그 규칙이 찾아낸 분류 연결 제안입니다. 승인하면 실제로 연결되고, 거절하면 같은 제안이 다시
+            올라오지 않습니다.
+          </p>
+
+          {suggestionsQuery.isLoading && <p className="text-sm text-muted">불러오는 중…</p>}
       {suggestionsQuery.isError && (
         <p className="text-sm text-wrong">{errMsg(suggestionsQuery.error, '제안 목록을 불러오지 못했습니다.')}</p>
       )}
@@ -153,7 +187,9 @@ export default function SuggestionsPage() {
             </div>
           </li>
         ))}
-      </ul>
+          </ul>
+        </>
+      )}
     </div>
   )
 }

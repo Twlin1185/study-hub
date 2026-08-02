@@ -63,11 +63,15 @@
 
 ### 5. 프론트 — 제안함 일반화·개선 탭 (설계 §4.22 ③ UI)
 
-- [ ] `pages/Suggestions.tsx`에 수신함 2탭: **[분류 연결]**(기존 — 무변경) / **[반입 개선]**(신규 — `components/ImproveInbox.tsx` 등 신설) · `SuggestionsNavBadge` = 두 pending 합산(`GET /api/improve/proposals?status=pending` 병합)
-- [ ] **실패 사례 목록**: kind 배지·origin·count·최근 발생·[제거] — 사례 선택(체크박스) → [개선 제안 생성](prepare 호출)
-- [ ] **사용량 확인 스텝(필수 — 확인 없이 생성 불가)**: estimate·사례 수·엔진·과금형(`billing`) 표시(FetchImportWizard 전례) → [생성 시작](generate) → 진행 `LlmJobProgress`·`LlmErrorInfo` 재사용 · 생성 결과 요약(proposal 수 + **discarded 사유 건수 — 조용한 축소 금지**)
-- [ ] **제안 카드·상세**: kind 배지(사례집 추가/프롬프트 수정/코드 수정 필요) + title·rationale·근거 사례 링크 · 상세 = 적용 미리보기(casebook 전문 / prompt_edit before-after 비교 + 적용 후 전문 + policy_check 위반 표시 / code_issue 재현 패키지 + [복사]) · [승인 반영]/[거절](code_issue는 [인계 완료]) · 409·422는 서버 message 렌더
-- [ ] **회귀 패널**: 반영된(applied) 제안에서 [회귀 재검증] → 사례 선택(기본 = 근거 사례 + 같은 kind) → **estimate 확인 스텝** → 실행 → `results[]` outcome 표시 + 사례 레코드의 regressions 이력 소표기. 색상은 전부 토큰(불변 규칙 5)
+- [x] `pages/Suggestions.tsx`에 수신함 2탭: **[분류 연결]**(기존 — 무변경) / **[반입 개선]**(신규 — `components/ImproveInbox.tsx` 등 신설) · `SuggestionsNavBadge` = 두 pending 합산(`GET /api/improve/proposals?status=pending` 병합)
+- [x] **실패 사례 목록**: kind 배지·origin·count·최근 발생·[제거] — 사례 선택(체크박스) → [개선 제안 생성](prepare 호출)
+- [x] **사용량 확인 스텝(필수 — 확인 없이 생성 불가)**: estimate·사례 수·엔진·과금형(`billing`) 표시(FetchImportWizard 전례) → [생성 시작](generate) → 진행 `LlmJobProgress`·`LlmErrorInfo` 재사용 · 생성 결과 요약(proposal 수 + **discarded 사유 건수 — 조용한 축소 금지**)
+- [x] **제안 카드·상세**: kind 배지(사례집 추가/프롬프트 수정/코드 수정 필요) + title·rationale·근거 사례 링크 · 상세 = 적용 미리보기(casebook 전문 / prompt_edit before-after 비교 + 적용 후 전문 + policy_check 위반 표시 / code_issue 재현 패키지 + [복사]) · [승인 반영]/[거절](code_issue는 [인계 완료]) · 409·422는 서버 message 렌더
+- [x] **회귀 패널**: 반영된(applied) 제안에서 [회귀 재검증] → 사례 선택(기본 = 근거 사례 + 같은 kind) → **estimate 확인 스텝** → 실행 → `results[]` outcome 표시 + 사례 레코드의 regressions 이력 소표기. 색상은 전부 토큰(불변 규칙 5)
+
+  **구현 메모(프론트, 2026-08-02)**: `pages/Suggestions.tsx`는 로컬 `useState<'classify'|'improve'>` 탭 전환만 추가(기존 [분류 연결] JSX·로직 무변경, 조건부 렌더로 감쌈). `components/ImproveInbox.tsx`(신설, 앵커 그대로) 하위에 `components/improve/`(신설 폴더 — 기존 `home`·`markdown`·`print`·`settings` 서브폴더 관례 재사용) — `ImproveCaseList`(사례 목록+선택+삭제)·`ImproveGenWizard`(prepare→confirm→generate→progress→result, AnswerKeyImportWizard/FetchImportWizard 전례)·`ImproveProposalList`+`ImproveProposalDetailModal`(카드+상세 모달)·`ImproveRegressionPanel`+`ImproveRegressionWizard`(applied 제안 목록+회귀 위저드)·`ImproveCaseDetailModal`(근거 사례 링크 클릭 시)·`labels.ts`(kind/origin/outcome 한국어 라벨+배지 클래스, 색상은 전부 토큰 클래스). API 훅은 `api/improve.ts` 신설(gen_id·reg_id를 상태 폴링 키로 사용 — `api/answerKey.ts`의 key_id 관례와 동일, job_id는 시작 응답에만). 타입은 `api/types.ts` 말미에 `Improve*` 블록 추가.
+
+  **프론트 판단(계약에 명시 없어 합리적으로 결정 — 최종 보고 참고)**: ① 사례 목록은 결정 ②의 "최근 50건 상한"을 근거로 `page=1&size=50` 고정 1회 조회로 전체를 가져오고 별도 페이지네이션 UI를 두지 않음(레코드 총량이 애초에 50 이하이므로 무해). ② "근거 사례 링크"는 별도 사례 상세 라우트가 없어 클릭 시 사례 상세를 모달로 여는 방식으로 구현(`ImproveCaseDetailModal` — `GET /api/improve/cases/{case_id}` 사용). ③ 회귀 사례 선택 UI에서 `user_report`(신고) kind 사례는 선택 가능 목록에서 원천 제외(계약 "UI에서도 선택 차단이 친절" 반영). ④ `ImproveGenJobResponse`·`ImproveRegressionJobResponse`는 계약에 `error`(레거시 문자열) 필드가 없어 `LlmErrorInfoView`에 `legacyError`를 넘기지 않음(error_info만 사용).
 
 ### 6. 테스트·검증
 

@@ -1090,6 +1090,158 @@ export interface AnswerKeyUnmatched {
   documents: AnswerKeyUnmatchedDocument[]
 }
 
+// ---- 반입 자기 개선 루프 Improve (설계 §4.22, F46, S20) ----
+//
+// 원칙(강제 재확인): 이 기능은 DB에 아무것도 쓰지 않는다 — 저장은 improve/cases·
+// improve/proposals(JSON 파일) + prompts/convert.cases.md·convert.md(git 관리) 뿐이다.
+// 파일 쓰기 경로는 apply 1곳뿐(승인 게이트 — R8). 수집(cases)은 비용 0 자동, 개선 생성(gen)·
+// 회귀(regression)는 항상 prepare(견적, LLM 0) → 확인 스텝 → generate/run(LLM 호출) 순서다.
+// gen_id·reg_id가 상태 폴링 키(§4.22 — answer-key의 key_id와 동일 관례, job_id는 시작 응답에만).
+
+export type ImproveCaseOrigin = 'convert_job' | 'fetch_job' | 'gate' | 'report'
+
+export interface ImproveCaseSource {
+  path: string
+  hash12: string
+  filename: string
+}
+
+export interface ImproveCaseDocumentRef {
+  id: number
+  doc_no: string
+  title: string
+}
+
+export type ImproveRegressionOutcome = 'passed' | 'still_failing' | 'failed_differently' | 'unavailable'
+
+export interface ImproveCaseRegression {
+  reg_id: string
+  run_at: string
+  outcome: ImproveRegressionOutcome
+  detail?: string | null
+}
+
+// cases 목록·상세 공용 — 명세(§4.22 ①)상 목록도 "레코드 요약(has_llm_output bool 포함 · 원문
+// 미포함)"이라 필드 구성은 상세와 사실상 같고(detail 유무만 다를 수 있음), 프론트는 단일 타입으로
+// 다룬다. 원문(LLM 산출물·error_info raw)은 어떤 응답에도 담기지 않는다(로그 전용, §4.11 관례).
+export interface ImproveCaseItem {
+  case_id: string
+  created_at: string
+  origin: ImproveCaseOrigin
+  kind: string
+  count: number
+  last_seen_at: string
+  engine?: string | null
+  source?: ImproveCaseSource | null
+  document?: ImproveCaseDocumentRef | null
+  preview_ref?: string | null
+  has_llm_output: boolean
+  // detail = origin별 구조화 정보(§4.22 — error_info 사본 · 게이트 항목 인덱스 · 신고 reason).
+  // 필드 구성이 origin마다 달라 명세가 스키마를 못박지 않는다 — 프론트는 가공 없이 원본 구조만
+  // 보존한다(사례 상세 화면에서 key: value 나열로 렌더).
+  detail?: Record<string, unknown> | null
+  regressions: ImproveCaseRegression[]
+}
+
+export interface ImproveEstimate {
+  approx_input_tokens: number
+  assumed: boolean
+}
+
+export interface ImproveGenPrepareRequest {
+  case_ids: string[]
+}
+
+export interface ImproveGenPrepareResponse {
+  gen_id: string
+  case_count: number
+  estimate: ImproveEstimate
+}
+
+export interface ImproveDiscardedGroup {
+  reason: string
+  count: number
+}
+
+export interface ImproveGenResult {
+  proposal_ids: string[]
+  discarded: ImproveDiscardedGroup[]
+}
+
+export interface ImproveGenJobResponse {
+  status: ConvertJobStatus
+  progress?: JobProgress | null
+  error_info?: LlmErrorInfo | null
+  result?: ImproveGenResult | null
+}
+
+export type ImproveProposalKind = 'casebook' | 'prompt_edit' | 'code_issue'
+export type ImproveProposalStatus = 'pending' | 'applied' | 'rejected' | 'acknowledged'
+
+export interface ImproveProposalListItem {
+  proposal_id: string
+  kind: ImproveProposalKind
+  title: string
+  rationale: string
+  case_ids: string[]
+  status: ImproveProposalStatus
+  created_at: string
+  decided_at?: string | null
+}
+
+export interface ImproveHunk {
+  before: string
+  after: string
+}
+
+export type ImprovePolicyCheck = 'ok' | 'violation'
+
+// kind별 payload — casebook만 entry_markdown, prompt_edit만 hunks(+preview_after·policy_check
+// 서버 합성), code_issue만 repro_markdown이 채워진다(§4.22 ②·③). 프론트는 kind로 분기해 읽는다.
+export interface ImproveProposalPayload {
+  entry_markdown?: string
+  hunks?: ImproveHunk[]
+  repro_markdown?: string
+}
+
+export interface ImproveProposalDetail extends ImproveProposalListItem {
+  payload: ImproveProposalPayload
+  // prompt_edit 전용 적용 미리보기(§4.22 ③) — 적용 후 convert.md 전문 + 정책 잠금 검증 결과.
+  preview_after?: string | null
+  policy_check?: ImprovePolicyCheck | null
+}
+
+// apply 응답 result는 kind별 자유 형식(§4.22 ③) — 프론트는 applied·kind만 신뢰해 분기하고
+// result는 그대로 보존만 한다(가공하지 않음).
+export interface ImproveApplyResponse {
+  applied: boolean
+  kind: ImproveProposalKind
+  result: unknown
+}
+
+export interface ImproveRegressionPrepareRequest {
+  case_ids: string[]
+}
+
+export interface ImproveRegressionPrepareResponse {
+  reg_id: string
+  case_count: number
+  estimate: ImproveEstimate
+}
+
+export interface ImproveRegressionResultItem {
+  case_id: string
+  outcome: ImproveRegressionOutcome
+  detail?: string | null
+}
+
+export interface ImproveRegressionJobResponse {
+  status: ConvertJobStatus
+  progress?: JobProgress | null
+  error_info?: LlmErrorInfo | null
+  results: ImproveRegressionResultItem[]
+}
+
 // GET /api/import/answer-key/{key_id} — 상태·미리보기 조회(convert 잡 큐 kind 'answer_key' 재사용,
 // progress·error_info는 §4.11 계약 그대로). matched·unmatched는 status:'done'에서만 채워진다.
 export interface AnswerKeyStatusResponse {
