@@ -11,6 +11,7 @@ import LlmLimitBanner from '../components/LlmLimitBanner'
 import Stepper from '../components/Stepper'
 import ConfirmDialog from '../components/ConfirmDialog'
 import FetchImportWizard from '../components/FetchImportWizard'
+import AnswerKeyImportWizard from '../components/AnswerKeyImportWizard'
 import ImportQueueList, { ImportQueueSummary } from '../components/ImportQueue'
 import CategoryPathField, { categoryPathError, normalizeCategoryPath } from '../components/CategoryPathField'
 import type { StepperStep } from '../components/Stepper'
@@ -28,7 +29,9 @@ type WizardStep = 'select' | 'preview' | 'result'
 // 'convert' = 원본 파일 업로드 자동 변환(S13: **다중 선택 = 반입 대기열**, F40-②) ·
 // 'url' = URL 반입(§4.11 F35 1단계) — 둘 다 StartConvertPanel + 같은 대기열을 공유하고
 // sourceKind로 입력 UI만 갈린다. 'fetch' = 사이트에서 가져오기(§5.9, S10) — 자체 4단계 서브플로.
-type EntryMode = 'json' | 'convert' | 'url' | 'fetch'
+// 'answer_key' = 답지·해설지 반입(§4.20 ①, F44, S18) — 반입 preview(§4.3)와 독립된 별도 경로
+// (매칭 미리보기·apply 응답 스키마가 다름). 자체 스텝을 갖는 AnswerKeyImportWizard가 전담한다.
+type EntryMode = 'json' | 'convert' | 'url' | 'fetch' | 'answer_key'
 
 interface ItemDecisionState {
   action: ImportAction
@@ -309,6 +312,9 @@ export default function ImportPage() {
             <ModeTab active={entryMode === 'fetch'} onClick={() => setEntryMode('fetch')}>
               사이트에서 가져오기
             </ModeTab>
+            <ModeTab active={entryMode === 'answer_key'} onClick={() => setEntryMode('answer_key')}>
+              답지·해설지 반입
+            </ModeTab>
           </div>
 
           {/* 다른 탭에 있어도 대기열이 살아 있음을 잊지 않게 한다(§5.9 접힌 요약) */}
@@ -367,6 +373,15 @@ export default function ImportPage() {
               onFallbackToUrl={() => setEntryMode('url')}
               onFallbackToFile={() => setEntryMode('convert')}
             />
+          )}
+          {entryMode === 'answer_key' && (
+            <>
+              <p className="mb-3 text-sm text-muted">
+                이미 반입된 문항 중 정답·해설이 빈 곳을 답지·해설지 파일로 채웁니다 — 기존 값은
+                덮어쓰지 않습니다(빈 필드만 병합).
+              </p>
+              <AnswerKeyImportWizard />
+            </>
           )}
         </>
       )}

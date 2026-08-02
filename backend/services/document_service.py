@@ -23,7 +23,7 @@ from schemas.document import (
     LinkCreate,
     RelationCreate,
 )
-from services import tag_rule_service
+from services import embed_service, tag_rule_service
 from services.tag_service import get_or_create_tag
 
 DOC_NO_PREFIX = "DOC-"
@@ -207,6 +207,8 @@ def create_document(db: Session, payload: DocumentCreate) -> models.Document:
         )
         db.add(document)
         try:
+            db.flush()  # id 확보 — embeds 동기화가 from_document_id로 참조한다
+            embed_service.sync_embeds_for_document(db, document)
             db.commit()
         except IntegrityError:
             db.rollback()
@@ -231,6 +233,9 @@ def update_document(
         )
     for field, value in data.items():
         setattr(document, field, value)
+    if "content" in data:
+        # embeds 인덱스 동기화(§4.19 ⑥) — content 변경 시에만, 문서 저장과 같은 트랜잭션
+        embed_service.sync_embeds_for_document(db, document)
     db.commit()
     db.refresh(document)
     return document
@@ -413,11 +418,17 @@ def add_relation(db: Session, document_id: int, payload: RelationCreate) -> None
 
 
 def remove_relation(db: Session, document_id: int, to_document_id: int) -> None:
+    """수동 관계(explains 등) 해제. `relation='embeds'`는 본문 파싱이 만드는 파생 인덱스라
+    이 경로로 지우지 않는다 — 지워도 본문의 `![[...]]`가 그대로면 다음 저장·재계산 때
+    되살아나 사용자 입장에서는 "안 지워진다"로 보이고, 그 사이 인덱스만 소실된다(검토
+    경미-1, R20). 프론트가 embeds를 판별하는 기준(`relation === 'embeds'`)과 동일하게
+    relation 값만으로 제외한다."""
     get_document_or_404(db, document_id)
     rows = db.execute(
         select(models.DocumentRelation).where(
             models.DocumentRelation.from_document_id == document_id,
             models.DocumentRelation.to_document_id == to_document_id,
+            models.DocumentRelation.relation != "embeds",
         )
     ).scalars().all()
     if not rows:

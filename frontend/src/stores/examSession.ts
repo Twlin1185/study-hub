@@ -40,8 +40,21 @@ interface ExamSessionState {
   deadlineAt: number | null
   finishedAt: number | null
   report: ExamSubmitResponse | null
+  // S19(§4.21·§7) — applied 컨텍스트(신규 스토어 없음, 기존 examSession 확장). applied=true면
+  // 제출을 applied-exam/submit으로 분기하고, 리포트에 "AI 생성 모의고사" 배지·근거 링크(basis)를
+  // 렌더한다. appliedRunCategoryId는 이 세션이 속한 격리 런 분류 id(참고용 — 제출 자체는 서버가
+  // 검증, 프론트는 분기 신호로만 사용).
+  applied: boolean
+  appliedRunCategoryId: number | null
 
-  start: (subjects: ExamSubjectSession[], timeLimitMinutes: number, cut: ExamCut, order: ExamOrder) => void
+  start: (
+    subjects: ExamSubjectSession[],
+    timeLimitMinutes: number,
+    cut: ExamCut,
+    order: ExamOrder,
+    applied?: boolean,
+    appliedRunCategoryId?: number | null,
+  ) => void
   setAnswer: (documentId: number, value: string) => void
   goTo: (index: number) => void
   submitted: (report: ExamSubmitResponse) => void
@@ -61,6 +74,8 @@ const initialState = {
   deadlineAt: null as number | null,
   finishedAt: null as number | null,
   report: null as ExamSubmitResponse | null,
+  applied: false,
+  appliedRunCategoryId: null as number | null,
 }
 
 // 설계 §7 — zustand examSession(문항·답안·카운트다운·리포트). 제출 전엔 전부 로컬(서버는 무상태,
@@ -68,7 +83,7 @@ const initialState = {
 export const useExamSessionStore = create<ExamSessionState>((set, get) => ({
   ...initialState,
 
-  start: (subjects, timeLimitMinutes, cut, order) => {
+  start: (subjects, timeLimitMinutes, cut, order, applied = false, appliedRunCategoryId = null) => {
     const items: ExamFlatItem[] = subjects.flatMap((s) =>
       s.items.map((q) => ({
         document_id: q.document_id,
@@ -98,6 +113,8 @@ export const useExamSessionStore = create<ExamSessionState>((set, get) => ({
       order,
       startedAt: now,
       deadlineAt: now + timeLimitMinutes * 60_000,
+      applied,
+      appliedRunCategoryId,
     })
   },
 

@@ -43,9 +43,12 @@ export function useSubmitExam() {
 }
 
 // GET /api/exam/history?limit= — 응시 이력(파생값, 페이지네이션 없음 — limit 절단, srs/today 전례).
-export function useExamHistory(limit = 20) {
+// enabled(S19) — applied 세션 리포트(ExamRun.tsx)에서는 이 실전 이력을 보여주지 않으므로 요청 자체를
+// 건너뛴다(§4.21 "이력" 항 — applied는 별도 applied-exam/history를 Exam.tsx AI 응용 탭에서만 표시).
+export function useExamHistory(limit = 20, enabled = true) {
   return useQuery({
     queryKey: examKeys.history(limit),
     queryFn: () => api.get<ExamHistoryResponse>(`/exam/history?limit=${limit}`),
+    enabled,
   })
 }

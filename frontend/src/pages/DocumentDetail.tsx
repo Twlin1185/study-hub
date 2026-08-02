@@ -18,9 +18,11 @@ import MiniHistoryChart from '../components/MiniHistoryChart'
 import BookmarkButton from '../components/BookmarkButton'
 import AddRelationModal from '../components/AddRelationModal'
 import RegenerateJobPanel from '../components/RegenerateJobPanel'
+import ExplainJobPanel from '../components/ExplainJobPanel'
 import DocEditor from '../components/DocEditor'
 import { useFontScale } from '../hooks/useFontScale'
 import { ApiError } from '../api/client'
+import { pickEmbeddedBy, pickManualRelations } from '../utils/relations'
 
 const TYPE_LABEL: Record<DocumentType, string> = {
   concept: '개념',
@@ -127,6 +129,11 @@ export default function DocumentDetailPage() {
   // 열람 모드에서 정답·해설 스포일러를 적용할 타입(개념 제외)
   const hasAnswerSection = isQuestionLike || doc.type === 'flashcard'
 
+  // F43(설계 §4.19 ⑦) — 임베드 인덱스는 파생 관계다. 사용자가 만든 관계 목록에 섞지 않고
+  // 사용처 영역의 역참조 목록·삭제 경고로만 쓴다(신규 API 없음 — 공용 필터 utils/relations).
+  const manualRelations = pickManualRelations(doc.relations)
+  const embeddedBy = pickEmbeddedBy(doc.relations)
+
   function handleTagKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key !== 'Enter' && e.key !== ',') return
     e.preventDefault()
@@ -201,7 +208,7 @@ export default function DocumentDetailPage() {
         <div className="flex flex-col gap-4">
           <div className="rounded-lg border border-border bg-surface p-4">
             {hasAnswerSection && <h2 className="mb-2 text-sm font-semibold text-primary">지문</h2>}
-            <MarkdownView content={doc.content} scale={fontScale} />
+            <MarkdownView content={doc.content} scale={fontScale} docNo={doc.doc_no} />
           </div>
 
           {hasAnswerSection && (doc.choices ?? []).length > 0 && (
@@ -237,8 +244,10 @@ export default function DocumentDetailPage() {
                   </p>
                   <div className="text-sm text-primary">
                     <span className="font-semibold">해설</span>
-                    <MarkdownView content={doc.explanation} scale={fontScale} />
+                    <MarkdownView content={doc.explanation} scale={fontScale} docNo={doc.doc_no} />
                   </div>
+                  {/* AI 풀이 생성 (설계 §4.20 ②, F44) — 문제 타입 + 해설 없음 문서에만 노출 */}
+                  <ExplainJobPanel doc={doc} />
                 </div>
               )}
             </div>
@@ -288,6 +297,35 @@ export default function DocumentDetailPage() {
             ))}
           </ul>
         )}
+
+        {/* 임베드 역참조 (설계 §4.19 ⑦) — 본문에 이 문서를 펼쳐 놓은 문서들 */}
+        <div className="mt-4 border-t border-border pt-3">
+          <h3 className="mb-2 text-sm font-semibold text-primary">
+            이 문서를 임베드한 문서{embeddedBy.length > 0 && ` ${embeddedBy.length}개`}
+          </h3>
+          {embeddedBy.length === 0 ? (
+            <p className="text-sm text-muted">이 문서를 임베드한 문서가 없습니다.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {embeddedBy.map((rel) => (
+                <li key={`embeds-${rel.document_id}`}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/docs/${rel.document_id}`)}
+                    className="flex w-full items-center gap-2 rounded border border-border bg-bg px-3 py-2 text-left text-sm text-primary hover:underline"
+                    title={rel.title}
+                  >
+                    <span className="shrink-0 rounded bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium text-accent">
+                      임베드
+                    </span>
+                    <span className="shrink-0 text-xs text-muted">{rel.doc_no}</span>
+                    <span className="truncate">{rel.title}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       {/* 관련 문서 — 문제면 "이 문제의 개념", 개념이면 "확인 문제" (설계 §5.3, F24) */}
@@ -295,7 +333,7 @@ export default function DocumentDetailPage() {
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-primary">
             {isConceptType(doc.type) ? '확인 문제' : '이 문제의 개념'}
-            {doc.relations.length > 0 && ` (${doc.relations.length})`}
+            {manualRelations.length > 0 && ` (${manualRelations.length})`}
           </h2>
           <button
             type="button"
@@ -308,11 +346,11 @@ export default function DocumentDetailPage() {
             + 연결 추가
           </button>
         </div>
-        {doc.relations.length === 0 ? (
+        {manualRelations.length === 0 ? (
           <p className="text-sm text-muted">연결된 관련 문서가 없습니다.</p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {doc.relations.map((rel) => (
+            {manualRelations.map((rel) => (
               <li
                 key={`${rel.document_id}-${rel.relation}-${rel.direction}`}
                 className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-bg px-3 py-2 text-sm"
@@ -324,7 +362,7 @@ export default function DocumentDetailPage() {
                   title={rel.title}
                 >
                   <span className="mr-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium text-accent">
-                    {RELATION_LABEL[rel.relation]}
+                    {RELATION_LABEL[rel.relation as RelationType] ?? rel.relation}
                   </span>
                   <span className="mr-1 text-xs text-muted">{rel.doc_no}</span>
                   {rel.title}
@@ -403,7 +441,13 @@ export default function DocumentDetailPage() {
       {confirmDelete && (
         <ConfirmDialog
           title="문서 삭제"
-          message={`"${doc.title}" 문서를 삭제할까요? (소프트 삭제 — 학습 기록은 보존됩니다)`}
+          // 임베드 경고는 알리기만 하고 삭제를 막지 않는다(설계 §4.19 ⑦ — 자리표시자로 해결).
+          message={
+            `"${doc.title}" 문서를 삭제할까요? (소프트 삭제 — 학습 기록은 보존됩니다)` +
+            (embeddedBy.length > 0
+              ? `\n\n⚠ 이 문서는 ${embeddedBy.length}개 문서에 임베드됨 — 삭제해도 해당 문서는 유지되며, 임베드 자리에는 "삭제된 문서" 표시가 나옵니다.`
+              : '')
+          }
           confirmLabel="삭제"
           danger
           submitting={deleteDocument.isPending}
@@ -419,7 +463,8 @@ export default function DocumentDetailPage() {
       {addRelationOpen && (
         <AddRelationModal
           documentId={doc.id}
-          excludeIds={doc.relations.map((r) => r.document_id)}
+          // 파생 embeds 행은 제외 대상이 아니다 — 임베드한 문서와도 사용자 관계는 따로 맺을 수 있다.
+          excludeIds={manualRelations.map((r) => r.document_id)}
           submitting={addRelation.isPending}
           errorMessage={relationError}
           onClose={() => setAddRelationOpen(false)}

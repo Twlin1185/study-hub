@@ -59,12 +59,18 @@ export interface DocumentUsage {
 export type RelationType = 'explains' | 'related' | 'prerequisite'
 export type RelationDirection = 'from' | 'to'
 
+// 파생 관계(F43, 설계 §4.19 ⑥) — 본문 임베드 `![[DOC-…]]`를 저장 시 스캔해 만드는 인덱스 행
+// (created_by='embed'). 사용자가 직접 선택·해제할 수 없고, 문서 상세의 역참조 목록·삭제 경고에만
+// 쓰인다. 그래서 사용자 선택용 RelationType과 분리한다.
+export type DerivedRelationType = 'embeds'
+export type AnyRelationType = RelationType | DerivedRelationType
+
 export interface RelatedDocument {
   document_id: number
   doc_no: string
   type: DocumentType
   title: string
-  relation: RelationType
+  relation: AnyRelationType
   direction: RelationDirection
 }
 
@@ -423,6 +429,9 @@ export interface ExamResultItem {
   answer: string | null
   explanation: string | null
   review_note_id: number | null
+  // S19(§4.21) — applied-exam/submit 응답에서만 채워진다(일반 exam/submit엔 없음, undefined).
+  // document_relations 'derived_from'에서 파생된 근거 문서 목록 — 사후 검토(R22 ②)의 핵심.
+  basis?: AppliedExamBasisDoc[]
 }
 
 export interface ExamSubmitResponse {
@@ -453,6 +462,95 @@ export interface ExamHistoryItem {
 }
 
 export type ExamHistoryResponse = ExamHistoryItem[]
+
+// ---- 응용 모의고사 Applied Exam (설계 §4.21, S19, F45) ----
+//
+// 원칙(강제 재확인): 응시 구성은 기존 exam/session 재사용(신규 세션 API 없음) — subjects=
+// [{category_id: run_category_id}] 1과목, QuizQuestionOut 재사용이라 정답·해설·basis 전부
+// 부재(계약 수준 봉인, 불변 규칙 1). 이 블록의 타입은 신규 5개 엔드포인트(prepare·generate·
+// 상태·submit·history)만 다룬다. submit 응답은 ExamSubmitResponse를 그대로 재사용하고
+// results[].basis(위 ExamResultItem 참조)만 추가로 채워진다 — 별도 응답 타입을 두지 않는다.
+// history 응답도 파생 로직 재사용이라 ExamHistoryResponse와 동일 형태(mode='applied_exam' 그룹).
+
+export interface AppliedExamPrepareRequest {
+  category_ids: number[]
+  count: number
+}
+
+export interface AppliedExamSourceCounts {
+  past_question: number
+  question: number
+  concept: number
+}
+
+// estimate 필드 관례 = fetch_service.estimate_usage(§4.13)·answer-key(§4.20 ①) 재사용.
+export interface AppliedExamEstimate {
+  approx_input_tokens: number
+  assumed: boolean
+}
+
+export interface AppliedExamPrepareResponse {
+  gen_id: string
+  scope_label: string
+  source_counts: AppliedExamSourceCounts
+  requested_count: number
+  estimate: AppliedExamEstimate
+}
+
+export interface AppliedExamGenerateRequest {
+  engine?: LlmEngine
+}
+
+export interface AppliedExamGenerateResponse {
+  job_id: string
+}
+
+// 검증 게이트(§4.21 결정 ⑦) 폐기 사유 — 조용한 축소 금지, 상태 응답에 구조화되어 내려온다.
+export type AppliedExamDiscardReason =
+  | 'invalid_item'
+  | 'invalid_answer'
+  | 'missing_explanation'
+  | 'bad_basis'
+  | 'duplicate_of_source'
+
+export interface AppliedExamDiscardGroup {
+  reason: AppliedExamDiscardReason
+  count: number
+}
+
+export interface AppliedExamResult {
+  run_category_id: number
+  requested: number
+  generated: number
+  discarded: AppliedExamDiscardGroup[]
+  document_ids: number[]
+}
+
+// GET /api/applied-exam/{gen_id} — 상태·결과 조회. convert 잡 큐 kind 'applied_exam' 재사용이라
+// progress·error_info 계약은 §4.11 그대로(ConvertJobResponse와 동형이나 result 필드가 다름).
+// 'prepared'(2026-08-02 검토 경미⑤, 라이브 실측) — generate 호출 전(prepare 직후) gen 상태를
+// 나타내는 값. ConvertJobStatus('running'|'done'|'error')에는 없는 상태라 유니온으로 확장한다.
+// 프론트는 이 값을 process 단계 폴링 중에는 만나지 않는다(generate 성공 후에만 폴링 시작 —
+// AppliedExamPanel.tsx) — 타입만 정확히 맞추고 소비처 동작은 바꾸지 않는다.
+export type AppliedExamStatus = ConvertJobStatus | 'prepared'
+
+export interface AppliedExamStatusResponse {
+  status: AppliedExamStatus
+  error?: string | null
+  error_info?: LlmErrorInfo | null
+  progress?: JobProgress | null
+  result?: AppliedExamResult | null
+}
+
+export interface AppliedExamBasisDoc {
+  document_id: number
+  doc_no: string
+  title: string
+  type: DocumentType
+}
+
+// 파생값 재사용 — mode='applied_exam' 그룹(실전 exam/history와 상호 불간섭, §4.21 결정 ②).
+export type AppliedExamHistoryResponse = ExamHistoryResponse
 
 // ---- 복습 SRS (설계 §4.7, stage-5) ----
 //
@@ -918,6 +1016,116 @@ export interface RegenerateDraft {
 export interface RegenerateJobResponse {
   status: ConvertJobStatus
   draft?: RegenerateDraft | null
+  error?: string | null
+  error_info?: LlmErrorInfo | null
+  progress?: JobProgress | null
+}
+
+// ---- 답지·해설지 반입 (설계 §4.20 ①, F44, S18) ----
+// POST /api/import/answer-key 응답 — 판별·추출만 수행(LLM 0). estimate는 fetch estimate_usage
+// 필드 관례(approx_input_tokens·assumed) 재사용.
+export interface AnswerKeyEstimate {
+  approx_input_tokens: number
+  assumed: boolean
+}
+
+export interface AnswerKeyTarget {
+  question_total: number
+  missing_answer: number
+  missing_explanation: number
+}
+
+export interface AnswerKeyUploadResponse {
+  key_id: string
+  filename: string
+  file_type: string
+  extract_available: boolean
+  extracted_chars: number
+  target: AnswerKeyTarget
+  estimate: AnswerKeyEstimate
+}
+
+// 미리보기 matched 항목의 conflicts(이미 값이 있어 병합에서 건너뜀)·warnings(기계 검증 결과).
+export type AnswerKeyConflictField = 'answer_exists' | 'explanation_exists'
+export type AnswerKeyWarning = 'fabrication_suspect' | 'match_unavailable'
+
+export interface AnswerKeyMatchedCurrent {
+  has_answer: boolean
+  has_explanation: boolean
+}
+
+export interface AnswerKeyMatchedProposed {
+  answer?: string | null
+  explanation?: string | null
+}
+
+export interface AnswerKeyMatchedItem {
+  document_id: number
+  doc_no: string
+  title: string
+  no: number
+  current: AnswerKeyMatchedCurrent
+  proposed: AnswerKeyMatchedProposed
+  conflicts: AnswerKeyConflictField[]
+  warnings: AnswerKeyWarning[]
+}
+
+export type AnswerKeyUnmatchedNumberReason = 'no_document' | 'ambiguous'
+export type AnswerKeyUnmatchedDocumentReason = 'no_number' | 'ambiguous' | 'no_item'
+
+export interface AnswerKeyUnmatchedNumber {
+  no: number
+  reason: AnswerKeyUnmatchedNumberReason
+}
+
+export interface AnswerKeyUnmatchedDocument {
+  document_id: number
+  doc_no: string
+  title: string
+  reason: AnswerKeyUnmatchedDocumentReason
+}
+
+export interface AnswerKeyUnmatched {
+  numbers: AnswerKeyUnmatchedNumber[]
+  documents: AnswerKeyUnmatchedDocument[]
+}
+
+// GET /api/import/answer-key/{key_id} — 상태·미리보기 조회(convert 잡 큐 kind 'answer_key' 재사용,
+// progress·error_info는 §4.11 계약 그대로). matched·unmatched는 status:'done'에서만 채워진다.
+export interface AnswerKeyStatusResponse {
+  status: ConvertJobStatus
+  error?: string | null
+  error_info?: LlmErrorInfo | null
+  progress?: JobProgress | null
+  matched?: AnswerKeyMatchedItem[]
+  unmatched?: AnswerKeyUnmatched
+}
+
+export interface AnswerKeyApplySkip {
+  document_id: number
+  reason: string
+}
+
+// POST .../apply 응답 — 빈 필드만 병합(멱등). 유일한 병합 쓰기 경로(§4.20 ①-4).
+export interface AnswerKeyApplyResult {
+  updated: number
+  skipped: AnswerKeyApplySkip[]
+}
+
+// ---- LLM 풀이 생성 (설계 §4.20 ②, F44, S18 — F30 재생성 잡 인프라 재사용) ----
+export interface ExplainDraft {
+  explanation: string
+  // 원본에 정답이 없어 LLM이 함께 산출한 경우만 값이 있다(answer_included로 구분).
+  answer?: string | null
+  answer_included: boolean
+}
+
+// GET .../explain/{job_id} — explanation_source는 §4.17 answer_source 관례와 동일하게
+// 응답 전용·DB 미저장(마커 라인은 apply 시 서버가 explanation 본문에 부착).
+export interface ExplainJobResponse {
+  status: ConvertJobStatus
+  draft?: ExplainDraft | null
+  explanation_source?: 'generated'
   error?: string | null
   error_info?: LlmErrorInfo | null
   progress?: JobProgress | null

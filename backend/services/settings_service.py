@@ -23,6 +23,9 @@ DEFAULTS: Dict[str, Any] = {
     # S10 — 일일 학습 목표 (F26, 설계 §4.13). 양의 정수, None/0 = 목표 없음
     "goal.daily_questions": None,
     "goal.daily_minutes": None,
+    # S19 — 응용 모의고사(F45, 설계 §4.21 결정 ①) 예약 루트 분류 포인터. 부재·삭제 시
+    # applied_exam_service가 재생성 후 갱신한다 — 사용자가 직접 편집하는 설정이 아니다.
+    "applied_exam.root_category_id": None,
 }
 
 

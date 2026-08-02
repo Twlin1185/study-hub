@@ -69,7 +69,7 @@ export default function QuizPrintView({ categoryId, includeExplanation, answerSp
                     {seq}. <span className="mr-1 text-xs font-normal text-muted">{it.doc_no}</span>
                     {it.title}
                   </h3>
-                  <MarkdownView content={doc?.content ?? null} />
+                  <MarkdownView content={doc?.content ?? null} docNo={it.doc_no} />
                   {(doc?.choices ?? []).length > 0 && (
                     <ul className="mt-2 flex flex-col gap-1 text-sm text-primary">
                       {(doc?.choices ?? []).map((c, i) => (

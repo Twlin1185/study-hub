@@ -942,12 +942,21 @@ def _invalid_output_action(*, truncated: bool, job_kind: str) -> str:
        이 error_info는 `fallback_available=False`라 [API로 재시도] 버튼 자체가 렌더되지
        않는다(문구와 버튼 불일치 = 오안내).
     ② 경로별 문맥: 반입(convert·fetch)은 원본 분할이 유효하지만, F30 재생성은 문서 1건
-       재작성이라 "원본을 과목·회차 단위로 나눠 올리기"가 성립하지 않는다."""
+       재작성이라 "원본을 과목·회차 단위로 나눠 올리기"가 성립하지 않는다.
+    ③ S19(F45, 설계 §4.21, 검토 지적 ③): 응용 모의고사 생성(`applied_exam`)은 "원본"이
+       아니라 범위 문서·요청 문항 수가 입력이라 "과목·회차 단위로 나눠 올리기" 문구가
+       성립하지 않는다 — 범위·문항 수 조정 안내로 분기한다."""
     if job_kind == "regenerate":
         return (
             "재생성 요청(사유)을 더 짧고 구체적으로 적어 다시 시도해 보세요."
             if truncated
             else "재생성을 한 번 더 시도해 보세요. 반복되면 재생성 사유를 더 구체적으로 적어 보세요."
+        )
+    if job_kind == "applied_exam":
+        return (
+            "문항 수를 줄이거나 범위를 좁혀 다시 생성해 보세요."
+            if truncated
+            else "범위를 좁히거나 문항 수를 줄여 다시 시도해 보세요."
         )
     return (
         "원본을 과목·회차 단위로 나눠 올려 다시 변환해 보세요."
@@ -1093,8 +1102,18 @@ def _process_job(job_id: str) -> None:
             result = _do_convert(job_id, job)
         elif job["kind"] == "fetch":
             result = _do_fetch(job_id, job)
-        else:
+        elif job["kind"] == "regenerate":
             result = _do_regenerate(job_id, job)
+        elif job["kind"] == "answer_key":
+            # S18(F44 ①, 설계 §4.20) — 답지 반입 LLM 가공 잡(convert 잡 큐 재사용).
+            result = _do_answer_key_job(job_id, job)
+        elif job["kind"] == "applied_exam":
+            # S19(F45, 설계 §4.21) — 응용 모의고사 생성 잡: LLM 산출 + 검증 게이트 +
+            # 저장까지 이 잡 안에서 끝난다(미리보기 승인 단계 없음 — 결정 ⑤).
+            result = _do_applied_exam_job(job_id, job)
+        else:
+            # kind == 'explain' — S18(F44 ②, 설계 §4.20) — F30 재생성 잡 인프라 복제.
+            result = _do_explain_job(job_id, job)
         with _JOBS_LOCK:
             job = _JOBS.get(job_id)
             if job is not None:
@@ -2106,3 +2125,643 @@ def apply_regenerate_job(db: Session, document_id: int, job_id: str) -> models.D
         _JOBS.pop(job_id, None)  # 적용 완료된 잡은 캐시에서 제거(재적용 방지)
 
     return document
+
+
+# ---------------------------------------------------------------------------
+# 답지·해설지 반입(S18 — F44 ①, 설계 §4.20) — LLM 가공 잡(kind='answer_key')
+#
+# 판별·추출(§4.18 재사용)은 `services.answer_key_service`가 업로드 시점에 이미 LLM 0으로
+# 마쳤다(C군·판별 불가는 그 단계에서 동기 422로 끝난다) — 이 잡은 detection을 다시 한 번
+# 수행해(`_detect_import_format` 결정론 — 같은 바이트는 같은 결과) `_do_convert`와 같은
+# group별 프롬프트 조립 경로를 타되, convert.md 대신 답지 전용 지시문을 쓴다.
+# ---------------------------------------------------------------------------
+_ANSWER_KEY_INSTRUCTIONS = (
+    "너는 Study Hub의 답지·해설지 구조화기다. 아래 답지·해설지 원본에서 "
+    "문항 번호별 정답·해설만 추출한다.\n"
+    "- 문항 본문·보기를 새로 만들지 마라 — 이 작업은 정답·해설 추출만 한다.\n"
+    "- 답지에 없는 번호·내용을 지어내지 마라(창작 금지 — 서버가 원문과 대조해 검증한다).\n"
+    "- 답지에 실제로 표기된 문항만 포함하라(빠짐없이 넣으려고 번호를 추측하지 마라).\n\n"
+    "## 출력 형식(엄수)\n"
+    "코드펜스·설명 문장 없이, 아래 형식의 JSON 객체 하나만 출력하라:\n"
+    '{"items": [{"no": 17, "answer": "3", "explanation": "..."}, ...]}\n'
+    "- no: 문항 번호(정수, 답지에 표기된 그대로).\n"
+    "- answer: 정답 문자열. 답지에 없으면 null.\n"
+    "- explanation: 해설 문자열. 답지에 없으면 null.\n"
+)
+
+
+def _build_answer_key_prompt_cli(tmp_path: Path, filename: str) -> str:
+    return (
+        f"{_ANSWER_KEY_INSTRUCTIONS}\n\n---\n\n"
+        "## 이번 대상 — 답지·해설지 원본\n"
+        f"파일 경로: {tmp_path.resolve()}\n"
+        f"원본 파일명: {filename}\n"
+        "Read 도구로 파일을 직접 읽어 내용을 파악하라(PDF·이미지 포함). "
+        "최종 출력은 설명 문장·코드펜스 없이 순수 JSON 객체 하나만 출력하라."
+    )
+
+
+def _build_answer_key_prompt_codex(tmp_path: Path, filename: str, *, group: Optional[str] = None) -> str:
+    extracted = codex_adapter.build_text_for_prompt(tmp_path, group=group)
+    return (
+        f"{_ANSWER_KEY_INSTRUCTIONS}\n\n---\n\n"
+        "## 이번 대상 — 추출된 답지·해설지 원본 텍스트\n"
+        f"원본 파일명: {filename}\n"
+        "아래는 원본에서 추출한 텍스트다(PDF는 페이지 구분자 포함 — 레이아웃이 깨졌을 수 있으니 "
+        "문맥으로 보정해 읽어라). 파일을 직접 열지 말고 이 텍스트만으로 판단하라.\n\n"
+        f"{extracted}\n\n"
+        "최종 출력은 설명 문장·코드펜스 없이 순수 JSON 객체 하나만 출력하라."
+    )
+
+
+def _build_answer_key_prompt_api(
+    tmp_path: Path, filename: str, *, group: str, file_type: str
+) -> Tuple[str, List[dict]]:
+    blocks = _api_content_blocks_for_file(tmp_path, group=group, file_type=file_type)
+    prompt_text = (
+        f"{_ANSWER_KEY_INSTRUCTIONS}\n\n---\n\n"
+        "## 이번 대상 — 답지·해설지 원본\n"
+        f"원본 파일명: {filename}\n"
+        "이 메시지에 원본 파일 내용을 함께 첨부했다(도구 호출 없이 첨부 내용만으로 판단하라). "
+        "최종 출력은 설명 문장·코드펜스 없이 순수 JSON 객체 하나만 출력하라."
+    )
+    return prompt_text, blocks
+
+
+def _build_answer_key_embedded_prompt(filename: str, text: str) -> str:
+    return (
+        f"{_ANSWER_KEY_INSTRUCTIONS}\n\n---\n\n"
+        "## 이번 대상 — 추출된 답지·해설지 원본 텍스트\n"
+        f"원본 파일명: {filename}\n"
+        "아래는 원본에서 그대로 추출·디코드한 텍스트다. 파일을 직접 열지 말고 "
+        "이 텍스트만으로 판단하라.\n\n"
+        f"{text}\n\n"
+        "최종 출력은 설명 문장·코드펜스 없이 순수 JSON 객체 하나만 출력하라."
+    )
+
+
+def _build_answer_key_embedded_prompt_api(filename: str, text: str) -> Tuple[str, List[dict]]:
+    prompt_text = (
+        f"{_ANSWER_KEY_INSTRUCTIONS}\n\n---\n\n"
+        "## 이번 대상 — 답지·해설지 원본\n"
+        f"원본 파일명: {filename}\n"
+        "이 메시지에 원본에서 그대로 추출·디코드한 텍스트를 함께 첨부했다(도구 호출 없이 "
+        "첨부 내용만으로 판단하라). 최종 출력은 설명 문장·코드펜스 없이 순수 JSON 객체 하나만 "
+        "출력하라."
+    )
+    blocks = [{"type": "text", "text": f"\n\n## 원본 파일 내용 ({filename})\n\n{text}\n"}]
+    return prompt_text, blocks
+
+
+def _normalize_answer_key_items(payload: Any) -> List[dict]:
+    """산출 = 순수 `{"items":[...]}`(위반 = `invalid_output`, 설계 §4.20 ②). 항목 자체의
+    사소한 잡음(문자열 번호 등)은 관대히 흡수하되, 봉투 형태 위반만 구조화 오류로 다룬다."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        raise InvalidLlmOutputError(
+            "답지 가공 결과가 지정된 JSON 스키마({\"items\": [...]})가 아닙니다", truncated=False
+        )
+    items: List[dict] = []
+    for raw in payload["items"]:
+        if not isinstance(raw, dict):
+            continue
+        no = raw.get("no")
+        if isinstance(no, bool) or not isinstance(no, int):
+            try:
+                no = int(str(no).strip())
+            except (TypeError, ValueError):
+                continue
+        answer = raw.get("answer")
+        answer = answer.strip() if isinstance(answer, str) and answer.strip() else None
+        explanation = raw.get("explanation")
+        explanation = explanation.strip() if isinstance(explanation, str) and explanation.strip() else None
+        items.append({"no": no, "answer": answer, "explanation": explanation})
+    return items
+
+
+def _do_answer_key_job(job_id: str, job: dict) -> dict:
+    _set_phase(job_id, "preparing")
+    tmp_path = Path(job["_tmp_path"]) if job.get("_tmp_path") else None
+    if tmp_path is None:
+        raise ValidationAppError("가공할 답지 원본이 없습니다")
+    source_bytes = job.get("_source_bytes") or tmp_path.read_bytes()
+    source_filename = job.get("_source_filename") or tmp_path.name
+
+    # 업로드 단계(답지 반입 §1)의 판별과 같은 함수·같은 바이트 — 결정론적으로 같은 결과다.
+    detected = _detect_import_format(source_filename, source_bytes)
+
+    attempted_fallback = False
+    text_result: Optional[str] = None
+    while True:
+        engine = job["_engine"]
+        _set_phase(job_id, "llm_running")
+        try:
+            if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
+                if detected.group in ("docx", "xlsx"):
+                    prompt = _build_answer_key_embedded_prompt(source_filename, detected.text)
+                else:
+                    cli_path = tmp_path
+                    if detected.group == "text" and detected.encoding == "cp949":
+                        cli_path = _ensure_cli_recoded_tmp(job_id, job, source_filename, detected.text)
+                    prompt = _build_answer_key_prompt_cli(cli_path, source_filename)
+                text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+            elif engine == llm_engine_service.ENGINE_CODEX_CLI:
+                if detected.group in ("text", "docx", "xlsx"):
+                    prompt = _build_answer_key_embedded_prompt(source_filename, detected.text)
+                else:
+                    prompt = _build_answer_key_prompt_codex(tmp_path, source_filename, group=detected.group)
+                text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+            else:
+                if detected.group in ("text", "docx", "xlsx"):
+                    prompt_text, blocks = _build_answer_key_embedded_prompt_api(source_filename, detected.text)
+                else:
+                    prompt_text, blocks = _build_answer_key_prompt_api(
+                        tmp_path, source_filename, group=detected.group, file_type=detected.file_type
+                    )
+                text_result = _run_api_streaming(
+                    prompt_text,
+                    file_blocks=blocks,
+                    timeout_seconds=job["_timeout"],
+                    job_id=job_id,
+                    model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                )
+            llm_engine_service.record_engine_result(engine, success=True)
+            break
+        except (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError) as exc:
+            if _handle_engine_failure(job_id, job, engine, exc, attempted_fallback):
+                attempted_fallback = True
+                continue
+            raise
+
+    _set_phase(job_id, "parsing")
+    payload = _parse_json_payload(text_result)
+    items = _normalize_answer_key_items(payload)
+    return {"items": items}
+
+
+def start_answer_key_job(
+    db: Session,
+    *,
+    source_filename: str,
+    source_bytes: bytes,
+    engine: str = "auto",
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """답지 가공 잡 시작(convert 잡 큐 재사용 — kind='answer_key', 동시 1개)."""
+    _purge_expired_jobs()
+    resolved_engine = llm_engine_service.resolve_engine(db, engine)
+    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
+    pre_fallback = applied_engine != resolved_engine
+    resolved_engine = applied_engine
+    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+
+    CONVERT_TMP_DIR.mkdir(exist_ok=True)
+    job_id = f"ak_{uuid.uuid4().hex[:8]}"
+    tmp_path = CONVERT_TMP_DIR / f"{job_id}_{_safe_name(source_filename)}"
+    tmp_path.write_bytes(source_bytes)
+
+    job = _new_job_base("answer_key", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    if pre_fallback:
+        job["_fallback_used"] = True
+    job.update(
+        {
+            "_timeout": timeout_seconds,
+            "_source_filename": source_filename,
+            "_source_bytes": source_bytes,
+            "_tmp_path": str(tmp_path),
+            "_input_size": len(source_bytes),
+        }
+    )
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+    _ensure_worker()
+    _QUEUE.put(job_id)
+    return job_id
+
+
+def get_answer_key_job(job_id: str) -> dict:
+    _purge_expired_jobs()
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None or job["kind"] != "answer_key":
+        raise NotFoundError(
+            "답지 가공 작업을 찾을 수 없습니다(만료되었을 수 있습니다)", detail={"job_id": job_id}
+        )
+    result = job.get("result") or {}
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "items": result.get("items"),
+        "error": job.get("error"),
+        "error_info": job.get("_error_info"),
+        "progress": _progress_snapshot(job),
+    }
+
+
+# ---------------------------------------------------------------------------
+# LLM 풀이 생성(S18 — F44 ②, 설계 §4.20) — 잡 kind='explain' (F30 재생성 잡 인프라 복제)
+# ---------------------------------------------------------------------------
+def _build_explain_prompt(
+    document: models.Document,
+    choices: Optional[List[str]],
+    source_note: Optional[str],
+    *,
+    engine: str,
+) -> str:
+    lines = [
+        "너는 Study Hub의 문제 풀이 도우미다. 아래 문제에 대한 해설을 작성하라.",
+        "지어낸 사실을 넣지 말고, 근거가 부족하면 원리·개념 위주로 조심스럽게 서술하라.",
+        "",
+        "## 문제",
+        f"- id: {document.id}, doc_no: {document.doc_no}, type: {document.type}",
+        f"- title: {document.title}",
+        f"- content:\n{document.content or '(없음)'}",
+        f"- choices: {json.dumps(choices, ensure_ascii=False) if choices else '(없음)'}",
+        f"- answer: {document.answer or '(없음 — 정답도 함께 추론해 산출하라)'}",
+    ]
+    if source_note:
+        lines += ["", "## 원본 출처", source_note]
+        if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
+            lines.append("원본 파일이 프로젝트 안에 있으면 Read 도구로 직접 읽어 대조하라(R7 — 원본 대조).")
+    lines += [
+        "",
+        "## 출력 형식(엄수)",
+        "코드펜스·설명 문장 없이, 아래 필드를 가진 JSON 객체 하나만 출력하라:",
+        '{"explanation": "...", "answer": "..." | null}',
+        "answer는 위 '## 문제'에 이미 정답이 있으면(위 예시에 '없음'이 아니면) 반드시 null로 둔다"
+        "(기존 정답을 다시 채우지 않는다). 정답이 없을 때만 근거를 들어 정답을 산출하라"
+        "(객관식이면 보기 번호를 1부터 시작하는 문자열로 — 예: \"2\").",
+    ]
+    return "\n".join(lines)
+
+
+def _normalize_explain_draft(payload: Any) -> dict:
+    if not isinstance(payload, dict):
+        raise ValidationAppError("풀이 생성 결과가 JSON 객체가 아닙니다")
+    explanation = payload.get("explanation")
+    if not isinstance(explanation, str) or not explanation.strip():
+        raise InvalidLlmOutputError("풀이 생성 결과에 explanation이 없습니다", truncated=False)
+    answer = payload.get("answer")
+    answer = answer.strip() if isinstance(answer, str) and answer.strip() else None
+    return {"explanation": explanation.strip(), "answer": answer}
+
+
+def _do_explain_job(job_id: str, job: dict) -> dict:
+    _set_phase(job_id, "preparing")
+    attempted_fallback = False
+    text_result: Optional[str] = None
+    while True:
+        engine = job["_engine"]
+        _set_phase(job_id, "llm_running")
+        try:
+            if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
+                text_result = _run_claude_cli_streaming(
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                )
+            elif engine == llm_engine_service.ENGINE_CODEX_CLI:
+                text_result = _run_codex_streaming(
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                )
+            else:
+                text_result = _run_api_streaming(
+                    job["_prompt"],
+                    file_blocks=None,
+                    timeout_seconds=job["_timeout"],
+                    job_id=job_id,
+                    model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                )
+            llm_engine_service.record_engine_result(engine, success=True)
+            break
+        except (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError) as exc:
+            if _handle_engine_failure(job_id, job, engine, exc, attempted_fallback):
+                attempted_fallback = True
+                continue
+            raise
+
+    _set_phase(job_id, "parsing")
+    payload = _parse_json_payload(text_result)
+    draft = _normalize_explain_draft(payload)
+    return {"draft": draft}
+
+
+def start_explain_job(
+    db: Session,
+    document_id: int,
+    *,
+    engine: str = "auto",
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """대상 제한(설계 §4.20 ②) — 문제 타입 + explanation 비어 있음. 있으면 409(교정·재작성은
+    F30 재생성 경로)."""
+    _purge_expired_jobs()
+    document = document_service.get_document_or_404(db, document_id)
+    if document.type not in import_service.QUESTION_TYPES:
+        raise ValidationAppError(
+            "문제 타입 문서만 풀이를 생성할 수 있습니다", detail={"type": document.type}
+        )
+    if document.explanation and document.explanation.strip():
+        raise ConflictError(
+            "이미 해설이 있는 문서입니다 — 교정·재작성은 오류 신고(재생성)를 이용하세요",
+            detail={"document_id": document_id},
+        )
+    choices = json.loads(document.choices) if document.choices else None
+
+    source_note: Optional[str] = None
+    if document.source_id is not None:
+        source = db.get(models.Source, document.source_id)
+        if source is not None:
+            note_part = f" ({source.note})" if source.note else ""
+            source_note = f"원본 파일: sources/{source.filename}{note_part}"
+    if document.source_detail:
+        source_note = f"{source_note + chr(10) if source_note else ''}원본 위치: {document.source_detail}"
+
+    resolved_engine = llm_engine_service.resolve_engine(db, engine)
+    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
+    pre_fallback = applied_engine != resolved_engine
+    resolved_engine = applied_engine
+    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+
+    prompt = _build_explain_prompt(document, choices, source_note, engine=resolved_engine)
+
+    job_id = f"exp_{uuid.uuid4().hex[:8]}"
+    job = _new_job_base("explain", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model)
+    if pre_fallback:
+        job["_fallback_used"] = True
+    job.update(
+        {
+            "document_id": document_id,
+            "_prompt": prompt,
+            "_timeout": timeout_seconds,
+            "_input_size": len(prompt.encode("utf-8")),
+        }
+    )
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+    _ensure_worker()
+    _QUEUE.put(job_id)
+    return job_id
+
+
+def get_explain_job(document_id: int, job_id: str) -> dict:
+    _purge_expired_jobs()
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None or job["kind"] != "explain" or job["document_id"] != document_id:
+        raise NotFoundError(
+            "풀이 생성 작업을 찾을 수 없습니다(만료되었을 수 있습니다)", detail={"job_id": job_id}
+        )
+    result = job.get("result") or {}
+    draft = result.get("draft")
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "draft": draft,
+        "explanation_source": "generated" if draft else None,
+        "error": job.get("error"),
+        "error_info": job.get("_error_info"),
+        "progress": _progress_snapshot(job),
+    }
+
+
+_EXPLAIN_MARKER_PREFIX_BOTH = "[AI 생성 해설·정답]"
+_EXPLAIN_MARKER_PREFIX_ONLY = "[AI 생성 해설]"
+
+
+def _build_explain_marker(*, engine: str, included_answer: bool) -> str:
+    """마커 라인(결정 ③ 확정 형식, 설계 §4.20 ②) — 날짜·엔진 label은 서버가 채운다."""
+    label = llm_engine_service.ENGINE_REGISTRY.get(engine, {}).get("label", engine)
+    prefix = _EXPLAIN_MARKER_PREFIX_BOTH if included_answer else _EXPLAIN_MARKER_PREFIX_ONLY
+    today = dt.date.today().isoformat()
+    return (
+        f"> {prefix} {today} · {label} — 원본 자료에 없는 LLM 생성 풀이입니다. "
+        "오류가 보이면 오류 신고로 재생성하세요."
+    )
+
+
+def apply_explain_job(db: Session, document_id: int, job_id: str) -> models.Document:
+    """승인 병합(유일한 쓰기) — 서버가 마커 라인을 부착해 explanation 저장, answer는
+    **비어 있을 때만** 병합(기존 정답 불변, 설계 §4.20 ②)."""
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None or job["kind"] != "explain" or job["document_id"] != document_id:
+        raise NotFoundError(
+            "풀이 생성 작업을 찾을 수 없습니다(만료되었을 수 있습니다)", detail={"job_id": job_id}
+        )
+    if job["status"] == "running":
+        raise ConflictError("풀이 생성 작업이 아직 진행 중입니다", detail={"status": job["status"]})
+    if job["status"] == "error":
+        raise ConflictError(
+            "풀이 생성 작업이 실패했습니다. 새로 시도하세요", detail={"error": job.get("error")}
+        )
+    draft = (job.get("result") or {}).get("draft")
+    if not draft:
+        raise ConflictError("풀이 생성 초안이 없습니다")
+
+    document = document_service.get_document_or_404(db, document_id)
+    if document.explanation and document.explanation.strip():
+        # 승인 창(최대 1시간) 동안 다른 경로(답지 반입 등)로 해설이 채워졌을 수 있다 —
+        # start의 대상 제한(explanation 비어 있음)과 대칭으로 apply 시점에도 재검사한다
+        # (stage-reviewer 지적 — 정본 해설이 AI 초안으로 덮어써지는 사고 차단).
+        raise ConflictError(
+            "이미 해설이 채워진 문서입니다 — 승인 창이 열린 사이 다른 경로로 채워졌을 수 있습니다",
+            detail={"document_id": document_id},
+        )
+    included_answer = bool(draft.get("answer")) and not bool(document.answer and document.answer.strip())
+    marker = _build_explain_marker(engine=job["_engine"], included_answer=included_answer)
+    document.explanation = f"{marker}\n\n{draft['explanation']}"
+    if included_answer:
+        document.answer = draft["answer"]
+
+    db.commit()
+    db.refresh(document)
+
+    with _JOBS_LOCK:
+        _JOBS.pop(job_id, None)  # 적용 완료된 잡은 캐시에서 제거(재적용 방지)
+
+    return document
+
+
+# ---------------------------------------------------------------------------
+# 응용 모의고사 생성(S19 — F45, 설계 §4.21) — 잡 kind='applied_exam'
+#
+# 다른 LLM 잡(반입·재생성·답지·풀이)과 달리 **별도 apply 승인 엔드포인트가 없다** —
+# 사전 미리보기 승인이 원리상 불가능한 기능이라(시험 문제를 미리 보면 무의미) 검증
+# 게이트 통과 후 저장까지 이 잡 안에서 끝난다(결정 ⑤). 텍스트 전용 프롬프트(첨부 파일
+# 없음 — prepare가 이미 범위 문서를 수집해 잡에 스냅샷으로 실어 보낸다), 그 점에서
+# `_do_explain_job`(파일 없는 텍스트 프롬프트) 구조를 따른다.
+# ---------------------------------------------------------------------------
+_APPLIED_EXAM_INSTRUCTIONS = (
+    "너는 Study Hub의 응용 모의고사 출제자다. 아래 범위의 기출 문제·개념 문서를 근거로, "
+    "같은 개념을 다루되 기출에 없던 새로운 표현·상황으로 변형한 응용 문항을 생성한다.\n"
+    "- 전 문항 4지선다 객관식으로만 작성하라(단답·서술형 금지).\n"
+    "- 기출 문항을 그대로 베끼거나 표현만 살짝 바꾸지 마라 — 반드시 새로운 문장·예시로 재구성하라.\n"
+    "- 근거 문서에 없는 사실을 지어내지 마라.\n"
+    "- 각 문항마다 근거로 삼은 문서의 doc_no를 basis 배열에 명시하라(최소 1개, 아래 근거 문서 "
+    "목록에 실제로 있는 값만 사용하라 — 서버가 결정론으로 검증한다).\n\n"
+    "## 출력 형식(엄수)\n"
+    "코드펜스·설명 문장 없이, 아래 형식의 JSON 객체 하나만 출력하라:\n"
+    '{"items": [{"content": "...", "choices": ["...", "...", "...", "..."], '
+    '"answer": "1", "explanation": "...", "basis": ["DOC-0012"]}, ...]}\n'
+    "- content: 문항 지문.\n"
+    "- choices: 보기 4개(배열 길이 정확히 4).\n"
+    "- answer: 정답 보기 번호(1~4, 1부터 시작하는 문자열).\n"
+    "- explanation: 해설.\n"
+    "- basis: 근거로 삼은 문서의 doc_no 목록.\n"
+)
+
+
+def _build_applied_exam_prompt(basis_docs: List[dict], requested_count: int) -> str:
+    lines = [
+        _APPLIED_EXAM_INSTRUCTIONS,
+        "---",
+        "",
+        f"## 이번 생성 대상 — 객관식 응용 문항 {requested_count}개",
+        "",
+        "## 근거 문서",
+    ]
+    for doc in basis_docs:
+        lines.append(f"### {doc['doc_no']} ({doc['type']}) — {doc['title']}")
+        lines.append(doc.get("content") or "(본문 없음)")
+        if doc.get("choices"):
+            lines.append(f"choices: {json.dumps(doc['choices'], ensure_ascii=False)}")
+        if doc.get("answer"):
+            lines.append(f"answer: {doc['answer']}")
+        lines.append("")
+    lines.append("최종 출력은 설명 문장·코드펜스 없이 순수 JSON 객체 하나만 출력하라.")
+    return "\n".join(lines)
+
+
+def _normalize_applied_exam_items(payload: Any) -> List[dict]:
+    """산출 = 순수 `{"items":[...]}`(위반 = `invalid_output`, 설계 §4.21 생성 규약 2). 항목
+    자체의 필드 검증(정답 1-base·basis 실재·복제 검출)은 `applied_exam_service.validate_items`
+    (기계 검증 게이트)가 맡는다 — 여기는 봉투 형태만 확인한다(§4.17 ⑤ 규율과 동일 경계)."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        raise InvalidLlmOutputError(
+            "생성 결과가 지정된 JSON 스키마({\"items\": [...]})가 아닙니다", truncated=False
+        )
+    items: List[dict] = []
+    for raw in payload["items"]:
+        if not isinstance(raw, dict):
+            continue
+        raw_basis = raw.get("basis")
+        # basis 원소는 doc_no 문자열만 유효하다 — LLM이 {"doc_no": "..."} 같은 객체를 섞어
+        # 내보내도(비-문자열 원소) 여기서 걸러 `applied_exam_service.validate_items`가
+        # dict를 `in` 판정에 넣다 TypeError로 죽는 사고를 원천 차단한다(검토 지적 — 정제는
+        # 두 지점에서 방어적으로 겹친다, 봉투 정제 vs 게이트 판정 경계는 유지).
+        basis = [b for b in raw_basis if isinstance(b, str)] if isinstance(raw_basis, list) else []
+        items.append(
+            {
+                "content": raw.get("content") if isinstance(raw.get("content"), str) else None,
+                "choices": raw.get("choices") if isinstance(raw.get("choices"), list) else None,
+                "answer": raw.get("answer") if isinstance(raw.get("answer"), str) else None,
+                "explanation": raw.get("explanation") if isinstance(raw.get("explanation"), str) else None,
+                "basis": basis,
+            }
+        )
+    return items
+
+
+def _do_applied_exam_job(job_id: str, job: dict) -> dict:
+    _set_phase(job_id, "preparing")
+    attempted_fallback = False
+    text_result: Optional[str] = None
+    while True:
+        engine = job["_engine"]
+        _set_phase(job_id, "llm_running")
+        try:
+            if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
+                text_result = _run_claude_cli_streaming(
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                )
+            elif engine == llm_engine_service.ENGINE_CODEX_CLI:
+                text_result = _run_codex_streaming(
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                )
+            else:
+                text_result = _run_api_streaming(
+                    job["_prompt"],
+                    file_blocks=None,
+                    timeout_seconds=job["_timeout"],
+                    job_id=job_id,
+                    model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                )
+            llm_engine_service.record_engine_result(engine, success=True)
+            break
+        except (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError) as exc:
+            if _handle_engine_failure(job_id, job, engine, exc, attempted_fallback):
+                attempted_fallback = True
+                continue
+            raise
+
+    _set_phase(job_id, "parsing")
+    payload = _parse_json_payload(text_result)
+    items = _normalize_applied_exam_items(payload)
+
+    # 검증 게이트 + 저장(잡 말미 한 트랜잭션) — 지연 import로 순환 의존을 피한다
+    # (applied_exam_service가 모듈 최상단에서 이 모듈을 import하므로 역방향은 지연시킨다).
+    from services import applied_exam_service
+
+    return applied_exam_service.finalize_generation(job, items)
+
+
+def start_applied_exam_job(
+    db: Session,
+    *,
+    gen_id: str,
+    scope_label: str,
+    requested_count: int,
+    basis_docs: List[dict],
+    engine: str = "auto",
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """생성 잡 시작(convert 잡 큐 재사용 — kind='applied_exam', 동시 1개). `basis_docs`는
+    prepare가 이미 수집한 문서 스냅샷(첨부 파일 없음 — 텍스트 프롬프트에 그대로 삽입)."""
+    _purge_expired_jobs()
+    resolved_engine = llm_engine_service.resolve_engine(db, engine)
+    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
+    pre_fallback = applied_engine != resolved_engine
+    resolved_engine = applied_engine
+    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+
+    prompt = _build_applied_exam_prompt(basis_docs, requested_count)
+
+    job_id = f"apx_{uuid.uuid4().hex[:8]}"
+    job = _new_job_base(
+        "applied_exam", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model
+    )
+    if pre_fallback:
+        job["_fallback_used"] = True
+    job.update(
+        {
+            "gen_id": gen_id,
+            "_prompt": prompt,
+            "_timeout": timeout_seconds,
+            "_input_size": len(prompt.encode("utf-8")),
+            "_basis_docs": basis_docs,
+            "_requested_count": requested_count,
+            "_scope_label": scope_label,
+        }
+    )
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+    _ensure_worker()
+    _QUEUE.put(job_id)
+    return job_id
+
+
+def get_applied_exam_job(gen_id: str, job_id: str) -> dict:
+    _purge_expired_jobs()
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None or job["kind"] != "applied_exam" or job.get("gen_id") != gen_id:
+        raise NotFoundError(
+            "응용 모의고사 생성 작업을 찾을 수 없습니다(만료되었을 수 있습니다)",
+            detail={"job_id": job_id},
+        )
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "result": job.get("result"),
+        "error": job.get("error"),
+        "error_info": job.get("_error_info"),
+        "progress": _progress_snapshot(job),
+    }

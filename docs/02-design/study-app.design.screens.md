@@ -153,6 +153,16 @@
 - **엣지**: 선택 과목 전부 0문항 → 시작 불가 안내(422 메시지 렌더). 0문항 과목은 구성 화면에서 미리 비활성(개수 칩 0). 결과 화면은 리포트 데이터가 examSession에 있는 동안만 — 이탈 후엔 이력(history)에서 요약만 확인 가능(당시 상세 리포트 재열람은 저장하지 않음 — R15).
 - **API**: `exam/session`, `exam/submit`, `exam/history`(§4.14), `quiz/session`(재도전).
 
+**응용 모의고사 (S19, F45 — §4.21. 위 F25 화면의 확장 모드, 신규 라우트 최소)**
+
+- **진입·구성**: 모의고사 구성 화면(위)에 모드 전환 탭 **[실전(기출)] / [AI 응용]** 추가. AI 응용 탭 = ① 범위 선택(기존 분류 트리 선택 재사용 — 실전 트리에서 고른다) → ② 문항 수(1~20)·엔진 선택 → [생성 준비] = `POST /api/applied-exam/prepare`(LLM 0).
+- **사용량 확인 스텝(필수 — 확인 없이 생성 불가)**: prepare 응답의 `estimate`(approx_input_tokens·assumed) + 근거 문서 수(source_counts) + 엔진·과금형(`billing`) 표시 — FetchImportWizard 확인 스텝·고정 고지 전례. [생성 시작] = `POST /api/applied-exam/{gen_id}/generate` → 진행은 `LlmJobProgress`·`LlmErrorInfo` 재사용. 범위 과대(422 too_large 문구)·근거 0건(422)은 서버 메시지 그대로 렌더.
+- **생성 완료 → 응시**: 상태 응답 result의 `generated`/`requested`/`discarded[]` 요약 표시(**미달 시 경고 배지** — "요청 20 중 16문항 생성" + 폐기 사유 건수. 조용한 축소 금지) → [응시 시작] = 기존 `POST /api/exam/session`(subjects=[런 분류]·전체 문항·`sequential` 기본) → **런 화면·타이머·네비게이터는 위 F25 `/exam/run` 그대로 재사용**(문항 content 서두의 `[AI 생성 문항]` 마커 인용구가 그대로 렌더됨 — 생성 표시 상시, 숨기지 않는다).
+- **제출·리포트**: 제출만 `POST /api/applied-exam/submit`으로 분기(요청 형태는 exam/submit과 동일). 결과 리포트 = F25 리포트 재사용 + 문항별 **[근거 문서] 링크 목록(`results[].basis` — 문서 상세로 이동)** + 이상 문항 **[오류 신고] 버튼(F30 `ReportErrorButton` 재사용)** + 상단 "AI 생성 모의고사" 배지. 틀린 문제 재도전·오답노트 가기는 기존 그대로(생성 문항도 일반 문서 — quiz/session document_ids).
+- **이력**: AI 응용 탭 하단에 `GET /api/applied-exam/history` 소표기(실전 이력과 분리 표시 — 혼입 없음이 §4.21 결정 ②의 목적).
+- **격리 확인(화면 규약)**: 실전 탭·일반 퀴즈 설정에서 생성 문항이 보이지 않는 것은 분류 격리의 자연 결과(별도 필터 UI 없음). 생성 문항은 탐색에서 "AI 응용 모의고사" 분류 아래 + content 마커로 항상 식별된다. 색상은 전부 토큰(불변 규칙 5).
+- **API**: `applied-exam/prepare`·`generate`·상태·`submit`·`history`(§4.21), `exam/session`(응시 구성 재사용), `llm/status`(엔진·과금형).
+
 ## 6. 테마 · 디자인 토큰 (F28)
 
 - Tailwind `darkMode: 'class'` + `styles/tokens.css`의 CSS 변수 이중 구조. 컴포넌트는 **토큰만 참조**(`bg-surface`, `text-primary` 등) — 색상 하드코딩 금지.
@@ -163,7 +173,7 @@
 ## 7. 프론트 상태 관리
 
 - **서버 상태**: TanStack Query — 캐시 키 = 리소스 경로. 변경(mutation) 후 관련 쿼리 invalidate.
-- **로컬 상태**: zustand 5개 — `quizSession`(문항·답안·타이머), `flashcardSession`, `examSession`(S11 — 문항·답안·카운트다운·리포트, 제출 전엔 전부 로컬(서버 무상태 §4.14), persist 없음), `theme`, `sidebar`(S7 — `'expanded'|'collapsed'`, localStorage `sidebar` persist, 기본값 규칙은 §5 도입부).
+- **로컬 상태**: zustand 5개 — `quizSession`(문항·답안·타이머), `flashcardSession`, `examSession`(S11 — 문항·답안·카운트다운·리포트, 제출 전엔 전부 로컬(서버 무상태 §4.14), persist 없음. **S19 확장**: applied 컨텍스트(런 분류 id·applied 플래그 — 제출 엔드포인트 분기·리포트 basis 렌더용, 신규 스토어 없음 — §4.21)), `theme`, `sidebar`(S7 — `'expanded'|'collapsed'`, localStorage `sidebar` persist, 기본값 규칙은 §5 도입부).
 - 홈 레이아웃(S7)은 스토어를 두지 않는다: 저장본은 서버 `settings:home.layout`(TanStack Query), 편집 중 드래프트는 홈 컴포넌트 로컬 상태 — [완료] 시에만 PUT, 취소 시 폐기.
 - 낙관적 업데이트는 북마크·진도 완료(체감 속도 중요)에만 적용, 나머지는 단순 invalidate.
 

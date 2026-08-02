@@ -80,7 +80,9 @@ export default function ConceptPrintView({ categoryId }: ConceptPrintViewProps) 
                     <span className="mr-2 text-xs font-normal text-muted">{it.doc_no}</span>
                     {it.title}
                   </h3>
-                  <MarkdownView content={doc?.content ?? null} />
+                  {/* 인쇄 뷰도 같은 공용 렌더러 — 임베드는 펼쳐서, fold/hide는 전부 공개해 출력된다
+                      (설계 §4.19 ⑧). docNo는 순환 검출의 시작점. */}
+                  <MarkdownView content={doc?.content ?? null} docNo={it.doc_no} />
                 </article>
               )
             })}
