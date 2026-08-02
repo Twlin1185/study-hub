@@ -46,6 +46,7 @@ from services import (
     import_service,
     llm_engine_service,
     net_safety,
+    preview_store,
     settings_service,
     tag_rule_service,
 )
@@ -724,12 +725,19 @@ class InvalidLlmOutputError(ValidationAppError):
 
     같은 파일로 재시도하면 같은 실패이므로 "잠시 후 다시 시도"는 오안내다 — 원본 분할·
     엔진 교체를 안내한다. **원문(잘린 출력·raw)은 detail에도 담지 않는다**(로그에만).
-    `impure=True`는 JSON 자체는 완결이지만 코드펜스·전후 잡문이 섞인 경우(§8.2 v1.1)."""
+    `impure=True`는 JSON 자체는 완결이지만 코드펜스·전후 잡문이 섞인 경우(§8.2 v1.1).
 
-    def __init__(self, message: str, *, truncated: bool, impure: bool = False) -> None:
+    S20(F46, 설계 §4.22 ①): `raw_output`은 사용자 응답(detail)에는 절대 실리지 않지만,
+    잡 실패 처리부(`_process_job`)가 실패 사례 수집 훅에 전달하는 내부 통로다 — 사례
+    레코드의 `{case_id}.output.txt`(로그 전용 — API 미노출)로만 저장된다."""
+
+    def __init__(
+        self, message: str, *, truncated: bool, impure: bool = False, raw_output: Optional[str] = None
+    ) -> None:
         super().__init__(message, detail=None)
         self.truncated = truncated
         self.impure = impure
+        self.raw_output = raw_output
 
 
 # 문항이 많은 기출은 출력 상한에서 잘리는 것이 실제 실패 원인이다. 토큰 수를 직접 알 수
@@ -797,6 +805,7 @@ def _raise_invalid_output(cleaned: str, *, reason: str) -> None:
             "LLM 응답이 순수 JSON이 아닙니다 — 코드펜스·설명 문장이 섞여 있습니다",
             truncated=False,
             impure=True,
+            raw_output=cleaned,
         )
     # 이 파서는 변환(convert·fetch)과 F30 재생성이 공유한다 — "문항이 많아"처럼 반입에만
     # 맞는 표현 대신 경로 중립 문구를 쓰고, 경로별 다음 행동은 `_invalid_output_action`이
@@ -806,7 +815,7 @@ def _raise_invalid_output(cleaned: str, *, reason: str) -> None:
         if truncated
         else "LLM 응답이 올바른 JSON이 아닙니다"
     )
-    raise InvalidLlmOutputError(message, truncated=truncated)
+    raise InvalidLlmOutputError(message, truncated=truncated, raw_output=cleaned)
 
 
 def _safe_name(name: str) -> str:
@@ -945,7 +954,10 @@ def _invalid_output_action(*, truncated: bool, job_kind: str) -> str:
        재작성이라 "원본을 과목·회차 단위로 나눠 올리기"가 성립하지 않는다.
     ③ S19(F45, 설계 §4.21, 검토 지적 ③): 응용 모의고사 생성(`applied_exam`)은 "원본"이
        아니라 범위 문서·요청 문항 수가 입력이라 "과목·회차 단위로 나눠 올리기" 문구가
-       성립하지 않는다 — 범위·문항 수 조정 안내로 분기한다."""
+       성립하지 않는다 — 범위·문항 수 조정 안내로 분기한다.
+    ④ S20(F46, 설계 §4.22, 검토 지적 ③): 반입 개선 제안 생성(`improve_proposal`)·회귀
+       재검증(`improve_regression`)도 "원본"이 아니라 선택한 실패 사례 조합이 입력이라
+       "과목·회차 단위로 나눠 올리기"가 성립하지 않는다 — 사례 수·조합 조정 안내로 분기."""
     if job_kind == "regenerate":
         return (
             "재생성 요청(사유)을 더 짧고 구체적으로 적어 다시 시도해 보세요."
@@ -957,6 +969,12 @@ def _invalid_output_action(*, truncated: bool, job_kind: str) -> str:
             "문항 수를 줄이거나 범위를 좁혀 다시 생성해 보세요."
             if truncated
             else "범위를 좁히거나 문항 수를 줄여 다시 시도해 보세요."
+        )
+    if job_kind in ("improve_proposal", "improve_regression"):
+        return (
+            "사례 수를 줄이거나 다른 사례 조합으로 다시 생성해 보세요."
+            if truncated
+            else "다시 생성해 보세요. 반복되면 사례 수를 줄이거나 다른 사례 조합으로 시도해 보세요."
         )
     return (
         "원본을 과목·회차 단위로 나눠 올려 다시 변환해 보세요."
@@ -1056,12 +1074,22 @@ def _fallback_error_info(exc: Exception, *, job_kind: str = "convert") -> dict:
             "alternatives": alts,
         }
     message = exc.message if isinstance(exc, AppError) else "변환 처리 중 알 수 없는 오류가 발생했습니다."
+    # S20(F46, 검토 지적 ③ 부수 지적): improve_proposal 잡의 "제안 전량 폐기"는
+    # `_do_improve_proposal_job`이 통과 0건일 때 던지는 결정론적 `ValidationAppError`다
+    # (같은 사례 조합으로 재시도해도 검증 게이트 결과가 같다) — "잠시 후 다시 시도하세요"는
+    # 오안내이므로 이 job_kind에서는 사례 조정을 안내한다. error_info 구조(§4.11)·kind
+    # 집합은 그대로 두고 action 문구만 바꾼다.
+    action = (
+        "사례를 바꾸거나 제안 내용을 검토한 뒤 다시 생성해 보세요(같은 사례로 재시도해도 결과는 같습니다)."
+        if job_kind == "improve_proposal"
+        else "잠시 후 다시 시도하세요."
+    )
     return {
         "kind": "other",
         "limit_kind": None,
         "resets_at": None,
         "message": message,
-        "action": "잠시 후 다시 시도하세요.",
+        "action": action,
         "fallback_available": False,
     }
 
@@ -1111,6 +1139,12 @@ def _process_job(job_id: str) -> None:
             # S19(F45, 설계 §4.21) — 응용 모의고사 생성 잡: LLM 산출 + 검증 게이트 +
             # 저장까지 이 잡 안에서 끝난다(미리보기 승인 단계 없음 — 결정 ⑤).
             result = _do_applied_exam_job(job_id, job)
+        elif job["kind"] == "improve_proposal":
+            # S20(F46, 설계 §4.22 ②) — 반입 개선 제안 생성 잡(convert 잡 큐 재사용).
+            result = _do_improve_proposal_job(job_id, job)
+        elif job["kind"] == "improve_regression":
+            # S20(F46, 설계 §4.22 ④) — 반입 개선 회귀 재검증 잡(사례별 순차, 검증 전용).
+            result = _do_improve_regression_job(job_id, job)
         else:
             # kind == 'explain' — S18(F44 ②, 설계 §4.20) — F30 재생성 잡 인프라 복제.
             result = _do_explain_job(job_id, job)
@@ -1125,6 +1159,12 @@ def _process_job(job_id: str) -> None:
                     job["kind"], job.get("_input_size") or 0, int((now - started).total_seconds() * 1000)
                 )
     except Exception as exc:  # noqa: BLE001 - 잡 실패를 기록하고 워커는 계속 돈다
+        collect_job_kind: Optional[str] = None
+        collect_error_info: Optional[dict] = None
+        collect_engine: Optional[str] = None
+        collect_source_filename: Optional[str] = None
+        collect_source_bytes: Optional[bytes] = None
+        collect_raw_output: Optional[str] = None
         with _JOBS_LOCK:
             job = _JOBS.get(job_id)
             if job is not None:
@@ -1151,6 +1191,32 @@ def _process_job(job_id: str) -> None:
                     job["_error_info"] = _fallback_error_info(
                         exc, job_kind=job.get("kind") or "convert"
                     )
+                # S20(F46, 설계 §4.22 ① — 수집 훅 지점 1) — convert·fetch 잡 실패만 수집
+                # 대상(대상 kind는 improve_service가 필터). best-effort — 값만 여기서
+                # 스냅샷하고 실제 IO는 락 밖에서 수행한다(cases 파일 IO를 잡 락 아래
+                # 두지 않는다).
+                if job.get("kind") in ("convert", "fetch"):
+                    collect_job_kind = job.get("kind")
+                    collect_error_info = job.get("_error_info")
+                    collect_engine = job.get("_engine")
+                    collect_source_filename = job.get("_source_filename")
+                    collect_source_bytes = job.get("_source_bytes")
+                    collect_raw_output = (
+                        getattr(exc, "raw_output", None)
+                        if isinstance(exc, InvalidLlmOutputError)
+                        else None
+                    )
+        if collect_job_kind is not None:
+            from services import improve_service
+
+            improve_service.collect_job_failure(
+                collect_job_kind,
+                collect_error_info,
+                engine=collect_engine,
+                source_filename=collect_source_filename,
+                source_bytes=collect_source_bytes,
+                output_text=collect_raw_output,
+            )
     finally:
         tmp_path = job.get("_tmp_path") if job else None
         if tmp_path:
@@ -1283,7 +1349,11 @@ def _do_convert(job_id: str, job: dict) -> dict:
             job["_input_size"] = len(data)
 
     _set_phase(job_id, "preparing")
-    convert_md = CONVERT_PROMPT_PATH.read_text(encoding="utf-8")
+    # S20(F46, 설계 §4.22 ③ "사례집 주입") — convert.md 전문 + (있으면) convert.cases.md
+    # "부속 사례집" 섹션. convert·fetch 공통 경로 1곳(중복 구현 금지).
+    from services import improve_service
+
+    convert_md = improve_service.load_convert_prompt_with_casebook()
     tmp_path = Path(job["_tmp_path"]) if job.get("_tmp_path") else None
     if tmp_path is None:
         raise ValidationAppError("변환할 원본 파일이 없습니다")
@@ -1570,7 +1640,11 @@ def _do_fetch(job_id: str, job: dict) -> dict:
         # 계약·프론트 호출 형태를 유지하기 위해 파라미터를 남긴다).
         fetched.exam_key = exam_key_override
 
-    convert_md = CONVERT_PROMPT_PATH.read_text(encoding="utf-8")
+    # S20(F46, 설계 §4.22 ③ "사례집 주입") — convert.md 전문 + (있으면) convert.cases.md
+    # "부속 사례집" 섹션. convert·fetch 공통 경로 1곳(중복 구현 금지).
+    from services import improve_service
+
+    convert_md = improve_service.load_convert_prompt_with_casebook()
 
     if isinstance(fetched, FetchedFile):
         _set_phase(job_id, "preparing")
@@ -2037,6 +2111,22 @@ def start_regenerate_job(
             source_note = f"원본 파일: sources/{source.filename}{note_part}"
     if document.source_detail:
         source_note = f"{source_note + chr(10) if source_note else ''}원본 위치: {document.source_detail}"
+
+    # S20(F46, 설계 §4.22 결정 ⑥ — 수집 훅 지점 3) — 신고 시점 자동 사례 수집(LLM 0·
+    # 비용 0, best-effort 부수 기록). F30 요청·응답·플로우는 무변경 — 수집 실패가 신고를
+    # 막지 않는다.
+    try:
+        from services import improve_service
+
+        improve_service.collect_report_case(
+            document_id=document.id,
+            doc_no=document.doc_no,
+            title=document.title,
+            reason=reason,
+            source_detail=document.source_detail,
+        )
+    except Exception:  # noqa: BLE001 - 수집 실패가 신고(F30) 자체를 막으면 안 된다
+        _LOGGER.warning("F30 신고 사례 수집 중 오류(신고 자체는 계속 진행)", exc_info=True)
 
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
@@ -2756,6 +2846,363 @@ def get_applied_exam_job(gen_id: str, job_id: str) -> dict:
         raise NotFoundError(
             "응용 모의고사 생성 작업을 찾을 수 없습니다(만료되었을 수 있습니다)",
             detail={"job_id": job_id},
+        )
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "result": job.get("result"),
+        "error": job.get("error"),
+        "error_info": job.get("_error_info"),
+        "progress": _progress_snapshot(job),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 반입 개선 — 제안 생성 잡(S20 — F46, 설계 §4.22 ②, kind='improve_proposal')
+#
+# gen prepare(LLM 0 — improve_service.prepare_gen)가 프롬프트를 조립·저장해 두면, 이
+# 잡은 그 프롬프트를 그대로 LLM에 보내고, 응답을 순수 JSON `{"proposals":[...]}`로
+# 파싱한 뒤 improve_service의 검증 게이트(순수 함수)로 폐기·통과를 가른다. 통과 0건은
+# 잡 실패(파일 무변경) — applied_exam_service.finalize_generation의 "전량 폐기" 전례.
+# ---------------------------------------------------------------------------
+def _do_improve_proposal_job(job_id: str, job: dict) -> dict:
+    _set_phase(job_id, "preparing")
+    attempted_fallback = False
+    text_result: Optional[str] = None
+    while True:
+        engine = job["_engine"]
+        _set_phase(job_id, "llm_running")
+        try:
+            if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
+                text_result = _run_claude_cli_streaming(
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                )
+            elif engine == llm_engine_service.ENGINE_CODEX_CLI:
+                text_result = _run_codex_streaming(
+                    job["_prompt"], timeout_seconds=job["_timeout"], job_id=job_id
+                )
+            else:
+                text_result = _run_api_streaming(
+                    job["_prompt"],
+                    file_blocks=None,
+                    timeout_seconds=job["_timeout"],
+                    job_id=job_id,
+                    model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+                )
+            llm_engine_service.record_engine_result(engine, success=True)
+            break
+        except (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError) as exc:
+            if _handle_engine_failure(job_id, job, engine, exc, attempted_fallback):
+                attempted_fallback = True
+                continue
+            raise
+
+    _set_phase(job_id, "parsing")
+    payload = _parse_json_payload(text_result)
+    if not isinstance(payload, dict) or not isinstance(payload.get("proposals"), list):
+        raise InvalidLlmOutputError(
+            "생성 결과가 지정된 JSON 스키마({\"proposals\": [...]})가 아닙니다", truncated=False
+        )
+
+    from services import improve_service
+
+    passed, discard_counts = improve_service.validate_proposals(
+        payload["proposals"], job["_case_ids"]
+    )
+    if not passed:
+        summary = "·".join(
+            f"{improve_service.discard_label(reason)} {count}건"
+            for reason, count in discard_counts.items()
+        )
+        suffix = f" — {summary}." if summary else "."
+        raise ValidationAppError(
+            f"생성된 제안 전체가 검증에서 폐기되었습니다{suffix} 사례를 바꾸거나 줄여 다시 시도해 보세요.",
+            detail={"discarded": discard_counts},
+        )
+
+    proposal_ids = improve_service.save_proposals(passed)
+    return {
+        "proposal_ids": proposal_ids,
+        "discarded": [{"reason": r, "count": c} for r, c in discard_counts.items()],
+    }
+
+
+def start_improve_proposal_job(
+    db: Session,
+    *,
+    gen_id: str,
+    prompt: str,
+    case_ids: List[str],
+    engine: str = "auto",
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """제안 생성 잡 시작(convert 잡 큐 재사용 — kind='improve_proposal', 동시 1개).
+    `prompt`는 prepare가 이미 조립·검증(200,000자 상한)을 마친 텍스트 그대로 쓴다
+    (재조립하지 않는다 — prepare와 generate 사이 드리프트 방지)."""
+    _purge_expired_jobs()
+    resolved_engine = llm_engine_service.resolve_engine(db, engine)
+    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
+    pre_fallback = applied_engine != resolved_engine
+    resolved_engine = applied_engine
+    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+
+    job_id = f"ipp_{uuid.uuid4().hex[:8]}"
+    job = _new_job_base(
+        "improve_proposal", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model
+    )
+    if pre_fallback:
+        job["_fallback_used"] = True
+    job.update(
+        {
+            "gen_id": gen_id,
+            "_prompt": prompt,
+            "_timeout": timeout_seconds,
+            "_input_size": len(prompt.encode("utf-8")),
+            "_case_ids": list(case_ids),
+        }
+    )
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+    _ensure_worker()
+    _QUEUE.put(job_id)
+    return job_id
+
+
+def get_improve_proposal_job(gen_id: str, job_id: str) -> dict:
+    _purge_expired_jobs()
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None or job["kind"] != "improve_proposal" or job.get("gen_id") != gen_id:
+        raise NotFoundError(
+            "제안 생성 작업을 찾을 수 없습니다(만료되었을 수 있습니다)", detail={"job_id": job_id}
+        )
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "result": job.get("result"),
+        "error": job.get("error"),
+        "error_info": job.get("_error_info"),
+        "progress": _progress_snapshot(job),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 반입 개선 — 회귀 재검증 잡(S20 — F46, 설계 §4.22 ④, kind='improve_regression')
+#
+# 사례별 순차 재변환 — **검증 전용**(preview 미등록·import/auto/ 미보존·DB 무기록).
+# 판별·추출(§4.18)·프롬프트 조립(사례집 주입 포함)·LLM 변환은 이 모듈이 이미 가진
+# 함수를 그대로 재사용한다(중복 구현 금지). 항목 검증·게이트 경고는
+# `import_service._validate_item`·`_item_warnings`(순수 — DB 인자 없음)를 그대로 쓴다.
+# 엔진 실패 시 자동 폴백 루프는 적용하지 않는다(검증 목적상 단일 시도로 충분 — 사례별
+# 결과를 그때그때 기록해야 하므로 `_handle_engine_failure`의 "잡 전체를 재시도" 모델과
+# 맞지 않는다).
+# ---------------------------------------------------------------------------
+def _regression_kind_of(exc: Exception) -> str:
+    if isinstance(exc, UnsupportedFormatError):
+        return "unsupported_format"
+    if isinstance(exc, DocParseFailedError):
+        return "parse_failed"
+    if isinstance(exc, TooLargeError):
+        return "too_large"
+    if isinstance(exc, InvalidLlmOutputError):
+        return "invalid_output"
+    return "other"
+
+
+# kind 코드 → 한국어 라벨(§4.11 원문 미노출 원칙 — 사유 코드를 사람 말로 번역, F45
+# `_format_discard_summary` 전례). 회귀 결과 detail은 프론트가 그대로 렌더하는 문자열이다
+# (`ImproveRegressionResultItem.detail: string`) — 구조화 dict가 아니다.
+_REGRESSION_KIND_LABELS: Dict[str, str] = {
+    "unsupported_format": "지원하지 않는 형식",
+    "parse_failed": "파싱 실패",
+    "too_large": "상한 초과",
+    "invalid_output": "LLM 출력이 순수 JSON 아님",
+    "other": "그 외 오류",
+}
+
+
+def _regression_kind_label(kind: str) -> str:
+    return _REGRESSION_KIND_LABELS.get(kind, kind)
+
+
+def _regression_run_case(job_id: str, job: dict, record: dict) -> Tuple[str, Optional[str]]:
+    # import_service는 이 모듈 top-level에서 이미 import됨(순수 함수 `_validate_item`·
+    # `_item_warnings` 재사용 — DB 인자 없음, 중복 구현 금지). improve_service·source_match는
+    # 지연 import(순환 회피).
+    from services import improve_service, source_match
+
+    source = record.get("source") or {}
+    hash12 = source.get("hash12")
+    data = preview_store.read_source_bytes(hash12) if hash12 else None
+    if data is None:
+        return "unavailable", "원본을 sources/에서 찾을 수 없습니다(삭제되었거나 애초에 보존되지 않음)"
+
+    case_id = record.get("case_id") or "case"
+    filename = source.get("filename") or "source"
+    original_kind = record.get("kind")
+    engine = job["_engine"]
+
+    try:
+        detected = _detect_import_format(filename, data)
+    except (UnsupportedFormatError, DocParseFailedError, TooLargeError) as exc:
+        new_kind = _regression_kind_of(exc)
+        outcome = "still_failing" if new_kind == original_kind else "failed_differently"
+        return outcome, f"재현 결과: {_regression_kind_label(new_kind)}"
+
+    convert_md = improve_service.load_convert_prompt_with_casebook()
+
+    def _tmp_for_case(name_hint: str, payload: bytes) -> Path:
+        p = _write_tmp_file(job_id, f"{case_id}__{name_hint}", payload)
+        with _JOBS_LOCK:
+            job["_extra_tmp_paths"] = list(job.get("_extra_tmp_paths") or []) + [str(p)]
+        return p
+
+    try:
+        if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
+            if detected.group in ("docx", "xlsx"):
+                prompt = _build_embedded_text_prompt(convert_md, filename, detected.text)
+            else:
+                if detected.group == "text" and detected.encoding == "cp949":
+                    cli_path = _tmp_for_case(f"utf8_{filename}", detected.text.encode("utf-8"))
+                else:
+                    cli_path = _tmp_for_case(filename, data)
+                prompt = _build_convert_prompt_cli(convert_md, cli_path)
+            text_result = _run_claude_cli_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+        elif engine == llm_engine_service.ENGINE_CODEX_CLI:
+            if detected.group in ("text", "docx", "xlsx"):
+                prompt = _build_embedded_text_prompt(convert_md, filename, detected.text)
+            else:
+                tmp_path = _tmp_for_case(filename, data)
+                prompt = _build_convert_prompt_codex(convert_md, tmp_path, group=detected.group)
+            text_result = _run_codex_streaming(prompt, timeout_seconds=job["_timeout"], job_id=job_id)
+        else:
+            if detected.group in ("text", "docx", "xlsx"):
+                prompt_text, blocks = _build_embedded_text_prompt_api(convert_md, filename, detected.text)
+            else:
+                tmp_path = _tmp_for_case(filename, data)
+                prompt_text, blocks = _build_convert_prompt_api(
+                    convert_md, tmp_path, group=detected.group, file_type=detected.file_type
+                )
+            text_result = _run_api_streaming(
+                prompt_text,
+                file_blocks=blocks,
+                timeout_seconds=job["_timeout"],
+                job_id=job_id,
+                model=job.get("_api_model") or llm_engine_service.DEFAULT_API_MODEL,
+            )
+        llm_engine_service.record_engine_result(engine, success=True)
+    except (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError) as exc:
+        base = llm_engine_service.classify_engine_failure(engine, exc)
+        new_kind = base.get("kind") or "other"
+        outcome = "still_failing" if new_kind == original_kind else "failed_differently"
+        return outcome, f"재현 결과: {_regression_kind_label(new_kind)}"
+
+    try:
+        payload = _parse_json_payload(text_result)
+    except InvalidLlmOutputError:
+        outcome = "still_failing" if original_kind == "invalid_output" else "failed_differently"
+        return outcome, f"재현 결과: {_regression_kind_label('invalid_output')}"
+
+    documents = payload.get("documents") if isinstance(payload, dict) else None
+    if not isinstance(documents, list):
+        outcome = "still_failing" if original_kind == "invalid_output" else "failed_differently"
+        return outcome, f"재현 결과: {_regression_kind_label('invalid_output')}"
+
+    source_text = (
+        detected.text if detected.group in ("text", "docx", "xlsx") else source_match.extract_source_text(filename, data)
+    )
+    matcher = source_match.SourceMatcher(source_text)
+    fabrication = False
+    for raw in documents:
+        norm, errors = import_service._validate_item(raw, strict=True)
+        if errors or norm is None:
+            continue
+        warnings = import_service._item_warnings(norm, matcher=matcher, gate=True)
+        if "fabrication_suspect" in warnings:
+            fabrication = True
+
+    if original_kind == "fabrication_suspect":
+        # S20(F46, 검토 지적 ⑥) — 원본 정규화 텍스트가 짧으면(§4.17 ⑥ <200자 규칙)
+        # `matcher.available=False`가 되어 전 항목이 `match_unavailable`로 떨어지고
+        # `fabrication`은 항상 False로 남는다(대조를 시도조차 못 했을 뿐 "재발 없음"이
+        # 아니다) — 이 상태를 `passed`로 오기록하면 R23 ③ 회귀 수치를 왜곡한다. 판정
+        # 불가는 `unavailable`로 정직하게 기록한다(outcome 4종 계약은 그대로).
+        if not matcher.available:
+            return "unavailable", "원문 대조 불가(원본이 짧음) — 창작 의심 재발 여부를 판정할 수 없습니다"
+        outcome = "passed" if not fabrication else "still_failing"
+        detail_text = "창작 의심(fabrication_suspect) 재발" if fabrication else "창작 의심 재발 없음"
+    else:
+        outcome = "passed"
+        detail_text = (
+            "재변환 완료(창작 의심 신규 발견)" if fabrication else "재변환 완료(구조화 오류 없음)"
+        )
+    return outcome, detail_text
+
+
+def _do_improve_regression_job(job_id: str, job: dict) -> dict:
+    from services import improve_service
+
+    results: List[dict] = []
+    case_ids: List[str] = job["_case_ids"]
+    for i, case_id in enumerate(case_ids, start=1):
+        _set_phase(job_id, "llm_running", f"{i}/{len(case_ids)} — {case_id}")
+        try:
+            record = improve_service.get_case_or_404(case_id)
+        except NotFoundError:
+            results.append(
+                {"case_id": case_id, "outcome": "unavailable", "detail": "사례 레코드를 찾을 수 없습니다"}
+            )
+            continue
+        outcome, detail = _regression_run_case(job_id, job, record)
+        improve_service.append_regression(case_id, reg_id=job["_reg_id"], outcome=outcome)
+        results.append({"case_id": case_id, "outcome": outcome, "detail": detail})
+    return {"results": results}
+
+
+def start_improve_regression_job(
+    db: Session,
+    *,
+    reg_id: str,
+    case_ids: List[str],
+    engine: str = "auto",
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """회귀 재검증 잡 시작(convert 잡 큐 재사용 — kind='improve_regression', 동시 1개)."""
+    _purge_expired_jobs()
+    resolved_engine = llm_engine_service.resolve_engine(db, engine)
+    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
+    pre_fallback = applied_engine != resolved_engine
+    resolved_engine = applied_engine
+    api_model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+
+    job_id = f"irg_{uuid.uuid4().hex[:8]}"
+    job = _new_job_base(
+        "improve_regression", resolved_engine=resolved_engine, requested_engine=engine, api_model=api_model
+    )
+    if pre_fallback:
+        job["_fallback_used"] = True
+    job.update(
+        {
+            "_reg_id": reg_id,
+            "_timeout": timeout_seconds,
+            "_input_size": 0,
+            "_case_ids": list(case_ids),
+        }
+    )
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+    _ensure_worker()
+    _QUEUE.put(job_id)
+    return job_id
+
+
+def get_improve_regression_job(reg_id: str, job_id: str) -> dict:
+    _purge_expired_jobs()
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None or job["kind"] != "improve_regression" or job.get("_reg_id") != reg_id:
+        raise NotFoundError(
+            "회귀 재검증 작업을 찾을 수 없습니다(만료되었을 수 있습니다)", detail={"job_id": job_id}
         )
     return {
         "job_id": job_id,

@@ -27,6 +27,7 @@ from routers import (
     exam,
     fetch,
     imports,
+    improve,
     llm,
     quiz,
     review_notes,
@@ -62,6 +63,7 @@ app.include_router(llm.router)
 app.include_router(fetch.router)
 app.include_router(exam.router)
 app.include_router(applied_exam.router)
+app.include_router(improve.router)
 
 
 @app.on_event("startup")

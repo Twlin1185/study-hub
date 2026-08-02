@@ -3,7 +3,7 @@
 > `study-app.design.md`(색인 · §1~3 공통 규약)에서 2026-07-31 분할된 **§5 화면 상세(12개) · §6 테마·디자인 토큰(F28) · §7 프론트 상태 관리**다(내용 이동만 — § 번호는 분할 전과 동일, 판번은 색인 문서를 따른다).
 > 부분 읽기: 화면은 `### 5.` 패턴 Grep(예: §5.9 → `### 5.9`).
 
-## 5. 화면 상세 (12개)
+## 5. 화면 상세 (13개 — S20에서 §5.13 제안함 절 신설: 화면 자체는 S6부터 존재·문서화는 F46 수신함 2탭 일반화 시점에 추가)
 
 라우팅: React Router. 모바일(<768px)은 하단 탭바(홈/커리큘럼/퀴즈/**복습**/오답노트 — 복습 탭은 S9, F36-②: 홈 경유 없이 오늘의 복습 직행) + 트리 드로어.
 
@@ -162,6 +162,15 @@
 - **이력**: AI 응용 탭 하단에 `GET /api/applied-exam/history` 소표기(실전 이력과 분리 표시 — 혼입 없음이 §4.21 결정 ②의 목적).
 - **격리 확인(화면 규약)**: 실전 탭·일반 퀴즈 설정에서 생성 문항이 보이지 않는 것은 분류 격리의 자연 결과(별도 필터 UI 없음). 생성 문항은 탐색에서 "AI 응용 모의고사" 분류 아래 + content 마커로 항상 식별된다. 색상은 전부 토큰(불변 규칙 5).
 - **API**: `applied-exam/prepare`·`generate`·상태·`submit`·`history`(§4.21), `exam/session`(응시 구성 재사용), `llm/status`(엔진·과금형).
+
+### 5.13 제안함 — `/suggestions` (S6 · **S20 — F46 수신함 2탭 일반화**)
+
+- **구성(S20 — §4.22 결정 ①)**: 수신함 2탭 — **[분류 연결]**(기존 S6 태그 규칙 제안 §4.9 — 목록·승인/거절 UI·로직 **무변경**, 탭 전환은 로컬 상태로 조건부 렌더만) / **[반입 개선]**(신규 — `ImproveInbox` + `components/improve/` 하위 7개: `ImproveCaseList`·`ImproveGenWizard`·`ImproveProposalList`·`ImproveProposalDetailModal`·`ImproveRegressionPanel`·`ImproveRegressionWizard`·`ImproveCaseDetailModal` + `labels.ts`(kind/origin/outcome 한국어 라벨 — 배지 색상은 전부 토큰)). 사이드바 배지(`SuggestionsNavBadge`) = 두 수신함 pending 합산.
+- **실패 사례 목록**(`ImproveCaseList`): kind·origin 배지 + count(반복 발생) + 최근 발생 + [제거](DELETE) — 총량 50건 상한이라 `size=50` 1회 조회·페이지네이션 UI 없음(§4.22). 사례 체크박스 선택(1~20) → [개선 제안 생성]. 근거 사례 클릭 = 상세 모달(`ImproveCaseDetailModal` — 별도 라우트 없음).
+- **제안 생성 위저드**(`ImproveGenWizard` — prepare→확인→generate→진행→결과): **사용량 확인 스텝 필수(확인 없이 생성 불가)** — `estimate`(approx_input_tokens·assumed)·사례 수·엔진·과금형(`billing`) 표시(FetchImportWizard 전례) → 진행 `LlmJobProgress`·`LlmErrorInfo` 재사용 → 결과 요약 = proposal 수 + **discarded 사유 건수(조용한 축소 금지)**. 422(사례 과다·200,000자 초과)는 서버 메시지 그대로 렌더.
+- **제안 카드·상세**(`ImproveProposalList`·`ImproveProposalDetailModal`): kind 배지(사례집 추가/프롬프트 수정/**코드 수정 필요**) + title·rationale·근거 사례 링크. 상세 = kind별 적용 미리보기 — casebook = 추가될 엔트리 전문 · prompt_edit = 헝크 before-after 비교 + 적용 후 전문(`preview_after`) + `policy_check` 위반 표시 · code_issue = 재현 패키지 전문 + **[복사]**(인계용). [승인 반영]/[거절] — code_issue는 [인계 완료](파일 쓰기 0). 409·422(잠금 위반·본문 변경·비 pending)는 서버 message 렌더.
+- **회귀 패널**(`ImproveRegressionPanel`·`ImproveRegressionWizard`): applied 제안에서 [회귀 재검증] → 사례 선택(기본 = 근거 사례 + 같은 kind, 1~10건 — `user_report` 사례는 선택 목록에서 원천 제외) → **estimate 확인 스텝** → 실행 → `results[]` outcome(통과/여전히 실패/다른 실패/원본 없음) 표시 + 사례의 regressions 이력 소표기.
+- **API**: `suggestions`·`suggestions/apply`(기존 §4.9 — 무변경), `improve/cases`(3)·`improve/gen`(3)·`improve/proposals`(4)·`improve/regression`(3)(§4.22 — 훅은 `api/improve.ts`, 폴링 키는 gen_id·reg_id — answerKey key_id 관례).
 
 ## 6. 테마 · 디자인 토큰 (F28)
 

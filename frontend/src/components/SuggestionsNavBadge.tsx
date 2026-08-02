@@ -1,12 +1,15 @@
 import { NavLink } from 'react-router-dom'
 import { useSuggestions } from '../api/suggestions'
+import { useImproveProposals } from '../api/improve'
 
-// 설계 §4.9, §5 — 홈/탐색 "제안 N건" 배지 → 제안함. 여기서는 사이드바·모바일 헤더용 상시
+// 설계 §4.9·§4.22, §5 — 홈/탐색 "제안 N건" 배지 → 제안함. 여기서는 사이드바·모바일 헤더용 상시
 // 진입점을 제공한다(0건이면 숨김이 아니라 배지 없이 아이콘만 — 언제든 규칙 관리 결과를 확인할
-// 수 있도록 진입점 자체는 유지).
+// 수 있도록 진입점 자체는 유지). S20(§4.22 ③): [분류 연결]·[반입 개선] 두 pending 수신함을
+// 합산한다 — 제안함이 "화면" 층에서 일반화됐을 뿐 배지는 여전히 하나(결정 ①).
 export default function SuggestionsNavBadge({ compact }: { compact?: boolean }) {
   const suggestionsQuery = useSuggestions()
-  const count = suggestionsQuery.data?.length ?? 0
+  const improveProposalsQuery = useImproveProposals('pending')
+  const count = (suggestionsQuery.data?.length ?? 0) + (improveProposalsQuery.data?.length ?? 0)
 
   if (compact) {
     return (
