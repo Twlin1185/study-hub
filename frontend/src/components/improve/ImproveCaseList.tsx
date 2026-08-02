@@ -17,6 +17,10 @@ function formatDate(iso: string): string {
   }
 }
 
+// 설계 screens §5.13 "사례 체크박스 선택(1~20)" — prepare가 받는 case_ids 상한과 같은 값
+// (§4.22 ② — 초과 시 서버가 pydantic 422로 거부하므로 UI에서 먼저 막는다, stage-20 검토 경미 ⑤).
+const MAX_GEN_CASES = 20
+
 // 설계 §4.22 ①·⑤ — 실패 사례 목록(수집은 자동·비용 0). 최근 50건 상한(결정 ②)이 곧 전체
 // 목록이라 size=50 고정 1페이지로 조회한다(별도 페이지네이션 UI를 두지 않음 — 프론트 판단).
 export default function ImproveCaseList({ onProposalsGenerated }: { onProposalsGenerated?: () => void }) {
@@ -28,11 +32,16 @@ export default function ImproveCaseList({ onProposalsGenerated }: { onProposalsG
 
   const items = casesQuery.data?.items ?? []
 
+  // ImproveRegressionWizard의 상한 처리(MAX_REGRESSION_CASES)와 같은 방식 — 이미 20건이면
+  // 새로 체크해도 조용히 무시한다(체크박스 disabled로 시각적으로도 막음).
   function toggle(caseId: string) {
     setSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(caseId)) next.delete(caseId)
-      else next.add(caseId)
+      if (next.has(caseId)) {
+        next.delete(caseId)
+      } else if (next.size < MAX_GEN_CASES) {
+        next.add(caseId)
+      }
       return next
     })
   }
@@ -65,7 +74,7 @@ export default function ImproveCaseList({ onProposalsGenerated }: { onProposalsG
       {items.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface p-3 text-sm">
           <span className="text-primary">
-            {items.length}건 · {selected.size}건 선택
+            {items.length}건 · 선택 {selected.size} / 최대 {MAX_GEN_CASES}건
           </span>
           <button
             type="button"
@@ -83,13 +92,17 @@ export default function ImproveCaseList({ onProposalsGenerated }: { onProposalsG
       )}
 
       <ul className="flex flex-col gap-2">
-        {items.map((c) => (
-          <li key={c.case_id} className="rounded-lg border border-border bg-surface p-3">
+        {items.map((c) => {
+          const checked = selected.has(c.case_id)
+          const capReached = !checked && selected.size >= MAX_GEN_CASES
+          return (
+          <li key={c.case_id} className={`rounded-lg border border-border bg-surface p-3 ${capReached ? 'opacity-50' : ''}`}>
             <div className="flex items-start gap-2">
               <input
                 type="checkbox"
                 className="mt-1"
-                checked={selected.has(c.case_id)}
+                checked={checked}
+                disabled={capReached}
                 onChange={() => toggle(c.case_id)}
               />
               <div className="min-w-0 flex-1">
@@ -124,7 +137,8 @@ export default function ImproveCaseList({ onProposalsGenerated }: { onProposalsG
               </button>
             </div>
           </li>
-        ))}
+          )
+        })}
       </ul>
 
       {deleteTarget && (

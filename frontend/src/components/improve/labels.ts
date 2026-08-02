@@ -24,6 +24,21 @@ export function kindLabel(kind: string): string {
   return KIND_LABEL[kind] ?? kind
 }
 
+// 제안 생성 결과의 discarded[].reason — 서버 `improve_service.py`의 `_DISCARD_LABELS`(74~80행)와
+// 같은 코드·같은 뜻을 미러링한다(백엔드 discard_label은 서버 로그 전용이라 API 응답의 reason은
+// 영문 코드 원문이다 — stage-20 검토 경미 ④ⓐ). 미지 코드는 원문 그대로 폴백.
+const DISCARD_REASON_LABEL: Record<string, string> = {
+  invalid_kind: '허용되지 않는 종류',
+  bad_case_ref: '근거 사례 범위 밖 참조',
+  hunk_unappliable: '헝크 적용 불가(본문 불일치)',
+  policy_locked: '정책 잠금 구간 접촉',
+  empty_payload: '내용 비어 있음',
+}
+
+export function discardReasonLabel(reason: string): string {
+  return DISCARD_REASON_LABEL[reason] ?? reason
+}
+
 export const PROPOSAL_KIND_LABEL: Record<ImproveProposalKind, string> = {
   casebook: '사례집 추가',
   prompt_edit: '프롬프트 수정',

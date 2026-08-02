@@ -1,6 +1,6 @@
 import { useImproveCase } from '../../api/improve'
 import Modal from '../Modal'
-import { ORIGIN_LABEL, kindLabel } from './labels'
+import { ORIGIN_LABEL, REGRESSION_OUTCOME_LABEL, kindLabel } from './labels'
 
 // 설계 §4.22 ③ — 제안 카드의 "근거 사례 링크" 클릭 시 사례 상세를 보여준다(재현 정보 —
 // detail·source·preview_ref·regressions. 원문 미포함, §4.22 ①).
@@ -52,7 +52,7 @@ export default function ImproveCaseDetailModal({ caseId, onClose }: { caseId: st
               <ul className="flex flex-col gap-1">
                 {c.regressions.map((r, i) => (
                   <li key={i} className="text-xs text-primary">
-                    {formatDate(r.run_at)} — {r.outcome}
+                    {formatDate(r.run_at)} — {REGRESSION_OUTCOME_LABEL[r.outcome] ?? r.outcome}
                     {r.detail && <span className="text-muted"> ({r.detail})</span>}
                   </li>
                 ))}

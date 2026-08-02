@@ -908,7 +908,7 @@ backend/services/fetchers/
 
 **DDL 변경 0건·Alembic 0건 — 재확인 근거 (2026-08-02, 결정 ①~⑦ 전건)**
 
-- 이 절의 저장 지점 전수: **`improve/cases/`·`improve/proposals/` JSON 파일**(각 최근 50건 — git·백업(F27) 제외, 결정 ②) · **`prompts/convert.cases.md`**(신설 — git 관리) · **`prompts/convert.md`**(apply 승인 반영·잠금 마커 삽입 — git 관리) · **인메모리**(gen·reg 상태 TTL 1시간 · 잡 kind 2종). **DB 쓰기 0**(suggestions 테이블·settings 포함 전부 무변경 — DB에 아무것도 쓰지 않는 첫 기능). `sources/`·`import/auto/`는 **읽기 전용 참조**. **새 테이블·컬럼·인덱스 0, Alembic 0. 신규 엔드포인트 13개**(cases 3 + gen 3 + proposals 4 + regression 3). 구현 중 이 전제가 깨지면 착수 중단 후 보고(임의 확정 금지).
+- 이 절의 저장 지점 전수: **`improve/cases/`·`improve/proposals/` JSON 파일**(각 최근 50건 — git·백업(F27) 제외, 결정 ②) · **`prompts/convert.cases.md`**(신설 — git 관리) · **`prompts/convert.md`**(apply 승인 반영·잠금 마커 삽입 — git 관리) · **인메모리**(gen·reg 상태 TTL 1시간 · 잡 kind 2종). **DB 쓰기 0**(suggestions 테이블·settings 포함 전부 무변경 — DB에 아무것도 쓰지 않는 첫 기능. **예외 명문화(구현 확정 2026-08-02, 검토 경미 ⑧)**: improve 잡이 엔진 `rate_limit`로 실패하면 **공용** 엔진 한도 기억(`remember_limit` → settings)이 동작한다 — 이 기능 고유 데이터가 아니라 전 LLM 잡 공통의 기존 경로라 "이 기능의 저장은 DB 밖" 원칙과 충돌하지 않음). `sources/`·`import/auto/`는 **읽기 전용 참조**. **새 테이블·컬럼·인덱스 0, Alembic 0. 신규 엔드포인트 13개**(cases 3 + gen 3 + proposals 4 + regression 3). 구현 중 이 전제가 깨지면 착수 중단 후 보고(임의 확정 금지).
 
 **구현 앵커 (2026-08-02 — 재탐색 방지용. 공유 앵커의 행 번호는 §4.20 말미 실측 참조)**
 

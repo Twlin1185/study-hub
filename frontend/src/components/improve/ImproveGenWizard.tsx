@@ -12,6 +12,7 @@ import LlmErrorInfoView from '../LlmErrorInfo'
 import LlmLimitBanner from '../LlmLimitBanner'
 import { useLlmStatus } from '../../api/llm'
 import type { LlmEngine } from '../../api/types'
+import { discardReasonLabel } from './labels'
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -223,7 +224,7 @@ export default function ImproveGenWizard({ caseIds, onClose, onGenerated }: Impr
                     <ul className="flex flex-col gap-1">
                       {result.discarded.map((d, i) => (
                         <li key={i} className="text-xs text-primary">
-                          {d.reason} — {d.count}건
+                          {discardReasonLabel(d.reason)} — {d.count}건
                         </li>
                       ))}
                     </ul>

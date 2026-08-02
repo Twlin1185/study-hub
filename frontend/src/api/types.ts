@@ -1168,8 +1168,13 @@ export interface ImproveGenResult {
   discarded: ImproveDiscardedGroup[]
 }
 
+// generate 호출 전(prepare 직후)에는 잡이 아직 시작되지 않아 'prepared'로 응답한다 — §4.22
+// 실측(stage-20 검토 경미 ②). AppliedExamStatus(위 §4.21, types.ts:535)와 동일하게 ConvertJobStatus
+// 유니온으로 확장한다(런타임 영향 없음 — 계약 정확성).
+export type ImproveJobStatus = ConvertJobStatus | 'prepared'
+
 export interface ImproveGenJobResponse {
-  status: ConvertJobStatus
+  status: ImproveJobStatus
   progress?: JobProgress | null
   error_info?: LlmErrorInfo | null
   result?: ImproveGenResult | null
@@ -1236,7 +1241,7 @@ export interface ImproveRegressionResultItem {
 }
 
 export interface ImproveRegressionJobResponse {
-  status: ConvertJobStatus
+  status: ImproveJobStatus
   progress?: JobProgress | null
   error_info?: LlmErrorInfo | null
   results: ImproveRegressionResultItem[]
