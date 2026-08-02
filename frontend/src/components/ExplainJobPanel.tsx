@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { jobUnavailable } from '../api/convert'
 import { useApplyExplain, useExplainJob, useStartExplain } from '../api/explain'
+import { useLlmStatus } from '../api/llm'
 import { clearStoredExplainJob, getStoredExplainJob, setStoredExplainJob } from '../utils/explainJobs'
-import type { DocumentDetail, LlmEngine } from '../api/types'
+import type { DocumentDetail, LlmEngine, LlmEngineStatus } from '../api/types'
 import { ApiError } from '../api/client'
 import Modal from './Modal'
 import MarkdownView from './MarkdownView'
@@ -37,6 +38,7 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
   const jobId = stored?.jobId ?? null
   const active = jobId != null && !dismissed
 
+  const statusQuery = useLlmStatus()
   const startExplain = useStartExplain()
   const applyExplain = useApplyExplain()
   const jobQuery = useExplainJob(active ? doc.id : null, active ? jobId : null)
@@ -54,6 +56,18 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
 
   // 대상이 아니고(이미 해설 있음 등) 진행 중 잡도 없으면 아무것도 렌더하지 않는다.
   if (!eligible && !active) return null
+
+  // 검토 지적(2026-08-03) — EngineSelect 도입으로 사라진 과금 인지 소표기 복원. auto 선택 시엔
+  // status 기준 예상 엔진(priority 첫 available && enabled — §4.23 ⓐ 후보 개정과 동일 기준)을,
+  // 명시 선택 시엔 그 엔진 자체를 사용해 "사용 엔진: 라벨 (과금형)"을 보여준다.
+  const engines = statusQuery.data?.engines ?? []
+  const priority = statusQuery.data?.priority ?? []
+  const resolvedEngine: LlmEngineStatus | null =
+    engine === 'auto'
+      ? (priority
+          .map((id) => engines.find((e) => e.id === id))
+          .find((e): e is LlmEngineStatus => e != null && e.available && e.enabled) ?? null)
+      : (engines.find((e) => e.id === engine) ?? null)
 
   if (!active) {
     return (
@@ -76,6 +90,12 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
               <div>
                 <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>
                 <EngineSelect value={engine} onChange={setEngine} billingLabels={BILLING_LABEL} />
+                {resolvedEngine && (
+                  <p className="mt-1 text-xs text-muted">
+                    사용 엔진: {resolvedEngine.label} (
+                    {BILLING_LABEL[resolvedEngine.billing] ?? resolvedEngine.billing})
+                  </p>
+                )}
               </div>
               <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-xs text-primary">
                 AI가 생성한 해설은 오개념이 섞여 있을 수 있습니다 — 검토 후 승인하세요.

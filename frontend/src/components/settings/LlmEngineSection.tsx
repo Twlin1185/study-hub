@@ -302,8 +302,12 @@ function EngineCard({
       {isCliType && <CliDiagnosis engine={engine} />}
       {isKeyType && <ApiKeyDiagnosis engine={engine} />}
 
-      {/* S21(설계 §4.23 ⓑ) — models가 빈 배열인 엔진은 select 자체를 렌더하지 않는다. 자유 입력
-          없음 — 소목록만. */}
+      {/* S21(설계 §4.23 ⓑ, 검토 정정 2026-08-03) — models가 빈 배열인 엔진은 select 자체를
+          렌더하지 않는다. 자유 입력 없음 — 소목록만. default_model이 non-null인 엔진(API형,
+          claude-api)은 selected_model이 절대 null이 되지 않으므로(§4.23 ⑤ 유효 적용값 —
+          legacy 기본 상주) "엔진 기본" 빈 옵션을 렌더하지 않는다(눌러도 선택되지 않는 유령
+          옵션 방지) — API는 항상 구체 모델로 호출되고 '기본' = default_model 그 자체다.
+          CLI형(default_model null)만 "엔진 기본(미전달)" 옵션을 유지한다. */}
       {engine.models.length > 0 && (
         <div className="mt-2">
           <label className="flex flex-wrap items-center gap-2 text-xs text-muted">
@@ -313,7 +317,7 @@ function EngineCard({
               onChange={(e) => onModelChange(e.target.value || null)}
               className="rounded border border-border bg-surface px-2 py-1 text-xs text-primary outline-none focus:border-accent"
             >
-              <option value="">엔진 기본{engine.default_model ? ` (${engine.default_model})` : ''}</option>
+              {engine.default_model == null && <option value="">엔진 기본(미전달)</option>}
               {engine.models.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
