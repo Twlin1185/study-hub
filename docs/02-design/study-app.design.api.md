@@ -5,7 +5,7 @@
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S19] = stage 1~19에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
+구현 단계 표기: [S1]~[S20] = stage 1~20에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
 
 ### 4.1 분류 Categories
 
@@ -824,4 +824,96 @@ backend/services/fetchers/
 - 채점 코어 = `backend/services/exam_service.py`(§4.14 — 커밋 없는 공용 채점 함수·배치 트랜잭션·history 파생 로직. submit·history 재사용 지점) · 출제 자격 판정 = quiz_service(§4.14 관례).
 - 신설 제안: `backend/services/applied_exam_service.py`(prepare·격리 분류 관리·검증 게이트·저장 트랜잭션) + `backend/routers/applied_exam.py` + `backend/schemas/applied_exam.py`.
 - 프론트: 퀴즈 설정(§5.6)·모의고사 구성(§5.12) 확장 + `ExamRun`·결과 리포트 재사용(제출 엔드포인트 분기·basis 렌더) · `FetchImportWizard`(사용량 확인 스텝 전례) · `LlmJobProgress`·`LlmErrorInfo`(진행·오류) · zustand `examSession` 확장(applied 컨텍스트 — §7).
+
+### 4.22 반입 자기 개선 루프 — 실패 사례·개선 제안·회귀 재검증 (S20 — F46. **계약 확정 2026-08-02, stage-20 착수 전 결정 ①~⑦ 해소분**)
+
+> 근거: 계획서 §14 F46(단일 출처 — 배경·수집·채널 3계층·제안함·회귀·R23). 이 절은 착수 전 결정 ①~⑦의 확정 계약이며, 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-20 DoD).
+> 원칙 재확인: **완전 자동 수정 배제·자동 반영 금지**(모든 반영은 제안함 승인 경유 — R8 제안-승인 철학. 파일 쓰기는 아래 apply 1개 엔드포인트뿐) · **코드 자기 수정 금지**(자기 개선 상한 = 데이터(사례집)·프롬프트 층 — 코드 결함은 재현 패키지 인계) · 실행 전 LLM 사용량 안내(F35 원칙 — 수집은 비용 0이라 자동, **개선·회귀는 전부 수동 + estimate 확인 스텝**) · 오류 원문 API 미노출(§4.11 — 파일 저장은 로그 전용 관례) · 에러 규약 §3. **이 기능은 DB에 아무것도 쓰지 않는다**(저장은 전부 파일·인메모리 — 말미 재확인).
+
+**착수 전 결정 ①~⑦ 확정 (2026-08-02)**
+
+- **① `suggestions` 확장 방식 = 테이블 재사용 기각 — 파일 기반 별도 저장(`improve/proposals/`) + 제안함 "화면" 일반화**. 근거: 현행 `suggestions`는 `document_id`·`category_id` NOT NULL + `UNIQUE(document_id, category_id)`의 문서→분류 연결 전용 구조라, 개선 제안(문서·분류 무관·payload = 사례집 엔트리/프롬프트 수정안)을 넣으려면 컬럼 완화 + 타입·payload 컬럼 신설 = DDL이다. F21 확장("LLM 제안 일반 수신함")의 의미는 **UI 계층**에서 실현한다 — 제안함 페이지(`/suggestions`)가 두 수신함(분류 연결 = 기존 API 그대로 + 반입 개선 = 신규 API)을 함께 렌더하고 nav 배지는 pending 합산. **기존 suggestions API·테이블·제안 수명주기(§4.9)는 무변경**(계약 불변).
+- **② 실패 사례 보존 = `improve/` 폴더 JSON 레코드 — cases·proposals 각 최근 50건(R18 상수 관례), git·백업(F27) 제외**. 손실 시 대가는 "사례 재수집"뿐(원본은 `sources/`에 있고 백업된다 — R18과 동일 논리, 자료 자체는 안전). DB 테이블화하지 않는 이유도 R18 그대로 — 사례는 본질적으로 소모성 작업 자산이고 테이블화하면 정리·마이그레이션 부담이 영구화된다. 중복 방지 = 같은 (kind, 원본 hash12) — report 사례는 (kind, document_id) — 기존 레코드가 있으면 신규 생성 대신 `count`·`last_seen_at` 갱신(§4.9 제안 중복 방지 관례의 파일판).
+- **③ 사례집과 본문의 경계 = 부속 사례집 `prompts/convert.cases.md` 신설(본문과 분리 — git 관리)**. 사례집 = **실패 유형별 처리 예시(few-shot)·형식 지침만**, 본문(`prompts/convert.md`) = 정책 문장(창작 금지·대조 범위·answer_source·순수 JSON 규격)과 일반 규칙. 경계 규칙: 개별 사례의 처리 예시 = 사례집(기본 채널·저위험), 일반 규칙 문구의 교정 = 본문 수정 제안(중위험 — 아래 승인 규약), **정책 문장 = 어느 채널로도 수정 불가**(결정 ⑦ 잠금). 본문에 **본문 우선 조항 1줄**을 추가한다("부속 사례집은 예시일 뿐이며 본문 규칙과 충돌하면 본문이 우선한다" — 잠금 구간에 포함, R23 ① 드리프트 방어).
+- **④ 제안 생성 트리거 = 수동 버튼만(실패 누적 임계치 자동 호출 기각)**. 근거: 자동 호출은 "실행 전 사용량 안내 없는 LLM 호출 금지"(F35)와 정면 충돌하고, 실패 직후 자동 생성은 마지막 실패에 과적합된 땜질 규칙을 유도한다(R23 ②). **수집(비용 0)은 자동, 개선(비용)은 수동** — 이것이 이 기능의 비용 경계다.
+- **⑤ 회귀 재검증 범위·시점 = 수동 트리거 + 선택 사례만(1회 상한 10건), estimate 확인 스텝 필수**. 전체 일괄 재검증 기각 — 회귀는 사례당 완전한 재변환 비용이라 전량 실행은 비용 폭증이고, 개선 제안의 근거 사례 + 같은 유형 사례만 재검증해도 "개선이 측정 가능"이라는 목적(R23 ③)은 달성된다. 시점 = 승인 반영 후 사용자가 실행 — apply에 자동 후속 잡을 걸지 않는다(비용 동의 없는 LLM 호출 금지).
+- **⑥ F30 신고 연결 = 신고 시점 자동 사례 수집(레코드 생성 — LLM 0·비용 0), F30 계약 불변**. `POST /api/documents/{id}/regenerate`(§4.10) 시작 시점에 `origin='report'` 사례 레코드를 부수 기록한다(신고 reason·문서 참조·source_detail 스냅샷). regenerate 요청·응답·플로우는 무변경이고 실패해도 신고를 막지 않는다(수집은 best-effort 부수 기록).
+- **⑦ 프롬프트 수정 반영의 안전장치 = 정책 잠금 구간 확정**. `prompts/convert.md`의 정책 문장을 `<!-- policy-lock:start -->` ~ `<!-- policy-lock:end -->` 마커 구간으로 감싸고(stage-20에서 마커 삽입만 — 정책 문구 무변경), **서버가 적용 결과에서 잠금 구간의 개수·순서·내용 바이트 불변을 결정론 검증**한다(위반 = 422 거부). 앵커 문장을 서버 상수로 복제하는 방식은 기각 — convert.md 수동 수정 시 상수와 어긋나는 이중 출처가 된다(본문 자체가 단일 출처여야 한다). 생성 프롬프트의 "잠금 구간 수정 금지" 지시는 보조일 뿐 — 방어는 서버 검증이다(프롬프트는 약한 레버, R7 실측 그대로).
+
+**① 실패 사례 수집 (자동 — LLM 0·비용 0)**
+
+- **수집 지점 전수(3곳)**:
+  1. **convert·fetch 잡 실패** — `error_info.kind ∈ {parse_failed, unsupported_format, invalid_output}`일 때(`origin='convert_job'|'fetch_job'`). **수집 제외 kind**: `too_large`(정책 상한 — 분할 안내가 대응, 개선 채널이 고칠 수 없음)·`rate_limit`·미설치/미로그인/타임아웃 등 환경 실패(개선 루프 대상 아님).
+  2. **게이트 탈락** — convert·fetch preview 생성 시 `fabrication_suspect` 항목이 1개 이상이면 **잡 단위 1건**(`origin='gate'` — 항목 인덱스·건수를 detail에 기록, 50건 창 낭비 방지). `solved_answer`·`match_unavailable`은 수집하지 않는다(실패가 아니라 신호·원본 한계).
+  3. **F30 신고** — 결정 ⑥(`origin='report'`, `kind='user_report'`).
+- **레코드 형식**(`improve/cases/{case_id}.json` — 1파일 1사례, UTF-8 `ensure_ascii=False`, `case_id` = `fc_` + hex 6자):
+  `{case_id, created_at, origin, kind, count, last_seen_at, engine?, source?: {path, hash12, filename}, document?: {id, doc_no, title}, preview_ref?, detail, llm_output_path?, regressions: []}`
+  - `detail` = origin별 구조화 정보(error_info 사본 — **원문 제외**·게이트 항목 인덱스·신고 reason). `preview_ref` = `import/auto/` 보존 파일명(있으면 — 게이트 사례의 재현 재료).
+  - **LLM 산출물 원문**(`invalid_output` 시): `improve/cases/{case_id}.output.txt`로 저장 — **로그 전용**(§4.11 관례. cases API 응답에는 `has_llm_output` bool만, 원문은 제안 생성 LLM 입력·재현 패키지 재료로만 쓴다).
+- **보존·정리(결정 ②)**: cases 최근 **50건**(초과 시 오래된 것부터 삭제 — 부속 output 파일 동반 삭제). proposals도 50건 — 단 삭제 순서는 **결정 완료(applied/rejected/acknowledged) 먼저, pending은 최후**(대기 중 제안이 조용히 사라지지 않게). git·백업(F27) 제외.
+- 수집은 전부 **best-effort 부수 기록** — 수집 실패(디스크 오류 등)가 원 플로우(잡·preview·신고)를 실패시키지 않는다(로그만).
+
+**신규 엔드포인트 13개 (전부 [S20])**
+
+| 메서드/경로 | 설명 |
+|---|---|
+| `GET /api/improve/cases?page=&size=&kind=` | 실패 사례 목록(§3 페이지 봉투 — 최신순). item = 레코드 요약(`has_llm_output` bool 포함·원문 미포함) |
+| `GET /api/improve/cases/{case_id}` | 사례 상세(재현 정보 — detail·source·preview_ref·regressions. 원문 미포함) |
+| `DELETE /api/improve/cases/{case_id}` | 사례 제거(파일 삭제 — 노이즈 정리. 부속 output 동반 삭제) |
+| `POST /api/improve/gen/prepare` | body `{case_ids: [...]}` — **입력 조립·견적만(LLM 0 · 비용 0)**. 아래 1 |
+| `POST /api/improve/gen/{gen_id}/generate` | body `{engine?: 'auto'\|엔진id}` → `202 {job_id}` — 제안 생성 잡(convert 잡 큐 재사용 — kind `'improve_proposal'`, 동시 1개 · §4.11 progress 계약 그대로) |
+| `GET /api/improve/gen/{gen_id}` | `{status, progress, error_info, result?: {proposal_ids, discarded: [{reason, count}]}}` |
+| `GET /api/improve/proposals?status=` | 제안 목록(기본 pending — 제안함 화면이 소비). item = `{proposal_id, kind, title, rationale, case_ids, status, created_at, decided_at}` |
+| `GET /api/improve/proposals/{proposal_id}` | 상세 — payload 전문 + **적용 미리보기**(아래 3: casebook = 추가될 엔트리 전문 · prompt_edit = 헝크별 before/after + 적용 후 전문 `preview_after` + `policy_check`) |
+| `POST /api/improve/proposals/{proposal_id}/apply` | **승인 반영 — 이 기능의 유일한 파일 쓰기 경로**. 아래 4. pending 아니면 409, 정책 잠금 위반 422, 헝크 불일치 409 |
+| `POST /api/improve/proposals/{proposal_id}/reject` | 거절 — `status='rejected'`·decided_at (pending 아니면 409) |
+| `POST /api/improve/regression/prepare` | body `{case_ids: [...]}` — **회귀 견적만(LLM 0)**. 1~10건·`user_report` 포함 시 422("신고 사례는 자동 회귀 판정 대상이 아닙니다"). 응답 `{reg_id, case_count, estimate}` |
+| `POST /api/improve/regression/{reg_id}/run` | body `{engine?}` → `202 {job_id}` — 회귀 재변환 잡(kind `'improve_regression'` — 사례별 순차) |
+| `GET /api/improve/regression/{reg_id}` | `{status, progress, error_info, results: [{case_id, outcome, detail?}]}` |
+
+**② 제안 생성 규약**
+
+1. **prepare(LLM 0)**: `case_ids` 1~**20**건·실재 검증(부재 = 422). 입력 조립 = 선택 사례 레코드 + 원본 추출 텍스트 발췌(§4.17 ⑥ `extract_source_text` 재사용) + LLM 산출물 원문(있으면) + **현행 `convert.md`·`convert.cases.md` 전문**(수정 대상 문맥). 합계 **200,000자 상한**(§4.18 `too_large` 관례 — 초과 시 422 "사례 수를 줄여 주세요", LLM 호출 전 비용 0 차단). 응답 `{gen_id, case_count, estimate: {approx_input_tokens, assumed}}`(`fetch_service.estimate_usage` 필드 관례·chars/1.5 보정). gen 상태 인메모리 TTL 1시간 — 소실 = prepare 재실행(LLM 0이라 무비용). 프론트는 **확인 스텝 표시 후에만** generate 호출(F35·FetchImportWizard 전례 + 엔진·과금형 `billing` 표시).
+2. **생성 잡(kind `'improve_proposal'`)**: 프롬프트 코드 내 조립(regenerate 전례 — `prompts/convert.md` 불변). 과업 = 사례 분석 → 제안 산출, **잠금 구간 수정 금지·정책 완화 금지 지시 포함**(보조 — 방어는 아래 서버 검증). 출력 = 순수 JSON `{"proposals":[{"kind":"casebook"|"prompt_edit"|"code_issue","title","rationale","case_ids":[...],"payload":{...}}]}`(위반 = `invalid_output` — §4.17 ⑤ 규율 그대로).
+   - **kind별 payload**: `casebook` = `{entry_markdown}`(사례집 추가 엔트리) · `prompt_edit` = `{hunks: [{before, after}]}`(**치환 헝크 — unified diff 파서 불도입**: 각 `before`는 현행 본문에 **정확히 1회** 등장해야 하고 적용 = 문자열 치환. 결정론·검증 용이가 채택 근거) · `code_issue` = `{repro_markdown}`(재현 패키지 — 원본 참조 + 실패 기록 + 기대 동작 서술).
+3. **서버 검증(제안 단위 — 결정론)**: ⓐ kind 화이트리스트 외 = 폐기(`invalid_kind`) ⓑ `case_ids` ⊆ 요청 사례 집합(부재·범위 밖 = 폐기 `bad_case_ref` — LLM의 대응 판단 불신, F44 결정 ② 관례) ⓒ `prompt_edit`는 즉시 적용 시뮬레이션 — before 0회/2회+ 일치 = 폐기(`hunk_unappliable`), **잠금 구간 접촉 = 폐기(`policy_locked`)** ⓓ payload 빈 내용 = 폐기(`empty_payload`). 통과 0건 = 잡 실패(§4.11 error_info). 폐기 사유는 `discarded[]` 구조화.
+4. **저장**: 통과 제안을 `improve/proposals/{proposal_id}.json`(`pr_` + hex 6자, `status='pending'`)으로 저장 — LLM 비용 산출물의 디스크 보존(R18 논리). **저장 = 제안함 카드 등록이지 반영이 아니다** — 반영은 apply뿐.
+
+**③ 제안함 일반화·승인 규약 (F21 확장 — UI 계층, 결정 ①)**
+
+- 제안함 페이지(`/suggestions` — `pages/Suggestions.tsx`)에 수신함 2탭: **[분류 연결]**(기존 §4.9 — 무변경) + **[반입 개선]**(신규 — 실패 사례 목록·제안 생성 위저드·제안 카드·회귀 패널). nav 배지(`SuggestionsNavBadge`) = 두 pending 합산.
+- 제안 카드 = kind 배지(사례집 추가 / 프롬프트 수정 / **코드 수정 필요**) + title + rationale + 근거 사례 링크. 상세 = 적용 미리보기(casebook 엔트리 전문 / prompt_edit 헝크 before-after + `preview_after` + `policy_check: 'ok'|'violation'` / code_issue 재현 패키지 전문) — **승인 전에 반영 결과 전문을 본다**(diff/미리보기 — R8·미리보기 승인 관례).
+- **apply(kind별 반영 — 유일한 파일 쓰기)**:
+  - `casebook`: `prompts/convert.cases.md` **말미 append**(엔트리 헤더 `## 사례 {case_id 목록}: {title}` — 서버가 부착). append 결과 사례집 총량 **20,000자 초과 = 422**("사례집이 상한을 넘습니다 — git에서 직접 정리하세요") — 땜질 규칙 무한 누적의 기계 상한(R23 ②).
+  - `prompt_edit`: 헝크 순차 치환 적용 — 사전 검증 ① before 정확·유일 일치(불일치 = **409** "프롬프트 본문이 변경되었습니다 — 제안을 다시 생성하세요") ② 적용 결과의 **잠금 구간 개수·순서·내용 바이트 불변**(위반 = **422** — 결정 ⑦). 앱은 파일만 수정한다 — git 커밋·롤백은 저장소 워크플로 몫(자동 git 실행 없음. 이력·롤백 공짜는 git 관리 파일이라는 사실에서 온다 — R23 ④).
+  - `code_issue`: **파일 쓰기 0** — 상태만 `'acknowledged'`(인계 완료)로 전환. 재현 패키지는 상세 화면에서 복사해 개발 세션에 전달한다(자동 이슈 등록·외부 전송 없음 — 자기 개선 상한).
+  - 응답 `{applied: true, kind, result}` + `status='applied'`·decided_at. 결정 완료 제안의 재-apply/reject = 409(멱등 아님 — 이중 append 방지).
+- **사례집 주입**: convert 변환 프롬프트 조립 시 `convert.cases.md`가 존재하고 비어 있지 않으면 본문 뒤 별도 섹션("부속 사례집")으로 첨부. 사례집의 삭제·정리 UI는 만들지 않는다 — append만, 정리는 git에서 직접 편집(YAGNI).
+
+**④ 회귀 재검증 규약 (실패 사례 = 회귀 테스트 자산)**
+
+1. **prepare(LLM 0 — 결정 ⑤)**: 1~**10**건(사례당 완전한 재변환 비용 — 보수 상한). estimate는 전 사례 입력 합계로 보수 계상(판별·파서 단계에서 끝나 LLM에 도달하지 않을 사례도 포함 — `assumed:true`). reg 상태 인메모리 TTL 1시간. 프론트 기본 선택 = 반영한 제안의 근거 사례 + 같은 kind 사례(사용자 조정 가능).
+2. **회귀 잡(kind `'improve_regression'`)**: 사례별 순차 — `sources/` 원본을 hash12로 되읽어(불일치·부재 = 해당 사례 `outcome:'unavailable'`) 현행 변환 파이프라인(판별·추출·LLM 변환·검증·게이트 — 사례집 주입 포함) 재실행. **preview 미등록·`import/auto/` 미보존·DB 무기록** — 검증 전용, 반입 경로·대기열과 절연(재검증 통과분을 반입하려면 정규 반입 경로로 다시 — R7 우회 없음).
+3. **판정(outcome)**: `'passed'`(원 실패 유형 미재발 — 구조화 오류 없이 변환 완료, gate 사례는 재변환 산출의 `fabrication_suspect` 미재발) · `'still_failing'`(같은 kind 재발) · `'failed_differently'`(다른 kind — detail에 병기) · `'unavailable'`(원본 접근 불가). 결과는 reg 상태 응답 `results[]` + **각 사례 레코드의 `regressions[]`에 append**(개선·퇴행이 수치로 남는다 — R23 ③).
+
+**안전장치 전수 (재확인)**
+
+1. **자동 반영 금지** — 이 기능의 파일 쓰기는 apply 1곳뿐(R8). 수집·생성·저장은 어떤 파일도 반영하지 않는다.
+2. **코드 자기 수정 금지** — improve 계열이 쓰는 경로는 `improve/`·`prompts/` **한정**(backend/·frontend/·sources/·study.db 쓰기 0 — sources/는 읽기만, 규칙 4).
+3. **정책 잠금**(결정 ⑦) — 서버 결정론 검증. 생성 지시·사람 승인은 보조 방어선.
+4. **본문 우선 조항** — 사례집이 정책을 이길 수 없다(R23 ① — 사례집 엔트리의 정책 완화 시도는 기계 검사 불가하므로, 본문 우선 조항 + 승인 게이트가 방어).
+5. **사례집 20,000자 상한** — R23 ② 과적합 누적의 기계 상한.
+6. **수집 자동·개선 수동** — LLM 호출은 전부 prepare estimate 확인 스텝 뒤(F35).
+7. **회귀는 반입 경로와 절연** — 검증 전용·DB 무기록.
+
+**DDL 변경 0건·Alembic 0건 — 재확인 근거 (2026-08-02, 결정 ①~⑦ 전건)**
+
+- 이 절의 저장 지점 전수: **`improve/cases/`·`improve/proposals/` JSON 파일**(각 최근 50건 — git·백업(F27) 제외, 결정 ②) · **`prompts/convert.cases.md`**(신설 — git 관리) · **`prompts/convert.md`**(apply 승인 반영·잠금 마커 삽입 — git 관리) · **인메모리**(gen·reg 상태 TTL 1시간 · 잡 kind 2종). **DB 쓰기 0**(suggestions 테이블·settings 포함 전부 무변경 — DB에 아무것도 쓰지 않는 첫 기능). `sources/`·`import/auto/`는 **읽기 전용 참조**. **새 테이블·컬럼·인덱스 0, Alembic 0. 신규 엔드포인트 13개**(cases 3 + gen 3 + proposals 4 + regression 3). 구현 중 이 전제가 깨지면 착수 중단 후 보고(임의 확정 금지).
+
+**구현 앵커 (2026-08-02 — 재탐색 방지용. 공유 앵커의 행 번호는 §4.20 말미 실측 참조)**
+
+- 수집 훅 지점: `convert_service` 잡 실패 처리(`_worker` — error_info 확정 직후)·fetch 잡 동일 지점 · `import_service._item_warnings`(fabrication 판정 집계 후 — preview 생성 경로) · `start_regenerate_job`(F30 — §4.20 앵커 2000행 부근).
+- 잡 큐·프롬프트 코드 내 조립·estimate 필드·원본 추출 = §4.20 앵커 그대로(`convert_service` 잡 큐 · `_build_regenerate_prompt` 전례 · `fetch_service.estimate_usage` · `source_match.extract_source_text`·`SourceMatcher`).
+- 신설 제안: `backend/services/improve_service.py`(사례 저장소·수집 API·프루닝·prepare·제안 검증·apply·정책 잠금 검증·회귀) + `backend/routers/improve.py` + `backend/schemas/improve.py`.
+- 프론트: `pages/Suggestions.tsx`(2탭 일반화) · `components/SuggestionsNavBadge.tsx`(합산) · `FetchImportWizard`(확인 스텝 전례) · `LlmJobProgress`·`LlmErrorInfo`(진행·오류 재사용) · 신설 `components/ImproveInbox.tsx`(사례 목록·제안 카드·회귀 패널 — 이름은 구현 재량).
 
