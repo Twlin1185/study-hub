@@ -5,7 +5,7 @@
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S20] = stage 1~20에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
+구현 단계 표기: [S1]~[S21] = stage 1~21에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
 
 ### 4.1 분류 Categories
 
@@ -198,7 +198,7 @@
 | `POST /api/convert` 확장 | `{file 업로드}` **또는 `{url}`** (F35-1): url이면 서버가 다운로드(공개 자료, 크기 상한·content-type 화이트리스트·**사설/로컬 IP 차단(SSRF 방지)**) 후 동일 파이프라인. `engine` 선택 파라미터(`'auto'\|'cli'\|'api'`, 기본 auto=우선순위) — 폴백 "물어보기" 시 프론트가 `engine:'api'`로 재요청하는 계약 | S8 |
 | `POST /api/convert` 확장 2 | **S13(F40-③)**: 선택 파라미터 **`category_path`**(예 `"품질경영기사/필기/2022년 2회"`) — 지정 시 서버가 프롬프트에 "모든 문항의 `suggest_categories`는 정확히 이 경로 하나로 고정" 지시를 넣는다. **사이트 반입(§4.13)의 지시 문자열 생성기를 공유**(중복 구현 금지 — 경로·라벨만 받는 형태로 일반화). 검증: 최대 5단계·단계당 60자·빈 단계 금지(위반 시 422). **자동 반입이 아니다** — preview의 제안을 고정할 뿐 확정은 사용자 승인(R7), 없는 노드 생성은 기존 commit `approve_categories` 계약 그대로 | S13 |
 
-- **엔진 설정은 settings 재사용**: `llm.priority`(`'cli'\|'api'`, 기본 cli) · `llm.fallback`(`'auto'\|'ask'\|'off'`, 기본 **ask** — auto는 과금 동의 UI 통과 시에만 설정 가능) · `llm.api_model`(기본 `claude-sonnet-5` — 과금 부담 고려, 변경 가능). (**S15 예정**: 이 절의 `cli|api` 이항 계약은 §4.17이 엔진 레지스트리로 일반화한다 — `llm.priority`는 엔진 id 배열, status는 엔진 배열, legacy 값은 읽기 시 별칭 매핑. 이 절 서술은 S8~S14 시점 기준으로 보존.)
+- **엔진 설정은 settings 재사용**: `llm.priority`(`'cli'\|'api'`, 기본 cli) · `llm.fallback`(`'auto'\|'ask'\|'off'`, 기본 **ask** — auto는 과금 동의 UI 통과 시에만 설정 가능) · `llm.api_model`(기본 `claude-sonnet-5` — 과금 부담 고려, 변경 가능). (**S15 예정**: 이 절의 `cli|api` 이항 계약은 §4.17이 엔진 레지스트리로 일반화한다 — `llm.priority`는 엔진 id 배열, status는 엔진 배열, legacy 값은 읽기 시 별칭 매핑. 이 절 서술은 S8~S14 시점 기준으로 보존.) (**S21 예정**: `llm.api_model`은 §4.23이 엔진별 `llm.models`로 일반화한다 — 읽기 별칭 유지·쓰기 수렴. 명시 지정 엔진이 비가용·비활성이면 잡 시작 전 422 — §4.23 결정 ⑥.)
 - **API 엔진**: anthropic Python SDK 직접 호출(키는 설정 화면에서 사용자가 등록한 secrets.json **단일 출처** — 환경변수·외부 프로필 자동 탐색 없음). convert/regenerate 프롬프트는 CLI 경로와 동일 템플릿.
 - **오류 구조화**: convert/regenerate 잡 상태 응답에 `error_info` 추가 — `{kind: 'rate_limit'\|'auth'\|'not_installed'\|'timeout'\|'other', limit_kind?: 'session'\|'daily'\|'weekly'\|'model'\|'overall', resets_at?, message(사람이 읽는 한국어), action(다음 행동 안내), fallback_available: bool}`. (S10: kind에 `'parse_failed'` 추가 — 사이트 어댑터 파싱 실패, §4.13. **S13: `'invalid_output'` 추가 — 아래. S14: `'unsupported_format'` 추가 — qnet의 PDF 없는 게시물(ZIP·HWP), §4.13. S16: `'too_large'` 추가 — 추출·디코드 텍스트 길이 상한 초과(LLM 호출 전 차단·분할 권고), §4.18 ⑤.**) **CLI/API 원문 JSON은 사용자에게 노출 금지.**
   - **`alternatives`(프론트 대안 버튼 힌트, S10 신설)**: 값은 **`'url_import'` · `'file_import'`(S14 추가) · `'other_adapter'`(사문화 — 단일 어댑터라 서버가 더 내려보내지 않지만 값 자체는 남겨 둔다)**. `unsupported_format`·상류 실패 계열은 기본이 `['file_import','url_import']`(원본이 이미 `sources/`에 있으므로 **파일 반입이 첫 번째 행동**), `parse_failed`는 `['url_import']`가 기본. (**S16**: 이 기본값 서술은 **fetch 잡 기준** — **convert 잡(파일·URL 반입)에서 발생한 `unsupported_format`·`parse_failed`는 빈 배열**, 실패한 경로 자신을 대안으로 제시하지 않는다 — §4.18 ⑥.) 프론트는 **아는 값만 버튼으로 렌더하고 모르는 값은 무시**한다(전방 호환). CLI 429의 `result` 문자열에서 한도 종류·리셋 시각을 파싱한다.
@@ -432,6 +432,7 @@ backend/services/fetchers/
 
 > 근거: Codex CLI 격리 PoC 실측(2026-07-27, `codex_engine_test\results\SUMMARY.md` v2 — 조건부 GO)과 그 §5 요구사항 7건. **이 절은 계약 확정본이고 구현은 stage-15 잔여 게이트(G2 품질 재실험) 통과 후** — 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-15 DoD 5).
 > 원칙 재확인: 미리보기 승인 없는 자동 반입 금지(R7 — 아래 신뢰 게이트는 그 기계적 보강) · 오류 원문 노출 금지(`error_info` 구조화, §4.11) · 자격증명은 secrets.json/전역 홈 단일 출처(DB·settings 금지).
+> (**S21 예정 — §4.23이 이 절을 개정한다**: 후보 자격 `available()`은 **`available() && enabled`**(사용자 활성 토글 — settings `llm.disabled`)로, 레지스트리 항목에는 **모델 소목록·기본값**이, status `engines[]`에는 `enabled`·모델 필드가 추가된다. 이 절 서술은 S15~S20 시점 기준으로 보존 — §4.11의 "S15 예정" 병기 관례.)
 
 **① 엔진 레지스트리 (F34 `cli|api` 이항 가정 해체)**
 
@@ -916,4 +917,52 @@ backend/services/fetchers/
 - 잡 큐·프롬프트 코드 내 조립·estimate 필드·원본 추출 = §4.20 앵커 그대로(`convert_service` 잡 큐 · `_build_regenerate_prompt` 전례 · `fetch_service.estimate_usage` · `source_match.extract_source_text`·`SourceMatcher`).
 - 신설 제안: `backend/services/improve_service.py`(사례 저장소·수집 API·프루닝·prepare·제안 검증·apply·정책 잠금 검증·회귀) + `backend/routers/improve.py` + `backend/schemas/improve.py`.
 - 프론트: `pages/Suggestions.tsx`(2탭 일반화) · `components/SuggestionsNavBadge.tsx`(합산) · `FetchImportWizard`(확인 스텝 전례) · `LlmJobProgress`·`LlmErrorInfo`(진행·오류 재사용) · 신설 `components/ImproveInbox.tsx`(사례 목록·제안 카드·회귀 패널 — 이름은 구현 재량).
+
+### 4.23 엔진 운용 제어 — 활성 토글·모델 선택·선택 UI 게이팅 (S21 — F47. **계약 확정 2026-08-03, stage-21 착수 전 결정 ①~⑥ 해소분**)
+
+> 근거: 계획서 §14 F47(단일 출처 — 배경·ⓐⓑⓒ·근거·순서 관계). 이 절은 착수 전 결정 ①~⑥의 확정 계약이며, 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-21 DoD).
+> 원칙 재확인: **엔진 레지스트리의 정본은 §4.17** — 이 절은 §4.17 ①②③과 `engine` 파라미터 수용 절(§4.11·§4.13·§4.20·§4.21·§4.22)의 **개정 지점을 전수 명시**하는 방식을 취한다(§4.17 본문은 S15~S20 시점 기준으로 보존 + 개정 예고 1줄 병기 — §4.11이 §4.17을 예고한 관례 그대로). 설정 저장은 settings 재사용(자격증명 secrets.json 원칙과 무관 — 이 절은 자격증명을 다루지 않는다) · 오류 원문 노출 금지·서버 완성 문장(§4.11) · 에러 규약 §3 · **이 절의 계층은 전부 LLM 호출 0**(설정·상태·시작 전 검증 — 비용 0).
+
+**착수 전 결정 ①~⑥ 확정 (2026-08-03)**
+
+- **① 활성 토글 저장 = settings 키 1개 `llm.disabled`(비활성 엔진 id 배열 — 부정 목록) 확정**. 예 `["claude-api"]`, 키 부재·빈 배열 = 전 엔진 활성. **부정 목록 채택 근거**: 새 엔진이 레지스트리에 추가돼도 기존 설정에서 **기본 활성**으로 합류한다(`llm.priority` 누락 id 보충과 같은 전방 호환 원칙 — 긍정 목록(`llm.enabled`)이면 신 엔진이 조용히 꺼진 채 시작). 엔진별 boolean 키(`llm.enabled.{id}`) 분산은 기각 — 배열 1키가 `llm.priority` 관례와 일치하고 일괄 조회·저장이 단순하다. **알 수 없는 id는 읽기 시 무시**(전방 호환), 쓰기는 항상 레지스트리 등재 id만. legacy 별칭(`'cli'|'api'`)은 §4.17 ① 관례대로 읽기 시 매핑.
+- **② 후보 자격 일관 개정 = "`available()` && enabled"**. `enabled` = `llm.disabled`에 미포함. `available()`의 의미(설치·로그인·키)는 불변 — enabled는 **직교하는 사용자 의사 축**이다(꺼진 엔진도 진단·카드 표시는 정상 동작, 켜면 즉시 복귀). 개정 지점 전수는 아래 ⓐ. **신규 오류 kind 0** — 후보 0(전 엔진 꺼짐 포함)의 처리는 §4.11 기존 "후보 없음" 경로 그대로(변경하지 않는다 — 프론트 안내는 §5.11 카드가 담당).
+- **③ 모델 선택 = 엔진 레지스트리 수준 확장 확정**(응용 모의고사 전용 옵션 기각 — 계획서 §14 F47 ⓑ). 레지스트리 항목에 `models`(선택 가능 모델 소목록 — **하드코딩**)·`default_model`을 두고, settings 키 1개 **`llm.models`**(JSON 오브젝트 `{엔진id: 모델id}`)에 선택을 저장, **`invoke()` 공통 경로에서 적용**한다(claude-cli `--model` · claude-api SDK model 인자 · codex-cli `-m`). 공통 경로 1곳이므로 **전 잡 kind에 일관 반영**(convert·fetch·regenerate·answer_key·explain·applied_exam·improve_proposal·improve_regression — kind별 분기 금지). **자유 텍스트 모델 입력은 하지 않는다(기각 확정 — 재제안 시 근거 필요)**: 개인용 규모에서 소목록+기본값으로 충분하고(YAGNI), 자유 입력 오타는 LLM 호출 후 런타임 실패로만 드러나 "원문 노출 금지 + 서버 완성 문장" 원칙 아래 새 오류 분류 표면만 늘린다 — 소목록은 검증·표시명·과금 특성이 결정론적이다. **legacy `llm.api_model`은 읽기 별칭**: `llm.models['claude-api']` 부재 시 `llm.api_model` 값을 읽고(§4.17 ① legacy 관례), 쓰기는 항상 `llm.models`.
+- **④ 모델 소목록 구체 값 = 구현 단계 실측·확정 과제로 이월(계약 문장으로 고정)**: 각 엔진의 `models` 소목록(엔진당 2~4개)·`default_model`은 stage-21 구현 시 **실측**(CLI `--model`/`-m` 수용값 확인 · API 모델 id 즉석 검증 호출)으로 확정해 **레지스트리 상수에 하드코딩**하고 stage-21 완료 기록과 이 절에 기입한다. 실측 전 불변 조건: **무설정 시 동작 불변** — CLI형의 `default_model`은 `null`(모델 인자 미전달 = 사용자 CLI 구성 기본, 현행 동작), claude-api는 현행 `llm.api_model` 기본(`claude-sonnet-5` — §4.11)을 승계. `llm.models`의 값이 소목록에 없으면(소목록 개정 뒤 구 설정 잔존) **무시하고 기본값 폴백**(조용한 오호출 방지 — 전방 호환).
+- **⑤ `GET /api/llm/status` 확장 = `engines[]`에 필드 4종 순수 추가**: `enabled: bool` · `models: [{id, label}]` · `default_model: string|null` · `selected_model: string|null`(null = 엔진 기본 — 미전달·기본값). **톱레벨·기존 필드 전부 불변**(§4.17 ② 계약 유지 — S15 배열 교체 같은 파괴 변경 아님, 프론트는 모르는 필드 무시 관례). 저장은 기존 `PUT /api/settings` 재사용 — **신규 엔드포인트 0개**.
+- **⑥ 서버 방어 = 명시 지정 엔진이 비가용·비활성이면 잡 시작 전 422 동기 거부**. `engine` 파라미터에 **auto가 아닌 엔진 id를 명시**했는데 그 엔진이 `available():false` 또는 `enabled:false`면 **HTTP 422(`VALIDATION_ERROR`) + 서버 완성 문장**(예: "Claude API 엔진이 '사용 안 함' 상태입니다 — 설정에서 켜거나 다른 엔진을 선택하세요" / 비가용은 사유별: 설치·로그인·키 안내)으로 잡을 시작하지 않는다. **`error_info` 채널이 아닌 근거**: error_info는 잡 실행 중 실패의 구조화 채널이고, 이 검증은 **잡 생성 전(LLM 0·비용 0)** 동기 검증이라 §3 에러가 관례다(§4.20 ①-1 "잡이 아니므로 동기 에러"·F45 prepare 422 전례). **auto는 검증하지 않는다** — auto의 후보 산출 자체가 ②를 반영하므로 비활성 엔진은 애초에 후보가 아니다. 적용 지점 전수·공통 헬퍼는 아래 ⓒ.
+
+**ⓐ 활성 토글 — 기존 절 개정 지점 전수 (후보 자격 "`available()` && enabled")**
+
+| 개정 대상 | 개정 내용 |
+|---|---|
+| §4.17 ① `available()`(폴백 후보 자격) | 후보 자격 = **`available()` && enabled**. `available()` 정의 불변 — 후보 산출 함수 1곳에서 enabled를 함께 판정(호출처별 분기 금지 — stage-21 DoD) |
+| §4.17 ③ auto 해석 | `auto` = priority 배열 첫 **available && enabled** 엔진 |
+| §4.17 ③ 다음 후보 규칙 | 실패 엔진의 priority 다음 위치부터 첫 **available && enabled** 엔진. `error_info.fallback_available`·`fallback_engine`도 같은 후보 함수에서 파생(의미 일반화 — 필드명·타입 불변) |
+| §4.17 ③ 요청 파라미터 `engine` | 명시 지정 + 비가용·비활성 = **422**(결정 ⑥ — 종전 "legacy 값 수용" 계약은 불변, 422는 값 형식이 아니라 상태 검증) |
+| §4.17 ② status | `engines[]` 필드 4종 추가(결정 ⑤ — 순수 추가) |
+
+- 한도 기억(`llm.last_limit`)·헬스·진단 캐시는 **불변**(엔진 id 키 그대로 — 꺼진 엔진의 기록도 유지, 켜면 그대로 복원). auto 과금 동의 UI(§4.17 ②)도 불변 — metered 엔진(claude-api)을 끄면 후보에 없으므로 자연히 뜨지 않는다(조건부 서술 그대로).
+- 폴백 ask 정책의 [다시 시도] 버튼(§4.17 ③)은 `fallback_engine`(이미 available && enabled로 산출된 다음 후보)로 재요청하므로 **별도 게이팅 불요** — 422가 나는 경로가 원리상 없다(사이 시점에 사용자가 끈 미세 레이스는 422 문구 렌더로 수용 — 개인용).
+
+**ⓑ 모델 선택 — 레지스트리 확장·invoke 공통 적용**
+
+- **레지스트리 항목 인터페이스 확장**(§4.17 ① 개정): `models: [{id, label}]`(하드코딩 소목록) · `default_model: string|null` 추가. `invoke()`는 **유효 선택 모델**(= `llm.models[엔진id]`가 소목록에 있으면 그 값, 아니면 `default_model`)을 엔진별 전달 방식으로 적용 — claude-cli `--model {id}`(null이면 플래그 미전달) · claude-api SDK `model={id}` · codex-cli `-m {id}`(null이면 플래그 미전달).
+- **요청 단위 모델 오버라이드 파라미터는 만들지 않는다**(엔진별 저장 설정만 — 과설계 금지. 필요가 실측되면 계획서 먼저).
+- estimate·사용량 안내(F35 관례)는 **불변** — 모델별 단가 세분화는 하지 않는다(`assumed` 대략치 관례 그대로).
+
+**ⓒ 엔진 선택 UI 게이팅 — 노출 지점 전수·서버 방어 적용 지점 전수**
+
+- **공용 EngineSelect(프론트 신설 1개 — 이름은 구현 재량)**: `status.engines`에서 파생 렌더. `available:false` 또는 `enabled:false` 엔진은 **선택 불가(비활성 표시) + 사유 1줄**. 사유 라벨 4종(프론트 파생 — null 필드 미렌더 관례 연장): `enabled:false` → **"사용 안 함"**(사용자 의사 — 비가용과 중복 시 이것이 우선) · `installed:false` → **"설치 필요"** · `logged_in:false` → **"로그인 필요"** · `key_registered:false` → **"키 미등록"**. **[다시 확인] 연계**: 진단 캐시 TTL 60초로 상태가 뒤늦을 수 있으므로 게이팅 UI에 [다시 확인] 버튼을 함께 두고 **기존 F34 CLI 카드의 재진단 경로를 그대로 재사용**한다(신규 API 0 — 재진단 트리거의 구체 형태는 기존 구현 실측 재사용, 신설 금지).
+- **노출 지점 전수(프론트)**: ① 반입 변환의 engine 선택(§5.9 — 파일·URL 시작 화면) ② FetchImportWizard 사용량 확인 스텝(§5.9 ③ — 사용 엔진 표시·선택) ③ 응용 모의고사 AI 응용 탭 엔진 선택(§5.12) ④ F44 답지 process·explain / F46 개선·회귀 위저드의 엔진 선택(§5.11·§5.13 — 같은 공용 컴포넌트로 수렴). 지점별 개별 구현 금지 — 컴포넌트 1개 교체로 전 지점 일관.
+- **서버 방어 적용 지점 전수(백엔드 — 결정 ⑥의 422, 공통 헬퍼 1개·이원화 금지)**: `engine` 파라미터를 받는 잡 시작 엔드포인트 **8곳** — `POST /api/convert`(§4.11) · `POST /api/documents/{id}/regenerate`(§4.10·§4.17 ③) · `POST /api/fetch/import`(§4.13) · `POST /api/import/answer-key/{key_id}/process`(§4.20) · `POST /api/documents/{id}/explain`(§4.20) · `POST /api/applied-exam/{gen_id}/generate`(§4.21) · `POST /api/improve/gen/{gen_id}/generate`(§4.22) · `POST /api/improve/regression/{reg_id}/run`(§4.22). 프론트만 믿지 않는다(게이팅은 UX, 방어는 서버).
+
+**DDL 변경 0건·Alembic 0건 — 재확인 근거 (2026-08-03, 결정 ①~⑥ 전건)**
+
+- 이 절의 저장 지점 전수: **settings 키 2개**(`llm.disabled` 배열 · `llm.models` 오브젝트 — settings는 키-값 자유 텍스트라 DDL 무관, `home.layout`·`llm.priority` 전례) · **레지스트리 상수**(models 소목록·default_model — 코드) · **status 응답 필드**(파생값 — DB 미저장). legacy `llm.api_model`은 읽기 별칭만(삭제·마이그레이션 없음 — §4.17 legacy 관례). **새 테이블·컬럼·인덱스 0, Alembic 0, 신규 엔드포인트 0**(status 필드 추가 + settings PUT 재사용 + 기존 시작 엔드포인트 8곳의 422 검증 추가뿐). 구현 중 이 전제가 깨지면 착수 중단 후 보고(임의 확정 금지).
+
+**구현 앵커 (2026-08-03 — 파일 수준. 행 번호는 구현 시 실측)**
+
+- 백엔드: `backend/services/llm_engine_service.py`(S15 레지스트리 — 항목 인터페이스·`available()`·진단 캐시·후보 산출 함수가 이 파일에 수렴돼 있어야 정상. 후보 함수 1곳 개정 + `models`/`default_model` 추가 + enabled 판정) · `backend/services/convert_service.py`(잡 시작 시 engine 해석·invoke 호출 지점 — 422 공통 헬퍼 삽입) · 각 시작 라우터 8곳(위 ⓒ — 헬퍼 호출만) · settings 라우터(§4.10 — 키 2개는 자유 키-값이라 코드 변경 없음이 정상).
+- 프론트: `components/settings/LlmEngineSection.tsx`(S15 카드 목록 — 토글·모델 select 추가) · 신설 공용 EngineSelect + 교체 지점 4곳(ⓒ — `pages/Import.tsx`·`FetchImportWizard`·응용 탭(§5.12)·answer-key/improve 위저드) · `api/types.ts`(LlmStatus engines 필드 4종 추가).
 
