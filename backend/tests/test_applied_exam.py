@@ -17,7 +17,7 @@ import models
 from database import Base
 from exceptions import ValidationAppError
 from schemas.exam import ExamAnswerItem, ExamSubmitRequest
-from services import applied_exam_service, exam_service, quiz_service
+from services import applied_exam_service, convert_service, exam_service, quiz_service
 from services.source_match import SourceMatcher
 
 
@@ -107,6 +107,32 @@ def test_validate_items_empty_basis_discarded():
     assert discarded == {"bad_basis": 1}
 
 
+def test_validate_items_non_string_basis_element_discarded_without_crashing():
+    """stage-reviewer 지적(중요 1) — LLM이 basis에 문자열이 아닌 원소(예: `{"doc_no": "..."}`
+    객체)를 섞어 내보내도 `validate_items`가 TypeError로 죽지 않고 해당 문항만 `bad_basis`로
+    폐기해야 한다(다른 통과 가능 문항까지 잡 전체가 죽어 LLM 비용을 날리는 사고 방지,
+    설계 §4.21 생성 규약 3-ⓒ 의도 = "해당 문항만 폐기"). 통과 가능한 다른 문항은 그대로
+    통과해 잡이 계속 진행됨을 함께 확인한다(부분 성공)."""
+    basis = {"DOC-0001": {"doc_no": "DOC-0001"}}
+    items = [
+        _valid_item(basis=[{"doc_no": "DOC-0001"}]),  # 비-문자열 원소 — 크래시 없이 폐기돼야 함
+        _valid_item(),  # 정상 항목 — 계속 통과해야 함
+    ]
+    passed, discarded = applied_exam_service.validate_items(items, basis, SourceMatcher(None))
+    assert len(passed) == 1
+    assert discarded == {"bad_basis": 1}
+
+
+def test_validate_items_mixed_string_and_dict_basis_elements_discarded():
+    """basis 배열에 유효한 문자열과 비-문자열이 섞여 있어도(부분 오염) 전체 문항을
+    `bad_basis`로 폐기한다 — 부분 신뢰는 하지 않는다."""
+    basis = {"DOC-0001": {"doc_no": "DOC-0001"}}
+    items = [_valid_item(basis=["DOC-0001", {"doc_no": "DOC-0001"}])]
+    passed, discarded = applied_exam_service.validate_items(items, basis, SourceMatcher(None))
+    assert passed == []
+    assert discarded == {"bad_basis": 1}
+
+
 def test_validate_items_duplicate_of_source_discarded():
     """복제 검출 — SourceMatcher 역적용(§4.17 ⑥): 원본에 있으면 실패."""
     source_text = "가나다라마바사아자차카타파하" * 20  # 200자 이상 — 대조 가능
@@ -149,6 +175,32 @@ def test_validate_items_mixed_batch_partial_pass():
     passed, discarded = applied_exam_service.validate_items(items, basis, SourceMatcher(None))
     assert len(passed) == 1
     assert discarded == {"invalid_answer": 1, "missing_explanation": 1}
+
+
+# ---------------------------------------------------------------------------
+# ① 봉투 정제 — _normalize_applied_exam_items가 basis의 비-문자열 원소를 걸러낸다
+# (stage-reviewer 지적 — validate_items 방어와 겹쳐 두 지점에서 막는다)
+# ---------------------------------------------------------------------------
+def test_normalize_applied_exam_items_drops_non_string_basis_elements():
+    payload = {
+        "items": [
+            {
+                "content": "지문",
+                "choices": ["a", "b", "c", "d"],
+                "answer": "1",
+                "explanation": "해설",
+                "basis": ["DOC-0001", {"doc_no": "DOC-0002"}, 123, None],
+            }
+        ]
+    }
+    items = convert_service._normalize_applied_exam_items(payload)
+    assert items[0]["basis"] == ["DOC-0001"]
+
+
+def test_normalize_applied_exam_items_basis_not_list_becomes_empty():
+    payload = {"items": [{"content": "지문", "basis": {"doc_no": "DOC-0001"}}]}
+    items = convert_service._normalize_applied_exam_items(payload)
+    assert items[0]["basis"] == []
 
 
 # ---------------------------------------------------------------------------

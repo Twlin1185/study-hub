@@ -2633,13 +2633,19 @@ def _normalize_applied_exam_items(payload: Any) -> List[dict]:
     for raw in payload["items"]:
         if not isinstance(raw, dict):
             continue
+        raw_basis = raw.get("basis")
+        # basis 원소는 doc_no 문자열만 유효하다 — LLM이 {"doc_no": "..."} 같은 객체를 섞어
+        # 내보내도(비-문자열 원소) 여기서 걸러 `applied_exam_service.validate_items`가
+        # dict를 `in` 판정에 넣다 TypeError로 죽는 사고를 원천 차단한다(검토 지적 — 정제는
+        # 두 지점에서 방어적으로 겹친다, 봉투 정제 vs 게이트 판정 경계는 유지).
+        basis = [b for b in raw_basis if isinstance(b, str)] if isinstance(raw_basis, list) else []
         items.append(
             {
                 "content": raw.get("content") if isinstance(raw.get("content"), str) else None,
                 "choices": raw.get("choices") if isinstance(raw.get("choices"), list) else None,
                 "answer": raw.get("answer") if isinstance(raw.get("answer"), str) else None,
                 "explanation": raw.get("explanation") if isinstance(raw.get("explanation"), str) else None,
-                "basis": raw.get("basis") if isinstance(raw.get("basis"), list) else [],
+                "basis": basis,
             }
         )
     return items

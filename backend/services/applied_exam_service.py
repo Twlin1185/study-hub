@@ -300,7 +300,16 @@ def validate_items(
         if not isinstance(answer, str) or answer.strip() not in {"1", "2", "3", "4"}:
             discard_counts[DISCARD_INVALID_ANSWER] += 1
             continue
-        if not isinstance(basis, list) or not basis or any(b not in basis_by_doc_no for b in basis):
+        if (
+            not isinstance(basis, list)
+            or not basis
+            or any(not isinstance(b, str) or b not in basis_by_doc_no for b in basis)
+        ):
+            # basis 원소가 문자열이 아니면(예: LLM이 {"doc_no": "..."} 객체로 응답) `in`
+            # 판정 전에 타입부터 걸러 TypeError(unhashable dict)를 막는다 — 검토 지적:
+            # 여기서 죽으면 validate_items 자체가 예외로 끝나 잡 전체가 실패하고 통과
+            # 가능했던 다른 문항까지 전량 손실된다(설계 §4.21 생성 규약 3-ⓒ는 "해당
+            # 문항만 bad_basis 폐기"가 의도).
             discard_counts[DISCARD_BAD_BASIS] += 1
             continue
         if matcher.available and matcher.matches(content):
