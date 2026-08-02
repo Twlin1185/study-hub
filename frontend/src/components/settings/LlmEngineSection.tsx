@@ -103,13 +103,46 @@ export default function LlmEngineSection() {
     )
   }
 
+  // S21(설계 §4.23, 결정 ①) — 활성 토글 저장 = settings `llm.disabled`(비활성 엔진 id 배열,
+  // 부정 목록) 전체 쓰기. 레지스트리 등재 id(engines)만 대상 — 알 수 없는 id는 서버가 무시하지만
+  // 프론트도 표시된 엔진만 다룬다.
+  function handleToggleEnabled(id: LlmEngineId, nextEnabled: boolean) {
+    const currentDisabled = engines.filter((e) => !e.enabled).map((e) => e.id)
+    const nextDisabled = nextEnabled
+      ? currentDisabled.filter((x) => x !== id)
+      : Array.from(new Set([...currentDisabled, id]))
+    updateSettings.mutate(
+      { 'llm.disabled': nextDisabled },
+      { onSuccess: () => qc.invalidateQueries({ queryKey: llmKeys.status }) },
+    )
+  }
+
+  // S21(설계 §4.23 ⓑ, 결정 ③) — 모델 선택 저장 = settings `llm.models`({엔진id: 모델id}) 전체
+  // 쓰기(부분 병합 아님 — 다른 엔진 선택을 보존하려면 현재 값을 먼저 펼쳐야 한다). modelId가
+  // null(엔진 기본 선택)이면 그 엔진 키를 제거한다.
+  function handleModelChange(id: LlmEngineId, modelId: string | null) {
+    const current = settingsQuery.data?.['llm.models'] ?? {}
+    const next = { ...current }
+    if (modelId) next[id] = modelId
+    else delete next[id]
+    updateSettings.mutate(
+      { 'llm.models': next },
+      { onSuccess: () => qc.invalidateQueries({ queryKey: llmKeys.status }) },
+    )
+  }
+
+  // S21(설계 §4.23·screens §5.11 ④) — 전 엔진 꺼짐 안내 1줄. 신규 오류 경로 없음(기존 "후보
+  // 없음" 처리 그대로) — 원인을 알려주는 안내만.
+  const allDisabled = engines.length > 0 && engines.every((e) => !e.enabled)
+
   return (
     <section className="rounded-lg border border-border bg-surface p-4">
       <h3 className="mb-1 text-sm font-semibold text-primary">엔진 상태</h3>
       <p className="mb-3 text-xs text-muted">
         기출 변환·오류 재생성에 사용할 엔진을 관리합니다. 구독형(CLI)은 각자의 구독 세션으로
         무료, 종량 과금형(API)은 사용한 만큼 과금됩니다. ▲▼로 우선순위를 조정하면 실패 시 다음
-        순위 엔진이 폴백 후보가 됩니다.
+        순위 엔진이 폴백 후보가 됩니다. 엔진을 끄면(사용 안 함) auto 해석·폴백 후보에서 제외되어
+        변환에 쓰이지 않습니다.
       </p>
 
       {statusQuery.isLoading && <p className="mb-3 text-xs text-muted">상태 확인 중…</p>}
@@ -117,6 +150,12 @@ export default function LlmEngineSection() {
 
       {limit && formatDateTime(limit.resets_at) && (
         <LimitBanner limit={limit} />
+      )}
+
+      {allDisabled && (
+        <p className="mb-3 rounded border border-warning bg-accent-soft px-2 py-1.5 text-xs text-primary">
+          모든 엔진이 꺼져 있습니다 — 변환·생성 기능이 동작하지 않습니다.
+        </p>
       )}
 
       <div className="mb-4 flex flex-col gap-3">
@@ -129,6 +168,8 @@ export default function LlmEngineSection() {
             isLast={i === displayEngines.length - 1}
             onMoveUp={() => movePriority(engine.id, -1)}
             onMoveDown={() => movePriority(engine.id, 1)}
+            onToggleEnabled={(next) => handleToggleEnabled(engine.id, next)}
+            onModelChange={(modelId) => handleModelChange(engine.id, modelId)}
           />
         ))}
       </div>
@@ -188,11 +229,23 @@ interface EngineCardProps {
   isLast: boolean
   onMoveUp: () => void
   onMoveDown: () => void
+  // S21(설계 §4.23) — 활성 토글·모델 선택.
+  onToggleEnabled: (next: boolean) => void
+  onModelChange: (modelId: string | null) => void
 }
 
 // 카드 내용은 필드 유무로 결정한다(설계 §4.17②·⑦) — CLI형(installed/logged_in이 null이 아님) ·
 // API형(key_registered가 null이 아님). 엔진이 늘어나도 이 컴포넌트는 바뀌지 않아야 정상.
-function EngineCard({ engine, rank, isFirst, isLast, onMoveUp, onMoveDown }: EngineCardProps) {
+function EngineCard({
+  engine,
+  rank,
+  isFirst,
+  isLast,
+  onMoveUp,
+  onMoveDown,
+  onToggleEnabled,
+  onModelChange,
+}: EngineCardProps) {
   const isCliType = engine.installed !== null || engine.logged_in !== null
   const isKeyType = engine.key_registered !== null
 
@@ -207,31 +260,69 @@ function EngineCard({ engine, rank, isFirst, isLast, onMoveUp, onMoveDown }: Eng
           <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted">
             {engine.billing === 'subscription' ? '구독형' : '종량 과금'}
           </span>
+          {!engine.enabled && (
+            <span className="rounded-full bg-warning px-2 py-0.5 text-[11px] font-medium text-on-accent">
+              사용 안 함
+            </span>
+          )}
         </div>
-        <div className="flex gap-1" role="group" aria-label={`${engine.label} 우선순위 조정`}>
-          <button
-            type="button"
-            onClick={onMoveUp}
-            disabled={isFirst}
-            aria-label="우선순위 올리기"
-            className="rounded border border-border px-1.5 py-1 text-xs text-primary hover:bg-surface disabled:opacity-30"
-          >
-            ▲
-          </button>
-          <button
-            type="button"
-            onClick={onMoveDown}
-            disabled={isLast}
-            aria-label="우선순위 내리기"
-            className="rounded border border-border px-1.5 py-1 text-xs text-primary hover:bg-surface disabled:opacity-30"
-          >
-            ▼
-          </button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-primary">
+            <input
+              type="checkbox"
+              checked={engine.enabled}
+              onChange={(e) => onToggleEnabled(e.target.checked)}
+            />
+            사용
+          </label>
+          <div className="flex gap-1" role="group" aria-label={`${engine.label} 우선순위 조정`}>
+            <button
+              type="button"
+              onClick={onMoveUp}
+              disabled={isFirst}
+              aria-label="우선순위 올리기"
+              className="rounded border border-border px-1.5 py-1 text-xs text-primary hover:bg-surface disabled:opacity-30"
+            >
+              ▲
+            </button>
+            <button
+              type="button"
+              onClick={onMoveDown}
+              disabled={isLast}
+              aria-label="우선순위 내리기"
+              className="rounded border border-border px-1.5 py-1 text-xs text-primary hover:bg-surface disabled:opacity-30"
+            >
+              ▼
+            </button>
+          </div>
         </div>
       </div>
 
+      {/* 꺼진 카드도 진단·온보딩·[다시 확인]은 정상 렌더한다(설계 §4.23 — 켜면 즉시 복귀). */}
       {isCliType && <CliDiagnosis engine={engine} />}
       {isKeyType && <ApiKeyDiagnosis engine={engine} />}
+
+      {/* S21(설계 §4.23 ⓑ) — models가 빈 배열인 엔진은 select 자체를 렌더하지 않는다. 자유 입력
+          없음 — 소목록만. */}
+      {engine.models.length > 0 && (
+        <div className="mt-2">
+          <label className="flex flex-wrap items-center gap-2 text-xs text-muted">
+            모델
+            <select
+              value={engine.selected_model ?? ''}
+              onChange={(e) => onModelChange(e.target.value || null)}
+              className="rounded border border-border bg-surface px-2 py-1 text-xs text-primary outline-none focus:border-accent"
+            >
+              <option value="">엔진 기본{engine.default_model ? ` (${engine.default_model})` : ''}</option>
+              {engine.models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
     </div>
   )
 }

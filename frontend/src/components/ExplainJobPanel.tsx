@@ -1,19 +1,20 @@
 import { useEffect, useState } from 'react'
 import { jobUnavailable } from '../api/convert'
 import { useApplyExplain, useExplainJob, useStartExplain } from '../api/explain'
-import { useLlmStatus } from '../api/llm'
 import { clearStoredExplainJob, getStoredExplainJob, setStoredExplainJob } from '../utils/explainJobs'
-import type { DocumentDetail } from '../api/types'
+import type { DocumentDetail, LlmEngine } from '../api/types'
 import { ApiError } from '../api/client'
 import Modal from './Modal'
 import MarkdownView from './MarkdownView'
 import LlmJobProgress from './LlmJobProgress'
 import LlmErrorInfoView from './LlmErrorInfo'
+import EngineSelect from './EngineSelect'
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
 }
 
+// S21(설계 §4.23) — EngineSelect 표시용 billing 라벨(기존 카피 유지).
 const BILLING_LABEL: Record<string, string> = {
   subscription: '구독형(정액)',
   metered: '종량 과금',
@@ -31,10 +32,11 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
   const [stored, setStored] = useState(() => getStoredExplainJob(doc.id))
   const [dismissed, setDismissed] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // S21(설계 §4.23 ⓒ) — 게이팅되는 EngineSelect로 명시 선택(기본 auto=서버 우선순위 그대로).
+  const [engine, setEngine] = useState<LlmEngine>('auto')
   const jobId = stored?.jobId ?? null
   const active = jobId != null && !dismissed
 
-  const statusQuery = useLlmStatus()
   const startExplain = useStartExplain()
   const applyExplain = useApplyExplain()
   const jobQuery = useExplainJob(active ? doc.id : null, active ? jobId : null)
@@ -44,6 +46,7 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
     setStored(getStoredExplainJob(doc.id))
     setDismissed(false)
     setConfirmOpen(false)
+    setEngine('auto')
   }, [doc.id])
 
   const eligible =
@@ -51,13 +54,6 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
 
   // 대상이 아니고(이미 해설 있음 등) 진행 중 잡도 없으면 아무것도 렌더하지 않는다.
   if (!eligible && !active) return null
-
-  // 표시용 엔진 — engine 파라미터 없이 시작(서버 기본 auto=우선순위)하므로, 우선순위 배열의
-  // 첫 available 엔진을 "실제로 쓰일 엔진"으로 보여준다(LlmLimitBanner와 동일한 추정 방식).
-  const engines = statusQuery.data?.engines ?? []
-  const priority = statusQuery.data?.priority ?? []
-  const autoEngineId = priority.find((id) => engines.find((e) => e.id === id)?.available) ?? priority[0] ?? null
-  const displayEngine = autoEngineId ? (engines.find((e) => e.id === autoEngineId) ?? null) : null
 
   if (!active) {
     return (
@@ -77,12 +73,10 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
                 지문·보기{doc.answer ? '' : '(정답 없음)'}를 근거로 LLM을 1회 호출해 해설
                 {doc.answer ? '' : '과 정답'}을 생성합니다.
               </p>
-              {displayEngine && (
-                <p className="text-xs text-muted">
-                  사용 엔진: {displayEngine.label} (
-                  {BILLING_LABEL[displayEngine.billing] ?? displayEngine.billing})
-                </p>
-              )}
+              <div>
+                <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>
+                <EngineSelect value={engine} onChange={setEngine} billingLabels={BILLING_LABEL} />
+              </div>
               <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-xs text-primary">
                 AI가 생성한 해설은 오개념이 섞여 있을 수 있습니다 — 검토 후 승인하세요.
               </div>
@@ -104,7 +98,7 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
                   disabled={startExplain.isPending}
                   onClick={() =>
                     startExplain.mutate(
-                      { documentId: doc.id },
+                      { documentId: doc.id, engine },
                       {
                         onSuccess: (data) => {
                           setStoredExplainJob(doc.id, { jobId: data.job_id })

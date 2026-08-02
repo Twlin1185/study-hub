@@ -11,7 +11,7 @@ import Modal from '../Modal'
 import LlmJobProgress from '../LlmJobProgress'
 import LlmErrorInfoView from '../LlmErrorInfo'
 import LlmLimitBanner from '../LlmLimitBanner'
-import { useLlmStatus } from '../../api/llm'
+import EngineSelect from '../EngineSelect'
 import type { ImproveProposalListItem, LlmEngine } from '../../api/types'
 import { ORIGIN_LABEL, REGRESSION_OUTCOME_BADGE_CLASS, REGRESSION_OUTCOME_LABEL, kindLabel } from './labels'
 
@@ -47,7 +47,6 @@ export default function ImproveRegressionWizard({ proposal, onClose, onDone }: I
   const [agreed, setAgreed] = useState(false)
 
   const allCasesQuery = useImproveCases(1, 50)
-  const statusQuery = useLlmStatus()
   const prepareMutation = useImproveRegressionPrepare()
   const runMutation = useStartImproveRegression()
   // run 호출 전에는 잡이 시작되지 않았으므로 폴링하지 않는다(ImproveGenWizard와 동일 판단).
@@ -110,12 +109,6 @@ export default function ImproveRegressionWizard({ proposal, onClose, onDone }: I
       },
     )
   }
-
-  const engines = statusQuery.data?.engines ?? []
-  const engineOptions: { value: LlmEngine; label: string; billing?: string }[] = [
-    { value: 'auto', label: '자동' },
-    ...engines.map((e) => ({ value: e.id as LlmEngine, label: e.label, billing: e.billing })),
-  ]
 
   const unavailable = step === 'progress' || step === 'result' ? jobUnavailable(regJobQuery) : null
   const running =
@@ -215,22 +208,7 @@ export default function ImproveRegressionWizard({ proposal, onClose, onDone }: I
 
             <div>
               <p className="mb-1 text-xs font-semibold text-muted">사용 엔진 (과금형 표시)</p>
-              <div className="flex flex-wrap gap-2">
-                {engineOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setEngine(opt.value)}
-                    aria-pressed={engine === opt.value}
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                      engine === opt.value ? 'bg-accent text-on-accent' : 'bg-bg text-muted hover:bg-surface-raised'
-                    }`}
-                  >
-                    {opt.label}
-                    {opt.billing && ` · ${BILLING_LABEL[opt.billing] ?? opt.billing}`}
-                  </button>
-                ))}
-              </div>
+              <EngineSelect value={engine} onChange={setEngine} billingLabels={BILLING_LABEL} />
             </div>
 
             <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">
