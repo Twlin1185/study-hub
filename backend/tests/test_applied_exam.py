@@ -727,6 +727,151 @@ def test_save_generated_accumulate_saves_tags_and_forces_suggestion_even_for_aut
     assert suggestion.status == "pending"
 
 
+# ---------------------------------------------------------------------------
+# stage-reviewer 지적(중요 1) — 자동 연결(linked) 차단은 호출부 플래그가 아니라
+# `tag_rule_service._apply_rule_to_document`의 **문서 기준 판정**(`_is_applied_exam_generated`)
+# 하나로 귀결돼야 한다 — scan_document(트리거 1·2)·scan_rule(트리거 3) 전수가 이 판정을
+# 경유하는지, 그리고 일반 문서의 auto 즉시 연결 회귀가 없는지 확인한다.
+# ---------------------------------------------------------------------------
+def test_scan_rule_bulk_apply_suggests_only_for_applied_exam_generated_document(db):
+    """scan_rule(트리거 3 — 일괄 스캔, force_suggest 없이 호출)에서도 응용 생성물은
+    문서 기준 판정으로 걸러져 suggested만 만든다 — auto 규칙이어도 linked 행 0.
+    생성은 oneshot 모드로 만들어(생성 시점엔 태그 0) 이후 별도로 태그가 붙어도 문서
+    기준 판정(derived_from 신호)만으로 감지됨을 확인한다."""
+    real_cat, basis_doc = _seed_basis(db)
+    job = {
+        "_basis_docs": [
+            {"id": basis_doc.id, "doc_no": "DOC-0001", "type": "past_question", "title": "기출1", "content": "기출 본문"}
+        ],
+        "_engine": "claude-cli",
+        "_scope_label": "범위",
+        "_requested_count": 1,
+        "_mode": "oneshot",
+    }
+    result = applied_exam_service._save_generated(db, job, [_valid_item()])
+    gen_doc_id = result["document_ids"][0]
+
+    # scan_rule 트리거 자체만 격리해 검증하기 위해 태그는 직접 심는다(replace_tags 경유가
+    # 아니다 — 그 경로는 아래 별도 테스트에서 검증).
+    tag = models.Tag(name="응용키워드-scanrule")
+    db.add(tag)
+    db.flush()
+    db.add(models.DocumentTag(document_id=gen_doc_id, tag_id=tag.id))
+    db.commit()
+
+    target_cat = models.Category(name="자동분류대상-scanrule")
+    db.add(target_cat)
+    db.flush()
+    rule = models.TagRule(category_id=target_cat.id, tag_query="응용키워드-scanrule", mode="auto")
+    db.add(rule)
+    db.commit()
+
+    created = tag_rule_service.scan_rule(db, rule.id)
+    assert created == 1
+
+    linked = (
+        db.query(models.CategoryDocument)
+        .filter(
+            models.CategoryDocument.category_id == target_cat.id,
+            models.CategoryDocument.document_id == gen_doc_id,
+        )
+        .all()
+    )
+    assert linked == []
+
+    suggestion = (
+        db.query(models.Suggestion)
+        .filter(
+            models.Suggestion.document_id == gen_doc_id,
+            models.Suggestion.category_id == target_cat.id,
+        )
+        .one()
+    )
+    assert suggestion.status == "pending"
+
+
+def test_replace_tags_triggered_scan_suggests_only_for_applied_exam_generated_document(db):
+    """document_service.replace_tags(트리거 2 — 태그 수동 편집)가 호출하는 scan_document는
+    force_suggest 없이 호출되지만, 응용 생성물이면 문서 기준 판정으로 걸러져 suggested만
+    만든다 — auto 규칙이어도 linked 행 0."""
+    from services import document_service
+
+    real_cat, basis_doc = _seed_basis(db)
+    job = {
+        "_basis_docs": [
+            {"id": basis_doc.id, "doc_no": "DOC-0001", "type": "past_question", "title": "기출1", "content": "기출 본문"}
+        ],
+        "_engine": "claude-cli",
+        "_scope_label": "범위",
+        "_requested_count": 1,
+        "_mode": "oneshot",
+    }
+    result = applied_exam_service._save_generated(db, job, [_valid_item()])
+    gen_doc_id = result["document_ids"][0]
+
+    target_cat = models.Category(name="자동분류대상-replacetags")
+    db.add(target_cat)
+    db.flush()
+    db.add(models.TagRule(category_id=target_cat.id, tag_query="응용키워드-replacetags", mode="auto"))
+    db.commit()
+
+    document_service.replace_tags(db, gen_doc_id, ["응용키워드-replacetags"])
+
+    linked = (
+        db.query(models.CategoryDocument)
+        .filter(
+            models.CategoryDocument.category_id == target_cat.id,
+            models.CategoryDocument.document_id == gen_doc_id,
+        )
+        .all()
+    )
+    assert linked == []
+
+    suggestion = (
+        db.query(models.Suggestion)
+        .filter(
+            models.Suggestion.document_id == gen_doc_id,
+            models.Suggestion.category_id == target_cat.id,
+        )
+        .one()
+    )
+    assert suggestion.status == "pending"
+
+
+def test_normal_document_auto_rule_still_links_immediately_regression(db):
+    """일반(응용 생성물이 아닌) 문서는 문서 기준 판정에 걸리지 않아 auto 규칙이 종전처럼
+    즉시 연결된다 — 회귀 없음(stage-reviewer 지적 — 중요 1)."""
+    normal_doc = models.Document(
+        doc_no="DOC-NORMAL-1", type="question", title="일반문항", content="본문", is_active=1
+    )
+    db.add(normal_doc)
+    db.flush()
+    tag = models.Tag(name="일반키워드")
+    db.add(tag)
+    db.flush()
+    db.add(models.DocumentTag(document_id=normal_doc.id, tag_id=tag.id))
+    db.commit()
+
+    target_cat = models.Category(name="자동분류대상-일반")
+    db.add(target_cat)
+    db.flush()
+    db.add(models.TagRule(category_id=target_cat.id, tag_query="일반키워드", mode="auto"))
+    db.commit()
+
+    counts = tag_rule_service.scan_document(db, normal_doc.id)
+    assert counts == {"linked": 1, "suggested": 0}
+
+    linked = (
+        db.query(models.CategoryDocument)
+        .filter(
+            models.CategoryDocument.category_id == target_cat.id,
+            models.CategoryDocument.document_id == normal_doc.id,
+        )
+        .one()
+    )
+    assert linked.linked_by == "rule"
+
+
 # ③ oneshot = 태그 0·스캔 0(종전 동작 회귀)
 def test_save_generated_oneshot_no_tags_no_scan_call(db, monkeypatch):
     real_cat, basis_doc = _seed_basis(db)
@@ -769,11 +914,23 @@ def test_validate_items_tags_not_a_list_ignored_item_kept():
     assert passed[0]["tags"] == []
 
 
-def test_validate_items_tags_mixed_types_filtered_deduped_trimmed_not_discarded():
+def test_validate_items_tags_with_any_non_string_element_discards_whole_array_not_item():
+    """stage-reviewer 지적(경미 3) — 관례(`convert_service._normalize_regenerate_draft`,
+    F44 전례)는 배열에 비-문자열 원소가 하나라도 섞이면 **배열 전체**를 무시한다(부분
+    필터가 아니다). 문항 자체는 여전히 유지된다(discarded 미포함)."""
     basis = {"DOC-0001": {"doc_no": "DOC-0001"}}
-    # 비-문자열 원소(123·None) + 중복("응용키워드") + 공백만인 원소 — 전부 §8.2 정규화
-    # 관례로 걸러지되 문항 자체는 폐기되지 않는다.
-    items = [_valid_item(tags=["응용키워드", 123, None, "  ", "응용키워드", " 다른키워드 "])]
+    items = [_valid_item(tags=["응용키워드", 123, None, "다른키워드"])]
+    passed, discarded = applied_exam_service.validate_items(items, basis, SourceMatcher(None))
+    assert discarded == {}
+    assert len(passed) == 1
+    assert passed[0]["tags"] == []
+
+
+def test_validate_items_tags_all_strings_trimmed_deduped_order_preserved():
+    """전부 문자열인 배열만 §8.2 정규화(공백 정리·빈 값 제거·중복 제거, 원 순서 유지)를
+    거친다."""
+    basis = {"DOC-0001": {"doc_no": "DOC-0001"}}
+    items = [_valid_item(tags=["응용키워드", "  ", "응용키워드", " 다른키워드 "])]
     passed, discarded = applied_exam_service.validate_items(items, basis, SourceMatcher(None))
     assert discarded == {}
     assert len(passed) == 1

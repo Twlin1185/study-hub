@@ -297,19 +297,20 @@ def get_status(gen_id: str) -> AppliedExamStatus:
 
 
 # ---------------------------------------------------------------------------
-# S24(F50 ②) — tags 정규화(§8.2 관례 — 공백 정리·빈 값 제거·중복 제거, 원 순서 유지.
-# `document_service._apply_tag_replacement`와 동일 규약). **위반(비배열·비문자열 원소)은
-# 예외를 던지지 않고 조용히 무시** — 태그는 채점 무관 부속 메타라 검증 게이트의 폐기
-# 사유(discarded[])에 추가하지 않는다(문항 자체는 유지, 설계 §4.21 S24 개정 블록 ②).
+# S24(F50 ②) — tags 정규화. **관례 정합(stage-reviewer 지적 — 경미 3)**: 배열이 아니거나
+# 원소 중 하나라도 문자열이 아니면 **배열 전체를 무시**한다(부분 필터가 아니다) —
+# `convert_service._normalize_regenerate_draft`(tags 처리, F44 전례)와 동일 규약. 그
+# 검사를 통과한(전부 문자열인) 배열에 한해서만 공백 정리·빈 값 제거·중복 제거(원 순서
+# 유지)를 적용한다. 위반이어도 예외를 던지지 않고 조용히 빈 리스트로 귀결된다 — 태그는
+# 채점 무관 부속 메타라 검증 게이트의 폐기 사유(discarded[])에 추가하지 않는다(문항
+# 자체는 유지, 설계 §4.21 S24 개정 블록 ②).
 # ---------------------------------------------------------------------------
 def _normalize_tags(raw_tags: object) -> List[str]:
-    if not isinstance(raw_tags, list):
+    if not isinstance(raw_tags, list) or not all(isinstance(t, str) for t in raw_tags):
         return []
     normalized: List[str] = []
     seen = set()
     for t in raw_tags:
-        if not isinstance(t, str):
-            continue
         clean = t.strip()
         if clean and clean not in seen:
             seen.add(clean)

@@ -82,8 +82,10 @@ class AppliedExamResult(BaseModel):
     generated: int
     discarded: List[AppliedExamDiscarded] = Field(default_factory=list)
     document_ids: List[int] = Field(default_factory=list)
-    # S24(F50 ④) — 표시용 순수 추가(기존 필드 불변).
-    mode: AppliedExamMode = "oneshot"
+    # S24(F50 ④) — 표시용 순수 추가(기존 필드 불변). 기본값은 요청 스키마(:60)·서비스
+    # 기본값(MODE_ACCUMULATE)과 일관되게 accumulate로 통일한다(stage-reviewer 지적 —
+    # 경미 4: 서비스가 항상 값을 채워 넣으므로 실동작에는 영향 없고 모순만 제거).
+    mode: AppliedExamMode = "accumulate"
 
 
 # S22(F48 ②) — 'cancelled' 순수 추가(기존 값·필드 불변, 설계 §4.24 ⓑ).
