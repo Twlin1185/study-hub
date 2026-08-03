@@ -501,6 +501,15 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
       <strong>④ 누가 나를 끌어다 쓰는지</strong> — 문서 상세의 <strong>사용처</strong> 영역에 "이 문서를 임베드한 문서 N개" 목록이 나옵니다.
     </p>
   </div>
+
+  <h3>줄바꿈 · 수식 쓰기 <span class="badge new">v1.x</span></h3>
+  <p>본문·해설 어디서나 다음이 지원됩니다 (이미 저장된 문서·해설에도 바로 적용됩니다):</p>
+  <ul>
+    <li><strong>줄바꿈</strong> — 그냥 Enter 한 번이면 화면에서도 줄이 바뀝니다. 빈 줄을 넣으면 문단이 나뉩니다.</li>
+    <li><strong>수식</strong> — <code>$…$</code>(문장 속 수식), <code>$$…$$</code>(줄 전체 수식)에 LaTeX 문법을 쓰면
+      수식으로 예쁘게 표시됩니다. 예: <code>$\bar{x} = \frac{1}{n}\sum x_i$</code>.
+      수식이 아닌 곳에 $ 기호를 써야 하면 <code>\$</code>로 적으세요.</li>
+  </ul>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════ -->

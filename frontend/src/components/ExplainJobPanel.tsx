@@ -11,6 +11,7 @@ import MarkdownView from './MarkdownView'
 import LlmJobProgress from './LlmJobProgress'
 import LlmErrorInfoView from './LlmErrorInfo'
 import EngineSelect from './EngineSelect'
+import { formatAnswer } from '../utils/answerFormat'
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -261,7 +262,7 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
         {draft.answer_included && (
           <div className="rounded border border-warning bg-bg p-2 text-sm text-primary">
             <p className="mb-1 text-xs font-semibold text-warning">정답도 함께 생성됨 (원본에 없던 값)</p>
-            {draft.answer || '-'}
+            {formatAnswer(draft.answer)}
           </div>
         )}
         <div className="rounded border border-border bg-bg p-2">

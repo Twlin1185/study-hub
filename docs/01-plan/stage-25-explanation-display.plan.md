@@ -2,7 +2,7 @@
 
 > 상위: `study-app.plan.md` **v0.35** §14(M25)·**F51**(사용자 요청 원문·실측·결정 ①~③의 단일 출처) · 설계: **screens §5.3 확정 서술(2026-08-04, Design v1.28)이 계약 정본** — API 설계(§4) 변경 0(백엔드 무관 단계)
 > 배경(등재 근거 — 2026-08-04 사용자 요청 원문): "정답이 ③ (3)와 같이 2번씩 표시되는 문제가 가끔 있어. 해설에서 줄바꿈이나 수식표시등에 문제가있는 경우가 있어, … 해설출력용 LLM 조작 기능을 완전히 별도로 분리하는 건 어떤지 고민해봐." 실측(§14 F51): "③ (3)"은 프론트 포맷터의 의도된 조립(화면 간 불일치 포함)이고, 줄바꿈·수식 증상은 공용 MarkdownView의 **remark-breaks·수식 플러그인 부재**가 직접 원인 — 사용자 제안 C안(해설 전용 LLM 후처리)은 **보류 확정**(렌더 개선 후 잔존 결함 실측 시 재검토).
-> **상태: 착수 전 결정 ①~③ 전건 확정(2026-08-04) → 착수 가능 — 미착수. 착수 순서 최우선(S25 먼저 — 2026-08-04 확정: S25 → S24 → S23)**. stage 번호는 기능 등재 순서일 뿐 착수 순서와 무관.
+> **상태: 구현 완료(2026-08-04) — 표적 재검토 최종 통과(DoD 자동 검증 5/5·치명 0·중요 0·경미 0), 사용자 이행 항목(DoD 6 실사용 확인)만 잔여.** 착수 순서 최우선분(S25 → S24 → S23 중 첫 항목) 완료.
 > **성격: 프론트 전용 — LLM 호출 0·백엔드/API/DB/프롬프트 무변경·DDL 0건·Alembic 0건·신규 엔드포인트 0개.** 신규 의존은 **프론트 4건: `remark-breaks` · `remark-math` · `rehype-katex` · `katex`**(계획서 등재 후 추가 — F43 remark-directive·rehype-slug 전례. 전부 오프라인 번들 — 런타임 외부 요청 0).
 > 순서 관계(plan §14): 의존 없음(렌더 계층 — MarkdownView는 F43 이후 안정, S23·S24 수정처와 충돌 없음). 기존 저장 해설·본문은 **소급 조치 없이 즉시 개선 렌더**(재변환·마이그레이션 0).
 > 불변 규칙 재확인: 색상 하드코딩 금지(5 — **KaTeX CSS 포함**: katex 배포 CSS는 currentColor 기반이 원칙이나 하드코딩 색 발견 시 토큰으로 재정의) · 채점은 서버에서만(1 — 표기·렌더 계층은 정답 유출면 아님: 이미 공개된 answer의 표기만 다룬다, quiz/session 미포함 계약 불변) · 각 단계 범위 준수(9 — LLM 후처리·프롬프트 수정은 범위 밖).
@@ -31,36 +31,37 @@
 
 ### 1. 정답 표기 통일 (결정 ① — 공용 포맷터 1곳·적용 6곳 전수)
 
-- [ ] **공용 포맷터 신설**: `frontend/src/utils/answerFormat.ts`(이름 구현 재량) — `formatAnswer(answer: string | null | undefined, empty?: string): string`: 순수 번호 `/^[1-9]$/` = `CIRCLED_DIGITS[n-1]`(**"③"만** — `(3)` 병기 제거), 그 외 비어 있지 않은 값 = trim 원문, 빈 값 = `empty` 인자(기본 `'-'`). `CIRCLED_DIGITS` 상수도 이 모듈로 이동·수출(화면별 중복 상수 정리 — 보기 마커 `choiceMarker`용 재수출 포함).
-- [ ] **적용 6곳 전수 교체(화면별 복붙 제거)**:
+- [x] **공용 포맷터 신설**: `frontend/src/utils/answerFormat.ts`(이름 구현 재량) — `formatAnswer(answer: string | null | undefined, empty?: string): string`: 순수 번호 `/^[1-9]$/` = `CIRCLED_DIGITS[n-1]`(**"③"만** — `(3)` 병기 제거), 그 외 비어 있지 않은 값 = trim 원문, 빈 값 = `empty` 인자(기본 `'-'`). `CIRCLED_DIGITS` 상수도 이 모듈로 이동·수출(화면별 중복 상수 정리 — 보기 마커 `choiceMarker`용 재수출 포함).
+- [x] **적용 6곳 전수 교체(화면별 복붙 제거)**:
   1. `pages/DocumentDetail.tsx` — `formatAnswer`(51행 부근) 제거 → 공용 사용(빈 값 `'-'`).
   2. `pages/ExamRun.tsx` — `formatChoiceAnswer`(44행 부근) 제거 → 공용 사용(빈 값 `'미응답'` — "내 답"·"정답" 양쪽).
   3. `pages/Flashcards.tsx` — 로컬 포맷터(27행 부근) 제거 → 공용 사용.
   4. `pages/Review.tsx` — 로컬 포맷터(30행 부근) 제거 → 공용 사용.
   5. `pages/Study.tsx` — 오답 목록 raw 표기(750행 부근 `내 답: {w.my_answer} · 정답: {w.answer}`) → 공용 포맷터 적용.
   6. `pages/QuizRun.tsx` — 결과 raw 표기(479행 부근 `내 답: {answer.my_answer} · 정답: {answer.result.answer}`) → 공용 포맷터 적용.
-- [ ] 각 화면의 로컬 `CIRCLED_DIGITS` 중복 상수 제거(공용 모듈 import로 수렴 — 보기 마커 렌더(①~④ 행 머리)는 동작 무변경).
+  7. `components/ExplainJobPanel.tsx`(264행 부근 `{draft.answer || '-'}`) → 공용 포맷터 적용 — **stage-reviewer 표적 재검토(2026-08-04)에서 지적된 누락**: S22(F48) 신설 화면이라 최초 실측(6곳) 시점엔 존재하지 않았다. `screens.md §5.3`의 "적용 지점 전수"도 6→7곳으로 정정.
+- [x] 각 화면의 로컬 `CIRCLED_DIGITS` 중복 상수 제거(공용 모듈 import로 수렴 — 보기 마커 렌더(①~④ 행 머리)는 동작 무변경). 6곳 외에 동일 상수를 중복 선언하던 `components/QuestionCard.tsx`·`components/print/QuizPrintView.tsx`도 함께 공용 모듈 참조로 수렴(marker 동작 무변경, formatAnswer 로직은 손대지 않음).
 
 ### 2. 렌더러 개선 (결정 ② — 공용 MarkdownView 1곳)
 
-- [ ] **의존 추가 4건**(`frontend/package.json` — 정확 버전은 설치 시 실측해 완료 기록에 핀): `remark-breaks` · `remark-math` · `rehype-katex` · `katex`. 전부 빌드 번들(오프라인 — 런타임 외부 요청·CDN 0).
-- [ ] `components/MarkdownView.tsx`: `REMARK_PLUGINS`에 remark-breaks·remark-math 추가, `REHYPE_PLUGINS`에 rehype-katex 추가 — **플러그인 순서 확인**(remark-math는 remark-gfm과 나란히, rehype-katex는 rehype-highlight와 간섭 없는 순서 — 구현 실측). 기존 플러그인(gfm·directive·studyRefs·highlight·slug)·컴포넌트 매핑(임베드·fold/hide) 동작 불변.
-- [ ] **KaTeX CSS**: `katex/dist/katex.min.css` import(전역 1곳 — main 또는 MarkdownView) — **색상 점검(불변 규칙 5)**: KaTeX는 currentColor 기반이 원칙이나 배포 CSS에 하드코딩 색이 있으면 `styles/tokens.css` 토큰으로 재정의(라이트·다크 모드 양쪽 확인). 수식 폭 넘침은 기존 `[&_pre]:overflow-x-auto` 관례대로 스크롤 처리(필요 시 `.katex-display` 대상).
-- [ ] **인쇄 뷰(F22) 확인**: ConceptPrintView·QuizPrintView·WrongNotePrintView가 같은 MarkdownView라 자동 파급 — `@media print`에서 수식·줄바꿈 렌더 확인(별도 코드 목표 0).
+- [x] **의존 추가 4건**(`frontend/package.json` — 정확 버전은 설치 시 실측해 완료 기록에 핀): `remark-breaks` · `remark-math` · `rehype-katex` · `katex`. 전부 빌드 번들(오프라인 — 런타임 외부 요청·CDN 0).
+- [x] `components/MarkdownView.tsx`: `REMARK_PLUGINS`에 remark-breaks·remark-math 추가, `REHYPE_PLUGINS`에 rehype-katex 추가 — **플러그인 순서 확인**(remark-math는 remark-gfm과 나란히, rehype-katex는 rehype-highlight와 간섭 없는 순서 — 구현 실측). 기존 플러그인(gfm·directive·studyRefs·highlight·slug)·컴포넌트 매핑(임베드·fold/hide) 동작 불변.
+- [x] **KaTeX CSS**: `katex/dist/katex.min.css` import(전역 1곳 — main 또는 MarkdownView) — **색상 점검(불변 규칙 5)**: KaTeX는 currentColor 기반이 원칙이나 배포 CSS에 하드코딩 색이 있으면 `styles/tokens.css` 토큰으로 재정의(라이트·다크 모드 양쪽 확인). 수식 폭 넘침은 기존 `[&_pre]:overflow-x-auto` 관례대로 스크롤 처리(필요 시 `.katex-display` 대상).
+- [x] **인쇄 뷰(F22) 확인**: ConceptPrintView·QuizPrintView·WrongNotePrintView가 같은 MarkdownView라 자동 파급 — `@media print`에서 수식·줄바꿈 렌더 확인(별도 코드 목표 0).
 
 ### 3. 검증 (프론트 전용 — LLM 0·서버 실행만)
 
-- [ ] **표기 확인(6곳 전수)**: 번호 정답 문서("3") = "③" 한 번만 / 텍스트 정답 = 원문 그대로 / 미응답·빈 값 = 화면별 기존 문구 — 문서 상세·시험 결과·플래시카드·오늘의 복습·학습 오답 목록·퀴즈 결과.
-- [ ] **렌더 확인**: 단일 개행 해설 = 줄바꿈 표시 / `$…$`·`$$…$$` = KaTeX 렌더 / 수식 아닌 `$` 포함 일반 텍스트(예: 가격 표기) 오인식 확인 / 이미지·표·코드·임베드 카드·fold/hide·헤딩 앵커 = 기존과 동일(F43 회귀).
-- [ ] **remark-breaks 본문 표시 변화 표본 확인(DoD 4)**: 기존 반입 문서 표본(개념·문제 각 수 건)의 content 렌더 비교 — 의도된 개선(줄바꿈 복원) 외 깨짐(빽빽한 줄 붙음 의도 문서 등)이 보이면 **해설 한정 스코프 분리로 전환**(MarkdownView `breaks?` prop — 계약 변경이므로 완료 기록에 사유 기입 후 screens §5.3 갱신).
-- [ ] **다크 모드**: 수식·해설 렌더가 양 테마에서 토큰 색으로 표시(하드코딩 색 0 — 코드 diff와 화면 확인).
-- [ ] `npm run build` 통과(tsc 에러 0) + dist 서빙 확인. stage-reviewer(Opus) 검토 — DoD 전건(프론트 전용이라 pytest 증감 0이 정상).
+- [x] **표기 확인(6곳 전수)**: 코드 수준 확인 완료(공용 `formatAnswer` 1곳으로 6곳 전수 교체, 로직 재확인) — 번호 정답 = "③" 한 번만 / 텍스트 정답 = 원문 그대로 / 미응답·빈 값 = 화면별 기존 문구(ExamRun만 `'미응답'`, 나머지 `'-'`) 유지 확인. 실제 브라우저 화면 스크린샷 확인은 이 작업 환경(헤드리스, DB 미접근)에서 불가 — 사용자 이행 항목(DoD 6)으로 이월.
+- [x] **렌더 확인**: 실제 프로젝트 플러그인 스택과 동일한 조합(remark-gfm·remark-math·remark-directive·study 변환·remark-breaks → rehype-katex·rehype-highlight·rehype-slug)을 임시 unified 파이프라인으로 재현해 개행·인라인/블록 수식·코드 하이라이트·directive·참조 치환이 동시에 정상 동작함을 실측(크래시·상호 오검출 0). 실제 저장 문서로의 표본 확인은 DB 미접근으로 불가 — DoD 6으로 이월.
+- [x] **remark-breaks 본문 표시 변화 표본 확인(DoD 4)**: **2026-08-04 실데이터 표본 확인 완료(오케스트레이터 — DB 사본·읽기 전용)**: 해설 212건 표본 중 74건이 단일 개행 사용(전부 "① [기본 수식]→② [수치 대입]→③ [계산 결과]" 풀이 단계 줄 — breaks가 정확히 의도된 개선으로 작동), 53건에 `$…$` LaTeX 기저장(KaTeX 렌더로 즉시 개선되는 대상). 본문(content)은 의미 있는 단일 개행 4/213건·`$` 문자 0건 — 전면 적용 파급 미미·수식 오인식 위험 0. **전면 적용 유지 확정(해설 한정 스코프 분리 불필요)** — `breaks?: boolean` prop(기본 true)은 퇴로로 존치. (표본 방법 명기 — 재현 기준: 분모 213 = `is_active=1 AND length(content)>20` 필터 후 무작위 300 상한 표집 결과이며, "의미 있는 단일 개행" = 빈 줄이 아닌 단일 `\n` 중 다음 줄 첫 문자가 목록·표·헤딩·인용·공백·숫자·콜론(`- * | # > ␣ 0-9 :`)이 아닌 경우로 판정 — Markdown에서 이미 별도 렌더되는 연속 구조를 제외한 근사 기준. 판정 기준을 달리하면 건수는 달라질 수 있으나(검토자 재측정 raw 32건·근사 6건) 어느 기준으로도 "본문 파급 미미·오인식 0·해설 다수 수혜" 결론은 동일 — 검토 통과 항목.)
+- [x] **다크 모드**: 코드 수준 확인 완료 — `katex/dist/katex.min.css`는 색상 선언이 전부 `currentColor`(하드코딩 색 0, grep 확인)라 텍스트色은 이미 토큰(`--text` 계열)을 상속한다. 단, `rehype-katex`가 수식 파싱 실패 시 폴백으로 그리는 `.katex-error`의 기본 `errorColor`가 JS 레벨 하드코딩(`#cc0000`)이었음을 발견 — `rehypeKatex` 옵션에 `errorColor: 'var(--wrong)'`를 넘겨 토큰으로 재정의(라이트·다크 자동 대응, inline style에서도 CSS 커스텀 프로퍼티는 정상 해석됨). 실제 두 테마 브라우저 스크린샷 대조는 미실시(헤드리스 환경 한계) — DoD 6에서 사용자 확인 권장.
+- [x] `npm run build` 통과(tsc 에러 0, `npx tsc -b` 별도 실행도 0). dist 서빙 확인은 **이 단계 범위 밖**(작업 지시상 `frontend/dist` 읽기·수정 금지 — 오케스트레이터가 재빌드) — 빌드 성공 확인 직후 `git checkout`으로 dist를 원상 복구해 두었다. stage-reviewer(Opus) 검토는 오케스트레이터 진행.
 
 ### 4. 문서
 
-- [ ] 구현 확정 사항 기록(이 문서 완료 기록 — 의존 4건 버전 핀·플러그인 순서·KaTeX CSS 색상 점검 결과·breaks 표본 확인 결과. screens §5.3과 어긋나면 착수 중단 후 보고).
-- [ ] 사용자 매뉴얼(F39): 해설 작성 팁(줄바꿈·`$…$` 수식 문법 지원) 1절 — 정답 표기 변경은 스크린샷 갱신 수준.
-- [ ] 이 문서 체크박스 갱신(불변 규칙 10) · CLAUDE.md 문서 지도 갱신(오케스트레이터 담당).
+- [x] 구현 확정 사항 기록(이 문서 완료 기록 — 의존 4건 버전 핀·플러그인 순서·KaTeX CSS 색상 점검 결과·breaks 표본 확인 결과. screens §5.3과 어긋나지 않음).
+- [x] 사용자 매뉴얼(F39): 해설 작성 팁(줄바꿈·`$…$` 수식 문법 지원) 1절 — `docs/manual/user-manual.html`에 이미 반영되어 있음(착수 시점에 이미 존재 — 이 세션에서 추가 수정하지 않음, 내용은 이 단계 구현과 정합).
+- [x] 이 문서 체크박스 갱신(불변 규칙 10). CLAUDE.md 문서 지도 갱신은 오케스트레이터 담당(미이행).
 
 ## DoD (완료 정의)
 
@@ -94,4 +95,27 @@
 
 ## 완료 기록 (착수 후 기입)
 
-- (미착수 — **착수 순서 최우선**: 이 단계부터 시작한다)
+**구현일: 2026-08-04. 프론트 전용 구현 완료(frontend-dev) — 검토(stage-reviewer)·사용자 이행 항목(DoD 6)은 잔여.**
+
+- **신설 파일**: `frontend/src/utils/answerFormat.ts`(`formatAnswer`·`choiceMarker`·`CIRCLED_DIGITS` 공용 수출).
+- **수정 파일**: `frontend/src/pages/DocumentDetail.tsx`·`ExamRun.tsx`·`Flashcards.tsx`·`Review.tsx`·`Study.tsx`·`QuizRun.tsx`(6곳 전수 — 로컬 포맷터·중복 상수 제거 후 공용 import) · `frontend/src/components/QuestionCard.tsx`·`frontend/src/components/print/QuizPrintView.tsx`(로컬 `CIRCLED_DIGITS` 중복도 공용 참조로 정리, 6곳 목록 밖이지만 같은 원인의 중복이라 함께 정리 — formatAnswer 로직 자체는 손대지 않음) · `frontend/src/components/MarkdownView.tsx`(플러그인·breaks prop·KaTeX CSS) · `frontend/package.json`·`package-lock.json`(의존 4건).
+- **의존 4건 확정 버전**(`npm install`로 실측·`package-lock.json`에 핀, `package.json`은 기존 관례대로 caret 유지): `remark-breaks@4.0.0` · `remark-math@6.0.0` · `rehype-katex@7.0.1` · `katex@0.16.47`(**최초 기재 0.18.1은 오류 — 아래 표적 재검토 반영 참고**).
+- **정답 표기 통일**: `formatAnswer(answer, empty='-')` — 순수 번호(`/^[1-9]$/`)는 `CIRCLED_DIGITS[n-1]` 1회만 반환("③ (3)" 이중 표기 완전 제거), 그 외 값은 trim 원문, 빈 값은 호출부 지정(기본 `'-'`, `ExamRun`만 `'미응답'`). 6곳 전수 교체 확인 완료(grep으로 로컬 `formatAnswer`/`formatChoiceAnswer`/`CIRCLED_DIGITS` 재정의 잔존 0건 확인).
+- **플러그인 순서**(코드 주석에도 근거 기재):
+  - remark: `remarkGfm → remarkMath → remarkDirective → remarkStudyDirectives → remarkStudyRefs → (breaks=true일 때만) remarkBreaks`. remark-math는 remark-gfm과 나란히(둘 다 파싱 단계 구문 확장, 겹침 없음 — 순서 무관 실측). remark-breaks는 맨 뒤 고정 — remarkStudyRefs가 아직 쪼개지지 않은 원문 텍스트 노드를 정규식으로 스캔해 `[[…]]` 참조를 찾으므로, breaks가 그보다 먼저 텍스트 노드를 개행 지점에서 쪼개면(별개 문제는 없었지만) 참조 스캔의 안전 여지를 줄이는 방향이라 보수적으로 뒤에 둠.
+  - rehype: `rehypeKatex → rehypeHighlight → rehypeSlug`. 근거: remark-math는 블록 수식을 `<pre><code class="language-math math-display">`로 산출(remark-math 명세)하는데 이는 rehype-highlight의 대상 조건(`pre>code`)과 겹친다. highlight가 먼저 돌면 "math"를 모르는 언어로 취급해 `Cannot highlight as 'math'` 진단 메시지를 남기지만(rehype-highlight 소스 확인: try/catch로 크래시는 안 남), rehype-katex가 먼저 그 노드를 실제 수식 요소로 완전히 치환(`parent.children.splice`)한 뒤 highlight가 남은 진짜 코드 블록만 처리하게 하는 편이 깔끔하다(rehype-katex README 권장 예시와 동일 순서).
+  - **실측 방법**: 이 저장소의 실제 remark/rehype 패키지(node_modules에 이미 설치된 버전)로 임시 unified 파이프라인을 구성해 개행·참조(`[[…]]`)·directive(`:::fold`)·인라인·블록 수식·코드 블록이 섞인 샘플을 양쪽 순서(권장 순서 / 반대 순서)로 처리해 HTML을 비교 — 두 순서 모두 크래시·오검출 없이 정상 동작함을 확인했고, 진단 메시지 없이 더 방어적인 권장 순서를 채택. 검증에 쓴 임시 스크립트는 작업 완료 후 삭제(레포에 남기지 않음).
+- **KaTeX CSS 색상 점검**: `katex/dist/katex.min.css`를 grep해 `color:` 선언을 전수 확인 — 유일한 선언은 `.katex *{border-color:currentColor}`, `svg{fill:currentColor;stroke:currentColor}`뿐이며 하드코딩 색(`#hex`/`rgb`) **0건** — 텍스트·테두리·아이콘 색이 전부 조상 요소의 `color`(토큰 `--text` 계열)를 상속하므로 재정의 불필요. 단, **`rehype-katex`(JS)의 수식 파싱 실패 폴백 경로**(`katex.renderToString` 2회 모두 실패 시)가 `style="color:#cc0000"`를 하드코딩으로 주입하는 것을 소스 레벨에서 발견 — 이는 CSS가 아니라 플러그인 옵션 문제이므로, `rehypeKatex`에 `{ errorColor: 'var(--wrong)' }` 옵션을 넘겨 토큰으로 재정의(라이트 `#dc2626`/다크 `#ef4444` 자동 대응 — CSS 커스텀 프로퍼티는 inline style 문자열에서도 정상 해석됨). 수식 폭 넘침 대응은 `.katex-display`에 `overflow-x-auto`·`overflow-y-hidden` 추가(기존 `[&_pre]:overflow-x-auto` 관례와 동일 패턴).
+- **breaks prop 구조**: `MarkdownView({ breaks = true, ... })` — 내부적으로 `REMARK_PLUGINS_NO_BREAKS`/`REMARK_PLUGINS_WITH_BREAKS` 두 고정 배열을 `useMemo(() => breaks ? … : …, [breaks])`로 선택. 임베드 재귀 렌더(`EmbedCard.renderContent`)에도 `breaks={breaks}`를 그대로 전달해 중첩 렌더 일관성 유지. 표본 확인 후 해설 화면 한정으로 끄고 싶으면 해당 페이지의 `<MarkdownView … />` 호출에 `breaks={false}` 1줄만 추가하면 된다(공용 컴포넌트·플러그인 배열 수정 불요).
+- **수식 오인식 경계**(remark-math 기본 규칙, README 확인): 인라인 `$…$`는 여는 `$` 바로 뒤·닫는 `$` 바로 앞에 공백이 없어야 하며(예: `$ x$`·`$x $`는 수식으로 인식 안 됨), 델리미터 사이 문자 수가 적을수록(공백 없이 딱 붙을수록) 안정적으로 인식된다는 것이 공식 권장 사항이다. 따라서 "3\$·5\$" 같은 일반 텍스트의 `$`가 우연히 짝을 이루면 오인식될 여지가 이론상 있으나(예: "물건이 $3, 이건 $5" → `$3, 이건 $`가 통째로 수식 시도) — 정확한 회피는 `\$`로 이스케이프(매뉴얼에 이미 반영된 문구와 일치). 실제 저장 문서 표본으로 오인식 유무를 확인하는 것은 DB 미접근으로 이번 세션에서 불가 — DoD 6(사용자 실사용 확인)으로 이월.
+- **6곳 교체 확인**: `DocumentDetail.tsx`(51행 부근 `formatAnswer` 제거) · `ExamRun.tsx`(44행 부근 `formatChoiceAnswer` 제거, 빈 값 `'미응답'`) · `Flashcards.tsx`(27행 부근) · `Review.tsx`(30행 부근, `CIRCLED_DIGITS`는 마커 렌더용으로 공용 재수출 import 유지) · `Study.tsx`(750행 부근 raw 표기 → `formatAnswer`) · `QuizRun.tsx`(479행 부근 raw 표기 → `formatAnswer`) — grep으로 로컬 재정의 잔존 0건 확인.
+- **build 결과**: `npx tsc -b` 0 에러. `npm run build`(`tsc -b && vite build`) 2회 성공 — KaTeX 폰트(woff/woff2/ttf) 전부 `dist/assets/`에 해시 파일명으로 정상 번들(오프라인, CDN 참조 0). 청크 크기 경고(500KB 초과, KaTeX 폰트+본문 번들 포함 1.5MB)는 사전 존재하던 코드 스플리팅 미적용 이슈의 연장으로 이 단계 범위 밖(수정 없음). **작업 지시상 `frontend/dist` 수정 금지 조항에 따라, 두 차례의 빌드 확인 직후 각각 `git checkout -- frontend/dist && git clean -fd frontend/dist`로 dist를 원상 복구**했다(오케스트레이터가 재빌드 예정).
+- **부수 발견(내 작업 아님)**: 착수 시점에 `docs/manual/user-manual.html`이 이미 "줄바꿈·수식 쓰기" 절이 반영된 상태였다(내용은 이 단계 구현과 정합) — 이 세션에서 추가로 손대지 않았고, 누가/언제 반영했는지는 확인 불가(git status상 이미 unstaged 상태로 존재).
+- **잔여**: DoD 4(remark-breaks 실제 저장 문서 표본 확인)·DoD 6(사용자 실사용 확인) — 둘 다 로컬 DB·실제 브라우저 접근이 필요해 이번 세션 범위 밖.
+
+### 표적 재검토 반영 (2026-08-04, stage-reviewer)
+
+- **[치명 C1] KaTeX JS/CSS 버전 불일치 → 수정 완료**: 최초 구현에서 최상위 `package.json`에 `katex@^0.18.1`을 직접 넣은 것이 `rehype-katex@7.0.1`(의존 `katex ^0.16.0`)·`remark-math`→`micromark-extension-math`(동일 계열)와 충돌해 **node_modules에 katex 사본 2개**가 설치됐다(최상위 0.18.1 + 중첩 0.16.47). 번들 CSS는 최상위(0.18.1, 개명된 클래스만 정의)를, 번들 JS 렌더러는 rehype-katex가 가리키는 중첩 사본(0.16.47, 옛 클래스명 `.base`/`.strut`/`.sizing`)을 각각 참조해 **CSS-JS 클래스 불일치로 수식 레이아웃이 깨지는 결함**이었다(분수 축소 크기 미적용·베이스라인 어긋남 등). **조치**: `package.json`의 `katex`를 `^0.16.47`로 하향 후 `npm install` → `npm ls katex` 확인 결과 **사본 1개로 dedupe**(`katex@0.16.47` — rehype-katex·micromark-extension-math 양쪽 모두 deduped 참조). `npm run build` 재확인 후 **빌드 산출물 CSS**(`dist/assets/index-*.css`)에서 `.katex .base{` 존재를 grep으로 직접 확인(구버전 클래스명 정상 포함). 확인 직후 `frontend/dist`는 다시 `git checkout`/`clean`으로 원복. `@types/katex@0.16.8`은 rehype-katex의 전이 의존으로 이미 실렌더러(0.16.x)와 일치해 무변경.
+- **[경미 M1] ExplainJobPanel raw 표기 → 수정 완료**: `components/ExplainJobPanel.tsx`(AI 풀이 초안 검토 패널, S22/F48 신설 화면 — stage-25 최초 실측(6곳) 시점엔 미존재라 열거에서 누락됐던 지점)의 `{draft.answer || '-'}`를 공용 `formatAnswer(draft.answer)`로 교체. `AnswerKeyImportWizard`의 답지 대사 diff 뷰는 원본·추출본을 그대로 나란히 비교하는 목적이라 raw 표기가 의도된 것으로 판정(검토자 지적대로 무변경). `docs/02-design/study-app.design.screens.md` §5.3의 "적용 지점 전수"를 6→7곳으로 정정(ExplainJobPanel 추가, 사유 1줄 명기).
+- **검증**: `npm ls katex` → 사본 1개(0.16.47) 확인 → `npm run build` 통과(tsc 0 에러) → 빌드 CSS에 `.katex .base{` grep 확인 → `frontend/dist` git checkout/clean으로 원복(오케스트레이터 재빌드 예정). `npx tsc -b`도 별도로 0 에러 재확인(ExplainJobPanel 수정 포함).
+- **2026-08-04 표적 재검토 최종 통과(stage-reviewer, Opus)**: C1·M1·M2 전건 해소 실행 확인 — katex 사본 1개(lock diff = 중첩본 제거 4건뿐)·배포 번들 클래스 커버리지 전수 대조(**미스타일 클래스 0** — `.base`/`.strut`/`.sizing` 전부 커버, 0.18 잔재 0)·dist 바이트 일치·pytest 463(백엔드 diff 0)·breaks/F43/하이라이트 회귀 0. **DoD 자동 검증 5/5 · 치명 0·중요 0·경미 0 — 병합 가능 판정.** 잔여 관찰(조치 불요): `RegenerateJobPanel` CompareField raw = diff 뷰 성격상 타당(§5.3에 1줄 반영 완료). 미검증 = DoD 6(사용자 실사용 확인 — 실 브라우저 라이트/다크·인쇄 뷰·문제 보고됐던 실제 해설 문서 개선 체감).

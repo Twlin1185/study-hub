@@ -13,22 +13,14 @@ import { ApiError } from '../api/client'
 import type { FontScale } from '../api/types'
 import { FLASHCARD_Q_DONT_KNOW, FLASHCARD_Q_KNOW } from '../stores/flashcardSession'
 import type { AttemptResponse, DdayBoostInfo, DocumentType, SrsQueueItem } from '../api/types'
+import { CIRCLED_DIGITS, formatAnswer } from '../utils/answerFormat'
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
 }
 
-const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
-
 function isQuestionLike(type: DocumentType): boolean {
   return type === 'question' || type === 'past_question'
-}
-
-function formatAnswer(answer: string | null | undefined): string {
-  if (!answer || !answer.trim()) return '-'
-  const trimmed = answer.trim()
-  if (/^[1-9]$/.test(trimmed)) return `${CIRCLED_DIGITS[Number(trimmed) - 1] ?? trimmed} (${trimmed})`
-  return trimmed
 }
 
 interface QuizAnswerRecord {

@@ -4,8 +4,7 @@ import { useDocumentsBatch } from '../../api/documents'
 import { findCategory, collectLeafGroups } from '../../utils/tree'
 import MarkdownView from '../MarkdownView'
 import { useLeafStudyTracks } from './useLeafStudyTracks'
-
-const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
+import { CIRCLED_DIGITS } from '../../utils/answerFormat'
 
 interface QuizPrintViewProps {
   categoryId: number
