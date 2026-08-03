@@ -10,7 +10,6 @@ import {
 } from '../api/appliedExam'
 import { jobUnavailable } from '../api/convert'
 import { useLlmStatus } from '../api/llm'
-import { useDocumentsBatch } from '../api/documents'
 import { useJobRecovery } from '../hooks/useJobRecovery'
 import { useExamSessionStore } from '../stores/examSession'
 import { ApiError } from '../api/client'
@@ -97,15 +96,6 @@ export default function AppliedExamPanel() {
   const start = useExamSessionStore((s) => s.start)
   const genStatusQuery = useAppliedExamStatus(step === 'process' ? genId : null)
   const historyQuery = useAppliedExamHistory(10)
-  // 태그 수 소표기(체크리스트 2) — 신규 API 없음: 기존 documents/batch 조회 재사용(§4.2, 인쇄 뷰
-  // 전례)으로 result.document_ids의 태그를 얻는다. accumulate·summary 단계에서만 활성화.
-  const tagDocsQuery = useDocumentsBatch(
-    step === 'summary' && summaryResult?.mode === 'accumulate' ? summaryResult.document_ids : [],
-  )
-  const taggedCount = tagDocsQuery.data?.reduce((acc, d) => acc + (d.tags.length > 0 ? 1 : 0), 0) ?? null
-  const uniqueTagCount = tagDocsQuery.data
-    ? new Set(tagDocsQuery.data.flatMap((d) => d.tags)).size
-    : null
 
   const engineLabel =
     engine === 'auto' ? '자동' : (statusQuery.data?.engines.find((e) => e.id === engine)?.label ?? engine)
@@ -456,14 +446,14 @@ export default function AppliedExamPanel() {
                     ))}
                   </ul>
                 )}
-                {/* S24(설계 §4.21 S24 개정 블록, F50) — result.mode 표시. 누적이면 태그 수 소표기
-                    (신규 API 없음 — 기존 documents/batch 조회 재사용, 위 tagDocsQuery). */}
+                {/* S24(설계 §4.21 S24 개정 블록, F50) — result.mode 표시. 태그 수치는 표시하지
+                    않는다(stage-reviewer 중요②: documents/batch로 문항 상세를 미리 내려받으면
+                    응시 전 정답·해설이 네트워크 응답에 노출돼 "사전 미리보기 없음" 방어선을
+                    침해한다 — 격리 원칙과 별개로 채점 전 정답 노출 자체가 문제). 고정 문구만. */}
                 <p className="mt-2 text-xs text-muted">
                   생성 방식: {MODE_LABEL[summaryResult.mode]}
                   {summaryResult.mode === 'accumulate' &&
-                    (uniqueTagCount != null
-                      ? ` — 태그 ${uniqueTagCount}종 · 태그 부여 문항 ${taggedCount}개(제안함에서 분류 연결 제안 확인 가능)`
-                      : ' — 태그 부여됨(제안함에서 분류 연결 제안 확인 가능)')}
+                    ' — 누적 모드: 태그가 부여되었습니다. 분류 연결 제안은 제안함에서 확인하세요.'}
                 </p>
               </div>
 
