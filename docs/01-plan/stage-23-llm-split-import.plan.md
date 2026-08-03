@@ -36,24 +36,24 @@
 
 ### 1. 백엔드 — 분할 시작·휴리스틱 분석 (신설 `services/split_service.py` · `routers/split.py`, LLM 0)
 
-- [ ] `POST /api/import/split`(multipart `file` 또는 `{url}`) — §4.18 판별·추출·SSRF·MIME **재사용**(중복 구현 금지), 원본 `sources/` 저장(too_large 관례 정합 — 현행 미저장이면 convert 경로도 함께 저장으로 정정: §4.25 ㉲), 20만 자 이하 = 422("분할이 필요 없는 크기입니다"), 총 상한 200만 자 초과 = 422(서버 완성 문장).
-- [ ] **휴리스틱 경계 스캔**(무비용 동기): 과목/회차 헤더·문항 번호 리셋("1." 재등장)·헤딩 라인 패턴 → 경계 후보 + 조각 라벨 초안 + `confidence: 'ok'|'uncertain'` 산출(패턴 목록은 구현 실측 — 완료 기록에 기입).
-- [ ] 분할안 응답: `{split_id, source_chars, confidence, chunks: [{chunk_id, label, start, end, chars, head(200자), estimate}], analyze_estimate}` — 조각 수 40 초과 = 422. LLM 산출 원문·정답 미포함(발췌는 추출 텍스트 부분 문자열).
-- [ ] **조각 무결성 결정론 검증 함수**(공용 — enqueue에서도 재사용): start 오름차순·중첩 0·합집합 = 원본 전체(경계 누락 구간 = "무라벨 구간" 조각 자동 생성 — 조용한 탈락 금지)·조각당 20만 자.
+- [x] `POST /api/import/split`(multipart `file` 또는 `{url}`) — §4.18 판별·추출·SSRF·MIME **재사용**(중복 구현 금지), 원본 `sources/` 저장(too_large 관례 정합 — 현행 미저장이면 convert 경로도 함께 저장으로 정정: §4.25 ㉲), 20만 자 이하 = 422("분할이 필요 없는 크기입니다"), 총 상한 200만 자 초과 = 422(서버 완성 문장).
+- [x] **휴리스틱 경계 스캔**(무비용 동기): 과목/회차 헤더·문항 번호 리셋("1." 재등장)·헤딩 라인 패턴 → 경계 후보 + 조각 라벨 초안 + `confidence: 'ok'|'uncertain'` 산출(패턴 목록은 구현 실측 — 완료 기록에 기입).
+- [x] 분할안 응답: `{split_id, source_chars, confidence, chunks: [{chunk_id, label, start, end, chars, head(200자), estimate}], analyze_estimate}` — 조각 수 40 초과 = 422. LLM 산출 원문·정답 미포함(발췌는 추출 텍스트 부분 문자열).
+- [x] **조각 무결성 결정론 검증 함수**(공용 — enqueue에서도 재사용): start 오름차순·중첩 0·합집합 = 원본 전체(경계 누락 구간 = "무라벨 구간" 조각 자동 생성 — 조용한 탈락 금지)·조각당 20만 자.
 
 ### 2. 백엔드 — LLM 정밀 분석 잡 (kind `'split_analyze'`)
 
-- [ ] `POST /api/import/split/{split_id}/analyze` — body `{engine?, model?}`(`assert_engine_selectable` 경유 — **9번째 적용 지점**, §4.23 ⓒ·§4.24 ⓒ 표 갱신) → `202 {job_id}`. 확인 스텝 전제(estimate는 split 응답 동봉 — 신규 estimate API 없음).
-- [ ] **입력 규약**: 원문 전문 금지 — 경계 후보 오프셋 + 후보 주변 발췌(~200자) + 서두/말미 표본만. 출력 = 순수 JSON(경계 확정·라벨) — 위반 = `invalid_output`(§4.17 ⑤ 규율).
-- [ ] **산출 검증(서버 결정론 — LLM 불신)**: 확정 오프셋은 휴리스틱 후보 집합 ∪ 발췌 구간 내 위치만 수용(범위 밖 창작 오프셋 = `invalid_output`), 1의 무결성 검증 통과 후 chunks 갱신(휴리스틱안은 이력 보존).
-- [ ] **F48 합류**: kind 9종째 값 확장 — label(`『{원본명}』 분할 정밀 분석`)·ref(`{split_id}`)·`GET /api/llm/jobs` 파생·취소(`'cancelled'`)·복원 훅 kind→라우트 매핑. **F46 수집**: `split_analyze` 잡 실패(kind 3종 규칙 동일 — too_large·환경 실패 제외) 사례 기록(§4.22 수집 지점 확장).
+- [x] `POST /api/import/split/{split_id}/analyze` — body `{engine?, model?}`(`assert_engine_selectable` 경유 — **9번째로 문서 표기, 실측은 10번째**(§4.23 ⓒ·§4.24 ⓒ 표 갱신 — 현행 코드베이스가 이미 9곳이라 §4.25 초안의 "8→9" 서술이 실측과 어긋남, 아래 완료 기록 참고) → `202 {job_id}`. 확인 스텝 전제(estimate는 split 응답 동봉 — 신규 estimate API 없음).
+- [x] **입력 규약**: 원문 전문 금지 — 경계 후보 오프셋 + 후보 주변 발췌(~200자) + 서두/말미 표본만. 출력 = 순수 JSON(경계 확정·라벨) — 위반 = `invalid_output`(§4.17 ⑤ 규율).
+- [x] **산출 검증(서버 결정론 — LLM 불신)**: 확정 오프셋은 휴리스틱 후보 집합 ∪ 발췌 구간 내 위치만 수용(범위 밖 창작 오프셋 = `invalid_output`), 1의 무결성 검증 통과 후 chunks 갱신(휴리스틱안은 이력 보존).
+- [x] **F48 합류**: kind 9종째 값 확장 — label(`『{원본명}』 분할 정밀 분석`)·ref(`{split_id}`)·`GET /api/llm/jobs` 파생·취소(`'cancelled'`)·복원 훅 kind→라우트 매핑. **F46 수집**: `split_analyze` 잡 실패(kind 3종 규칙 동일 — too_large·환경 실패 제외) 사례 기록(§4.22 수집 지점 확장).
 
 ### 3. 백엔드 — 분할 상태 보존·조각 투입
 
-- [ ] `import/split/` JSON 보존(최근 **20건** — 초과 시 오래된 것부터, git·백업(F27) 제외) + 인메모리 TTL 1시간(만료 후 GET = 디스크 복구 — F40-① preview 복구 전례). 같은 원본 hash12 감지 → 기존 분할안 재사용 안내 필드.
-- [ ] `GET /api/import/split/{split_id}` — 상태·progress(analyze 잡 §4.11 재사용)·chunks.
-- [ ] `POST /api/import/split/{split_id}/enqueue` — `{selections: [[chunk_id,…]], category_paths?}`: 그룹 = 단일 또는 **인접 연속 구간만**([합치기] — 비인접·중복·미존재·병합 후 20만 자 초과 = 422), 오프셋 결정론 재절단(`원문[start:end]`) → A군 텍스트로 **기존 convert 잡 N개 등록**(ImportQueue 계약·`category_path` F40-③ 재사용·원본 재저장 금지 — split_id·chunk_ids 참조만). 응답 `{jobs: [{job_id, chunk_ids, label}]}`.
-- [ ] convert 잡 발생 `too_large`의 `error_info.alternatives = ['split_import']`(fetch 잡 발생분은 기존 유지 — §4.18 ⑥ 관례).
+- [x] `import/split/` JSON 보존(최근 **20건** — 초과 시 오래된 것부터, git·백업(F27) 제외) + 인메모리 TTL 1시간(만료 후 GET = 디스크 복구 — F40-① preview 복구 전례). 같은 원본 hash12 감지 → 기존 분할안 재사용 안내 필드.
+- [x] `GET /api/import/split/{split_id}` — 상태·progress(analyze 잡 §4.11 재사용)·chunks.
+- [x] `POST /api/import/split/{split_id}/enqueue` — `{selections: [[chunk_id,…]], category_paths?}`: 그룹 = 단일 또는 **인접 연속 구간만**([합치기] — 비인접·중복·미존재·병합 후 20만 자 초과 = 422), 오프셋 결정론 재절단(`원문[start:end]`) → A군 텍스트로 **기존 convert 잡 N개 등록**(ImportQueue 계약·`category_path` F40-③ 재사용·원본 재저장 금지 — split_id·chunk_ids 참조만). 응답 `{jobs: [{job_id, chunk_ids, label}]}`.
+- [x] convert 잡 발생 `too_large`의 `error_info.alternatives = ['split_import']`(fetch 잡 발생분은 기존 유지 — §4.18 ⑥ 관례).
 
 ### 4. 프론트 — 분할 위저드·진입점
 
@@ -63,8 +63,8 @@
 
 ### 5. 테스트·검증
 
-- [ ] 단위 테스트(분할 검증은 핵심 로직 취급 — F47·F48 전례): ① 휴리스틱 후보·라벨·confidence ② 상한 3종(200만 자·40개·조각 20만 자) 422 ③ 무결성 검증(오름차순·중첩 0·합집합·무라벨 구간 생성) ④ 정밀 분석 산출 검증(후보 집합 밖 오프셋 = invalid_output) ⑤ 재절단 = `원문[start:end]` 일치 ⑥ enqueue(비인접 [합치기] 422·category_path 전달·원본 재저장 0) ⑦ hash12 재사용 안내 ⑧ `split_analyze`의 잡 목록·취소·model 422(9번째 지점) ⑨ F46 사례 기록.
-- [ ] 스모크(무LLM 규약 — stage-21 사고 재발 방지 승계): split 시작(대형 텍스트 표본)→분할안→enqueue까지 LLM 0 완주 + 422 문장 전수. 실 LLM 정밀 분석·조각 변환은 사용자 이행.
+- [x] 단위 테스트(분할 검증은 핵심 로직 취급 — F47·F48 전례): ① 휴리스틱 후보·라벨·confidence ② 상한 3종(200만 자·40개·조각 20만 자) 422 ③ 무결성 검증(오름차순·중첩 0·합집합·무라벨 구간 생성) ④ 정밀 분석 산출 검증(후보 집합 밖 오프셋 = invalid_output) ⑤ 재절단 = `원문[start:end]` 일치 ⑥ enqueue(비인접 [합치기] 422·category_path 전달·원본 재저장 0) ⑦ hash12 재사용 안내 ⑧ `split_analyze`의 잡 목록·취소·model 422(10번째 지점 — 실측 정정, 아래 완료 기록) ⑨ F46 사례 기록. 신규 `tests/test_split_import.py` 23건 + 기존 2파일 갱신(전체 481→504건 통과).
+- [x] 스모크(무LLM 규약 — stage-21 사고 재발 방지 승계): split 시작(220,024자 표본)→분할안→GET 상태→enqueue까지 실 HTTP로 확인 + 422 문장 3종은 pytest로 확인. **사고 1건 발생·즉시 시정**(아래 완료 기록 — enqueue 자체는 LLM 0이었으나 큐를 일시정지하지 않아 워커가 생성된 convert 잡을 실제로 집어 claude-cli를 짧게 호출함, 수 초 내 취소·원인 기록).
 - [ ] stage-reviewer(Opus) 검토 — DoD 자동 검증 전건.
 
 ### 6. 문서
@@ -110,3 +110,18 @@
 ## 완료 기록 (착수 후 기입)
 
 - **2026-08-04 프론트(체크리스트 4절) 구현 완료** — 오케스트레이터 지시로 병렬 착수(착수 순서 메모와 무관하게 지시받음). 신설: `frontend/src/components/SplitImportWizard.tsx`(source→analyze→chunks→cost 4스텝, Stepper·EngineSelect·LlmJobProgress·LlmErrorInfoView·CategoryPathField 재사용) · `frontend/src/api/split.ts`(4개 엔드포인트 훅). 수정: `api/types.ts`(Split* 타입군·`LlmJobKind` 'split_analyze'·`LlmJobRef.split_id` 추가) · `utils/jobRoutes.ts`(kind 매핑) · `hooks/useConvertQueue.ts`(`addJobs`·`getFile` 추가) · `utils/convertQueue.ts`(`QueueSourceKind` 'split' 추가) · `components/LlmErrorInfo.tsx`·`components/ImportQueue.tsx`(onSplitImport 배선) · `pages/Import.tsx`(entryMode 'split_import', 딥링크 `?mode=split_import&split_id=`). `npm run build` 통과(오류 0). **백엔드 미착수라 §4.25 계약과의 실접속 대조는 미완** — 특히 GET 상태 응답의 status 값 목록(명세 원문 미기재, 'ready' 상태 도입은 프론트 추정)과 `enqueue`의 `category_paths` 키(그룹 대표 chunk_id로 추정) 2곳은 백엔드 구현 시 반드시 대조.
+
+- **2026-08-04 백엔드(체크리스트 1·2·3·5절 백엔드분) 구현 완료** — 오케스트레이터 조정으로 프론트 추정 4개 지점에 정렬:
+  1. GET 상태 `status`의 분석 전 값 = `'ready'`(프론트 추정 그대로 채택 — `SplitStatus = Literal["ready","analyzing","analyzed","error","cancelled"]`).
+  2. `enqueue`의 `category_paths` 키 = **병합 그룹 내 최소 start의 chunk_id**(대표 키, 프론트 추정 그대로 채택).
+  3. hash12 재사용 안내 필드명 = `reuse: {"split_id": "..."}`(POST·GET 응답 공통, 최소형).
+  4. `analyze_estimate`는 POST(분할 시작)뿐 아니라 **GET 상태 응답에도 항상 동봉**(재진입 세션 대응).
+  - 신설: `backend/services/split_service.py`(휴리스틱 스캔·조각 무결성 검증(`_normalize_chunks`/`_assert_full_coverage`)·상태 보존(`import/split/` 최근 20건 + 인메모리 TTL 1시간)·재절단·enqueue) · `backend/routers/split.py`(신규 4 엔드포인트) · `backend/schemas/split.py`.
+  - 수정: `backend/services/convert_service.py`(① `_detect_import_format`/`_extract_group_text`에 `max_chars` 우회 파라미터 추가(기본 `None`=기존 동작 완전 불변, split만 사용) ② `too_large` 발생 시 원본 sources/ 저장 신설(`_too_large_error` 헬퍼) + convert 잡 `alternatives=['split_import']`(fetch는 기존 `[]` 유지) ③ `start_convert_job`에 `label`·`skip_source_save`·`split_id`·`split_chunk_ids` 파라미터 추가(기본값 불변) — `skip_source_save=True`면 `_do_convert`의 `create_preview` 호출에 `source_bytes=None`을 넘겨 조각 텍스트가 새 원본으로 sources/에 재저장되는 것을 차단 ④ kind `'split_analyze'` 잡 추가(`start_split_analyze_job`/`_do_split_analyze_job`/`get_split_analyze_job`) — `_job_ref`·F46 수집 대상(`("convert","fetch","split_analyze")`)·`_invalid_output_action`에 반영) · `backend/services/doc_extract.py`(`enforce_max_chars`/`extract_docx_text`/`extract_xlsx_text`에 동일한 `max_chars` 우회 파라미터, 기본 불변) · `backend/services/improve_service.py`(origin 분기에 `'split_analyze_job'` 추가) · `backend/schemas/improve.py`(`CaseOrigin`에 `'split_analyze_job'` 추가) · `backend/main.py`(라우터 등록).
+  - **too_large 원본 저장 실측**: 착수 전 실측대로 **현행 미저장 확인** — convert 경로(`_detect_import_format`의 A군 텍스트 분기·`_extract_group_text`의 B군 분기)가 `TooLargeError`를 원본 저장 없이 raise하고 있었다. `unsupported_format`·`parse_failed`와 대칭이 되도록 `_too_large_error` 헬퍼(원본 저장 + action 앞머리 "원본은 sources/에 저장했습니다." + "또는 [분할 반입]을 이용하세요." 병기)로 정정 — 기존 2개 단위 테스트(`test_doc_format_detect.py`)를 이 실제 동작에 맞춰 갱신(사전 실패였던 것을 통과로 바꾼 것이 아니라, 원래 저장하지 않던 동작이 새 계약 위반이라 코드와 테스트를 함께 고쳤다).
+  - **휴리스틱 패턴 목록(실측)**: ① 마크다운 헤딩(`^#{1,3}\s+\S`) ② 회차 헤더(`제N회`·`YYYY년 N회`) ③ 과목 헤더(`N과목`·`제N과목`·`과목:`) — ①②③ 중 하나라도 있으면 `confidence='ok'` ④ 문항 번호 리셋(`^1\s*[.)]\s*\S`, 약한 신호 — ④만 있으면 `confidence='uncertain'`. 후보 0건이면 강제 균등 분할(조각당 상한 캡)로 폴백해 조각 수 상한 위반 없이 항상 분할안을 낼 수 있게 했다.
+  - **정밀 분석 입력·출력 규약**: 입력 = 서두/말미 표본(각 1,000자) + 경계 후보 좌우 발췌(각 후보 총 ~200자, 후보 오프셋 그대로) — 원문 전문은 프롬프트에 절대 삽입하지 않는다. 출력 = `[{"offset": int, "label": str}, ...]` 순수 JSON 배열, 오프셋이 서버가 계산해 둔 `allowed_ranges`(후보 발췌 구간 ∪ 서두/말미 표본 구간) 밖이면 `InvalidLlmOutputError`(kind=`invalid_output`)로 전량 거부(부분 채택 없음).
+  - **잡 시작 지점 수 실측 정정**: §4.25 초안은 "8→9번째"로 서술했으나, 착수 시점 코드베이스(F48 stage-22 완료분)에 이미 `assert_engine_selectable` 경유 지점이 9곳(`convert`/`convert_from_url`/`fetch`/`regenerate`/`answer_key`/`explain`/`applied_exam`/`improve_proposal`/`improve_regression`) 존재해 `split_analyze` 추가로 **10곳**이 됐다(`tests/test_job_center.py::test_nine_entrypoints_apply_requested_model_via_common_helper`·`tests/test_engine_controls.py::test_all_nine_entrypoints_propagate_assert_engine_selectable`의 9→10 갱신으로 확인). 기능 요구(공통 헬퍼 경유)에는 영향 없음 — 설계 문서 서술의 사소한 실측 불일치일 뿐.
+  - **테스트**: 신규 `tests/test_split_import.py` 23건(9항목 전건) + `test_job_center.py`·`test_engine_controls.py`·`test_doc_format_detect.py` 갱신. 전체 스위트 481 → **504건 통과**(pytest, 무LLM).
+  - **스모크 사고 1건(자기 시정)**: 실 uvicorn 기동 후 HTTP로 분할 시작→GET→enqueue를 확인하던 중, enqueue가 등록한 convert 잡 큐를 사전에 일시정지(`POST /api/llm/queue/pause`)하지 않아 백그라운드 워커가 즉시 집어 claude-cli를 짧게 실행했다(투입 후 수 초 내 발견해 `POST /api/llm/jobs/{id}/cancel`로 즉시 취소 — 사용량 usage: input_tokens=2, output_tokens=67, 커밋된 문서·미리보기 없음). 원인은 스모크 절차 실수(단위 테스트는 전부 `pause_queue()`로 격리돼 있어 문제 없음) — 재발 방지로 이 문서·보고에 기록한다. 생성됐던 임시 산출물(`sources/`·`import/split/`의 스모크 파일)은 확인 후 삭제해 원상 복구했다.
+  - **계약과 어긋나 보류한 것**: 없음(DDL·Alembic·settings 키 0 유지 확인, 신규 엔드포인트 정확히 4개).

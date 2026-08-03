@@ -411,15 +411,53 @@ def test_resolve_engine_and_model_does_not_write_settings(db, monkeypatch):
     assert before == after == {}
 
 
-def test_nine_entrypoints_apply_requested_model_via_common_helper(db, monkeypatch, restore_queue_paused):
-    """9개 진입점 전부가 `_resolve_engine_and_model`(→ `assert_engine_selectable`)을 거쳐
+def _register_fake_split_state(split_id: str) -> None:
+    """S23(F49) — `split_service._STATE`에 최소 유효 상태를 직접 주입(진짜 분할 시작 파이프
+    라인 없이 `start_split_analyze_job`의 공통 헬퍼 경유만 검증하는 목적, `_fake_job` 전례)."""
+    from services import split_service
+
+    with split_service._STATE_LOCK:
+        split_service._STATE[split_id] = {
+            "split_id": split_id,
+            "created_at": dt.datetime.now().isoformat(),
+            "source_filename": "huge.txt",
+            "source_hash12": "0" * 12,
+            "source_chars": 300_000,
+            "confidence": "uncertain",
+            "chunks": [],
+            "heuristic_chunks": [],
+            "status": "ready",
+            "analyze_job_id": None,
+            "analyze_estimate": {"approx_input_tokens": 100, "assumed": False},
+            "duplicate_of": None,
+            "head_sample": "",
+            "tail_sample": "",
+            "tail_start": 0,
+            "allowed_ranges": [],
+            "boundary_excerpts": [],
+            "_mem_since": dt.datetime.now(),
+        }
+
+
+def test_nine_entrypoints_apply_requested_model_via_common_helper(
+    db, monkeypatch, restore_queue_paused, tmp_path
+):
+    """10개 진입점 전부가 `_resolve_engine_and_model`(→ `assert_engine_selectable`)을 거쳐
     요청 model을 `job['_model']`에 반영한다 — 실제 워커가 집어가 진짜 CLI를 부르지 못하도록
-    큐를 일시정지한 채로 잡 레코드만 즉시 검사하고 치운다."""
+    큐를 일시정지한 채로 잡 레코드만 즉시 검사하고 치운다.
+
+    S23(F49, 설계 §4.25) — `split_analyze`가 10번째 지점으로 합류(§4.23 ⓒ·§4.24 ⓒ 표 갱신).
+    `split_service.SPLIT_DIR`을 tmp_path로 격리해 실제 프로젝트 `import/split/`를
+    오염시키지 않는다(F40-① 전례 — `set_analyze_job`이 상태를 디스크에 저장하기 때문)."""
+    from services import split_service
+
     monkeypatch.setattr(engine_svc, "is_engine_available", lambda eid: True)
+    monkeypatch.setattr(split_service, "SPLIT_DIR", tmp_path / "import" / "split")
     cs.pause_queue()
 
     doc_regen = _make_question_document(db, "q-regen-model")
     doc_explain = _make_question_document(db, "q-explain-model")
+    _register_fake_split_state("spl_entrypoint_test")
 
     starters = {
         "convert": lambda: cs.start_convert_job(
@@ -447,8 +485,11 @@ def test_nine_entrypoints_apply_requested_model_via_common_helper(db, monkeypatc
         "improve_regression": lambda: cs.start_improve_regression_job(
             db=db, reg_id="r1", case_ids=[], engine="claude-cli", model="opus"
         ),
+        "split_analyze": lambda: cs.start_split_analyze_job(
+            db, split_id="spl_entrypoint_test", engine="claude-cli", model="opus"
+        ),
     }
-    assert len(starters) == 9
+    assert len(starters) == 10
 
     created_job_ids: list[str] = []
     try:
@@ -459,6 +500,7 @@ def test_nine_entrypoints_apply_requested_model_via_common_helper(db, monkeypatc
                 assert cs._JOBS[job_id]["_model"] == "opus", f"{name} 진입점이 model을 반영하지 않음"
     finally:
         _drop_jobs(*created_job_ids)
+        split_service._STATE.pop("spl_entrypoint_test", None)
 
 
 # ---------------------------------------------------------------------------

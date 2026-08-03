@@ -305,15 +305,21 @@ def collect_job_failure(
     source_bytes: Optional[bytes] = None,
     output_text: Optional[str] = None,
 ) -> None:
-    """convert·fetch 잡 실패 수집(①) — `error_info.kind`가 대상 3종일 때만
-    (제외: too_large·rate_limit·미설치/로그인/타임아웃 등 환경·정책 실패). best-effort."""
+    """convert·fetch·split_analyze 잡 실패 수집(①, S23 F49 ㉳ — §4.22 수집 지점 확장) —
+    `error_info.kind`가 대상 3종일 때만(제외: too_large·rate_limit·미설치/로그인/타임아웃
+    등 환경·정책 실패). best-effort."""
     try:
         if not isinstance(error_info, dict):
             return
         kind = error_info.get("kind")
         if kind not in COLLECT_KINDS:
             return
-        origin = "convert_job" if job_kind == "convert" else "fetch_job"
+        if job_kind == "convert":
+            origin = "convert_job"
+        elif job_kind == "split_analyze":
+            origin = "split_analyze_job"
+        else:
+            origin = "fetch_job"
         detail = {"message": error_info.get("message"), "action": error_info.get("action")}
         _record_case(
             origin=origin,

@@ -6,6 +6,8 @@ claude/codex CLI 호출은 하지 않는다(스모크는 별도).
 """
 from __future__ import annotations
 
+import datetime as dt
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -397,17 +399,42 @@ def _make_question_document(db, doc_no: str):
 
 
 def test_all_nine_entrypoints_propagate_assert_engine_selectable(db, monkeypatch):
-    from services import convert_service
+    from services import convert_service, split_service
 
     def _boom(_db, _engine, *, model=None):
         # S22(F48 ④·ⓒ) — assert_engine_selectable가 model 키워드 인자를 받도록 확장됐다
-        # (9개 진입점이 전부 model=... 키워드로 호출 — 이 목도 같은 시그니처를 받는다).
+        # (10개 진입점이 전부 model=... 키워드로 호출 — 이 목도 같은 시그니처를 받는다).
         raise ValidationAppError("entrypoint gate test boom")
 
     monkeypatch.setattr(convert_service.llm_engine_service, "assert_engine_selectable", _boom)
 
     doc_regen = _make_question_document(db, "q-regen-gate")
     doc_explain = _make_question_document(db, "q-explain-gate")
+
+    # S23(F49, 설계 §4.25) — split_analyze도 10번째 지점으로 이 목에 합류하려면 유효한
+    # 분할 상태가 먼저 있어야 한다(get_state_or_404가 헬퍼 호출보다 먼저라 404가 아니라
+    # 이 목의 ValidationAppError까지 도달하는지 확인하려면 상태가 있어야 한다).
+    with split_service._STATE_LOCK:
+        split_service._STATE["spl_gate_test"] = {
+            "split_id": "spl_gate_test",
+            "created_at": "2026-01-01T00:00:00",
+            "source_filename": "huge.txt",
+            "source_hash12": "1" * 12,
+            "source_chars": 300_000,
+            "confidence": "uncertain",
+            "chunks": [],
+            "heuristic_chunks": [],
+            "status": "ready",
+            "analyze_job_id": None,
+            "analyze_estimate": {"approx_input_tokens": 100, "assumed": False},
+            "duplicate_of": None,
+            "head_sample": "",
+            "tail_sample": "",
+            "tail_start": 0,
+            "allowed_ranges": [],
+            "boundary_excerpts": [],
+            "_mem_since": dt.datetime.now(),
+        }
 
     jobs_before = dict(convert_service._JOBS)
 
@@ -437,13 +464,19 @@ def test_all_nine_entrypoints_propagate_assert_engine_selectable(db, monkeypatch
         "improve_regression": lambda: convert_service.start_improve_regression_job(
             db=db, reg_id="r1", case_ids=[], engine="claude-cli"
         ),
+        "split_analyze": lambda: convert_service.start_split_analyze_job(
+            db, split_id="spl_gate_test", engine="claude-cli"
+        ),
     }
 
-    assert len(calls) == 9
-    for name, call in calls.items():
-        with pytest.raises(ValidationAppError):
-            call()
+    try:
+        assert len(calls) == 10
+        for name, call in calls.items():
+            with pytest.raises(ValidationAppError):
+                call()
 
-    # 예외가 잡 생성 전에 전파됐으니 전역 잡 큐에 새 항목이 하나도 남지 않아야 한다
-    # (진입점이 헬퍼를 우회하고 잡을 큐에 넣었다면 이 비교가 실패한다).
-    assert dict(convert_service._JOBS) == jobs_before
+        # 예외가 잡 생성 전에 전파됐으니 전역 잡 큐에 새 항목이 하나도 남지 않아야 한다
+        # (진입점이 헬퍼를 우회하고 잡을 큐에 넣었다면 이 비교가 실패한다).
+        assert dict(convert_service._JOBS) == jobs_before
+    finally:
+        split_service._STATE.pop("spl_gate_test", None)

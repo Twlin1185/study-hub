@@ -298,7 +298,12 @@ _UNSUPPORTED_MESSAGES: Dict[str, Tuple[str, str]] = {
 class TooLargeError(Exception):
     """추출·디코드 텍스트가 200,000자 상한을 초과(D2-⑥, §4.18 ⑤) — `error_info.kind`에
     **`'too_large'` 신설**. LLM 호출 전 실행 전 종료(비용 0). `fallback_available=False`
-    (엔진을 바꿔도 같다)·`alternatives` 없음. xlsx 시트/행/열 구조 상한 초과도 같은 kind다."""
+    (엔진을 바꿔도 같다). xlsx 시트/행/열 구조 상한 초과도 같은 kind다.
+
+    S23(F49 ㉲·㉳, §4.25): 원본은 이 예외로 종료할 때도 sources/에 저장한다(호출부
+    `_too_large_error`가 저장 후 이 예외를 만든다 — unsupported_format·parse_failed와
+    대칭). convert 잡 발생분은 `alternatives=['split_import']`([분할 반입] 버튼), fetch
+    잡 발생분은 기존대로 빈 배열."""
 
     def __init__(self, message: str, *, action: Optional[str] = None) -> None:
         super().__init__(message)
@@ -431,22 +436,43 @@ def _doc_parse_failed(filename: str, data: bytes, message: str) -> DocParseFaile
     return DocParseFailedError(message, action=_DOC_PARSE_FAILED_ACTION)
 
 
-def _extract_group_text(filename: str, data: bytes, *, kind: str) -> str:
+def _too_large_error(filename: str, data: bytes, exc: "doc_extract.DocTooLargeError") -> TooLargeError:
+    """S23(F49) ㉲ — 200,000자 상한 초과(`too_large`)도 원본을 sources/에 저장한 뒤 종료한다
+    (unsupported_format·parse_failed와 대칭 — 종전에는 too_large만 저장하지 않던 결함을
+    이 단계에서 바로잡는다). action 앞머리를 "원본은 sources/에 저장했습니다."로 고정하고,
+    분할 반입 대안을 병기한다(§4.18 개정 지점 표 — convert 잡 발생분은 `alternatives`에
+    `'split_import'`도 함께 실린다)."""
+    import_service.save_source_file(filename, data)
+    action = f"원본은 sources/에 저장했습니다. {exc.action} 또는 [분할 반입]을 이용하세요."
+    return TooLargeError(exc.public_message, action=action)
+
+
+def _extract_group_text(
+    filename: str, data: bytes, *, kind: str, max_chars: Optional[int] = None
+) -> str:
     """B군 추출(doc_extract 위임) — 파서 예외를 구조화 예외로 좁힌다(§4.18 ④ 경계 규칙:
-    판별이 docx/xlsx로 확정된 뒤의 실패만 여기로 온다)."""
+    판별이 docx/xlsx로 확정된 뒤의 실패만 여기로 온다). `max_chars`(S23 F49)는 200,000자
+    상한을 우회하려는 분할 반입 전용 — 기본 `None`은 기존 동작 불변."""
     try:
         if kind == "docx":
-            return doc_extract.extract_docx_text(data)
-        return doc_extract.extract_xlsx_text(data)
+            return doc_extract.extract_docx_text(data, max_chars=max_chars)
+        return doc_extract.extract_xlsx_text(data, max_chars=max_chars)
     except doc_extract.DocTooLargeError as exc:
-        raise TooLargeError(exc.public_message, action=exc.action) from exc
+        raise _too_large_error(filename, data, exc) from exc
     except doc_extract.DocExtractError as exc:
         raise _doc_parse_failed(filename, data, exc.public_message) from exc
 
 
-def _detect_import_format(filename: str, data: bytes) -> ImportDetection:
+def _detect_import_format(
+    filename: str, data: bytes, *, max_chars: Optional[int] = None
+) -> ImportDetection:
     """반입 파일 판별(§4.18 ①②③) — 매직 바이트 우선. 통과분은 이 함수 안에서 200,000자
-    상한(§4.18 ⑤)까지 확인을 마친다(B군은 doc_extract 내부에서, A군은 아래에서)."""
+    상한(§4.18 ⑤)까지 확인을 마친다(B군은 doc_extract 내부에서, A군은 아래에서).
+
+    `max_chars`(S23 — F49, 설계 §4.25) — `split_service`가 20만 자 상한을 우회해 전체
+    텍스트를 얻으려고 훨씬 큰 값을 넘긴다. 기본 `None`(=기존 `MAX_TEXT_CHARS` 200,000)은
+    convert·fetch 등 기존 모든 호출부에서 완전히 불변이다(이 파라미터를 넘기지 않는 한
+    바이트 수준 동일 동작 — 이 단계 DoD "20만 자 이하 원본 동작 불변"의 근거)."""
     ext = _ext_of(filename)
 
     if data.startswith(_PDF_MAGIC):
@@ -459,7 +485,7 @@ def _detect_import_format(filename: str, data: bytes) -> ImportDetection:
     if data.startswith(_ZIP_MAGIC):
         zip_kind = _detect_zip_kind(data)
         if zip_kind == "docx":
-            text = _extract_group_text(filename, data, kind="docx")
+            text = _extract_group_text(filename, data, kind="docx", max_chars=max_chars)
             notes: List[str] = []
             if doc_extract.docx_has_lost_elements(data):
                 notes.append(
@@ -467,7 +493,7 @@ def _detect_import_format(filename: str, data: bytes) -> ImportDetection:
                 )
             return ImportDetection(group="docx", file_type="docx", text=text, notes=notes)
         if zip_kind == "xlsx":
-            text = _extract_group_text(filename, data, kind="xlsx")
+            text = _extract_group_text(filename, data, kind="xlsx", max_chars=max_chars)
             return ImportDetection(group="xlsx", file_type="xlsx", text=text)
         if zip_kind == "hwpx":
             # hwpx는 hwp와 문구 공통(§4.18 ⑥ "hwp·hwpx" 행 — S16 검토 적발 수정: 일반
@@ -504,9 +530,9 @@ def _detect_import_format(filename: str, data: bytes) -> ImportDetection:
     try:
         # S16 검토 6 — §4.18 ⑤ 확정 문안을 그대로 쓴다(레이블 커스터마이즈 없음):
         # "추출된 텍스트가 너무 깁니다(약 N자 — 상한 200,000자)".
-        doc_extract.enforce_max_chars(text)
+        doc_extract.enforce_max_chars(text, max_chars=max_chars)
     except doc_extract.DocTooLargeError as exc:
-        raise TooLargeError(exc.public_message, action=exc.action) from exc
+        raise _too_large_error(filename, data, exc) from exc
     file_type = _TEXT_FILE_TYPE_MAP.get(ext, "txt")
     return ImportDetection(group="text", file_type=file_type, encoding=encoding, text=text)
 
@@ -1042,7 +1068,10 @@ def _invalid_output_action(*, truncated: bool, job_kind: str) -> str:
        성립하지 않는다 — 범위·문항 수 조정 안내로 분기한다.
     ④ S20(F46, 설계 §4.22, 검토 지적 ③): 반입 개선 제안 생성(`improve_proposal`)·회귀
        재검증(`improve_regression`)도 "원본"이 아니라 선택한 실패 사례 조합이 입력이라
-       "과목·회차 단위로 나눠 올리기"가 성립하지 않는다 — 사례 수·조합 조정 안내로 분기."""
+       "과목·회차 단위로 나눠 올리기"가 성립하지 않는다 — 사례 수·조합 조정 안내로 분기.
+    ⑤ S23(F49, 설계 §4.25): 분할 정밀 분석(`split_analyze`)도 "원본"이 아니라 휴리스틱
+       후보 오프셋·발췌가 입력이고, LLM이 후보 밖 오프셋을 창작하면 이 kind로 실패한다 —
+       "과목·회차 단위로 나눠 올리기"는 이미 분할 진행 중인 화면에서 성립하지 않는다."""
     if job_kind == "regenerate":
         return (
             "재생성 요청(사유)을 더 짧고 구체적으로 적어 다시 시도해 보세요."
@@ -1060,6 +1089,11 @@ def _invalid_output_action(*, truncated: bool, job_kind: str) -> str:
             "사례 수를 줄이거나 다른 사례 조합으로 다시 생성해 보세요."
             if truncated
             else "다시 생성해 보세요. 반복되면 사례 수를 줄이거나 다른 사례 조합으로 시도해 보세요."
+        )
+    if job_kind == "split_analyze":
+        return (
+            "정밀 분석을 한 번 더 시도해 보세요. 반복되면 휴리스틱 분할안을 그대로 쓰거나 "
+            "분할안 화면에서 조각을 직접 다듬어 보세요."
         )
     return (
         "원본을 과목·회차 단위로 나눠 올려 다시 변환해 보세요."
@@ -1134,6 +1168,10 @@ def _fallback_error_info(exc: Exception, *, job_kind: str = "convert") -> dict:
     if isinstance(exc, TooLargeError):
         # S16(F42): 추출·디코드 텍스트가 200,000자 상한 초과(xlsx 구조 상한 포함) —
         # LLM 호출 전 비용 0으로 차단한다(§4.18 ⑤). 서버측 자동 분할은 하지 않는다.
+        # S23(F49 ㉳, §4.25 개정 지점 표): convert 잡(파일·URL 반입) 발생분은 [분할 반입]
+        # 버튼을 위해 `alternatives=['split_import']`를 싣는다 — fetch 잡(qnet) 발생분은
+        # 기존 값(빈 배열)을 그대로 유지한다(건드리지 않는다).
+        alts = ["split_import"] if job_kind == "convert" else []
         return {
             "kind": "too_large",
             "limit_kind": None,
@@ -1141,7 +1179,7 @@ def _fallback_error_info(exc: Exception, *, job_kind: str = "convert") -> dict:
             "message": exc.public_message,
             "action": exc.action,
             "fallback_available": False,
-            "alternatives": [],
+            "alternatives": alts,
         }
     if isinstance(exc, DocParseFailedError):
         # S16(F42): 판별이 docx/xlsx로 확정된 뒤의 파서 예외(암호·손상·구조 위장) — 신규
@@ -1247,6 +1285,10 @@ def _process_job(job_id: str) -> None:
         elif job["kind"] == "improve_regression":
             # S20(F46, 설계 §4.22 ④) — 반입 개선 회귀 재검증 잡(사례별 순차, 검증 전용).
             result = _do_improve_regression_job(job_id, job)
+        elif job["kind"] == "split_analyze":
+            # S23(F49, 설계 §4.25) — 분할 반입 LLM 정밀 분석 잡(공유 잡 큐 재사용, 9번째
+            # `assert_engine_selectable` 지점). 실제 분석·검증 로직은 split_service가 담당.
+            result = _do_split_analyze_job(job_id, job)
         else:
             # kind == 'explain' — S18(F44 ②, 설계 §4.20) — F30 재생성 잡 인프라 복제.
             result = _do_explain_job(job_id, job)
@@ -1311,8 +1353,10 @@ def _process_job(job_id: str) -> None:
                 # S20(F46, 설계 §4.22 ① — 수집 훅 지점 1) — convert·fetch 잡 실패만 수집
                 # 대상(대상 kind는 improve_service가 필터). best-effort — 값만 여기서
                 # 스냅샷하고 실제 IO는 락 밖에서 수행한다(cases 파일 IO를 잡 락 아래
-                # 두지 않는다).
-                if job.get("kind") in ("convert", "fetch"):
+                # 두지 않는다). S23(F49 ㉳, §4.22 수집 지점 확장) — split_analyze 잡 실패도
+                # 같은 규칙(대상 kind는 invalid_output 등 3종, too_large·환경 실패 제외)으로
+                # 수집한다.
+                if job.get("kind") in ("convert", "fetch", "split_analyze"):
                     collect_job_kind = job.get("kind")
                     collect_error_info = job.get("_error_info")
                     collect_engine = job.get("_engine")
@@ -1490,6 +1534,9 @@ def _job_ref(job: dict) -> dict:
         return {"gen_id": job.get("gen_id")}
     if kind == "improve_regression":
         return {"reg_id": job.get("_reg_id")}
+    if kind == "split_analyze":
+        # S23(F49, 설계 §4.25 개정 지점 표) — 복원 화면 = 분할 위저드(프론트 담당).
+        return {"split_id": job.get("_split_id")}
     return {}
 
 
@@ -1784,13 +1831,18 @@ def _do_convert(job_id: str, job: dict) -> dict:
     # B군(docx/xlsx)은 `create_preview`가 다시 추출하지 않도록 잡당 계산한 텍스트를 그대로
     # 넘긴다(pdf·image·utf-8 텍스트는 기존대로 create_preview가 자체 추출).
     source_text_for_match = detected.text if detected.group in ("text", "docx", "xlsx") else None
+    # S23(F49, 설계 §4.25 "조각 convert 투입 세칙") — `skip_source_save`(분할 조각 전용)면
+    # `create_preview`에 원본 바이트·파일명을 넘기지 않는다 — 넘기면 `create_preview`가 이
+    # 조각 텍스트를 **새 원본**으로 sources/에 저장해 버려 "원본 재저장 금지"를 어긴다.
+    # 원문 대조(`gate=True`)는 `source_text_for_match`(이 조각 자신의 텍스트)로 계속 동작한다.
+    skip_source_save = bool(job.get("_skip_source_save"))
     db = SessionLocal()
     try:
         preview: PreviewResponse = import_service.create_preview(
             db,
             json_bytes=json_bytes,
-            source_filename=job.get("_source_filename"),
-            source_bytes=job.get("_source_bytes"),
+            source_filename=None if skip_source_save else job.get("_source_filename"),
+            source_bytes=None if skip_source_save else job.get("_source_bytes"),
             # S13(F40-①): LLM 비용을 치른 산출 JSON을 import/auto/에 보존해
             # TTL 만료·서버 재시작 뒤에도 복구할 수 있게 한다(설계 §4.3).
             preserve=True,
@@ -2178,7 +2230,8 @@ def start_fetch_job(
 def _resolve_engine_and_model(
     db: Session, engine: str, model: Optional[str]
 ) -> Tuple[str, Optional[str], bool]:
-    """9개 진입점 공통 헬퍼(설계 §4.24 ⓒ — 검증 로직 이원화 금지) — `assert_engine_selectable`
+    """10개 진입점 공통 헬퍼(설계 §4.24 ⓒ·§4.25 개정 표 — 검증 로직 이원화 금지, S23에서
+    `split_analyze`가 10번째로 합류) — `assert_engine_selectable`
     (엔진 상태 + model 규칙 (a)(b))을 거친 뒤 (resolved_engine, selected_model, pre_fallback)을
     반환한다.
 
@@ -2247,7 +2300,18 @@ def start_convert_job(
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     category_path: Optional[str] = None,
     model: Optional[str] = None,
+    label: Optional[str] = None,
+    skip_source_save: bool = False,
+    split_id: Optional[str] = None,
+    split_chunk_ids: Optional[List[str]] = None,
 ) -> str:
+    """S23(F49, 설계 §4.25) — `label`·`skip_source_save`·`split_id`·`split_chunk_ids`는
+    분할 반입의 조각 투입(`split_service.enqueue_split`) 전용 확장(기본값은 기존 호출부
+    전부와 완전히 동일하게 동작 — 값 추가만, 이 함수의 기존 계약은 불변).
+
+    `skip_source_save=True`면 이 조각 텍스트를 **새 원본으로 sources/에 저장하지 않는다**
+    (§4.25 "조각 잡은 원본을 재저장하지 않는다" — 원본은 분할 시작 시 이미 1회 저장됐다).
+    `label`이 주어지면 잡 목록 라벨을 그 값으로 쓴다(기본은 기존 파일명 라벨)."""
     _purge_expired_jobs()
     category_path = normalize_category_path(category_path)
     if not CONVERT_PROMPT_PATH.exists():
@@ -2274,7 +2338,12 @@ def start_convert_job(
             "_input_size": len(upload_bytes),
             "_category_path": category_path,
             # S22(F48 ①) — label 서버 합성(kind별 — 파일명 수준, LLM 산출 미포함).
-            "_label": f"『{upload_filename}』 변환",
+            "_label": label or f"『{upload_filename}』 변환",
+            # S23(F49, §4.25 조각 convert 투입 세칙) — 원본 재저장 금지 플래그 + 참조만
+            # 보유(잡 목록·복원 계약은 불변 — `_job_ref`가 이 값을 노출하지 않는다).
+            "_skip_source_save": skip_source_save,
+            "_split_id": split_id,
+            "_split_chunk_ids": list(split_chunk_ids) if split_chunk_ids else None,
         }
     )
     with _JOBS_LOCK:
@@ -3673,6 +3742,120 @@ def get_improve_regression_job(reg_id: str, job_id: str) -> dict:
     if job is None or job["kind"] != "improve_regression" or job.get("_reg_id") != reg_id:
         raise NotFoundError(
             "회귀 재검증 작업을 찾을 수 없습니다(만료되었을 수 있습니다)", detail={"job_id": job_id}
+        )
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "result": job.get("result"),
+        "error": job.get("error"),
+        "error_info": job.get("_error_info"),
+        "progress": _progress_snapshot(job),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 분할 반입 — LLM 정밀 분석 잡(S23 — F49, 설계 §4.25) — kind='split_analyze'
+#
+# 공유 잡 큐(§4.10·§4.11 계약 그대로) 재사용 — F48(작업 센터) 9번째 kind. 실제 원문·오프셋
+# 검증·상태 보존은 `split_service`가 담당한다(순환 임포트 회피 — 다른 서비스가 이미
+# convert_service를 지연 import하는 전례(applied_exam_service·improve_service)와 대칭으로,
+# 여기서는 이 잡의 엔진 호출부만 split_service를 지연 import한다). 원문 전문은 절대
+# 프롬프트에 들어가지 않는다 — `split_service.build_analyze_prompt`가 오프셋·발췌·표본만
+# 조립한다(§4.25 "정밀 분석 입력 규약").
+# ---------------------------------------------------------------------------
+def _do_split_analyze_job(job_id: str, job: dict) -> dict:
+    from services import split_service
+
+    _set_phase(job_id, "preparing")
+    prompt = job["_prompt"]
+    attempted_fallback = False
+    text_result: Optional[str] = None
+    while True:
+        _raise_if_cancelled(job)  # S22(F48 ②) — 취소 확정 시 다음 엔진 호출 전에 조기 종료
+        engine = job["_engine"]
+        _set_phase(job_id, "llm_running")
+        try:
+            if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
+                text_result = _run_claude_cli_streaming(
+                    prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+                )
+            elif engine == llm_engine_service.ENGINE_CODEX_CLI:
+                text_result = _run_codex_streaming(
+                    prompt, timeout_seconds=job["_timeout"], job_id=job_id, model=job.get("_model")
+                )
+            else:
+                text_result = _run_api_streaming(
+                    prompt,
+                    file_blocks=None,
+                    timeout_seconds=job["_timeout"],
+                    job_id=job_id,
+                    model=job.get("_model") or llm_engine_service.DEFAULT_API_MODEL,
+                )
+            llm_engine_service.record_engine_result(engine, success=True)
+            break
+        except (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError) as exc:
+            if _handle_engine_failure(job_id, job, engine, exc, attempted_fallback):
+                attempted_fallback = True
+                continue
+            raise
+
+    _set_phase(job_id, "parsing")
+    payload = _parse_json_payload(text_result)
+    # 서버 결정론 검증(§4.25 "산출 검증 — LLM 불신") — 후보 집합 밖 오프셋은 여기서
+    # `InvalidLlmOutputError`로 좁혀진다(신규 kind 아님 — 기존 invalid_output 재사용).
+    chunks = split_service.apply_analyze_result(job["_split_id"], payload)
+    return {"split_id": job["_split_id"], "chunk_count": len(chunks)}
+
+
+def start_split_analyze_job(
+    db: Session,
+    *,
+    split_id: str,
+    engine: str = "auto",
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    model: Optional[str] = None,
+) -> str:
+    """분할 정밀 분석 잡 시작(공유 잡 큐 재사용 — kind='split_analyze', 동시 1개). 9번째
+    `assert_engine_selectable` 적용 지점(§4.23 ⓒ·§4.24 ⓒ 표 갱신, §4.25 개정 표)."""
+    from services import split_service
+
+    _purge_expired_jobs()
+    state = split_service.get_state_or_404(split_id)
+    split_service.assert_analyze_not_running(split_id)  # 중복 시작 방지(409)
+    prompt = split_service.build_analyze_prompt(state)
+    resolved_engine, selected_model, pre_fallback = _resolve_engine_and_model(db, engine, model)
+
+    job_id = f"spa_{uuid.uuid4().hex[:8]}"
+    job = _new_job_base(
+        "split_analyze", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model
+    )
+    if pre_fallback:
+        job["_fallback_used"] = True
+    job.update(
+        {
+            "_timeout": timeout_seconds,
+            "_input_size": len(prompt.encode("utf-8")),
+            "_split_id": split_id,
+            "_prompt": prompt,
+            # S22(F48 ①) — label 서버 합성(§4.25 ㉱ 확정 예시 그대로).
+            "_label": f"『{state['source_filename']}』 분할 정밀 분석",
+        }
+    )
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+    _ensure_worker()
+    _QUEUE.put(job_id)
+    split_service.set_analyze_job(split_id, job_id)  # GET 상태 조회의 잡 참조(§4.11 재사용)
+    return job_id
+
+
+def get_split_analyze_job(job_id: str) -> dict:
+    _purge_expired_jobs()
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None or job["kind"] != "split_analyze":
+        raise NotFoundError(
+            "분할 정밀 분석 작업을 찾을 수 없습니다(만료되었을 수 있습니다)", detail={"job_id": job_id}
         )
     return {
         "job_id": job_id,

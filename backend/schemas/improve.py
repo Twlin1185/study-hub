@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field
 
 from schemas.convert import EngineChoice, ErrorInfo, JobProgress
 
-CaseOrigin = Literal["convert_job", "fetch_job", "gate", "report"]
+# S23(F49 ㉳, §4.22 수집 지점 확장) — 'split_analyze_job' 순수 추가(기존 값·필드 불변).
+CaseOrigin = Literal["convert_job", "fetch_job", "split_analyze_job", "gate", "report"]
 CaseKind = Literal[
     "parse_failed", "unsupported_format", "invalid_output", "fabrication_suspect", "user_report"
 ]

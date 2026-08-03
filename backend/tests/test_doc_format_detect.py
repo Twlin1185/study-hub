@@ -406,14 +406,31 @@ def test_detect_undecodable_binary_without_null_bytes_is_undetected(isolated_sou
 # ---------------------------------------------------------------------------
 # convert_service._detect_import_format — 200,000자 상한(too_large, LLM 호출 전 차단)
 # ---------------------------------------------------------------------------
-def test_detect_text_over_char_limit_raises_too_large_before_llm_call():
+def test_detect_text_over_char_limit_raises_too_large_before_llm_call(isolated_sources):
     huge = ("가" * doc_extract.MAX_TEXT_CHARS) + "초과분"
+    data = huge.encode("utf-8")
     with pytest.raises(convert_service.TooLargeError) as exc_info:
-        convert_service._detect_import_format("huge.txt", huge.encode("utf-8"))
+        convert_service._detect_import_format("huge.txt", data)
     assert "200,000" in exc_info.value.public_message
     # S16 검토 6 — §4.18 ⑤ 확정 문안 그대로("원본 텍스트가"가 아니라 "추출된 텍스트가").
     assert exc_info.value.public_message.startswith("추출된 텍스트가 너무 깁니다")
-    assert exc_info.value.action  # 분할 권고 문구가 비어 있지 않다
+    # S23(F49 ㉲) — too_large도 원본을 sources/에 저장하고 action 앞머리·분할 반입 안내 병기.
+    assert exc_info.value.action.startswith("원본은 sources/에 저장했습니다.")
+    assert "분할 반입" in exc_info.value.action
+    saved = list(isolated_sources.glob("*huge.txt"))
+    assert len(saved) == 1
+    assert saved[0].read_bytes() == data
+
+
+def test_detect_text_over_char_limit_max_chars_override_allows_full_extraction(isolated_sources):
+    """S23(F49, 설계 §4.25) — `max_chars`를 넘기면(분할 반입 전용) 200,000자 초과에도
+    통과한다(기존 호출부는 이 인자를 넘기지 않으므로 완전 불변)."""
+    huge = ("가" * doc_extract.MAX_TEXT_CHARS) + "초과분"
+    detected = convert_service._detect_import_format(
+        "huge.txt", huge.encode("utf-8"), max_chars=2_000_000
+    )
+    assert detected.text == huge
+    assert not list(isolated_sources.glob("*"))  # 통과 경로는 저장하지 않는다(성공 경로 무관)
 
 
 def test_detect_xlsx_row_overflow_maps_to_too_large_error(isolated_sources):
@@ -422,6 +439,10 @@ def test_detect_xlsx_row_overflow_maps_to_too_large_error(isolated_sources):
     with pytest.raises(convert_service.TooLargeError) as exc_info:
         convert_service._detect_import_format("big.xlsx", data)
     assert "500" in exc_info.value.public_message
+    # S23(F49 ㉲) — xlsx 구조 상한 초과도 원본 저장 대칭 적용.
+    assert exc_info.value.action.startswith("원본은 sources/에 저장했습니다.")
+    saved = list(isolated_sources.glob("*big.xlsx"))
+    assert len(saved) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +484,11 @@ def test_fallback_error_info_maps_too_large_kind():
     info = convert_service._fallback_error_info(exc, job_kind="convert")
     assert info["kind"] == "too_large"
     assert info["fallback_available"] is False
-    assert info["alternatives"] == []
+    # S23(F49 ㉳, §4.25 개정 지점 표) — convert 잡 발생분은 [분할 반입] 버튼을 위해
+    # alternatives에 'split_import'가 실린다(fetch 잡 발생분은 기존 []을 유지).
+    assert info["alternatives"] == ["split_import"]
+    fetch_info = convert_service._fallback_error_info(exc, job_kind="fetch")
+    assert fetch_info["alternatives"] == []
 
 
 def test_fallback_error_info_maps_doc_parse_failed_to_parse_failed_kind():
