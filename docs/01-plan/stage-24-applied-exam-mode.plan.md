@@ -2,7 +2,7 @@
 
 > 상위: `study-app.plan.md` **v0.35** §14(M24)·**F50**(사용자 요청 원문·실측·결정 ①~④의 단일 출처) · 설계: **§4.21 내 "S24 개정 블록"(2026-08-04 확정, Design v1.28 — 본문 보존 + 병기, 신설 절 없음)이 계약 정본**
 > 배경(등재 근거 — 2026-08-04 사용자 요청 원문): "AI 응용 모의고사에 태그가 추가되지 않는 문제가 있어. 처음부터 1회성 시험으로 할지 계속 누적시킬지 선택하도록 하고(누적이 default) 일회성 시험의 경우 지금처럼 태그와 개념연결에 굳이 코인을 추가적으로 낭비할 필요는 없겠지." 실측(§14 F50): 태그 부재는 버그가 아니라 §4.21 격리 규약의 의도된 결정("태그 미부여")이었고, 태그는 별도 LLM 호출이 아니라 **생성 호출의 출력 확장**(추가 호출 0)으로 얻는다 — F50 = 그 결정의 부분 개정(번복 절차 이행 완료).
-> **상태: 착수 전 결정 ①~④ 전건 확정(2026-08-04 — 계약 = §4.21 S24 개정 블록) → 착수 가능 — 미착수. 착수 순서 = S25(F51) 다음, S23(F49) 전**(2026-08-04 확정).
+> **상태: 구현 완료(2026-08-04) — 표적 재검토 최종 통과(DoD 자동 검증 5/5·치명 0·중요 0·pytest 480), 사용자 이행 항목(DoD 6 실생성 태그 품질 표본)만 잔여.**
 > 순서 관계(plan §14): F45(§4.21 응용 모의고사)·F48(generate `model?` 파라미터 — mode와 나란히) 완성 전제 — 이행 완료. 주 수정처 = `applied_exam_service`·`tag_rule_service`(호출부 플래그)·`AppliedExamPanel` — S23·S25 수정처와 충돌 없음.
 > 불변 규칙 재확인: 채점은 서버에서만(1 — mode는 채점 무관) · attempts+오답노트+SM-2 한 트랜잭션(2 — 무변경, oneshot도 문서 저장 유지가 이 규칙의 귀결) · 스키마 변경 금지(6 — **DDL 0건·Alembic 0건·신규 엔드포인트 0개 확정**, §4.21 S24 블록 말미) · 색상 토큰만(5) · 에러 규약 §3 · **격리 원칙 유지**(R22 — accumulate에서도 승인 없는 실전 트리 자동 연결 경로 0).
 
@@ -45,13 +45,13 @@
 
 - [x] 단위 테스트(생성·저장 분기는 핵심 로직 취급 — F45 전례): ① mode 기본값 = accumulate·잘못된 값 422 ② accumulate = DocumentTag 저장 + suggestion 생성(auto 규칙에서도 **linked 행 0·suggested만**) ③ oneshot = 태그 0·스캔 0(종전 동작 회귀) ④ tags 위반 = 태그만 무시·문항 유지(discarded 미포함) ⑤ derived_from 양 모드 공통 ⑥ 격리 불변(실전 트리 연결 0·마커 부착·기본 제외). — 신규 13건 + 기존 463건 전체 통과(476/476, 2026-08-04 실측).
 - [x] 스모크(무LLM 규약): `alembic upgrade head`로 이 워크트리 전용 `study.db` 생성 후 실 uvicorn 기동 + curl로 `generate` 422(mode="bogus" → VALIDATION_ERROR §3 포맷 확인) 및 mode 미지정·"oneshot" 정상 통과(존재하지 않는 gen_id로 NOT_FOUND까지 도달 — 스키마 검증 통과 확인)를 확인. 상태 응답 `result.mode` 필드는 실 LLM 호출 없이는 완료 상태를 만들 수 없어 단위 테스트(`test_get_status_result_includes_mode_field`)로 검증. 실 생성(태그 품질 표본)은 사용자 이행 항목(DoD 6)으로 남김.
-- [ ] stage-reviewer(Opus) 검토 — DoD 자동 검증 전건.
+- [x] stage-reviewer(Opus) 검토 — DoD 자동 검증 전건. — 1차(조건부 통과 — 치명 0·중요 2·경미 4) → 수정 반영 → **표적 재검토 최종 통과(DoD 5/5·치명 0·중요 0)**. 완료 기록 참조.
 
 ### 4. 문서
 
-- [ ] 구현 확정 사항 기록(§4.21 S24 블록·이 문서 완료 기록 — 특히 tags 프롬프트 지시 문안·suggested 강제 플래그 형태. DDL 필요 발견 시 착수 중단 후 보고).
-- [ ] 사용자 매뉴얼(F39): AI 응용 장에 누적/1회성 설명 추가(누적 = 태그·제안함 연계, 1회성 = 절약 — 어느 쪽도 자동으로 실전 트리에 들어가지 않음).
-- [ ] 이 문서 체크박스 갱신(불변 규칙 10) · CLAUDE.md 문서 지도 갱신(오케스트레이터 담당).
+- [x] 구현 확정 사항 기록(§4.21 S24 블록·이 문서 완료 기록 — 특히 tags 프롬프트 지시 문안·suggested 강제 플래그 형태. DDL 필요 발견 시 착수 중단 후 보고). — 완료 기록 참조(계약 이탈 0).
+- [x] 사용자 매뉴얼(F39): AI 응용 장에 누적/1회성 설명 추가(누적 = 태그·제안함 연계, 1회성 = 절약 — 어느 쪽도 자동으로 실전 트리에 들어가지 않음). — AI 응용 절에 "누적 / 1회성 선택" 소절 추가(2026-08-04).
+- [x] 이 문서 체크박스 갱신(불변 규칙 10) · CLAUDE.md 문서 지도 갱신(오케스트레이터 담당, 2026-08-04).
 
 ## DoD (완료 정의)
 
@@ -84,4 +84,11 @@
 
 ## 완료 기록 (착수 후 기입)
 
-- (미착수 — 착수 순서상 S25(F51) 완료 후 진행)
+- **2026-08-04 구현(backend-dev·frontend-dev 병렬)**: 백엔드 — `mode?: 'accumulate'|'oneshot'`(기본 accumulate·오류값 422) · 프롬프트 분기(accumulate만 tags 지시: "각 문항마다 핵심 개념을 나타내는 태그 3~6개를 tags 배열에 담아라(기존 문서 태그 관례와 같은 수준의 짧은 단어·구 — 문장형 금지)") · `_normalize_tags`(§8.2 관례 — 비문자열 포함 시 배열 전체 무시·문항 유지·discarded 미포함) · 저장 분기(accumulate = DocumentTag 같은 트랜잭션 + `scan_document(force_suggest=True)`) · `tag_rule_service.scan_document/_apply_rule_to_document`에 `force_suggest: bool = False` 키워드 파라미터(기존 호출부 3곳 기본값 무변경) · result에 `mode` 순수 추가. 프론트 — AppliedExamPanel 스텝 ① [누적(기본)/1회성] 라디오(TagRuleManager suggest/auto 선택기 관례)·고정 설명 문구·generate body 전달·결과 mode 표시.
+- **2026-08-04 stage-reviewer(Opus) 1차 검토 — 조건부 통과(DoD 5/5·치명 0·중요 2·경미 4) → 수정 반영**:
+  - **[중요①] 생성 이후 자동 연결 경로 차단 — 문서 기준 판정으로 격상**: 호출부 플래그 방식은 scan_rule 일괄 적용·replace_tags 재스캔 경로가 새는 것이 실증됨 → `tag_rule_service._is_applied_exam_generated`(ⓐ `category_documents.linked_by='applied_exam'` OR ⓑ `document_relations.created_by='applied_exam'` 이중 신호, from_document_id 방향 — 근거 기출 문서 오탐 없음)를 `_apply_rule_to_document` 1곳에서 판정 — 전 트리거 전수 커버. §4.21 S24 ②에 "문서 대상 기준" 명문화. 재검토에서 CategoryDocument 생성처 5곳 전수 대조로 "승인 없는 링크 생성 경로 0" 확인.
+  - **[중요②] 응시 직전 정답 전송 차단**: 결과 요약의 `useDocumentsBatch`(documents/batch — answer·explanation 포함) 제거, 고정 문구로 대체. screens §5.12에 "응시 전 문서 상세 일괄 조회 금지" 규약 명문화(인쇄 뷰 용처는 무영향).
+  - **[경미③] tags 정규화 관례 정합(전량 폐기)** · **[경미④] result.mode 기본값 accumulate 통일** · **[경미⑥] screens §5.12 S24 UI 반영** — 전건 수정. **[경미⑤ — 무수정 관찰]** 태그 개수·길이 서버 상한 없음(기존 반입 관례와 일관 — DoD 6 실생성 표본에서 3~6개 준수율·표기 흔들림 확인 권고).
+- **2026-08-04 표적 재검토 최종 통과**: 중요 1·2 및 경미 3·4·6 전건 해소 삼중 확인(호출 그래프 전수·실행 재현·pytest 480/480) — **DoD 자동 검증 5/5·치명 0·중요 0**. 잔여 신규 경미 3건 중 주석 2건(types.ts 잔존 주석·테스트 docstring 이중 신호 서술) 오케스트레이터 즉시 정정, 성능 관찰 1건(`_is_applied_exam_generated` 문서×규칙 쌍당 SELECT — 로컬 규모 체감 미미·기능 무영향)은 기록만. ⓑ 단독 신호 커버리지 공백은 테스트 docstring에 관찰로 명기.
+- **테스트**: 신규 17건(1차 13 + 수정 4) — `tests/test_applied_exam.py` 47건, 전체 **480/480 통과**.
+- **계약과 어긋나 보류한 것**: 없음 — DDL 0·Alembic 0·신규 엔드포인트 0(검토 diff 전수 확인).

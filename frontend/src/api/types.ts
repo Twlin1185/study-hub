@@ -533,7 +533,7 @@ export interface AppliedExamResult {
   discarded: AppliedExamDiscardGroup[]
   document_ids: number[]
   // S24(설계 §4.21 S24 개정 블록 — F50) — 표시 전용 순수 추가. 누적 = 태그 부여·제안 강제,
-  // 1회성 = 종전과 동일(태그 0). 신규 API 없음 — 태그 수는 documents/batch(기존 조회) 재사용.
+  // 1회성 = 종전과 동일(태그 0). 요약 표시는 고정 문구뿐 — 응시 전 문서 상세 일괄 조회 금지(§5.12 규약).
   mode: AppliedExamMode
 }
 

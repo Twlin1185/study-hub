@@ -736,8 +736,11 @@ def test_save_generated_accumulate_saves_tags_and_forces_suggestion_even_for_aut
 def test_scan_rule_bulk_apply_suggests_only_for_applied_exam_generated_document(db):
     """scan_rule(트리거 3 — 일괄 스캔, force_suggest 없이 호출)에서도 응용 생성물은
     문서 기준 판정으로 걸러져 suggested만 만든다 — auto 규칙이어도 linked 행 0.
-    생성은 oneshot 모드로 만들어(생성 시점엔 태그 0) 이후 별도로 태그가 붙어도 문서
-    기준 판정(derived_from 신호)만으로 감지됨을 확인한다."""
+    생성은 oneshot 모드로 만들어(생성 시점엔 태그 0) 이후 별도로 태그가 붙은 시나리오를
+    검증한다. 주의: oneshot 생성물도 격리 분류 연결(ⓐ linked_by='applied_exam')과
+    derived_from(ⓑ created_by='applied_exam') 신호를 둘 다 가지므로 이 테스트는 이중
+    신호 상태를 검증한다 — ⓑ 단독 경로(격리 분류 연결이 해제된 문서)는 별도 미검증
+    (검토 관찰 2026-08-04: OR 판정 코드 경로상 동등하나 커버리지 공백으로 기록)."""
     real_cat, basis_doc = _seed_basis(db)
     job = {
         "_basis_docs": [
