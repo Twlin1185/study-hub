@@ -10,6 +10,7 @@ import {
 } from '../api/appliedExam'
 import { jobUnavailable } from '../api/convert'
 import { useLlmStatus } from '../api/llm'
+import { useDocumentsBatch } from '../api/documents'
 import { useJobRecovery } from '../hooks/useJobRecovery'
 import { useExamSessionStore } from '../stores/examSession'
 import { ApiError } from '../api/client'
@@ -20,7 +21,13 @@ import LlmLimitBanner from './LlmLimitBanner'
 import EngineSelect from './EngineSelect'
 import Stepper from './Stepper'
 import type { StepperStep } from './Stepper'
-import type { AppliedExamDiscardReason, AppliedExamPrepareResponse, AppliedExamResult, LlmEngine } from '../api/types'
+import type {
+  AppliedExamDiscardReason,
+  AppliedExamMode,
+  AppliedExamPrepareResponse,
+  AppliedExamResult,
+  LlmEngine,
+} from '../api/types'
 
 // 설계 §4.21(S19, F45) — 모의고사 구성 화면의 [AI 응용] 탭 본문. ① 범위·문항 수·엔진 선택 →
 // [생성 준비](prepare, LLM 0) → ② 사용량 확인(확인 없이 생성 불가) → [생성 시작](generate) →
@@ -41,6 +48,14 @@ const BILLING_LABEL: Record<string, string> = {
   metered: '종량 과금',
 }
 
+// S24(설계 §4.21 S24 개정 블록 ①, F50) — 누적/1회성 선택. 기본 accumulate(종전 동작(태그
+// 없음)과 다른 기본값 — oneshot이 종전과 동일). 고정 설명 문구는 계약 원문 그대로 유지한다.
+const MODE_LABEL: Record<AppliedExamMode, string> = {
+  accumulate: '누적 (기본)',
+  oneshot: '1회성',
+}
+const MODE_ONESHOT_NOTE = '1회성은 태그를 만들지 않아 생성 출력이 조금 절약됩니다'
+
 const DISCARD_REASON_LABEL: Record<AppliedExamDiscardReason, string> = {
   invalid_item: '형식 오류(필수 항목 누락)',
   invalid_answer: '정답 형식 오류',
@@ -58,6 +73,8 @@ export default function AppliedExamPanel() {
   const [step, setStep] = useState<Step>('setup')
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [countInput, setCountInput] = useState('10')
+  // S24(설계 §4.21 S24 개정 블록 ①, F50) — 기본 accumulate(사용자 확정 "누적이 default").
+  const [mode, setMode] = useState<AppliedExamMode>('accumulate')
   const [engine, setEngine] = useState<LlmEngine>('auto')
   // S22(설계 §4.24 ④·⑤, F48) — 요청 단위 모델 오버라이드. 미선택(null) = 설정값.
   const [model, setModel] = useState<string | null>(null)
@@ -80,6 +97,15 @@ export default function AppliedExamPanel() {
   const start = useExamSessionStore((s) => s.start)
   const genStatusQuery = useAppliedExamStatus(step === 'process' ? genId : null)
   const historyQuery = useAppliedExamHistory(10)
+  // 태그 수 소표기(체크리스트 2) — 신규 API 없음: 기존 documents/batch 조회 재사용(§4.2, 인쇄 뷰
+  // 전례)으로 result.document_ids의 태그를 얻는다. accumulate·summary 단계에서만 활성화.
+  const tagDocsQuery = useDocumentsBatch(
+    step === 'summary' && summaryResult?.mode === 'accumulate' ? summaryResult.document_ids : [],
+  )
+  const taggedCount = tagDocsQuery.data?.reduce((acc, d) => acc + (d.tags.length > 0 ? 1 : 0), 0) ?? null
+  const uniqueTagCount = tagDocsQuery.data
+    ? new Set(tagDocsQuery.data.flatMap((d) => d.tags)).size
+    : null
 
   const engineLabel =
     engine === 'auto' ? '자동' : (statusQuery.data?.engines.find((e) => e.id === engine)?.label ?? engine)
@@ -119,6 +145,7 @@ export default function AppliedExamPanel() {
     setStep('setup')
     setCategoryId(null)
     setCountInput('10')
+    setMode('accumulate')
     setEngine('auto')
     setModel(null)
     setAgreed(false)
@@ -146,7 +173,7 @@ export default function AppliedExamPanel() {
   function handleGenerate() {
     if (!prepareResult) return
     generateMutation.mutate(
-      { genId: prepareResult.gen_id, engine, model: model ?? undefined },
+      { genId: prepareResult.gen_id, engine, model: model ?? undefined, mode },
       {
         onSuccess: () => {
           setGenId(prepareResult.gen_id)
@@ -238,6 +265,25 @@ export default function AppliedExamPanel() {
                   <p className="mb-1 text-xs font-semibold text-muted">엔진</p>
                   <EngineSelect value={engine} onChange={setEngine} modelValue={model} onModelChange={setModel} />
                 </div>
+
+                {/* S24(설계 §4.21 S24 개정 블록 ①, F50) — 누적/1회성 선택, 기본 누적. */}
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-muted">생성 방식</p>
+                  <div className="flex items-center gap-3 text-sm text-primary">
+                    {(['accumulate', 'oneshot'] as AppliedExamMode[]).map((m) => (
+                      <label key={m} className="flex items-center gap-1">
+                        <input
+                          type="radio"
+                          name="applied-exam-mode"
+                          checked={mode === m}
+                          onChange={() => setMode(m)}
+                        />
+                        {MODE_LABEL[m]}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-muted">{MODE_ONESHOT_NOTE}</p>
+                </div>
               </div>
 
               {prepareMutation.isError && (
@@ -277,6 +323,7 @@ export default function AppliedExamPanel() {
                   사용 엔진: {engineLabel}
                   {engineBilling && ` (${BILLING_LABEL[engineBilling] ?? engineBilling})`}
                 </p>
+                <p className="mt-1 text-xs text-muted">생성 방식: {MODE_LABEL[mode]}</p>
               </div>
 
               <LlmLimitBanner />
@@ -409,6 +456,15 @@ export default function AppliedExamPanel() {
                     ))}
                   </ul>
                 )}
+                {/* S24(설계 §4.21 S24 개정 블록, F50) — result.mode 표시. 누적이면 태그 수 소표기
+                    (신규 API 없음 — 기존 documents/batch 조회 재사용, 위 tagDocsQuery). */}
+                <p className="mt-2 text-xs text-muted">
+                  생성 방식: {MODE_LABEL[summaryResult.mode]}
+                  {summaryResult.mode === 'accumulate' &&
+                    (uniqueTagCount != null
+                      ? ` — 태그 ${uniqueTagCount}종 · 태그 부여 문항 ${taggedCount}개(제안함에서 분류 연결 제안 확인 가능)`
+                      : ' — 태그 부여됨(제안함에서 분류 연결 제안 확인 가능)')}
+                </p>
               </div>
 
               {startError && <p className="text-sm text-wrong">{startError}</p>}

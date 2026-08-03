@@ -6,6 +6,7 @@ import { llmJobsKey } from './llm'
 import type {
   AppliedExamGenerateResponse,
   AppliedExamHistoryResponse,
+  AppliedExamMode,
   AppliedExamPrepareRequest,
   AppliedExamPrepareResponse,
   AppliedExamStatusResponse,
@@ -37,12 +38,23 @@ export function usePrepareAppliedExam() {
 // POST /api/applied-exam/{gen_id}/generate — 생성 잡 시작(convert 잡 큐 재사용, kind 'applied_exam',
 // 동시 1개). 진행·완료 조회는 job_id가 아니라 gen_id로 한다(아래 useAppliedExamStatus).
 // model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드(engine 명시 필요·소목록 밖=422, 미지정=설정값).
+// mode(S24, 설계 §4.21 S24 개정 블록 ①, F50) — 미지정 = 서버 기본값(accumulate)이나, 프론트는
+// AppliedExamPanel에서 항상 명시 전달한다(선택 UI 기본값이 accumulate).
 // 시작 성공 시 잡 목록(llmJobsKey) 무효화(검토 반영 — api/convert.ts useStartConvert와 동일 근거).
 export function useStartAppliedExamGenerate() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ genId, engine, model }: { genId: string; engine?: LlmEngine; model?: string }) =>
-      api.post<AppliedExamGenerateResponse>(`/applied-exam/${genId}/generate`, { engine, model }),
+    mutationFn: ({
+      genId,
+      engine,
+      model,
+      mode,
+    }: {
+      genId: string
+      engine?: LlmEngine
+      model?: string
+      mode?: AppliedExamMode
+    }) => api.post<AppliedExamGenerateResponse>(`/applied-exam/${genId}/generate`, { engine, model, mode }),
     onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
   })
 }

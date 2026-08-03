@@ -497,11 +497,16 @@ export interface AppliedExamPrepareResponse {
   estimate: AppliedExamEstimate
 }
 
+// S24(설계 §4.21 S24 개정 블록 ① — F50): 누적/1회성 모드. 미지정 = 'accumulate' 기본(종전
+// 동작(항상 태그 없음)과 다른 기본값 — oneshot이 종전과 동일). 그 외 값 = 422.
+export type AppliedExamMode = 'accumulate' | 'oneshot'
+
 // S22(설계 §4.24 ④ — F48): model? 1회성 오버라이드 — engine이 auto·미지정이면 422(엔진 먼저
 // 선택), 소목록 밖 값도 422. 미지정 = 설정값 폴백(기존 동작 불변).
 export interface AppliedExamGenerateRequest {
   engine?: LlmEngine
   model?: string
+  mode?: AppliedExamMode
 }
 
 export interface AppliedExamGenerateResponse {
@@ -527,6 +532,9 @@ export interface AppliedExamResult {
   generated: number
   discarded: AppliedExamDiscardGroup[]
   document_ids: number[]
+  // S24(설계 §4.21 S24 개정 블록 — F50) — 표시 전용 순수 추가. 누적 = 태그 부여·제안 강제,
+  // 1회성 = 종전과 동일(태그 0). 신규 API 없음 — 태그 수는 documents/batch(기존 조회) 재사용.
+  mode: AppliedExamMode
 }
 
 // GET /api/applied-exam/{gen_id} — 상태·결과 조회. convert 잡 큐 kind 'applied_exam' 재사용이라
