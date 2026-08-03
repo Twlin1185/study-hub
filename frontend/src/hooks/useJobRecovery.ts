@@ -66,6 +66,15 @@ export function useJobRecovery({
 
   useEffect(() => {
     if (!enabled || firedRef.current) return
+    // 마운트 직후 첫 조회가 끝나기 전에는 래치를 닫지 않는다 — 여기서 그냥 return하면 다음
+    // 렌더(잡 목록 도착)에서 다시 이 effect가 돌아 정상적으로 검사할 기회를 얻는다.
+    if (!jobsQuery.isFetched) return
+    // "마운트당 1회 검사" 시맨틱(stage-reviewer 2차 지적, 2026-08-03) — 이 마운트에서 검사를
+    // 한 번 마쳤다는 사실 자체를 found 여부와 무관하게 즉시 잠근다. found가 아니어도(=이 화면에서
+    // 사용자가 직접 새 잡을 시작한 정상 흐름) 래치를 잠그지 않으면, 그 잡 시작으로 enabled가
+    // false→true로 흔들리는 첫 순간에 "방금 시작한 잡"을 스스로 재발견해 "복원했습니다"로
+    // 오표기하거나 화면을 다시 여는 사고가 생긴다(1회성 재발화 — 반복은 아니지만 여전히 오탐).
+    firedRef.current = true
     const items = jobsQuery.data?.items ?? []
     const found = items.find((it) => {
       if (it.kind !== kind) return false
@@ -74,13 +83,12 @@ export function useJobRecovery({
       return matchRef ? matchRef(it.ref ?? {}) : true
     })
     if (found) {
-      firedRef.current = true
       onRecoveredRef.current(found)
     }
     // resetKey를 deps에 포함 — 값이 바뀌면(위 효과가 firedRef를 막 풀어 준 직후) enabled 값
     // 자체가 안 바뀌어도 즉시 재평가한다(다음 폴링까지 최대 15초를 기다리지 않도록).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, jobsQuery.data, kind, includeDone, resetKey])
+  }, [enabled, jobsQuery.data, jobsQuery.isFetched, kind, includeDone, resetKey])
 
   return { checked: jobsQuery.isFetched }
 }
