@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useApplySuggestions, useSuggestions } from '../api/suggestions'
 import { ApiError } from '../api/client'
 import ImproveInbox from '../components/ImproveInbox'
@@ -14,7 +14,9 @@ type InboxTab = 'classify' | 'improve'
 // 무변경) / [반입 개선](S20, F46 — 실패 사례·개선 제안·회귀 재검증, ImproveInbox). nav 배지는
 // 두 pending 합산(SuggestionsNavBadge — 결정 ①).
 export default function SuggestionsPage() {
-  const [tab, setTab] = useState<InboxTab>('classify')
+  // S22(설계 §4.24 ⓓ, F48) — 작업 센터 [화면으로 이동]이 `?tab=improve`로 이 탭을 곧바로 연다.
+  const [searchParams] = useSearchParams()
+  const [tab, setTab] = useState<InboxTab>(searchParams.get('tab') === 'improve' ? 'improve' : 'classify')
   const navigate = useNavigate()
   const suggestionsQuery = useSuggestions()
   const applySuggestions = useApplySuggestions()

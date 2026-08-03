@@ -9,10 +9,11 @@ const POLL_INTERVAL_MS = 2000
 // 대상 제한(문제 타입 + 해설 없음)은 서버가 검증한다(있으면 409) — 프론트는 버튼 노출 조건으로만
 // 사전 필터링한다.
 
+// model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드(engine 명시 필요·소목록 밖=422, 미지정=설정값).
 export function useStartExplain() {
   return useMutation({
-    mutationFn: ({ documentId, engine }: { documentId: number; engine?: LlmEngine }) =>
-      api.post<ConvertJobStartResponse>(`/documents/${documentId}/explain`, { engine }),
+    mutationFn: ({ documentId, engine, model }: { documentId: number; engine?: LlmEngine; model?: string }) =>
+      api.post<ConvertJobStartResponse>(`/documents/${documentId}/explain`, { engine, model }),
   })
 }
 

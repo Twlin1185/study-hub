@@ -65,10 +65,11 @@ export function useImproveGenPrepare() {
   })
 }
 
+// model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드(engine 명시 필요·소목록 밖=422, 미지정=설정값).
 export function useStartImproveGen() {
   return useMutation({
-    mutationFn: ({ genId, engine }: { genId: string; engine?: LlmEngine }) =>
-      api.post<ConvertJobStartResponse>(`/improve/gen/${genId}/generate`, { engine }),
+    mutationFn: ({ genId, engine, model }: { genId: string; engine?: LlmEngine; model?: string }) =>
+      api.post<ConvertJobStartResponse>(`/improve/gen/${genId}/generate`, { engine, model }),
   })
 }
 
@@ -138,10 +139,11 @@ export function useImproveRegressionPrepare() {
   })
 }
 
+// model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드(engine 명시 필요·소목록 밖=422, 미지정=설정값).
 export function useStartImproveRegression() {
   return useMutation({
-    mutationFn: ({ regId, engine }: { regId: string; engine?: LlmEngine }) =>
-      api.post<ConvertJobStartResponse>(`/improve/regression/${regId}/run`, { engine }),
+    mutationFn: ({ regId, engine, model }: { regId: string; engine?: LlmEngine; model?: string }) =>
+      api.post<ConvertJobStartResponse>(`/improve/regression/${regId}/run`, { engine, model }),
   })
 }
 

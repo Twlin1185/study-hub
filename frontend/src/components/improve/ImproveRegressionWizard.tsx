@@ -6,6 +6,7 @@ import {
   useStartImproveRegression,
 } from '../../api/improve'
 import { jobUnavailable } from '../../api/convert'
+import { useJobRecovery } from '../../hooks/useJobRecovery'
 import { ApiError } from '../../api/client'
 import Modal from '../Modal'
 import LlmJobProgress from '../LlmJobProgress'
@@ -29,22 +30,32 @@ const MAX_REGRESSION_CASES = 10
 type Step = 'select' | 'confirm' | 'progress' | 'result'
 
 interface ImproveRegressionWizardProps {
-  proposal: ImproveProposalListItem
+  // 재진입 복원(resumeRegId)일 때는 호출부가 아직 proposal을 모를 수 있어 생략 가능하다 —
+  // 그 경우 'select' 단계를 건너뛰므로 proposal 참조가 필요한 화면은 렌더되지 않는다.
+  proposal?: ImproveProposalListItem
   onClose: () => void
   onDone?: () => void
+  // 재진입 복원(설계 §4.24 ⑤·ⓓ, F48) — 호출부(ImproveRegressionPanel)가 공용 복원 훅으로 이미
+  // running·queued 잡을 발견했을 때 넘긴다. 있으면 사례 선택·prepare를 건너뛰고 곧바로 진행
+  // 표시로 들어간다.
+  resumeRegId?: string
 }
 
 // 설계 §4.22 ④(F46, S20) — 회귀 재검증. 사례 선택(기본 = 근거 사례 + 같은 kind, 1~10건, 신고
 // 사례(user_report)는 자동 회귀 대상이 아니라 선택지에서 제외 — "이 단계에서 하지 않는 것") →
 // prepare(LLM 0 견적) → 확인 스텝 → run(LLM 호출) → 진행 → results[] outcome 표시. 검증
 // 전용(preview 미등록·DB 무기록) — 반입 경로와 절연.
-export default function ImproveRegressionWizard({ proposal, onClose, onDone }: ImproveRegressionWizardProps) {
-  const [step, setStep] = useState<Step>('select')
+export default function ImproveRegressionWizard({ proposal, onClose, onDone, resumeRegId }: ImproveRegressionWizardProps) {
+  const [step, setStep] = useState<Step>(resumeRegId ? 'progress' : 'select')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [defaultsApplied, setDefaultsApplied] = useState(false)
-  const [regId, setRegId] = useState<string | null>(null)
+  const [regId, setRegId] = useState<string | null>(resumeRegId ?? null)
   const [engine, setEngine] = useState<LlmEngine>('auto')
+  // S22(설계 §4.24 ④·⑤, F48) — 요청 단위 모델 오버라이드. 미선택(null) = 설정값.
+  const [model, setModel] = useState<string | null>(null)
   const [agreed, setAgreed] = useState(false)
+  // 재진입 복원 소표기(F40-① recovered 전례). resumeRegId로 이미 열린 경우도 복원된 것이다.
+  const [recoveredNotice, setRecoveredNotice] = useState(Boolean(resumeRegId))
 
   const allCasesQuery = useImproveCases(1, 50)
   const prepareMutation = useImproveRegressionPrepare()
@@ -52,13 +63,29 @@ export default function ImproveRegressionWizard({ proposal, onClose, onDone }: I
   // run 호출 전에는 잡이 시작되지 않았으므로 폴링하지 않는다(ImproveGenWizard와 동일 판단).
   const regJobQuery = useImproveRegressionJob(step === 'progress' || step === 'result' ? regId : null)
 
+  // 공용 재진입 복원 훅 — resumeRegId가 이미 있으면(호출부가 이미 발견) 끈다(중복 판정 금지).
+  // 이 위저드는 select 단계가 사용자 조작으로만 진행되므로(ImproveGenWizard의 자동 prepare
+  // 같은 경합이 없다) checked 게이팅이 필요 없다.
+  useJobRecovery({
+    kind: 'improve_regression',
+    enabled: !resumeRegId,
+    onRecovered: (job) => {
+      const rid = job.ref?.reg_id
+      if (!rid) return
+      setRegId(rid)
+      setStep('progress')
+      setRecoveredNotice(true)
+    },
+  })
+
   const allCases = allCasesQuery.data?.items ?? []
   // user_report 사례는 자동 회귀 판정 대상이 아니다(§4.22 ④-1, 서버 422) — 선택지에서 원천 제외.
   const selectableCases = allCases.filter((c) => c.kind !== 'user_report')
 
   // 기본 선택 = 근거 사례 + 같은 kind 사례(상한 10건) — 사례 목록이 도착한 뒤 1회만 계산한다.
+  // proposal이 없으면(재진입 복원 모드) select 단계 자체를 쓰지 않으므로 계산을 건너뛴다.
   useEffect(() => {
-    if (defaultsApplied || allCasesQuery.data == null) return
+    if (defaultsApplied || allCasesQuery.data == null || !proposal) return
     const evidence = selectableCases.filter((c) => proposal.case_ids.includes(c.case_id))
     const evidenceKinds = new Set(evidence.map((c) => c.kind))
     const sameKind = selectableCases.filter((c) => evidenceKinds.has(c.kind))
@@ -103,7 +130,7 @@ export default function ImproveRegressionWizard({ proposal, onClose, onDone }: I
   function handleRun() {
     if (!regId) return
     runMutation.mutate(
-      { regId, engine },
+      { regId, engine, model: model ?? undefined },
       {
         onSuccess: () => setStep('progress'),
       },
@@ -116,6 +143,8 @@ export default function ImproveRegressionWizard({ proposal, onClose, onDone }: I
     unavailable == null &&
     (regJobQuery.data == null || regJobQuery.data.status === 'running')
   const jobFailed = regJobQuery.data?.status === 'error'
+  // 취소됨(S22, §4.24 ②) — 오류가 아닌 중립 종료 상태.
+  const jobCancelled = regJobQuery.data?.status === 'cancelled'
   const results = regJobQuery.data?.results ?? []
 
   return (
@@ -124,8 +153,8 @@ export default function ImproveRegressionWizard({ proposal, onClose, onDone }: I
         {step === 'select' && (
           <div className="flex flex-col gap-3">
             <p className="text-sm text-muted">
-              반영된 제안(『{proposal.title}』)의 근거 사례 + 같은 유형 사례가 기본 선택돼 있습니다.
-              최대 {MAX_REGRESSION_CASES}건까지 조정할 수 있습니다.
+              반영된 제안(『{proposal?.title ?? ''}』)의 근거 사례 + 같은 유형 사례가 기본 선택돼
+              있습니다. 최대 {MAX_REGRESSION_CASES}건까지 조정할 수 있습니다.
             </p>
 
             {allCasesQuery.isLoading && <p className="text-sm text-muted">사례 목록 불러오는 중…</p>}
@@ -159,7 +188,7 @@ export default function ImproveRegressionWizard({ proposal, onClose, onDone }: I
                             {kindLabel(c.kind)}
                           </span>
                           <span className="text-[11px] text-muted">{ORIGIN_LABEL[c.origin] ?? c.origin}</span>
-                          {proposal.case_ids.includes(c.case_id) && (
+                          {proposal?.case_ids.includes(c.case_id) && (
                             <span className="rounded border border-accent px-1.5 py-0.5 text-[11px] text-accent">
                               근거 사례
                             </span>
@@ -208,7 +237,13 @@ export default function ImproveRegressionWizard({ proposal, onClose, onDone }: I
 
             <div>
               <p className="mb-1 text-xs font-semibold text-muted">사용 엔진 (과금형 표시)</p>
-              <EngineSelect value={engine} onChange={setEngine} billingLabels={BILLING_LABEL} />
+              <EngineSelect
+                value={engine}
+                onChange={setEngine}
+                billingLabels={BILLING_LABEL}
+                modelValue={model}
+                onModelChange={setModel}
+              />
             </div>
 
             <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">
@@ -246,6 +281,7 @@ export default function ImproveRegressionWizard({ proposal, onClose, onDone }: I
 
         {(step === 'progress' || step === 'result') && (
           <div className="flex flex-col gap-3">
+            {recoveredNotice && <p className="text-xs text-accent">진행 중 작업을 복원했습니다.</p>}
             {running && <LlmJobProgress progress={regJobQuery.data?.progress} includeDownloading={false} />}
 
             {unavailable && (
@@ -271,6 +307,8 @@ export default function ImproveRegressionWizard({ proposal, onClose, onDone }: I
             )}
 
             {jobFailed && <LlmErrorInfoView errorInfo={regJobQuery.data?.error_info} />}
+
+            {jobCancelled && <p className="text-sm text-muted">작업이 취소되었습니다.</p>}
 
             {step === 'result' && results.length > 0 && (
               <div className="flex flex-col gap-2">

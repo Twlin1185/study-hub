@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import SearchBar from './SearchBar'
 import SuggestionsNavBadge from './SuggestionsNavBadge'
+import JobCenterButton from './JobCenterButton'
+import JobCenterPanel from './JobCenterPanel'
 import { useSidebarStore } from '../stores/sidebar'
 import { useAppUpdate } from '../hooks/useAppUpdate'
 
@@ -78,6 +81,10 @@ export default function Layout({ children }: { children: ReactNode }) {
   const collapsed = sidebar === 'collapsed'
   // 새 빌드 감지(설계 §4.16) — 보통은 자동 새로고침으로 해결되고, 그래도 남으면 배너로 알린다.
   const { updateAvailable } = useAppUpdate()
+  // LLM 작업 센터(S22, F48, 설계 §4.24·§5.14) — 라우트가 아닌 전역 패널. 모바일은 하단 탭바를
+  // 그대로 두고(F39 "탭 추가 금지" 관례) 좌측 드로어에서 진입한다(§5 공통 레이아웃).
+  const [jobCenterOpen, setJobCenterOpen] = useState(false)
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
 
   return (
     <div className="flex h-full min-h-screen bg-bg text-primary">
@@ -139,6 +146,9 @@ export default function Layout({ children }: { children: ReactNode }) {
         </nav>
         <div className="mt-auto flex flex-col gap-1">
           <NavButton item={{ to: '/settings', label: '설정', icon: '⚙️' }} collapsed={collapsed} />
+          {/* LLM 작업 센터 진입점(S22, F48, 설계 §5·§4.24 ⑥) — 도움말 항목 위(F39 배치 관례).
+              라우트 이동이 아닌 전역 패널이라 NavButton(NavLink)이 아닌 버튼. */}
+          <JobCenterButton onClick={() => setJobCenterOpen(true)} compact={collapsed} />
           {/* 도움말 진입점(S12, F39, 설계 §5·§4.15) — 앱 라우트가 아닌 외부 문서 링크이므로
               NavLink가 아닌 일반 <a target="_blank">로 새 탭에 연다. 접힘 레일은 아이콘+title. */}
           <a
@@ -159,7 +169,19 @@ export default function Layout({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen flex-1 flex-col">
         {/* 모바일 상단 헤더 */}
         <header className="flex items-center justify-between gap-2 border-b border-border bg-surface px-4 py-3 md:hidden print:hidden">
-          <h1 className="text-base font-semibold text-primary">Study Hub</h1>
+          <div className="flex items-center gap-1.5">
+            {/* 좌측 드로어 진입점(S22, F48, 설계 §5·§4.24 ⑥) — 모바일은 사이드바가 없으므로
+                여기서 연다. 하단 탭바 5개는 그대로 유지(F39 "탭 추가 금지" 관례). */}
+            <button
+              type="button"
+              onClick={() => setMobileDrawerOpen(true)}
+              aria-label="메뉴"
+              className="rounded p-1.5 text-muted hover:bg-bg hover:text-primary"
+            >
+              ☰
+            </button>
+            <h1 className="text-base font-semibold text-primary">Study Hub</h1>
+          </div>
           <div className="flex flex-1 items-center justify-end gap-1">
             <SearchBar variant="mobile" />
             <SuggestionsNavBadge compact />
@@ -182,6 +204,44 @@ export default function Layout({ children }: { children: ReactNode }) {
           ))}
         </nav>
       </div>
+
+      {/* 좌측 드로어(모바일 전용) — 지금은 "LLM 작업" 진입점 1개만 담는다(하단 탭바 불변 —
+          §5 공통 레이아웃, F39 관례). 향후 다른 항목이 필요해지면 이 자리에 늘린다. */}
+      {mobileDrawerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex md:hidden print:hidden"
+          onClick={() => setMobileDrawerOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="flex h-full w-64 max-w-[80vw] flex-col gap-1 border-r border-border bg-surface p-3"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="메뉴"
+          >
+            <div className="mb-2 flex items-center justify-between px-1">
+              <h2 className="text-sm font-semibold text-primary">메뉴</h2>
+              <button
+                type="button"
+                onClick={() => setMobileDrawerOpen(false)}
+                aria-label="닫기"
+                className="rounded p-1 text-muted hover:bg-bg hover:text-primary"
+              >
+                ✕
+              </button>
+            </div>
+            <JobCenterButton
+              onClick={() => {
+                setMobileDrawerOpen(false)
+                setJobCenterOpen(true)
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      <JobCenterPanel open={jobCenterOpen} onClose={() => setJobCenterOpen(false)} />
     </div>
   )
 }

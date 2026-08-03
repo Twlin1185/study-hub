@@ -1,18 +1,28 @@
+import { useState } from 'react'
 import LlmJobProgress from './LlmJobProgress'
 import LlmErrorInfoView from './LlmErrorInfo'
+import ConfirmDialog from './ConfirmDialog'
 import { previewJsonUrl } from '../api/convert'
+import { ApiError } from '../api/client'
 import type { QueueItem, QueueItemStatus } from '../hooks/useConvertQueue'
 
 // 반입 대기열 카드 목록(F40-②, 설계 §5.9) — 파일명 · 상태 배지 · 실패 시 error_info 인라인.
 // 진행 표시(LlmJobProgress)는 **현재 처리 중 1건에만** 붙는다(서버 워커 동시 1개).
 // 색상은 전부 토큰(불변 규칙 5), 모바일 폭에서 카드가 세로로 접히도록 flex-wrap/flex-col만 쓴다.
 
+function errMsg(e: unknown, fallback: string) {
+  return e instanceof ApiError ? e.message : fallback
+}
+
+// S22(설계 §4.24 ②, F48) — 'cancelled' 추가(S13 한계 해소 — §5.9 개정: 처리 중 1건도 이제
+// [취소] 가능). 취소됨은 오류가 아닌 중립 상태라 배경·문구 모두 error와 구분한다.
 const STATUS_LABEL: Record<QueueItemStatus, string> = {
   queued: '대기',
   running: '변환 중',
   ready: '검토 대기',
   committed: '반입 완료',
   error: '실패',
+  cancelled: '취소됨',
 }
 
 const STATUS_CLASS: Record<QueueItemStatus, string> = {
@@ -21,6 +31,7 @@ const STATUS_CLASS: Record<QueueItemStatus, string> = {
   ready: 'bg-warning text-on-accent',
   committed: 'bg-correct text-on-accent',
   error: 'bg-wrong text-on-accent',
+  cancelled: 'border border-border text-muted',
 }
 
 function StatusBadge({ status }: { status: QueueItemStatus }) {
@@ -56,6 +67,11 @@ interface ImportQueueListProps {
   // invalid_output(F40-④) — 시작 화면으로 돌아가 원본을 나눠 다시 올리게 한다.
   onSplitReupload: () => void
   onClearFinished: () => void
+  // S22(설계 §4.24 ②, F48) — 처리 중 1건 [취소](S13 한계 해소, §5.9 개정). 확인 다이얼로그는
+  // 이 컴포넌트가 띄우고(작업 센터와 같은 고정 문구), 실제 API 호출은 호출부(useConvertQueue)가 한다.
+  onCancel: (entryId: string) => void
+  cancelling: boolean
+  cancelError: unknown
 }
 
 export default function ImportQueueList({
@@ -68,7 +84,12 @@ export default function ImportQueueList({
   onRetryApi,
   onSplitReupload,
   onClearFinished,
+  onCancel,
+  cancelling,
+  cancelError,
 }: ImportQueueListProps) {
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null)
+
   if (items.length === 0) return null
 
   const finishedCount = items.filter((it) => it.status === 'committed').length
@@ -189,10 +210,38 @@ export default function ImportQueueList({
                   {item.status === 'committed' ? '목록에서 지우기' : '건너뛰기'}
                 </button>
               )}
+              {/* S22(설계 §4.24 ②, F48) — 처리 중 1건 [취소](S13 한계 해소). 작업 센터와 같은
+                  cancel API·같은 확인 다이얼로그(고정 문구). */}
+              {item.status === 'running' && item.entry.jobId && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmCancelId(item.entry.id)}
+                  disabled={cancelling}
+                  className="rounded border border-border px-3 py-1.5 text-xs text-wrong hover:bg-bg disabled:opacity-50"
+                >
+                  취소
+                </button>
+              )}
             </div>
           </li>
         ))}
       </ul>
+
+      {confirmCancelId && (
+        <ConfirmDialog
+          title="작업 취소"
+          message="실행 중 취소는 이미 처리된 토큰만큼 요금이 발생할 수 있습니다."
+          confirmLabel="취소하기"
+          danger
+          submitting={cancelling}
+          errorMessage={cancelError ? errMsg(cancelError, '취소에 실패했습니다.') : null}
+          onConfirm={() => {
+            onCancel(confirmCancelId)
+            setConfirmCancelId(null)
+          }}
+          onClose={() => setConfirmCancelId(null)}
+        />
+      )}
     </section>
   )
 }

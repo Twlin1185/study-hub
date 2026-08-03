@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useDeleteImproveCase, useImproveCases } from '../../api/improve'
+import { useJobRecovery } from '../../hooks/useJobRecovery'
 import { ApiError } from '../../api/client'
 import ConfirmDialog from '../ConfirmDialog'
 import ImproveGenWizard from './ImproveGenWizard'
@@ -29,6 +30,20 @@ export default function ImproveCaseList({ onProposalsGenerated }: { onProposalsG
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
+  // 재진입 복원(설계 §4.24 ⑤·ⓓ, F48) — 이 화면 진입 시 running·queued improve_proposal 잡을
+  // 재발견하면 위저드를 그 gen_id로 곧바로 연다(사례 선택 없이 진행 표시부터).
+  const [resumeGenId, setResumeGenId] = useState<string | null>(null)
+
+  useJobRecovery({
+    kind: 'improve_proposal',
+    enabled: !wizardOpen,
+    onRecovered: (job) => {
+      const gid = job.ref?.gen_id
+      if (!gid) return
+      setResumeGenId(gid)
+      setWizardOpen(true)
+    },
+  })
 
   const items = casesQuery.data?.items ?? []
 
@@ -156,9 +171,14 @@ export default function ImproveCaseList({ onProposalsGenerated }: { onProposalsG
       {wizardOpen && (
         <ImproveGenWizard
           caseIds={Array.from(selected)}
-          onClose={() => setWizardOpen(false)}
+          resumeGenId={resumeGenId ?? undefined}
+          onClose={() => {
+            setWizardOpen(false)
+            setResumeGenId(null)
+          }}
           onGenerated={() => {
             setWizardOpen(false)
+            setResumeGenId(null)
             setSelected(new Set())
             onProposalsGenerated?.()
           }}

@@ -22,9 +22,11 @@ export const IDLE_POLL_INTERVAL_MS = 10000
 // 매핑으로 계속 수용) — 생략 시 서버 기본 auto=우선순위 설정.
 // categoryPath는 S13(F40-③) 선택 파라미터 `category_path` — 지정 시 LLM이 모든 문항의 분류
 // 제안을 그 경로 하나로 고정한다(제안 고정일 뿐 반입 확정은 여전히 사용자 승인 — R7).
+// model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드. engine이 auto·미지정인데 model만 있으면
+// 서버가 422(엔진 먼저 선택), 소목록 밖 값도 422. 미지정 = 설정값 폴백(기존 동작 불변).
 export type StartConvertInput =
-  | { kind: 'file'; file: File; engine?: LlmEngine; categoryPath?: string | null }
-  | { kind: 'url'; url: string; engine?: LlmEngine; categoryPath?: string | null }
+  | { kind: 'file'; file: File; engine?: LlmEngine; model?: string; categoryPath?: string | null }
+  | { kind: 'url'; url: string; engine?: LlmEngine; model?: string; categoryPath?: string | null }
 
 // 훅 밖(대기열 순차 투입 루프 등)에서도 쓰도록 요청 함수를 따로 노출한다.
 export function startConvertRequest(input: StartConvertInput): Promise<ConvertJobStartResponse> {
@@ -33,12 +35,14 @@ export function startConvertRequest(input: StartConvertInput): Promise<ConvertJo
     const form = new FormData()
     form.append('file', input.file)
     if (input.engine) form.append('engine', input.engine)
+    if (input.model) form.append('model', input.model)
     if (categoryPath) form.append('category_path', categoryPath)
     return api.postForm<ConvertJobStartResponse>('/convert', form)
   }
   return api.post<ConvertJobStartResponse>('/convert', {
     url: input.url,
     engine: input.engine,
+    model: input.model,
     category_path: categoryPath,
   })
 }

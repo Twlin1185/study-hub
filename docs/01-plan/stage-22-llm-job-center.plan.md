@@ -54,17 +54,17 @@
 
 ### 4. 프론트 — 작업 센터 패널·진입점 (screens §5 공통 레이아웃·§5.14)
 
-- [ ] **전역 패널 신설**(`components/JobCenterPanel.tsx` — 이름 구현 재량): 목록 렌더(진행 = `LlmJobProgress` 재사용·대기 순번·종료 상태 배지 — label·문구는 서버 값 그대로), [화면으로 이동](kind→라우트 **매핑 상수 1곳** — 복원 훅과 공유, 모르는 kind 미렌더), 취소 버튼(대기 = 즉시 / 실행 중 = **확인 다이얼로그 고정 문구 "실행 중 취소는 이미 처리된 토큰만큼 요금이 발생할 수 있습니다"**), 일시정지 토글(+안내 1줄 "실행 중인 작업은 끝까지 진행됩니다 — 다음 작업부터 보류합니다"). 409·404는 서버 message 렌더 + 목록 갱신. 취소됨 = 중립 토큰(오류 색 아님). 색상 전부 토큰.
-- [ ] **진입점**: PC/태블릿 사이드바 **하단 고정 버튼**(도움말 항목 위 — F39 관례, running+queued 건수 배지, 접힘 레일 = 아이콘+`title`+배지 점) · 모바일 = **좌측 드로어 항목**(하단 탭바 5개 불변 — 드로어 내 구체 위치는 기존 구성에 맞춰 실측). 패널은 라우트 이동 없이 열림(퀴즈·시험 세션 무영향).
-- [ ] **폴링 전역 1곳**: TanStack Query 키 1개를 배지·패널·복원 훅이 공유(중복 폴링 금지) — 진행 중 잡 있을 때만 짧은 간격, 없으면 완만(간격 구현 재량).
-- [ ] `api/types.ts`: 잡 목록 타입 + 전 kind 상태 유니온에 `'cancelled'` 추가 — 기존 폴링 컴포넌트(`LlmJobProgress` 소비처 전수)가 cancelled를 종료 상태("작업이 취소되었습니다")로 렌더.
+- [x] **전역 패널 신설**(`components/JobCenterPanel.tsx` — 이름 구현 재량): 목록 렌더(진행 = `LlmJobProgress` 재사용·대기 순번·종료 상태 배지 — label·문구는 서버 값 그대로), [화면으로 이동](kind→라우트 **매핑 상수 1곳** — 복원 훅과 공유, 모르는 kind 미렌더), 취소 버튼(대기 = 즉시 / 실행 중 = **확인 다이얼로그 고정 문구 "실행 중 취소는 이미 처리된 토큰만큼 요금이 발생할 수 있습니다"**), 일시정지 토글(+안내 1줄 "실행 중인 작업은 끝까지 진행됩니다 — 다음 작업부터 보류합니다"). 409·404는 서버 message 렌더 + 목록 갱신. 취소됨 = 중립 토큰(오류 색 아님). 색상 전부 토큰. (2026-08-03 프론트 구현 — 실기동 연결은 백엔드 완성 후 검증)
+- [x] **진입점**: PC/태블릿 사이드바 **하단 고정 버튼**(도움말 항목 위 — F39 관례, running+queued 건수 배지, 접힘 레일 = 아이콘+`title`+배지 점) · 모바일 = **좌측 드로어 항목**(하단 탭바 5개 불변 — 신설 햄버거 버튼으로 드로어 진입, 기존 공용 드로어 없어 이번에 신설). 패널은 라우트 이동 없이 열림(퀴즈·시험 세션 무영향).
+- [x] **폴링 전역 1곳**: TanStack Query 키 1개(`llmJobsKey = ['llm','jobs']`)를 배지·패널·복원 훅이 공유(중복 폴링 금지) — 진행 중 잡 있을 때만 짧은 간격(3s), 없으면 완만(15s).
+- [x] `api/types.ts`: 잡 목록 타입(`LlmJobItem`·`LlmJobsResponse` 등) + 전 kind 상태 유니온(`ConvertJobStatus`)에 `'cancelled'` 추가 — 기존 폴링 컴포넌트(`LlmJobProgress` 소비처 전수: RegenerateJobPanel·ExplainJobPanel·AnswerKeyImportWizard·AppliedExamPanel·ImproveGenWizard·ImproveRegressionWizard·FetchImportWizard·ImportQueue)가 cancelled를 종료 상태("작업이 취소되었습니다")로 렌더.
 
 ### 5. 프론트 — EngineSelect 모델 소목록·재진입 복원 훅 (설계 §4.24 ④⑤·screens §5.9·§5.12·§5.14)
 
-- [ ] **EngineSelect 확장**(컴포넌트 1곳 — 사용처 7곳 자동 반영): 구체 엔진 선택 시 그 엔진의 `models` 소목록 select 노출 — 기본 = "설정값(현재: {selected_model label})", auto·소목록 빈 엔진(codex-cli)은 미노출, **자유 입력 없음 유지**. 선택값을 각 시작 호출의 `model?`로 전달(사용처 7곳: Import·FetchImportWizard·AppliedExamPanel·AnswerKeyImportWizard·ExplainJobPanel·ImproveGenWizard·ImproveRegressionWizard). 422는 서버 message 그대로 렌더.
-- [ ] **공용 복원 훅 신설**(이름 구현 재량): 화면 진입 시 잡 목록에서 자기 kind(+ref 일치)의 running·queued 잡 재발견 → 해당 kind의 **기존 상태 엔드포인트** 폴링 재개 + "진행 중 작업을 복원했습니다" 소표기(F40-① recovered 전례). done 잡(TTL 내)의 결과 복원은 화면 재량(applied = 결과 요약·[응시 시작] 복원).
-- [ ] **적용 화면 전수(§4.24 ⓓ — 화면별 개별 구현 금지)**: ① `AppliedExamPanel`(**원 결함 지점 — 필수·최우선**) ② `ExplainJobPanel` ③ `AnswerKeyImportWizard` ④ `ImproveGenWizard` ⑤ `ImproveRegressionWizard` ⑥ `RegenerateJobPanel`(기존 "진행 중 배지"와 중복 렌더 금지 — 훅으로 수렴, 실측). **ImportQueue·FetchImportWizard는 기존 localStorage 복원 불변**(검토 단계 1차 키 = preview_id — §5.9).
-- [ ] **ImportQueue 처리 중 1건 [취소] 노출**(S13 한계 해소 — §5.9 개정): 작업 센터와 같은 cancel API·같은 확인 다이얼로그. 한계 문구는 화면에서 제거(매뉴얼은 7절).
+- [x] **EngineSelect 확장**(컴포넌트 1곳 — 사용처 7곳 자동 반영): 구체 엔진 선택 시 그 엔진의 `models` 소목록 select 노출 — 기본 = "설정값(현재: {selected_model label})", auto·소목록 빈 엔진(codex-cli)은 미노출, **자유 입력 없음 유지**. 선택값을 각 시작 호출의 `model?`로 전달(사용처 7곳: Import·FetchImportWizard·AppliedExamPanel·AnswerKeyImportWizard·ExplainJobPanel·ImproveGenWizard·ImproveRegressionWizard). 422는 서버 message 그대로 렌더.
+- [x] **공용 복원 훅 신설**(`hooks/useJobRecovery.ts`): 화면 진입 시 잡 목록에서 자기 kind(+ref 일치)의 running·queued 잡 재발견 → 해당 kind의 **기존 상태 엔드포인트** 폴링 재개 + "진행 중 작업을 복원했습니다" 소표기(F40-① recovered 전례). done 잡(TTL 내)의 결과 복원은 화면 재량(applied = 결과 요약·[응시 시작] 복원, `includeDone` 옵션으로 구현).
+- [x] **적용 화면 전수(§4.24 ⓓ — 화면별 개별 구현 금지)**: ① `AppliedExamPanel`(**원 결함 지점 — 필수·최우선**) ② `ExplainJobPanel` ③ `AnswerKeyImportWizard` ④ `ImproveGenWizard` ⑤ `ImproveRegressionWizard` ⑥ `RegenerateJobPanel`(기존 "진행 중 배지"와 중복 렌더 금지 — 훅으로 수렴). **ImportQueue·FetchImportWizard는 기존 localStorage 복원 불변**(검토 단계 1차 키 = preview_id — §5.9).
+- [x] **ImportQueue 처리 중 1건 [취소] 노출**(S13 한계 해소 — §5.9 개정): 작업 센터와 같은 cancel API(`useCancelLlmJob`)·같은 확인 다이얼로그. 기존 화면에는 한계 문구 자체가 렌더돼 있지 않았음(매뉴얼 문구는 7절 담당 범위).
 
 ### 6. 테스트·검증
 

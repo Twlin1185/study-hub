@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useCategoryTreePipeline } from '../api/categories'
 import { useCreateExamSession } from '../api/exam'
 import { useExamSessionStore } from '../stores/examSession'
@@ -115,7 +115,11 @@ export default function ExamPage() {
 
   // S19(§4.21·§5.12) — 모드 탭 [실전(기출)] / [AI 응용]. AI 응용은 별도 위저드(AppliedExamPanel)로
   // 완전히 분리한다 — 이 아래 실전 흐름(F25)은 손대지 않는다(계약 불변).
-  const [examMode, setExamMode] = useState<'real' | 'applied'>('real')
+  // S22(설계 §4.24 ⓓ, F48) — 작업 센터 [화면으로 이동]이 `?mode=applied`로 이 탭을 곧바로 연다.
+  const [searchParams] = useSearchParams()
+  const [examMode, setExamMode] = useState<'real' | 'applied'>(
+    searchParams.get('mode') === 'applied' ? 'applied' : 'real',
+  )
 
   const [examNodeId, setExamNodeId] = useState<number | null>(null)
   const [selectedSubjects, setSelectedSubjects] = useState<Set<number>>(new Set())
