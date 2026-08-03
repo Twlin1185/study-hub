@@ -600,6 +600,94 @@ def test_list_jobs_queue_concurrency_is_always_one():
 
 
 # ---------------------------------------------------------------------------
+# ⑥ 취소 확정~저장 사이의 창(검토 지적) — LLM 반환 후 취소가 먼저 확정되면 저장(DB
+#    finalize_generation / 사례 파일 append_regression)이 호출되지 않아야 한다.
+# ---------------------------------------------------------------------------
+def test_applied_exam_finalize_not_called_when_cancelled_after_llm_return(monkeypatch, clean_current_job):
+    """LLM 반환 직후~`finalize_generation`(DB 저장) 사이에 취소가 확정되는 레이스를
+    재현한다 — 저장 직전 체크포인트가 없으면 취소된 잡의 산출물이 DB에 저장된다."""
+    from services import applied_exam_service
+
+    job_id = "apx_cancel_before_save_test"
+    job = _fake_job(
+        "applied_exam",
+        gen_id="gen_cancel_1",
+        _prompt="테스트 프롬프트",
+        _basis_docs=[],
+        _requested_count=1,
+        _label="취소 저장 직전 테스트",
+    )
+    _register_job(job_id, job)
+    with cs._JOBS_LOCK:
+        cs._CURRENT_JOB_ID = job_id
+
+    def _fake_llm(prompt, *, timeout_seconds, job_id, model=None):
+        # LLM이 결과를 반환하는 시점에 레이스로 취소가 먼저 확정되는 상황을 재현한다.
+        cs.cancel_job(job_id)
+        return '{"items": [{"content": "q", "choices": ["a", "b"], "answer": "a", "basis": []}]}'
+
+    monkeypatch.setattr(cs, "_run_claude_cli_streaming", _fake_llm)
+
+    finalize_calls: list = []
+    monkeypatch.setattr(
+        applied_exam_service, "finalize_generation", lambda j, items: finalize_calls.append(items)
+    )
+
+    try:
+        with pytest.raises(cs._JobCancelled):
+            cs._do_applied_exam_job(job_id, job)
+        assert finalize_calls == []  # 저장(DB 트랜잭션)이 호출되지 않았다
+        with cs._JOBS_LOCK:
+            assert cs._JOBS[job_id]["status"] == "cancelled"
+    finally:
+        _drop_jobs(job_id)
+
+
+def test_improve_regression_append_not_called_when_cancelled_after_llm_return(
+    monkeypatch, clean_current_job
+):
+    """LLM 반환 직후~`append_regression`(사례 파일 저장) 사이에 취소가 확정되는 레이스를
+    재현한다 — 저장 직전 체크포인트가 없으면 취소된 잡의 사례 결과가 저장된다."""
+    from services import improve_service
+
+    job_id = "irg_cancel_before_save_test"
+    job = _fake_job(
+        "improve_regression",
+        _reg_id="reg_cancel_1",
+        _case_ids=["case_1"],
+        _label="취소 저장 직전 테스트(회귀)",
+    )
+    _register_job(job_id, job)
+    with cs._JOBS_LOCK:
+        cs._CURRENT_JOB_ID = job_id
+
+    monkeypatch.setattr(improve_service, "get_case_or_404", lambda case_id: {"case_id": case_id})
+
+    def _fake_run_case(jid, j, record):
+        # LLM(재변환)이 결과를 반환하는 시점에 레이스로 취소가 먼저 확정되는 상황을 재현한다.
+        cs.cancel_job(jid)
+        return "passed", "재변환 완료(구조화 오류 없음)"
+
+    monkeypatch.setattr(cs, "_regression_run_case", _fake_run_case)
+
+    append_calls: list = []
+    monkeypatch.setattr(
+        improve_service,
+        "append_regression",
+        lambda case_id, *, reg_id, outcome: append_calls.append((case_id, reg_id, outcome)),
+    )
+
+    try:
+        with pytest.raises(cs._JobCancelled):
+            cs._do_improve_regression_job(job_id, job)
+        assert append_calls == []  # 사례 저장(파일 IO)이 호출되지 않았다
+        with cs._JOBS_LOCK:
+            assert cs._JOBS[job_id]["status"] == "cancelled"
+    finally:
+        _drop_jobs(job_id)
+
+
+# ---------------------------------------------------------------------------
 # 부록 — Windows 프로세스 트리 종료 실측(R24, LLM 0 — claude/codex를 스폰하지 않는다)
 # ---------------------------------------------------------------------------
 def test_terminate_process_tree_kills_real_child_process_on_windows():
