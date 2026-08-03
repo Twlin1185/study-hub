@@ -30,11 +30,11 @@
 
 ### 1. 백엔드 — mode 파라미터·태그 부여 (설계 §4.21 S24 ①~④)
 
-- [ ] `POST /api/applied-exam/{gen_id}/generate` body에 `mode?: 'accumulate'|'oneshot'` 추가(스키마·라우터 — 기본 accumulate, 그 외 값 422 §3). 잡 레코드에 mode 보관(인메모리 — label 불변).
-- [ ] **생성 프롬프트 출력 스키마 확장(accumulate만)**: `items[].tags`(문자열 배열, 3~6개 지시 — 기존 반입 태그 관례 수준) — oneshot은 프롬프트에 tags 지시 자체를 넣지 않는다(출력 토큰 절감이 1회성의 존재 이유).
-- [ ] **검증**: tags 정규화(§8.2 관례 — 공백 정리·빈 값 제거·중복 제거). **tags 필드 위반(비배열·비문자열) = 태그만 무시·문항 유지** — 검증 게이트(§4.21 3)의 폐기 사유 `discarded[]`에 추가하지 않는다.
-- [ ] **저장 분기(§4.21 4-ⓒ)**: accumulate = 문항 저장 시 DocumentTag 저장(`get_or_create_tag` 재사용 — 같은 트랜잭션) + 저장 후 `scan_document` 호출하되 **suggested 강제 플래그**(신규 파라미터 — auto 규칙이어도 제안 생성, 규칙 의미론 자체는 무변경·호출부 옵션) / oneshot = 종전 그대로(태그 0·스캔 0).
-- [ ] 상태 응답 `result`에 `mode` 필드 순수 추가(표시용 — 기존 필드 불변).
+- [x] `POST /api/applied-exam/{gen_id}/generate` body에 `mode?: 'accumulate'|'oneshot'` 추가(스키마·라우터 — 기본 accumulate, 그 외 값 422 §3). 잡 레코드에 mode 보관(인메모리 — label 불변).
+- [x] **생성 프롬프트 출력 스키마 확장(accumulate만)**: `items[].tags`(문자열 배열, 3~6개 지시 — 기존 반입 태그 관례 수준) — oneshot은 프롬프트에 tags 지시 자체를 넣지 않는다(출력 토큰 절감이 1회성의 존재 이유).
+- [x] **검증**: tags 정규화(§8.2 관례 — 공백 정리·빈 값 제거·중복 제거). **tags 필드 위반(비배열·비문자열) = 태그만 무시·문항 유지** — 검증 게이트(§4.21 3)의 폐기 사유 `discarded[]`에 추가하지 않는다.
+- [x] **저장 분기(§4.21 4-ⓒ)**: accumulate = 문항 저장 시 DocumentTag 저장(`get_or_create_tag` 재사용 — 같은 트랜잭션) + 저장 후 `scan_document` 호출하되 **suggested 강제 플래그**(신규 파라미터 — auto 규칙이어도 제안 생성, 규칙 의미론 자체는 무변경·호출부 옵션) / oneshot = 종전 그대로(태그 0·스캔 0).
+- [x] 상태 응답 `result`에 `mode` 필드 순수 추가(표시용 — 기존 필드 불변).
 
 ### 2. 프론트 — 모드 선택 UI (screens §5.12 — AppliedExamPanel)
 
@@ -43,8 +43,8 @@
 
 ### 3. 테스트·검증
 
-- [ ] 단위 테스트(생성·저장 분기는 핵심 로직 취급 — F45 전례): ① mode 기본값 = accumulate·잘못된 값 422 ② accumulate = DocumentTag 저장 + suggestion 생성(auto 규칙에서도 **linked 행 0·suggested만**) ③ oneshot = 태그 0·스캔 0(종전 동작 회귀) ④ tags 위반 = 태그만 무시·문항 유지(discarded 미포함) ⑤ derived_from 양 모드 공통 ⑥ 격리 불변(실전 트리 연결 0·마커 부착·기본 제외).
-- [ ] 스모크(무LLM 규약): generate 422(mode 오류값)·상태 응답 mode 필드 — 실 생성(태그 품질 표본)은 사용자 이행.
+- [x] 단위 테스트(생성·저장 분기는 핵심 로직 취급 — F45 전례): ① mode 기본값 = accumulate·잘못된 값 422 ② accumulate = DocumentTag 저장 + suggestion 생성(auto 규칙에서도 **linked 행 0·suggested만**) ③ oneshot = 태그 0·스캔 0(종전 동작 회귀) ④ tags 위반 = 태그만 무시·문항 유지(discarded 미포함) ⑤ derived_from 양 모드 공통 ⑥ 격리 불변(실전 트리 연결 0·마커 부착·기본 제외). — 신규 13건 + 기존 463건 전체 통과(476/476, 2026-08-04 실측).
+- [x] 스모크(무LLM 규약): `alembic upgrade head`로 이 워크트리 전용 `study.db` 생성 후 실 uvicorn 기동 + curl로 `generate` 422(mode="bogus" → VALIDATION_ERROR §3 포맷 확인) 및 mode 미지정·"oneshot" 정상 통과(존재하지 않는 gen_id로 NOT_FOUND까지 도달 — 스키마 검증 통과 확인)를 확인. 상태 응답 `result.mode` 필드는 실 LLM 호출 없이는 완료 상태를 만들 수 없어 단위 테스트(`test_get_status_result_includes_mode_field`)로 검증. 실 생성(태그 품질 표본)은 사용자 이행 항목(DoD 6)으로 남김.
 - [ ] stage-reviewer(Opus) 검토 — DoD 자동 검증 전건.
 
 ### 4. 문서

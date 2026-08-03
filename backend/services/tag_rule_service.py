@@ -143,10 +143,16 @@ def _next_sort_order(db: Session, category_id: int) -> int:
     return (max_sort or 0) + 1
 
 
-def _apply_rule_to_document(db: Session, rule: models.TagRule, document_id: int) -> Optional[str]:
+def _apply_rule_to_document(
+    db: Session, rule: models.TagRule, document_id: int, *, force_suggest: bool = False
+) -> Optional[str]:
     """규칙 하나 vs 문서 하나 매칭 처리. 커밋하지 않는다(호출부가 트랜잭션을 관리).
 
     반환: 'linked'(auto 즉시 연결) | 'suggested'(pending 제안 생성) | None(중복이라 아무 일도 안 함).
+
+    `force_suggest`(기본 False — 규칙 의미론 자체는 무변경, 호출부 옵션): True면 규칙
+    mode가 'auto'라도 즉시 연결하지 않고 제안함 경유만 한다(S24 — F50 ②, 응용 모의고사
+    생성물 한정 호출부 플래그. "승인 없는 자동 연결(linked) 경로 0" 유지가 목적).
     """
     existing_link = db.get(
         models.CategoryDocument, {"category_id": rule.category_id, "document_id": document_id}
@@ -163,7 +169,7 @@ def _apply_rule_to_document(db: Session, rule: models.TagRule, document_id: int)
     if existing_suggestion is not None:
         return None
 
-    if rule.mode == "auto":
+    if rule.mode == "auto" and not force_suggest:
         db.add(
             models.CategoryDocument(
                 category_id=rule.category_id,
@@ -188,8 +194,13 @@ def _apply_rule_to_document(db: Session, rule: models.TagRule, document_id: int)
     return "suggested"
 
 
-def scan_document(db: Session, document_id: int) -> Dict[str, int]:
-    """트리거 1·2 — 문서 하나에 전체 규칙을 적용. 커밋은 호출부 책임."""
+def scan_document(db: Session, document_id: int, *, force_suggest: bool = False) -> Dict[str, int]:
+    """트리거 1·2 — 문서 하나에 전체 규칙을 적용. 커밋은 호출부 책임.
+
+    `force_suggest`(기본 False — 기존 호출부 전부 무변경): True면 auto 규칙이 매칭돼도
+    즉시 연결하지 않고 제안(pending)만 만든다 — 호출부 옵션일 뿐 규칙 자체의 mode 값은
+    바뀌지 않는다(S24 — F50 ②, `applied_exam_service._save_generated`의 accumulate 분기 전용).
+    """
     counts = {"linked": 0, "suggested": 0}
     tags = _document_tag_names(db, document_id)
     if not tags:
@@ -200,7 +211,7 @@ def scan_document(db: Session, document_id: int) -> Dict[str, int]:
         query_tags = parse_tag_query(rule.tag_query)
         if not any(t in tag_set for t in query_tags):
             continue
-        result = _apply_rule_to_document(db, rule, document_id)
+        result = _apply_rule_to_document(db, rule, document_id, force_suggest=force_suggest)
         if result:
             counts[result] += 1
     return counts
