@@ -5,9 +5,11 @@
 `logged_in`)/API형(`key_registered`·`key_suffix`) 중 해당 없는 필드는 `null`이다."""
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+from schemas.convert import ErrorInfo, JobProgress, JobUsage
 
 # 요청 파라미터(`POST /api/convert` 등)는 'auto' + 등록 엔진 id + legacy 별칭('cli'|'api')을
 # 계속 수용한다(422 아님 — 별칭 매핑은 읽기 시에만, 설계 §4.17 ③). 타입은 str로 느슨하게
@@ -72,3 +74,47 @@ class InstallEngineResponse(BaseModel):
 
     installed: bool
     version: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# S22(F48, 설계 §4.24) — LLM 작업 센터: 전역 잡 목록·취소·대기열 일시정지
+# ---------------------------------------------------------------------------
+JobListStatus = Literal["running", "queued", "done", "error", "cancelled"]
+
+
+class JobQueueInfo(BaseModel):
+    paused: bool
+    concurrency: int = 1
+
+
+class JobListItem(BaseModel):
+    """`GET /api/llm/jobs`의 items[] 항목(설계 §4.24 ⓐ) — 정답·해설·LLM 산출 원문은 어떤
+    필드에도 싣지 않는다(label은 파일명·제목·범위 수준, 불변 규칙 1)."""
+
+    job_id: str
+    kind: str
+    status: JobListStatus
+    label: str
+    engine: Optional[str] = None
+    # 유효 적용값(§4.23 ⑤ selected_model 산출 + 이번 요청 오버라이드 반영) — null=모델 인자 미전달.
+    model: Optional[str] = None
+    created_at: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    progress: Optional[JobProgress] = None  # running만
+    error_info: Optional[ErrorInfo] = None  # error만
+    ref: Dict[str, Any] = Field(default_factory=dict)  # kind별 참조 id(§4.24 ⓓ)
+
+
+class JobListResponse(BaseModel):
+    queue: JobQueueInfo
+    items: List[JobListItem]
+
+
+class JobCancelResult(BaseModel):
+    status: Literal["cancelled"]
+    usage: Optional[JobUsage] = None  # 취소 시점 마지막 진행 usage(부분 과금 정직 표기)
+
+
+class QueuePauseResult(BaseModel):
+    paused: bool

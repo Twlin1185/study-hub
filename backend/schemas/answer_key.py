@@ -10,6 +10,9 @@ from schemas.convert import EngineChoice, ErrorInfo, JobProgress
 
 class AnswerKeyProcessRequest(BaseModel):
     engine: EngineChoice = "auto"
+    # S22(F48 ④·ⓒ) — 요청 단위 모델 오버라이드(선택). 검증은 서버 공통 헬퍼
+    # (`assert_engine_selectable`)가 수행 — 여기서는 통과만 시킨다.
+    model: Optional[str] = None
 
 
 class AnswerKeyEstimate(BaseModel):
@@ -83,7 +86,8 @@ class AnswerKeyUnmatched(BaseModel):
     documents: List[AnswerKeyUnmatchedDocument] = Field(default_factory=list)
 
 
-AnswerKeyJobStatus = Literal["uploaded", "running", "done", "error"]
+# S22(F48 ②) — 'cancelled' 순수 추가(기존 값·필드 불변, 설계 §4.24 ⓑ).
+AnswerKeyJobStatus = Literal["uploaded", "running", "done", "error", "cancelled"]
 
 
 class AnswerKeyStatus(BaseModel):

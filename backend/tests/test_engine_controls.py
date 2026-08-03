@@ -399,7 +399,9 @@ def _make_question_document(db, doc_no: str):
 def test_all_nine_entrypoints_propagate_assert_engine_selectable(db, monkeypatch):
     from services import convert_service
 
-    def _boom(_db, _engine):
+    def _boom(_db, _engine, *, model=None):
+        # S22(F48 ④·ⓒ) — assert_engine_selectable가 model 키워드 인자를 받도록 확장됐다
+        # (9개 진입점이 전부 model=... 키워드로 호출 — 이 목도 같은 시그니처를 받는다).
         raise ValidationAppError("entrypoint gate test boom")
 
     monkeypatch.setattr(convert_service.llm_engine_service, "assert_engine_selectable", _boom)

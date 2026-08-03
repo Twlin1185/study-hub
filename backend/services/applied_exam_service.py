@@ -222,7 +222,7 @@ def prepare(db: Session, payload: AppliedExamPrepareRequest) -> AppliedExamPrepa
 # ---------------------------------------------------------------------------
 # ② generate — 잡 시작·상태 조회 (convert 잡 큐 재사용, kind='applied_exam')
 # ---------------------------------------------------------------------------
-def start_generation(db: Session, gen_id: str, *, engine: str = "auto") -> str:
+def start_generation(db: Session, gen_id: str, *, engine: str = "auto", model: Optional[str] = None) -> str:
     from services import convert_service  # 지연 import — convert_service가 이 모듈을 되부르는
     # 순환(마무리 단계 finalize_generation)을 피한다.
 
@@ -243,6 +243,7 @@ def start_generation(db: Session, gen_id: str, *, engine: str = "auto") -> str:
         requested_count=state["requested_count"],
         basis_docs=state["basis_docs"],
         engine=engine,
+        model=model,
     )
     with _GENS_LOCK:
         current = _GENS.get(gen_id)

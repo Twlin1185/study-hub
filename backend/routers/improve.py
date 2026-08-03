@@ -74,7 +74,7 @@ def gen_generate(
     gen_id: str, payload: GenGenerateRequest, db: Session = Depends(get_db)
 ) -> GenGenerateStart:
     """제안 생성 잡 시작(convert 잡 큐 재사용 — kind='improve_proposal', 동시 1개)."""
-    job_id = improve_service.start_generation(db, gen_id, engine=payload.engine)
+    job_id = improve_service.start_generation(db, gen_id, engine=payload.engine, model=payload.model)
     return GenGenerateStart(job_id=job_id)
 
 
@@ -132,7 +132,7 @@ def regression_prepare(payload: RegPrepareRequest) -> RegPrepareResult:
 def regression_run(
     reg_id: str, payload: RegRunRequest, db: Session = Depends(get_db)
 ) -> RegRunStart:
-    job_id = improve_service.start_regression(db, reg_id, engine=payload.engine)
+    job_id = improve_service.start_regression(db, reg_id, engine=payload.engine, model=payload.model)
     return RegRunStart(job_id=job_id)
 
 

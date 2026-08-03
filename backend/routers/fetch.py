@@ -71,5 +71,6 @@ def start_import(payload: FetchImportRequest, db: Session = Depends(get_db)) -> 
         source_url=payload.source_url,
         engine=payload.engine,
         exam_key=payload.exam_key,
+        model=payload.model,
     )
     return FetchJobStart(job_id=job_id)

@@ -841,7 +841,7 @@ def prepare_gen(case_ids: Sequence[str]) -> dict:
     return {"gen_id": gen_id, "case_count": len(seen), "estimate": estimate}
 
 
-def start_generation(db, gen_id: str, *, engine: str = "auto") -> str:
+def start_generation(db, gen_id: str, *, engine: str = "auto", model: Optional[str] = None) -> str:
     from services import convert_service  # 지연 import — 순환 회피(applied_exam_service 전례)
 
     state = _get_gen_or_404(gen_id)
@@ -855,7 +855,7 @@ def start_generation(db, gen_id: str, *, engine: str = "auto") -> str:
             raise ConflictError("이미 제안 생성이 진행 중입니다", detail={"job_id": existing_job_id})
 
     job_id = convert_service.start_improve_proposal_job(
-        db, gen_id=gen_id, prompt=state["prompt"], case_ids=state["case_ids"], engine=engine
+        db, gen_id=gen_id, prompt=state["prompt"], case_ids=state["case_ids"], engine=engine, model=model
     )
     with _GENS_LOCK:
         current = _GENS.get(gen_id)
@@ -943,7 +943,7 @@ def prepare_regression(case_ids: Sequence[str]) -> dict:
     return {"reg_id": reg_id, "case_count": len(seen), "estimate": estimate}
 
 
-def start_regression(db, reg_id: str, *, engine: str = "auto") -> str:
+def start_regression(db, reg_id: str, *, engine: str = "auto", model: Optional[str] = None) -> str:
     from services import convert_service
 
     state = _get_reg_or_404(reg_id)
@@ -957,7 +957,7 @@ def start_regression(db, reg_id: str, *, engine: str = "auto") -> str:
             raise ConflictError("이미 회귀 재검증이 진행 중입니다", detail={"job_id": existing_job_id})
 
     job_id = convert_service.start_improve_regression_job(
-        db, reg_id=reg_id, case_ids=state["case_ids"], engine=engine
+        db, reg_id=reg_id, case_ids=state["case_ids"], engine=engine, model=model
     )
     with _REGS_LOCK:
         current = _REGS.get(reg_id)

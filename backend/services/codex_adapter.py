@@ -319,6 +319,7 @@ def run_exec(
     timeout_seconds: int,
     on_activity: Optional[Callable[[], None]] = None,
     model: Optional[str] = None,
+    on_process_start: Optional[Callable[[subprocess.Popen], None]] = None,
 ) -> str:
     """codex exec 실행 — 반환값은 최종 agent 메시지 텍스트. 실패는 `CodexCliError`
     (원문은 로그에만, `classify_codex_failure`를 거쳐야 사용자에게 노출된다).
@@ -335,7 +336,11 @@ def run_exec(
     회피**한다(대형 원본 추출 텍스트가 길어져도 인자 길이 문제가 발생하지 않는다).
 
     `model`(설계 §4.23 ⓑ) — 지정되면 `-m {model}`을 추가한다. `None`이면 플래그를
-    전달하지 않는다(codex-cli 소목록이 비어 있는 한 항상 이 경로 — 현행 동작 불변)."""
+    전달하지 않는다(codex-cli 소목록이 비어 있는 한 항상 이 경로 — 현행 동작 불변).
+
+    `on_process_start`(S22 F48 ②) — Popen 생성 직후 그 핸들로 1회 호출된다. 호출부
+    (convert_service)가 이 핸들을 잡 레코드에 등록해 취소 엔드포인트가 다른 스레드에서
+    프로세스(트리)를 종료할 수 있게 한다. `None`이면 기존 동작 그대로(등록 없음)."""
     exe = find_executable()
     if exe is None:
         raise CodexCliError(
@@ -370,6 +375,9 @@ def run_exec(
             )
         except OSError as exc:
             raise CodexCliError(f"codex CLI 실행 파일을 찾지 못했습니다: {exc}") from exc
+
+        if on_process_start is not None:
+            on_process_start(proc)
 
         stdout_lines: List[str] = []
         stderr_lines: List[str] = []

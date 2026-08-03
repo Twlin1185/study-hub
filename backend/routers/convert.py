@@ -34,6 +34,7 @@ async def start_convert(request: Request, db: Session = Depends(get_db)) -> Conv
     content_type = request.headers.get("content-type", "")
     url: Optional[str] = None
     engine = "auto"
+    model: Optional[str] = None  # S22(F48 ④·ⓒ) — 요청 단위 모델 오버라이드(선택)
     upload_filename: Optional[str] = None
     upload_bytes: Optional[bytes] = None
     category_path: Optional[str] = None  # S13(F40-③) — 선택, 파일·URL 공통
@@ -43,6 +44,8 @@ async def start_convert(request: Request, db: Session = Depends(get_db)) -> Conv
     ):
         form = await request.form()
         engine = str(form.get("engine") or "auto")
+        raw_model = form.get("model")
+        model = raw_model if isinstance(raw_model, str) and raw_model.strip() else None
         raw_url = form.get("url")
         url = raw_url if isinstance(raw_url, str) and raw_url.strip() else None
         raw_path = form.get("category_path")
@@ -58,6 +61,10 @@ async def start_convert(request: Request, db: Session = Depends(get_db)) -> Conv
         raw_url = payload.get("url")
         url = raw_url if isinstance(raw_url, str) and raw_url.strip() else None
         engine = str(payload.get("engine") or "auto")
+        raw_model = payload.get("model")
+        if raw_model is not None and not isinstance(raw_model, str):
+            raise ValidationAppError("model은 문자열이어야 합니다", detail={"model": raw_model})
+        model = raw_model
         raw_path = payload.get("category_path")
         if raw_path is not None and not isinstance(raw_path, str):
             raise ValidationAppError(
@@ -80,7 +87,7 @@ async def start_convert(request: Request, db: Session = Depends(get_db)) -> Conv
 
     if url:
         job_id = convert_service.start_convert_job_from_url(
-            db=db, url=url, engine=engine, category_path=category_path
+            db=db, url=url, engine=engine, category_path=category_path, model=model
         )
     elif upload_bytes:
         if not upload_filename:
@@ -91,6 +98,7 @@ async def start_convert(request: Request, db: Session = Depends(get_db)) -> Conv
             upload_bytes=upload_bytes,
             engine=engine,
             category_path=category_path,
+            model=model,
         )
     else:
         raise ValidationAppError("file 업로드 또는 url 중 하나가 필요합니다")

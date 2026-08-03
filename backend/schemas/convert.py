@@ -5,7 +5,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-JobStatus = Literal["running", "done", "error"]
+# S22(F48 ②) — 'cancelled' 순수 추가(기존 값·필드 불변, 설계 §4.24 ⓑ).
+JobStatus = Literal["running", "done", "error", "cancelled"]
 # S10: 'fetching'(사이트 수집·이미지 다운로드) 신설 (설계 §4.13)
 JobPhase = Literal[
     "fetching", "downloading", "preparing", "llm_running", "parsing", "preview_building"
@@ -82,6 +83,8 @@ class ConvertJobStatus(BaseModel):
 class RegenerateRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
     engine: EngineChoice = "auto"
+    # S22(F48 ④·ⓒ) — 요청 단위 모델 오버라이드(선택). 검증은 서버 공통 헬퍼가 수행.
+    model: Optional[str] = None
 
 
 class RegenerateJobStart(BaseModel):

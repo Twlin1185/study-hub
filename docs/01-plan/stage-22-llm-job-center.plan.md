@@ -34,23 +34,23 @@
 
 ### 1. 백엔드 — 전역 잡 목록 (설계 §4.24 ⓐ·결정 ①)
 
-- [ ] `GET /api/llm/jobs` 신설(`routers/llm.py`) — `{queue: {paused, concurrency: 1}, items: [...]}`. items는 `_JOBS`에서 파생: `job_id`·`kind`·`status`·`label`·`engine`·`model`(유효 적용값 — §4.23 ⑤ 산출 + 이번 요청 오버라이드)·타임스탬프 3종·`progress`(running만 — §4.11 그대로)·`error_info`(error만)·`ref`(kind별 참조 id — §4.24 ⓓ 표 전수). 정렬 = running → queued(등록순) → 종료(최신순). **LLM 0·DB 0.**
-- [ ] **label 서버 합성**(kind별 — 파일명·회차 라벨·문서 doc_no/제목·범위 라벨·사례 수 수준): 프론트 포맷 분기 금지(§4.10 `notes` 관례). **정답·해설·LLM 산출 원문은 어떤 필드에도 미포함**(불변 규칙 1·§4.11 — 목록 응답 스키마 수준에서 부재).
-- [ ] 잡 레코드에 목록 파생에 부족한 필드(kind·label 재료·ref)가 없으면 `_new_job_base` 확장(값 추가만 — 기존 필드·상태 계약 불변).
+- [x] `GET /api/llm/jobs` 신설(`routers/llm.py`) — `{queue: {paused, concurrency: 1}, items: [...]}`. items는 `_JOBS`에서 파생: `job_id`·`kind`·`status`·`label`·`engine`·`model`(유효 적용값 — §4.23 ⑤ 산출 + 이번 요청 오버라이드)·타임스탬프 3종·`progress`(running만 — §4.11 그대로)·`error_info`(error만)·`ref`(kind별 참조 id — §4.24 ⓓ 표 전수). 정렬 = running → queued(등록순) → 종료(최신순). **LLM 0·DB 0.**
+- [x] **label 서버 합성**(kind별 — 파일명·회차 라벨·문서 doc_no/제목·범위 라벨·사례 수 수준): 프론트 포맷 분기 금지(§4.10 `notes` 관례). **정답·해설·LLM 산출 원문은 어떤 필드에도 미포함**(불변 규칙 1·§4.11 — 목록 응답 스키마 수준에서 부재).
+- [x] 잡 레코드에 목록 파생에 부족한 필드(kind·label 재료·ref)가 없으면 `_new_job_base` 확장(값 추가만 — 기존 필드·상태 계약 불변).
 
 ### 2. 백엔드 — 취소·대기열 일시정지 (설계 §4.24 ②③·ⓑ)
 
-- [ ] `POST /api/llm/jobs/{job_id}/cancel` — 상태 전이 전수: `queued → cancelled`(큐 제거·비용 0) · `running → cancelled`(중단) · 그 외(done·error·cancelled) = **409 CONFLICT**("이미 완료된 작업입니다 — 결과가 보존돼 있습니다") · 미존재·TTL 만료 = 404. 응답 `{status:'cancelled', usage?}`(마지막 진행 usage — 부분 과금 정직 표기).
-- [ ] **running 중단 구현**: CLI 엔진 = 서브프로세스 **트리** 종료(**Windows 실측 과제** — terminate가 자식(claude/codex 프로세스)까지 죽이는지 확인, 실패 감지 시 잡은 cancelled 확정 + 서버 로그 경고·응답에 내부 상태 미노출 — R24) · API 엔진 = 스트림 중단(연결 종료). 부분 LLM 산출물 폐기(preview 미생성) · 이미 저장된 `sources/` 원본 유지(불변 규칙 4).
-- [ ] **취소-완료 레이스 = 완료 승리**: 잡 레코드 종료 상태 갱신을 직렬화(단일 워커·잠금 — 구현 재량)해 먼저 도달한 상태가 확정 — 완료가 먼저면 409 + 결과 보존(**취소가 완료 결과를 지우는 경로 0**), 취소가 먼저면 이후 도착 산출물 폐기.
-- [ ] 상태 값 `'cancelled'`를 전 kind 상태 응답(§4.10 convert/regenerate·§4.20 answer-key/explain·§4.21 applied·§4.22 improve)에 **순수 추가** — 기존 값·필드 불변, 각 상태 조회 코드의 값 확장 여부 전수 확인.
-- [ ] `POST /api/llm/queue/pause`·`POST /api/llm/queue/resume` — 인메모리 paused 플래그(멱등·재시작 시 해제). paused 중 **다음 잡 시작만 보류**(running 무영향 — 동시 1개라 이것으로 완결), 잡 등록(시작 API)은 허용(대기 적재). 워커의 다음 잡 픽업 지점 1곳에서 판정.
+- [x] `POST /api/llm/jobs/{job_id}/cancel` — 상태 전이 전수: `queued → cancelled`(큐 제거·비용 0) · `running → cancelled`(중단) · 그 외(done·error·cancelled) = **409 CONFLICT**("이미 완료된 작업입니다 — 결과가 보존돼 있습니다") · 미존재·TTL 만료 = 404. 응답 `{status:'cancelled', usage?}`(마지막 진행 usage — 부분 과금 정직 표기).
+- [x] **running 중단 구현**: CLI 엔진 = 서브프로세스 **트리** 종료(**Windows 실측 과제** — terminate가 자식(claude/codex 프로세스)까지 죽이는지 확인, 실패 감지 시 잡은 cancelled 확정 + 서버 로그 경고·응답에 내부 상태 미노출 — R24) · API 엔진 = 스트림 중단(연결 종료). 부분 LLM 산출물 폐기(preview 미생성) · 이미 저장된 `sources/` 원본 유지(불변 규칙 4).
+- [x] **취소-완료 레이스 = 완료 승리**: 잡 레코드 종료 상태 갱신을 직렬화(단일 워커·잠금 — 구현 재량)해 먼저 도달한 상태가 확정 — 완료가 먼저면 409 + 결과 보존(**취소가 완료 결과를 지우는 경로 0**), 취소가 먼저면 이후 도착 산출물 폐기.
+- [x] 상태 값 `'cancelled'`를 전 kind 상태 응답(§4.10 convert/regenerate·§4.20 answer-key/explain·§4.21 applied·§4.22 improve)에 **순수 추가** — 기존 값·필드 불변, 각 상태 조회 코드의 값 확장 여부 전수 확인.
+- [x] `POST /api/llm/queue/pause`·`POST /api/llm/queue/resume` — 인메모리 paused 플래그(멱등·재시작 시 해제). paused 중 **다음 잡 시작만 보류**(running 무영향 — 동시 1개라 이것으로 완결), 잡 등록(시작 API)은 허용(대기 적재). 워커의 다음 잡 픽업 지점 1곳에서 판정.
 
 ### 3. 백엔드 — 요청 단위 `model?` 파라미터 (설계 §4.24 ④·ⓒ — §4.23 ⓑ 개정)
 
-- [ ] `assert_engine_selectable` **확장 1곳**(검증 이원화 금지): 기존 엔진 상태 검증 + model 규칙 — (a) `engine`이 auto·미지정인데 `model` 지정 = **422**("모델을 지정하려면 엔진을 먼저 선택하세요") (b) 명시 엔진의 소목록(`models`)에 없는 값 = **422**(서버 완성 문장 — 무시·폴백 금지: 요청 명시값의 조용한 대체가 진짜 오호출이다. §4.23 결정 ④의 "무시·폴백"은 settings 잔존값 전용 규칙임을 주석으로 구분).
-- [ ] **적용 8곳 전수**(9개 진입점 — §4.23 ⓒ 실측 그대로): convert(파일/URL)·regenerate·fetch/import·answer-key process·explain·applied-exam generate·improve gen generate·improve regression run — 라우터는 `model?` 통과만, 통과값이 잡 레코드 `job["_model"]` 초기값을 대체(invoke 공통 경로 무변경 — §4.23 ⓑ).
-- [ ] **1회성·폴백 소멸 확인**: settings `llm.models` 무변경(쓰기 0) · 폴백으로 엔진이 바뀌면 요청 model은 버리고 다음 엔진 설정값 재산출(§4.23 [중요①] `_handle_engine_failure` 경로가 이미 수행 — 회귀 확인만). 미지정 시 기존 동작 바이트 수준 불변.
+- [x] `assert_engine_selectable` **확장 1곳**(검증 이원화 금지): 기존 엔진 상태 검증 + model 규칙 — (a) `engine`이 auto·미지정인데 `model` 지정 = **422**("모델을 지정하려면 엔진을 먼저 선택하세요") (b) 명시 엔진의 소목록(`models`)에 없는 값 = **422**(서버 완성 문장 — 무시·폴백 금지: 요청 명시값의 조용한 대체가 진짜 오호출이다. §4.23 결정 ④의 "무시·폴백"은 settings 잔존값 전용 규칙임을 주석으로 구분).
+- [x] **적용 8곳 전수**(9개 진입점 — §4.23 ⓒ 실측 그대로): convert(파일/URL)·regenerate·fetch/import·answer-key process·explain·applied-exam generate·improve gen generate·improve regression run — 라우터는 `model?` 통과만, 통과값이 잡 레코드 `job["_model"]` 초기값을 대체(invoke 공통 경로 무변경 — §4.23 ⓑ).
+- [x] **1회성·폴백 소멸 확인**: settings `llm.models` 무변경(쓰기 0) · 폴백으로 엔진이 바뀌면 요청 model은 버리고 다음 엔진 설정값 재산출(§4.23 [중요①] `_handle_engine_failure` 경로가 이미 수행 — 회귀 확인만). 미지정 시 기존 동작 바이트 수준 불변.
 
 ### 4. 프론트 — 작업 센터 패널·진입점 (screens §5 공통 레이아웃·§5.14)
 
@@ -68,7 +68,7 @@
 
 ### 6. 테스트·검증
 
-- [ ] **단위 테스트**(잡 제어·검증은 핵심 로직 취급 — 불변 규칙 7의 예외, F47 전례): ① **취소 상태 전이**(queued 제거·running 중단·done/error/cancelled = 409·미존재 404·전이 후 목록 반영) ② **레이스**(완료 선착 = 409 + 결과 보존 · 취소 선착 = 후착 산출물 폐기) ③ **pause/resume**(다음 잡 보류·running 무영향·멱등·paused 중 등록 = 대기 적재) ④ **model 검증**(auto+model 422 · 소목록 밖 422 · 유효값 = `job["_model"]` 대체 · 미지정 = 설정값 폴백 불변 · 폴백 시 재산출 · settings 무변경 · 9개 진입점 공통 헬퍼 경유) ⑤ **잡 목록**(전 kind 파생·정렬·ref·label에 정답·해설·원문 부재). — 신규 `backend/tests/test_job_center.py`(이름 재량), 기존 스위트 전체 통과.
+- [x] **단위 테스트**(잡 제어·검증은 핵심 로직 취급 — 불변 규칙 7의 예외, F47 전례): ① **취소 상태 전이**(queued 제거·running 중단·done/error/cancelled = 409·미존재 404·전이 후 목록 반영) ② **레이스**(완료 선착 = 409 + 결과 보존 · 취소 선착 = 후착 산출물 폐기) ③ **pause/resume**(다음 잡 보류·running 무영향·멱등·paused 중 등록 = 대기 적재) ④ **model 검증**(auto+model 422 · 소목록 밖 422 · 유효값 = `job["_model"]` 대체 · 미지정 = 설정값 폴백 불변 · 폴백 시 재산출 · settings 무변경 · 9개 진입점 공통 헬퍼 경유) ⑤ **잡 목록**(전 kind 파생·정렬·ref·label에 정답·해설·원문 부재). — 신규 `backend/tests/test_job_center.py`(28건, Windows 프로세스 트리 종료 실측 1건 포함) + 기존 스위트 전체(461건: 기존 433 + 신규 28) 통과 확인 완료(2026-08-03).
 - [ ] 스모크(실기동): **`engine=auto` 실행 금지·422 유발 값·무LLM 엔드포인트만 사용**(stage-21 사고 재발 방지 규약 승계) — 잡 목록 형식·pause/resume 왕복·model 422 두 종·cancel 404/409 확인. 실행 중 취소·실 진행 목록은 사용자 이행으로.
 - [ ] **취소·복원 실측(사용자 이행 — 실 LLM 소비용)**: ① 실 잡 1건 running 중 취소 — CLI 프로세스 트리 실제 종료(작업 관리자 확인)·부분 과금 usage 기록(R24 이행) ② 응용 모의고사 생성 중 이탈→재진입 — 진행 패널 자동 복원 확인(원 결함 해소 실증). 결과를 완료 기록에 기입.
 - [ ] stage-reviewer(Opus) 검토 — DoD 자동 검증 항목 전건.
