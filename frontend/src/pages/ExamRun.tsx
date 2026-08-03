@@ -16,10 +16,10 @@ import { useCreateQuizSession } from '../api/quiz'
 import { useQuizSessionStore } from '../stores/quizSession'
 import { useFontScale } from '../hooks/useFontScale'
 import { ApiError } from '../api/client'
+import { formatAnswer } from '../utils/answerFormat'
 import type { ExamCut, ExamResultItem, ExamSubjectReport, ExamSubmitRequest, ExamSubmitResponse, WrongReason } from '../api/types'
 
 const WRONG_REASONS: WrongReason[] = ['개념부족', '실수', '함정', '시간부족']
-const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -39,13 +39,6 @@ function formatElapsedSeconds(totalSec: number): string {
   const sec = s % 60
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-}
-
-function formatChoiceAnswer(answer: string | null | undefined): string {
-  if (!answer || !answer.trim()) return '미응답'
-  const trimmed = answer.trim()
-  if (/^[1-9]$/.test(trimmed)) return `${CIRCLED_DIGITS[Number(trimmed) - 1] ?? trimmed} (${trimmed})`
-  return trimmed
 }
 
 // 설계 §5.12 — 모의고사 런 화면(`/exam/run`). QuizCard 문항 렌더 재사용 + 채점 상호작용 제거,
@@ -484,7 +477,7 @@ function ResultRow({
         <div className="mt-3 border-t border-border pt-3">
           {item?.content && <MarkdownView content={item.content} />}
           <p className="my-2 text-sm text-primary">
-            내 답: {formatChoiceAnswer(result.my_answer)} · 정답: {formatChoiceAnswer(result.answer)}
+            내 답: {formatAnswer(result.my_answer, '미응답')} · 정답: {formatAnswer(result.answer, '미응답')}
           </p>
           {!result.is_correct && result.review_note_id != null && (
             <ExamWrongReasonButtons reviewNoteId={result.review_note_id} updateReviewNote={updateReviewNote} />

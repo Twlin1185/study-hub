@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react'
 import MarkdownView from './MarkdownView'
 import type { FontScale } from '../api/types'
-
-const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
+import { CIRCLED_DIGITS } from '../utils/answerFormat'
 
 interface QuestionCardProps {
   docNo: string

@@ -14,6 +14,7 @@ import { useQuizSessionStore } from '../stores/quizSession'
 import { useFontScale } from '../hooks/useFontScale'
 import { findCategory, findNextSiblingId } from '../utils/tree'
 import ReportErrorButton from '../components/ReportErrorButton'
+import { CIRCLED_DIGITS, formatAnswer } from '../utils/answerFormat'
 import type {
   AttemptResponse,
   CategoryStageProgress,
@@ -25,8 +26,6 @@ import type {
 
 // F37 개념 트랙 = 하위 포함, concept+question 인터리브(기출 제외) — 설계 §5.5·§4.12.
 const CONCEPT_TRACK_TYPES: DocumentType[] = ['concept', 'question']
-
-const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -747,7 +746,7 @@ function ChapterJourney({
                   {w.title}
                 </p>
                 <p className="text-xs text-muted">
-                  내 답: {w.my_answer} · 정답: {w.answer}
+                  내 답: {formatAnswer(w.my_answer)} · 정답: {formatAnswer(w.answer)}
                 </p>
               </div>
             ))}

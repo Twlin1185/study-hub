@@ -13,6 +13,7 @@ import { useSettings } from '../api/settings'
 import { useFontScale } from '../hooks/useFontScale'
 import ReportErrorButton from '../components/ReportErrorButton'
 import { pickManualRelations } from '../utils/relations'
+import { CIRCLED_DIGITS, formatAnswer } from '../utils/answerFormat'
 import type { QuizQuestion, WrongReason } from '../api/types'
 
 // 틀린이유 원탭 4버튼 (설계 §5.6, F36-⑤)
@@ -69,8 +70,6 @@ function QuizCardBookmark({ documentId }: { documentId: number }) {
   const docQuery = useDocument(documentId)
   return <BookmarkButton documentId={documentId} bookmarked={docQuery.data?.bookmarked ?? false} size="sm" />
 }
-
-const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
 
 function formatElapsed(ms: number): string {
   const totalSec = Math.max(0, Math.floor(ms / 1000))
@@ -476,7 +475,7 @@ function WrongQuestionRow({
         {question.title}
       </p>
       <p className="mb-2 text-xs text-muted">
-        내 답: {answer.my_answer} · 정답: {answer.result.answer}
+        내 답: {formatAnswer(answer.my_answer)} · 정답: {formatAnswer(answer.result.answer)}
       </p>
       {reviewNoteId != null ? (
         <div className="flex gap-1.5">

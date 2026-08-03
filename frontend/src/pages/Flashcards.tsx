@@ -14,18 +14,10 @@ import {
   useFlashcardSessionStore,
 } from '../stores/flashcardSession'
 import type { FlashcardCard, PendingJudgment } from '../stores/flashcardSession'
+import { formatAnswer } from '../utils/answerFormat'
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
-}
-
-const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
-
-function formatAnswer(answer: string | null | undefined): string {
-  if (!answer || !answer.trim()) return '-'
-  const trimmed = answer.trim()
-  if (/^[1-9]$/.test(trimmed)) return `${CIRCLED_DIGITS[Number(trimmed) - 1] ?? trimmed} (${trimmed})`
-  return trimmed
 }
 
 // 설계 §5.7 플래시카드 모드. 범위(category_id) 지정 시 해당 분류의 flashcard 문서, 없으면 오늘의

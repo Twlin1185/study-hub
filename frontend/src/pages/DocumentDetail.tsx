@@ -23,6 +23,7 @@ import DocEditor from '../components/DocEditor'
 import { useFontScale } from '../hooks/useFontScale'
 import { ApiError } from '../api/client'
 import { pickEmbeddedBy, pickManualRelations } from '../utils/relations'
+import { choiceMarker, formatAnswer } from '../utils/answerFormat'
 
 const TYPE_LABEL: Record<DocumentType, string> = {
   concept: '개념',
@@ -30,8 +31,6 @@ const TYPE_LABEL: Record<DocumentType, string> = {
   past_question: '기출문제',
   flashcard: '플래시카드',
 }
-
-const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
 
 const RELATION_LABEL: Record<RelationType, string> = {
   explains: '설명',
@@ -41,20 +40,6 @@ const RELATION_LABEL: Record<RelationType, string> = {
 
 function isConceptType(type: DocumentType): boolean {
   return type === 'concept' || type === 'flashcard'
-}
-
-function choiceMarker(index: number): string {
-  return CIRCLED_DIGITS[index] ?? `${index + 1}.`
-}
-
-// answer가 "1"~"9"이면 보기 번호(①②③…)로 매핑, 그 외에는 원문 그대로 노출한다.
-function formatAnswer(answer: string | null): string {
-  if (!answer || !answer.trim()) return '-'
-  const trimmed = answer.trim()
-  if (/^[1-9]$/.test(trimmed)) {
-    return `${choiceMarker(Number(trimmed) - 1)} (${trimmed})`
-  }
-  return trimmed
 }
 
 function errMsg(e: unknown, fallback: string) {
