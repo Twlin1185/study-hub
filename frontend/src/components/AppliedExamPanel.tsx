@@ -16,6 +16,7 @@ import CategoryScopePicker from './CategoryScopePicker'
 import LlmJobProgress from './LlmJobProgress'
 import LlmErrorInfoView from './LlmErrorInfo'
 import LlmLimitBanner from './LlmLimitBanner'
+import EngineSelect from './EngineSelect'
 import Stepper from './Stepper'
 import type { StepperStep } from './Stepper'
 import type { AppliedExamDiscardReason, AppliedExamPrepareResponse, AppliedExamResult, LlmEngine } from '../api/types'
@@ -51,15 +52,6 @@ function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
 }
 
-// FetchImportWizard·AnswerKeyImportWizard와 동일한 로컬 헬퍼(파일 간 미공유 — S15 §4.17①·②).
-function useEngineOptions(): { value: LlmEngine; label: string }[] {
-  const statusQuery = useLlmStatus()
-  const engines = statusQuery.data?.engines
-  const base: { value: LlmEngine; label: string }[] = [{ value: 'auto', label: '자동' }]
-  if (!engines || engines.length === 0) return base
-  return [...base, ...engines.map((e) => ({ value: e.id as LlmEngine, label: e.label }))]
-}
-
 export default function AppliedExamPanel() {
   const navigate = useNavigate()
   const [step, setStep] = useState<Step>('setup')
@@ -76,7 +68,6 @@ export default function AppliedExamPanel() {
   const [summaryResult, setSummaryResult] = useState<AppliedExamResult | null>(null)
 
   const treeQuery = useCategoryTree()
-  const engineOptions = useEngineOptions()
   const statusQuery = useLlmStatus()
   const prepareMutation = usePrepareAppliedExam()
   const generateMutation = useStartAppliedExamGenerate()
@@ -85,7 +76,8 @@ export default function AppliedExamPanel() {
   const genStatusQuery = useAppliedExamStatus(step === 'process' ? genId : null)
   const historyQuery = useAppliedExamHistory(10)
 
-  const engineLabel = engineOptions.find((o) => o.value === engine)?.label ?? engine
+  const engineLabel =
+    engine === 'auto' ? '자동' : (statusQuery.data?.engines.find((e) => e.id === engine)?.label ?? engine)
   const engineBilling =
     engine === 'auto'
       ? null
@@ -219,23 +211,7 @@ export default function AppliedExamPanel() {
 
                 <div>
                   <p className="mb-1 text-xs font-semibold text-muted">엔진</p>
-                  <div className="flex flex-wrap gap-2">
-                    {engineOptions.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setEngine(opt.value)}
-                        aria-pressed={engine === opt.value}
-                        className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                          engine === opt.value
-                            ? 'bg-accent text-on-accent'
-                            : 'bg-bg text-muted hover:bg-surface-raised'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
+                  <EngineSelect value={engine} onChange={setEngine} />
                 </div>
               </div>
 

@@ -27,12 +27,14 @@ export default function LlmLimitBanner() {
   // engine:'auto'가 priority[0]으로 해석되므로, priority[0]을 한도에 걸린 엔진으로 간주하고
   // 그 다음 자리부터 첫 available 엔진을 찾는다(우선순위 순 — CLI형은 installed+logged_in,
   // API형은 key_registered로 이미 계산된 available 필드를 그대로 신뢰).
+  // S21(설계 §4.23 ⓐ) — 후보 자격이 "available() && enabled"로 개정되어, 꺼진(enabled:false)
+  // 엔진은 서버가 실제로는 폴백 후보에서 제외한다 — 이 근사도 같은 조건으로 맞춘다.
   const priority = statusQuery.data?.priority ?? []
   const engines = statusQuery.data?.engines ?? []
   const orderedEngines = priority
     .map((id) => engines.find((e) => e.id === id))
     .filter((e): e is LlmEngineStatus => e != null)
-  const nextCandidate = orderedEngines.slice(1).find((e) => e.available) ?? null
+  const nextCandidate = orderedEngines.slice(1).find((e) => e.available && e.enabled) ?? null
 
   return (
     <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">

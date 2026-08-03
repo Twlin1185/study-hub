@@ -8,7 +8,7 @@ from starlette import status
 from database import get_db
 from exceptions import ValidationAppError
 from schemas.llm import ApiKeyRequest, ApiKeySaved, InstallEngineResponse, LlmStatus
-from services import llm_engine_service, settings_service
+from services import llm_engine_service
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
@@ -27,8 +27,10 @@ def get_status(
 
 @router.post("/api-key", response_model=ApiKeySaved)
 def register_api_key(payload: ApiKeyRequest, db: Session = Depends(get_db)) -> ApiKeySaved:
-    """즉석 연결 테스트 성공 시에만 저장(secrets.json, DB/settings 금지). 응답은 key_suffix만."""
-    model = settings_service.get_setting(db, "llm.api_model", llm_engine_service.DEFAULT_API_MODEL)
+    """즉석 연결 테스트 성공 시에만 저장(secrets.json, DB/settings 금지). 응답은 key_suffix만.
+    검토 지적 ⑤ — 핑 모델은 사용자가 고른 유효 선택 모델(legacy `llm.api_model` 별칭·
+    소목록 폴백 포함)을 그대로 쓴다(§4.23 ⓑ)."""
+    model = llm_engine_service.get_selected_model(db, llm_engine_service.ENGINE_CLAUDE_API)
     suffix = llm_engine_service.save_api_key(payload.key, model=model)
     return ApiKeySaved(key_suffix=suffix)
 

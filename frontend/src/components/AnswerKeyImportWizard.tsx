@@ -8,12 +8,12 @@ import {
 } from '../api/answerKey'
 import { jobUnavailable } from '../api/convert'
 import { useCategoryTree } from '../api/categories'
-import { useLlmStatus } from '../api/llm'
 import { ApiError } from '../api/client'
 import CategoryScopePicker from './CategoryScopePicker'
 import LlmJobProgress from './LlmJobProgress'
 import LlmErrorInfoView from './LlmErrorInfo'
 import LlmLimitBanner from './LlmLimitBanner'
+import EngineSelect from './EngineSelect'
 import Stepper from './Stepper'
 import type { StepperStep } from './Stepper'
 import type {
@@ -43,15 +43,6 @@ const STEP_LABELS: Record<Step, string> = {
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
-}
-
-// FetchImportWizard와 동일한 로컬 헬퍼(파일 간 미공유 — S15 §4.17①·②) — 상태 로딩 전에는 'auto'만.
-function useEngineOptions(): { value: LlmEngine; label: string }[] {
-  const statusQuery = useLlmStatus()
-  const engines = statusQuery.data?.engines
-  const base: { value: LlmEngine; label: string }[] = [{ value: 'auto', label: '자동' }]
-  if (!engines || engines.length === 0) return base
-  return [...base, ...engines.map((e) => ({ value: e.id as LlmEngine, label: e.label }))]
 }
 
 const WARNING_BADGE: Record<AnswerKeyWarning, { label: string; className: string }> = {
@@ -95,7 +86,6 @@ export default function AnswerKeyImportWizard() {
   const [selections, setSelections] = useState<Record<number, boolean>>({})
 
   const treeQuery = useCategoryTree()
-  const engineOptions = useEngineOptions()
   const uploadMutation = useUploadAnswerKey()
   const processMutation = useStartAnswerKeyProcess()
   const applyMutation = useApplyAnswerKey()
@@ -289,21 +279,7 @@ export default function AnswerKeyImportWizard() {
 
           <div>
             <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>
-            <div className="flex flex-wrap gap-2">
-              {engineOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setEngine(opt.value)}
-                  aria-pressed={engine === opt.value}
-                  className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                    engine === opt.value ? 'bg-accent text-on-accent' : 'bg-bg text-muted hover:bg-surface-raised'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+            <EngineSelect value={engine} onChange={setEngine} />
           </div>
 
           <label className="flex items-center gap-2 text-sm text-primary">

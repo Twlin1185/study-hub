@@ -52,6 +52,12 @@ export interface QueueFileInput {
   categoryPath?: string | null
 }
 
+// S21(설계 §4.23) — 반입 시작 화면 engine 선택(§5.9 ①). 배치 전체에 같은 엔진을 적용한다
+// (파일별 개별 엔진 지정은 이 단계 범위 밖 — "요청 단위 모델 오버라이드 없음"과 동일 원칙).
+export interface StartOptions {
+  engine?: LlmEngine
+}
+
 function labelOf(entry: StoredQueueEntry): string {
   return entry.fileName || entry.url || entry.fetchLabel || entry.jobId || '이름 없는 작업'
 }
@@ -177,8 +183,10 @@ export function useConvertQueue() {
   const readyCount = items.filter((it) => it.status === 'ready').length
 
   // 순차 투입 — 앞 요청이 끝난 뒤 다음을 보낸다(서버 큐 순서 = 사용자가 고른 순서).
+  // engine(S21, §4.23) — 지정 시 배치 전체(이번 선택분)에 같은 값을 적용한다. 미지정(undefined)은
+  // 기존 동작 그대로(서버 기본 auto).
   const startFiles = useCallback(
-    async (inputs: QueueFileInput[]) => {
+    async (inputs: QueueFileInput[], opts?: StartOptions) => {
       const created: StoredQueueEntry[] = inputs.map((input) => ({
         id: newEntryId(),
         jobId: null,
@@ -205,6 +213,7 @@ export function useConvertQueue() {
           const res = await startConvertRequest({
             kind: 'file',
             file,
+            engine: opts?.engine,
             categoryPath: entry.categoryPath,
           })
           updateEntry(entry.id, { jobId: res.job_id, startError: null, startErrorInfo: null })
@@ -221,7 +230,7 @@ export function useConvertQueue() {
   )
 
   const startUrl = useCallback(
-    async (url: string, categoryPath?: string | null) => {
+    async (url: string, categoryPath?: string | null, opts?: StartOptions) => {
       const entry: StoredQueueEntry = {
         id: newEntryId(),
         jobId: null,
@@ -240,7 +249,7 @@ export function useConvertQueue() {
       })
       setStarting(true)
       try {
-        const res = await startConvertRequest({ kind: 'url', url, categoryPath })
+        const res = await startConvertRequest({ kind: 'url', url, engine: opts?.engine, categoryPath })
         updateEntry(entry.id, { jobId: res.job_id, startError: null, startErrorInfo: null })
       } catch (err) {
         updateEntry(entry.id, {

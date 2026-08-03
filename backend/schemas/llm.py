@@ -17,21 +17,34 @@ Billing = Literal["subscription", "metered"]
 FallbackPolicy = Literal["auto", "ask", "off"]
 
 
+class EngineModel(BaseModel):
+    """엔진별 선택 가능 모델 소목록 항목(설계 §4.23 ⓑ — 하드코딩, 자유 텍스트 입력 없음)."""
+
+    id: str
+    label: str
+
+
 class EngineStatus(BaseModel):
     """엔진 배열의 항목 하나 — CLI형은 installed/logged_in만, API형은 key_registered/
-    key_suffix만 의미가 있고 해당 없는 쪽은 null(프론트는 null 필드를 렌더하지 않는다)."""
+    key_suffix만 의미가 있고 해당 없는 쪽은 null(프론트는 null 필드를 렌더하지 않는다).
+    `enabled`·`models`·`default_model`·`selected_model`은 S21(F47, 설계 §4.23 ⑤) 순수
+    추가 — 기존 필드·톱레벨은 불변."""
 
     id: str
     label: str
     billing: Billing
     installable: bool
     available: bool
+    enabled: bool
     installed: Optional[bool] = None
     logged_in: Optional[bool] = None
     key_registered: Optional[bool] = None
     key_suffix: Optional[str] = None
     last_success_at: Optional[str] = None
     last_error_kind: Optional[str] = None
+    models: List[EngineModel] = Field(default_factory=list)
+    default_model: Optional[str] = None
+    selected_model: Optional[str] = None
 
 
 class LimitStatus(BaseModel):

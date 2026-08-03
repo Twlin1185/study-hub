@@ -704,6 +704,13 @@ export interface SettingsResponse {
   'llm.priority'?: LlmPriority
   'llm.fallback'?: LlmFallbackPolicy
   'llm.api_model'?: string
+  // ---- 엔진 운용 제어 (설계 §4.23, S21, F47) ----
+  // 부정 목록(결정 ①) — 레지스트리 등재 id만 쓴다(알 수 없는 id는 서버가 무시). 빈 배열·키
+  // 부재 = 전 엔진 활성.
+  'llm.disabled'?: LlmEngineId[]
+  // 엔진id → 선택 모델id(결정 ③). legacy `llm.api_model`은 읽기 별칭으로만 남고 이 키에는
+  // 쓰지 않는다(§4.23 ⓑ).
+  'llm.models'?: Partial<Record<LlmEngineId, string>>
   // ---- 학습 UX (설계 §4.12, S9) ----
   // 정답 시 1.5초 자동 다음(오답은 항상 정지). 기본 off.
   'quiz.auto_advance'?: QuizAutoAdvance
@@ -866,9 +873,19 @@ export type LlmEngineBilling = 'subscription' | 'metered'
 export type LlmPriority = LlmEngineId[]
 export type LlmFallbackPolicy = 'auto' | 'ask' | 'off'
 
+// S21(설계 §4.23 ⓑ) — 엔진별 선택 가능 모델 소목록 항목. 자유 텍스트 입력 없음(레지스트리
+// 하드코딩 소목록만, 결정 ③ 기각 확정).
+export interface LlmEngineModelOption {
+  id: string
+  label: string
+}
+
 // S15(설계 §4.17②) — 엔진 배열 항목. CLI형(claude-cli·codex-cli) = installed/logged_in만 값이
 // 있고 key_registered/key_suffix는 null. API형(claude-api) = 반대. 프론트는 null 필드를
 // 렌더하지 않는다(필드 유무로 카드 내용을 결정 — 엔진 추가·제거에 프론트 코드 변경 없음).
+// S21(설계 §4.23) — enabled·models·default_model·selected_model 4종 순수 추가(결정 ⑤) — 기존
+// 필드·톱레벨 불변. enabled:false는 settings `llm.disabled`(부정 목록) 반영값 — available과는
+// 별개 축(available=진단 결과, enabled=사용자 의사)이며 게이팅 라벨은 enabled:false가 우선한다.
 export interface LlmEngineStatus {
   id: LlmEngineId
   label: string
@@ -881,6 +898,10 @@ export interface LlmEngineStatus {
   key_suffix: string | null
   last_success_at: string | null
   last_error_kind: string | null
+  enabled: boolean
+  models: LlmEngineModelOption[]
+  default_model: string | null
+  selected_model: string | null
 }
 
 // 최근 429 한도 기억 — resets_at 이전이면 재시도 전 경고 배너 대상 (설계 §4.11 "한도 기억").

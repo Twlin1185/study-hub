@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useFetchAdapters, useFetchCerts, useFetchExams, useFetchImport } from '../api/fetch'
 import { isJobLost, jobUnavailable, useConvertJob, useConvertedPreview } from '../api/convert'
-import { useLlmStatus } from '../api/llm'
 import { ApiError } from '../api/client'
 import { clearStoredConvertJob, getStoredConvertJob, setStoredConvertJob } from '../utils/convertJob'
 import LlmJobProgress from './LlmJobProgress'
 import LlmErrorInfoView from './LlmErrorInfo'
 import LlmLimitBanner from './LlmLimitBanner'
+import EngineSelect from './EngineSelect'
 import Stepper from './Stepper'
 import type { StepperStep } from './Stepper'
 import type {
@@ -36,17 +36,6 @@ const SUB_STEP_LABELS: Record<FetchSubStep, string> = {
 // S13: 등록 어댑터는 큐넷 하나뿐(사설 사이트 어댑터 제거, 설계 §4.13, 계획서 §14 F35-2).
 const ADAPTER_FALLBACK_NAME: Record<FetchAdapterId, string> = {
   qnet: '큐넷',
-}
-
-// S15(설계 §4.17①·②) — 등록 엔진 목록에서 파생(하드코딩 cli/api 2종 고정 제거). 상태 로딩
-// 전에는 항상 유효한 'auto' 하나만 보여준다(빈 선택지 방지). 엔진이 추가·제거돼도 이 컴포넌트는
-// 바뀌지 않아야 정상(어댑터 격리 원칙과 동일한 레지스트리 소비 방식).
-function useEngineOptions(): { value: LlmEngine; label: string }[] {
-  const statusQuery = useLlmStatus()
-  const engines = statusQuery.data?.engines
-  const base: { value: LlmEngine; label: string }[] = [{ value: 'auto', label: '자동' }]
-  if (!engines || engines.length === 0) return base
-  return [...base, ...engines.map((e) => ({ value: e.id as LlmEngine, label: e.label }))]
 }
 
 function errMsg(e: unknown, fallback: string) {
@@ -93,7 +82,6 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
   const [engine, setEngine] = useState<LlmEngine>('auto')
   const [agreed, setAgreed] = useState(false)
   const [jobId, setJobId] = useState<string | null>(resumed?.jobId ?? null)
-  const engineOptions = useEngineOptions()
 
   const adaptersQuery = useFetchAdapters()
   const certsQuery = useFetchCerts(committedQuery)
@@ -528,21 +516,7 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
 
           <div>
             <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>
-            <div className="flex flex-wrap gap-2">
-              {engineOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setEngine(opt.value)}
-                  aria-pressed={engine === opt.value}
-                  className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                    engine === opt.value ? 'bg-accent text-on-accent' : 'bg-bg text-muted hover:bg-surface-raised'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+            <EngineSelect value={engine} onChange={setEngine} />
           </div>
 
           {/* 고정 고지(설계 §4.13·§5.9) — 항상 표시, 확인 없이 실행 불가 */}

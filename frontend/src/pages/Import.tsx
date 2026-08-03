@@ -8,6 +8,7 @@ import { readQueue } from '../utils/convertQueue'
 import { useConvertQueue, MAX_QUEUE_BATCH } from '../hooks/useConvertQueue'
 import type { ConvertQueue, QueueItem } from '../hooks/useConvertQueue'
 import LlmLimitBanner from '../components/LlmLimitBanner'
+import EngineSelect from '../components/EngineSelect'
 import Stepper from '../components/Stepper'
 import ConfirmDialog from '../components/ConfirmDialog'
 import FetchImportWizard from '../components/FetchImportWizard'
@@ -478,6 +479,8 @@ function StartConvertPanel({ sourceKind, queue }: StartConvertPanelProps) {
   // 파일별 마지막 칸(회차 등) — 공통 상위 경로 뒤에 붙는다(§5.9 F40-③).
   const [perFileSuffix, setPerFileSuffix] = useState<Record<string, string>>({})
   const [selectNotice, setSelectNotice] = useState<string | null>(null)
+  // S21(설계 §4.23·§5.9 ①) — 시작 화면 engine 선택. 이번 선택분(배치) 전체에 같이 적용된다.
+  const [engine, setEngine] = useState<LlmEngine>('auto')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -516,14 +519,14 @@ function StartConvertPanel({ sourceKind, queue }: StartConvertPanelProps) {
     if (sourceKind === 'url') {
       const value = url.trim()
       setUrl('')
-      await queue.startUrl(value, commonPath || null)
+      await queue.startUrl(value, commonPath || null, { engine })
       return
     }
     const inputs = files.map((file) => ({ file, categoryPath: pathForFile(file.name) || null }))
     setFiles([])
     setPerFileSuffix({})
     if (fileInputRef.current) fileInputRef.current.value = ''
-    await queue.startFiles(inputs)
+    await queue.startFiles(inputs, { engine })
   }
 
   return (
@@ -564,6 +567,11 @@ function StartConvertPanel({ sourceKind, queue }: StartConvertPanelProps) {
       )}
 
       <CategoryPathField value={commonPath} onChange={setCommonPath} sharedNotice={files.length > 1} />
+
+      <div>
+        <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>
+        <EngineSelect value={engine} onChange={setEngine} />
+      </div>
 
       {sourceKind === 'file' && files.length > 1 && (
         <div className="flex flex-col gap-2 rounded border border-border bg-bg p-3">

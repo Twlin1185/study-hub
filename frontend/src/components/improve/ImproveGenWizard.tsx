@@ -10,7 +10,7 @@ import Modal from '../Modal'
 import LlmJobProgress from '../LlmJobProgress'
 import LlmErrorInfoView from '../LlmErrorInfo'
 import LlmLimitBanner from '../LlmLimitBanner'
-import { useLlmStatus } from '../../api/llm'
+import EngineSelect from '../EngineSelect'
 import type { LlmEngine } from '../../api/types'
 import { discardReasonLabel } from './labels'
 
@@ -41,18 +41,11 @@ export default function ImproveGenWizard({ caseIds, onClose, onGenerated }: Impr
   const [engine, setEngine] = useState<LlmEngine>('auto')
   const [agreed, setAgreed] = useState(false)
 
-  const statusQuery = useLlmStatus()
   const prepareMutation = useImproveGenPrepare()
   const generateMutation = useStartImproveGen()
   // generate 호출 전(=아직 진행 스텝이 아님)에는 잡이 시작되지 않았으므로 폴링하지 않는다
   // (AnswerKeyImportWizard의 useAnswerKeyStatus(step === 'process' ? keyId : null) 전례).
   const genJobQuery = useImproveGenJob(step === 'progress' || step === 'result' ? genId : null)
-
-  const engines = statusQuery.data?.engines ?? []
-  const engineOptions: { value: LlmEngine; label: string; billing?: string }[] = [
-    { value: 'auto', label: '자동' },
-    ...engines.map((e) => ({ value: e.id as LlmEngine, label: e.label, billing: e.billing })),
-  ]
 
   function runPrepare() {
     prepareMutation.mutate(
@@ -130,22 +123,7 @@ export default function ImproveGenWizard({ caseIds, onClose, onGenerated }: Impr
 
             <div>
               <p className="mb-1 text-xs font-semibold text-muted">사용 엔진 (과금형 표시)</p>
-              <div className="flex flex-wrap gap-2">
-                {engineOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setEngine(opt.value)}
-                    aria-pressed={engine === opt.value}
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                      engine === opt.value ? 'bg-accent text-on-accent' : 'bg-bg text-muted hover:bg-surface-raised'
-                    }`}
-                  >
-                    {opt.label}
-                    {opt.billing && ` · ${BILLING_LABEL[opt.billing] ?? opt.billing}`}
-                  </button>
-                ))}
-              </div>
+              <EngineSelect value={engine} onChange={setEngine} billingLabels={BILLING_LABEL} />
             </div>
 
             <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">

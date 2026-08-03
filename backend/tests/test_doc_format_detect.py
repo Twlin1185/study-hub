@@ -692,7 +692,7 @@ def test_do_fetch_file_mode_routes_by_detected_group_not_extension(monkeypatch, 
         "fetch",
         resolved_engine=convert_service.llm_engine_service.ENGINE_CLAUDE_API,
         requested_engine="auto",
-        api_model=convert_service.llm_engine_service.DEFAULT_API_MODEL,
+        model=convert_service.llm_engine_service.DEFAULT_API_MODEL,
     )
     job.update(
         {
