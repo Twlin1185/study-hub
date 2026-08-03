@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useImportCommit, useImportPreview } from '../api/import'
 import { previewJsonUrl, useConvertedPreview } from '../api/convert'
 import { ApiError } from '../api/client'
@@ -97,7 +97,12 @@ function initialEntryMode(): EntryMode {
 
 export default function ImportPage() {
   const queue = useConvertQueue()
-  const [entryMode, setEntryMode] = useState<EntryMode>(initialEntryMode)
+  // S22(설계 §4.24 ⓓ, F48) — 작업 센터 [화면으로 이동]이 `?mode=answer_key`로 답지 위저드를
+  // 곧바로 연다(대기열 복원보다 우선 — 명시적으로 그 화면을 지목한 진입이므로).
+  const [searchParams] = useSearchParams()
+  const [entryMode, setEntryMode] = useState<EntryMode>(() =>
+    searchParams.get('mode') === 'answer_key' ? 'answer_key' : initialEntryMode(),
+  )
   const [step, setStep] = useState<WizardStep>('select')
   const [jsonFile, setJsonFile] = useState<File | null>(null)
   const [sourceFile, setSourceFile] = useState<File | null>(null)
@@ -356,6 +361,9 @@ export default function ImportPage() {
                   window.scrollTo({ top: 0, behavior: 'smooth' })
                 }}
                 onClearFinished={queue.clearFinished}
+                onCancel={queue.cancelEntry}
+                cancelling={queue.cancelling}
+                cancelError={queue.cancelError}
               />
               {queue.items.length > 0 && (
                 <button
@@ -481,6 +489,8 @@ function StartConvertPanel({ sourceKind, queue }: StartConvertPanelProps) {
   const [selectNotice, setSelectNotice] = useState<string | null>(null)
   // S21(설계 §4.23·§5.9 ①) — 시작 화면 engine 선택. 이번 선택분(배치) 전체에 같이 적용된다.
   const [engine, setEngine] = useState<LlmEngine>('auto')
+  // S22(설계 §4.24 ④·⑤·§5.9, F48) — 요청 단위 모델 오버라이드. 미선택(null) = 설정값.
+  const [model, setModel] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -519,14 +529,14 @@ function StartConvertPanel({ sourceKind, queue }: StartConvertPanelProps) {
     if (sourceKind === 'url') {
       const value = url.trim()
       setUrl('')
-      await queue.startUrl(value, commonPath || null, { engine })
+      await queue.startUrl(value, commonPath || null, { engine, model: model ?? undefined })
       return
     }
     const inputs = files.map((file) => ({ file, categoryPath: pathForFile(file.name) || null }))
     setFiles([])
     setPerFileSuffix({})
     if (fileInputRef.current) fileInputRef.current.value = ''
-    await queue.startFiles(inputs, { engine })
+    await queue.startFiles(inputs, { engine, model: model ?? undefined })
   }
 
   return (
@@ -570,7 +580,7 @@ function StartConvertPanel({ sourceKind, queue }: StartConvertPanelProps) {
 
       <div>
         <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>
-        <EngineSelect value={engine} onChange={setEngine} />
+        <EngineSelect value={engine} onChange={setEngine} modelValue={model} onModelChange={setModel} />
       </div>
 
       {sourceKind === 'file' && files.length > 1 && (

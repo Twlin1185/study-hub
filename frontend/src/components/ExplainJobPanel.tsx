@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { jobUnavailable } from '../api/convert'
 import { useApplyExplain, useExplainJob, useStartExplain } from '../api/explain'
 import { useLlmStatus } from '../api/llm'
+import { useJobRecovery } from '../hooks/useJobRecovery'
 import { clearStoredExplainJob, getStoredExplainJob, setStoredExplainJob } from '../utils/explainJobs'
 import type { DocumentDetail, LlmEngine, LlmEngineStatus } from '../api/types'
 import { ApiError } from '../api/client'
@@ -35,6 +36,10 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   // S21(설계 §4.23 ⓒ) — 게이팅되는 EngineSelect로 명시 선택(기본 auto=서버 우선순위 그대로).
   const [engine, setEngine] = useState<LlmEngine>('auto')
+  // S22(설계 §4.24 ④·⑤, F48) — 요청 단위 모델 오버라이드. 미선택(null) = 설정값.
+  const [model, setModel] = useState<string | null>(null)
+  // 재진입 복원 소표기(설계 §4.24 ⑤·ⓓ, F40-① recovered 전례).
+  const [recoveredNotice, setRecoveredNotice] = useState(false)
   const jobId = stored?.jobId ?? null
   const active = jobId != null && !dismissed
 
@@ -43,12 +48,31 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
   const applyExplain = useApplyExplain()
   const jobQuery = useExplainJob(active ? doc.id : null, active ? jobId : null)
 
+  // 공용 재진입 복원 훅 — localStorage 기록이 없는데(예: 다른 세션에서 시작) 이 문서의
+  // running·queued explain 잡이 실제로 있으면 복원한다. localStorage에 이미 기록이 있으면
+  // (active=true) 그 경로가 우선이라 훅을 끈다(중복 렌더 금지).
+  // resetKey: doc.id — 문서 상세 안에서 doc가 바뀌어도 이 컴포넌트는 재마운트되지 않으므로
+  // doc.id 전환을 "진짜 새 진입"으로 알려 래치를 다시 연다(stage-reviewer 지적 반영).
+  useJobRecovery({
+    kind: 'explain',
+    enabled: !active,
+    matchRef: (ref) => ref.document_id === doc.id,
+    resetKey: doc.id,
+    onRecovered: (job) => {
+      setStoredExplainJob(doc.id, { jobId: job.job_id })
+      setStored({ jobId: job.job_id })
+      setRecoveredNotice(true)
+    },
+  })
+
   // 다른 문서 상세로 이동했을 때 그 문서의 잡 상태를 다시 확인한다.
   useEffect(() => {
     setStored(getStoredExplainJob(doc.id))
     setDismissed(false)
     setConfirmOpen(false)
     setEngine('auto')
+    setModel(null)
+    setRecoveredNotice(false)
   }, [doc.id])
 
   const eligible =
@@ -89,7 +113,13 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
               </p>
               <div>
                 <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>
-                <EngineSelect value={engine} onChange={setEngine} billingLabels={BILLING_LABEL} />
+                <EngineSelect
+                  value={engine}
+                  onChange={setEngine}
+                  billingLabels={BILLING_LABEL}
+                  modelValue={model}
+                  onModelChange={setModel}
+                />
                 {resolvedEngine && (
                   <p className="mt-1 text-xs text-muted">
                     사용 엔진: {resolvedEngine.label} (
@@ -118,7 +148,7 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
                   disabled={startExplain.isPending}
                   onClick={() =>
                     startExplain.mutate(
-                      { documentId: doc.id, engine },
+                      { documentId: doc.id, engine, model: model ?? undefined },
                       {
                         onSuccess: (data) => {
                           setStoredExplainJob(doc.id, { jobId: data.job_id })
@@ -168,6 +198,7 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
   if (!job || job.status === 'running') {
     return (
       <div className="rounded-lg border border-border bg-surface p-4">
+        {recoveredNotice && <p className="mb-2 text-xs text-accent">진행 중 작업을 복원했습니다.</p>}
         <LlmJobProgress progress={job?.progress} includeDownloading={false} />
       </div>
     )
@@ -184,6 +215,25 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
             setDismissed(true)
           }}
           className="mt-3 rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+        >
+          닫기
+        </button>
+      </div>
+    )
+  }
+
+  // 취소됨(S22, §4.24 ②) — 오류가 아닌 중립 종료 상태.
+  if (job.status === 'cancelled') {
+    return (
+      <div className="rounded-lg border border-border bg-surface p-4">
+        <p className="text-sm text-muted">작업이 취소되었습니다.</p>
+        <button
+          type="button"
+          onClick={() => {
+            clearStoredExplainJob(doc.id)
+            setDismissed(true)
+          }}
+          className="mt-2 rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
         >
           닫기
         </button>

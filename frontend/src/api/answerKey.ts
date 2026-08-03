@@ -29,10 +29,11 @@ export function useUploadAnswerKey() {
 
 // LLM 가공 잡 시작 — job_id는 서버 잡 큐 내부 식별자일 뿐, 상태 폴링은 key_id로 한다
 // (GET /api/import/answer-key/{key_id}, 아래 useAnswerKeyStatus).
+// model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드(engine 명시 필요·소목록 밖=422, 미지정=설정값).
 export function useStartAnswerKeyProcess() {
   return useMutation({
-    mutationFn: ({ keyId, engine }: { keyId: string; engine?: LlmEngine }) =>
-      api.post<ConvertJobStartResponse>(`/import/answer-key/${keyId}/process`, { engine }),
+    mutationFn: ({ keyId, engine, model }: { keyId: string; engine?: LlmEngine; model?: string }) =>
+      api.post<ConvertJobStartResponse>(`/import/answer-key/${keyId}/process`, { engine, model }),
   })
 }
 

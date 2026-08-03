@@ -2,7 +2,7 @@
 
 > 상위: `study-app.plan.md` **v0.33** §14(M22)·**F48**(배경 = 사용자 요청 4건·ⓐⓑⓒⓓ·확정 결정의 단일 출처) · 설계: **§4.24 신설 완료(2026-08-03, Design v1.26 — 잡 목록·취소·일시정지·model 파라미터·복원 계약의 정본)** · screens **§5.14 신설**(전역 패널·진입점·복원 훅)
 > 배경(등재 근거 — 2026-08-03 사용자 요청 4건): ① LLM 작업 전역 현황 화면(어디서든 — PC 좌하단 버튼·모바일 좌측 탭) ② 취소·일시 중단 ③ 작업 화면에서 모델 바로 선택 ④ **실측 결함**: 응용 모의고사 생성 중 화면을 떠났다 재진입하면 진행 표시가 복원되지 않음. F48 = 잡의 **보기(현황)·멈추기(취소·일시정지)·고르기(모델)·되찾기(복원)** 운용 계층.
-> **상태: 착수 전 결정 ①~⑥ 전건 확정(2026-08-03) — 착수 가능.**
+> **상태: 구현 완료(2026-08-03) — 검토 최종 통과(DoD 자동 검증 6/6·치명 0·중요 0·경미 5 잔여·pytest 461), 사용자 이행 항목(DoD 7 취소·복원 실측)만 잔여.**
 > 순서 관계(plan §14): **F47(M21) 완성 전제 — 이행 완료(2026-08-03)**. 엔진·모델 레지스트리(`models`·`selected_model`)·공용 EngineSelect·422 공통 헬퍼(`assert_engine_selectable`)·잡 모델 필드(`job["_model"]`)를 전부 재사용한다. 파일 충돌 없음(주 수정처 = `convert_service`(잡 레코드·큐)·`routers/llm.py`·전역 패널·EngineSelect).
 > 불변 규칙 재확인: 스키마 변경 금지(6 — **DDL 0건·DB 쓰기 0·settings 키 0·신규 엔드포인트 4개 확정**, §4.24 말미) · 정답·해설 미노출(1 — 잡 목록 label은 파일명·제목·범위 수준, LLM 산출 원문 미포함) · 색상 토큰만(5) · 에러 규약 §3(409·422는 서버 완성 문장) · 오류 원문 노출 금지(§4.11) · **신규 엔드포인트는 전부 LLM 호출 0**(조회·제어 — 비용 0. 취소만 "이미 발생한 과금"을 다루며 새 과금을 만들지 않는다).
 
@@ -34,50 +34,50 @@
 
 ### 1. 백엔드 — 전역 잡 목록 (설계 §4.24 ⓐ·결정 ①)
 
-- [ ] `GET /api/llm/jobs` 신설(`routers/llm.py`) — `{queue: {paused, concurrency: 1}, items: [...]}`. items는 `_JOBS`에서 파생: `job_id`·`kind`·`status`·`label`·`engine`·`model`(유효 적용값 — §4.23 ⑤ 산출 + 이번 요청 오버라이드)·타임스탬프 3종·`progress`(running만 — §4.11 그대로)·`error_info`(error만)·`ref`(kind별 참조 id — §4.24 ⓓ 표 전수). 정렬 = running → queued(등록순) → 종료(최신순). **LLM 0·DB 0.**
-- [ ] **label 서버 합성**(kind별 — 파일명·회차 라벨·문서 doc_no/제목·범위 라벨·사례 수 수준): 프론트 포맷 분기 금지(§4.10 `notes` 관례). **정답·해설·LLM 산출 원문은 어떤 필드에도 미포함**(불변 규칙 1·§4.11 — 목록 응답 스키마 수준에서 부재).
-- [ ] 잡 레코드에 목록 파생에 부족한 필드(kind·label 재료·ref)가 없으면 `_new_job_base` 확장(값 추가만 — 기존 필드·상태 계약 불변).
+- [x] `GET /api/llm/jobs` 신설(`routers/llm.py`) — `{queue: {paused, concurrency: 1}, items: [...]}`. items는 `_JOBS`에서 파생: `job_id`·`kind`·`status`·`label`·`engine`·`model`(유효 적용값 — §4.23 ⑤ 산출 + 이번 요청 오버라이드)·타임스탬프 3종·`progress`(running만 — §4.11 그대로)·`error_info`(error만)·`ref`(kind별 참조 id — §4.24 ⓓ 표 전수). 정렬 = running → queued(등록순) → 종료(최신순). **LLM 0·DB 0.**
+- [x] **label 서버 합성**(kind별 — 파일명·회차 라벨·문서 doc_no/제목·범위 라벨·사례 수 수준): 프론트 포맷 분기 금지(§4.10 `notes` 관례). **정답·해설·LLM 산출 원문은 어떤 필드에도 미포함**(불변 규칙 1·§4.11 — 목록 응답 스키마 수준에서 부재).
+- [x] 잡 레코드에 목록 파생에 부족한 필드(kind·label 재료·ref)가 없으면 `_new_job_base` 확장(값 추가만 — 기존 필드·상태 계약 불변).
 
 ### 2. 백엔드 — 취소·대기열 일시정지 (설계 §4.24 ②③·ⓑ)
 
-- [ ] `POST /api/llm/jobs/{job_id}/cancel` — 상태 전이 전수: `queued → cancelled`(큐 제거·비용 0) · `running → cancelled`(중단) · 그 외(done·error·cancelled) = **409 CONFLICT**("이미 완료된 작업입니다 — 결과가 보존돼 있습니다") · 미존재·TTL 만료 = 404. 응답 `{status:'cancelled', usage?}`(마지막 진행 usage — 부분 과금 정직 표기).
-- [ ] **running 중단 구현**: CLI 엔진 = 서브프로세스 **트리** 종료(**Windows 실측 과제** — terminate가 자식(claude/codex 프로세스)까지 죽이는지 확인, 실패 감지 시 잡은 cancelled 확정 + 서버 로그 경고·응답에 내부 상태 미노출 — R24) · API 엔진 = 스트림 중단(연결 종료). 부분 LLM 산출물 폐기(preview 미생성) · 이미 저장된 `sources/` 원본 유지(불변 규칙 4).
-- [ ] **취소-완료 레이스 = 완료 승리**: 잡 레코드 종료 상태 갱신을 직렬화(단일 워커·잠금 — 구현 재량)해 먼저 도달한 상태가 확정 — 완료가 먼저면 409 + 결과 보존(**취소가 완료 결과를 지우는 경로 0**), 취소가 먼저면 이후 도착 산출물 폐기.
-- [ ] 상태 값 `'cancelled'`를 전 kind 상태 응답(§4.10 convert/regenerate·§4.20 answer-key/explain·§4.21 applied·§4.22 improve)에 **순수 추가** — 기존 값·필드 불변, 각 상태 조회 코드의 값 확장 여부 전수 확인.
-- [ ] `POST /api/llm/queue/pause`·`POST /api/llm/queue/resume` — 인메모리 paused 플래그(멱등·재시작 시 해제). paused 중 **다음 잡 시작만 보류**(running 무영향 — 동시 1개라 이것으로 완결), 잡 등록(시작 API)은 허용(대기 적재). 워커의 다음 잡 픽업 지점 1곳에서 판정.
+- [x] `POST /api/llm/jobs/{job_id}/cancel` — 상태 전이 전수: `queued → cancelled`(큐 제거·비용 0) · `running → cancelled`(중단) · 그 외(done·error·cancelled) = **409 CONFLICT**("이미 완료된 작업입니다 — 결과가 보존돼 있습니다") · 미존재·TTL 만료 = 404. 응답 `{status:'cancelled', usage?}`(마지막 진행 usage — 부분 과금 정직 표기).
+- [x] **running 중단 구현**: CLI 엔진 = 서브프로세스 **트리** 종료(**Windows 실측 과제** — terminate가 자식(claude/codex 프로세스)까지 죽이는지 확인, 실패 감지 시 잡은 cancelled 확정 + 서버 로그 경고·응답에 내부 상태 미노출 — R24) · API 엔진 = 스트림 중단(연결 종료). 부분 LLM 산출물 폐기(preview 미생성) · 이미 저장된 `sources/` 원본 유지(불변 규칙 4).
+- [x] **취소-완료 레이스 = 완료 승리**: 잡 레코드 종료 상태 갱신을 직렬화(단일 워커·잠금 — 구현 재량)해 먼저 도달한 상태가 확정 — 완료가 먼저면 409 + 결과 보존(**취소가 완료 결과를 지우는 경로 0**), 취소가 먼저면 이후 도착 산출물 폐기.
+- [x] 상태 값 `'cancelled'`를 전 kind 상태 응답(§4.10 convert/regenerate·§4.20 answer-key/explain·§4.21 applied·§4.22 improve)에 **순수 추가** — 기존 값·필드 불변, 각 상태 조회 코드의 값 확장 여부 전수 확인.
+- [x] `POST /api/llm/queue/pause`·`POST /api/llm/queue/resume` — 인메모리 paused 플래그(멱등·재시작 시 해제). paused 중 **다음 잡 시작만 보류**(running 무영향 — 동시 1개라 이것으로 완결), 잡 등록(시작 API)은 허용(대기 적재). 워커의 다음 잡 픽업 지점 1곳에서 판정.
 
 ### 3. 백엔드 — 요청 단위 `model?` 파라미터 (설계 §4.24 ④·ⓒ — §4.23 ⓑ 개정)
 
-- [ ] `assert_engine_selectable` **확장 1곳**(검증 이원화 금지): 기존 엔진 상태 검증 + model 규칙 — (a) `engine`이 auto·미지정인데 `model` 지정 = **422**("모델을 지정하려면 엔진을 먼저 선택하세요") (b) 명시 엔진의 소목록(`models`)에 없는 값 = **422**(서버 완성 문장 — 무시·폴백 금지: 요청 명시값의 조용한 대체가 진짜 오호출이다. §4.23 결정 ④의 "무시·폴백"은 settings 잔존값 전용 규칙임을 주석으로 구분).
-- [ ] **적용 8곳 전수**(9개 진입점 — §4.23 ⓒ 실측 그대로): convert(파일/URL)·regenerate·fetch/import·answer-key process·explain·applied-exam generate·improve gen generate·improve regression run — 라우터는 `model?` 통과만, 통과값이 잡 레코드 `job["_model"]` 초기값을 대체(invoke 공통 경로 무변경 — §4.23 ⓑ).
-- [ ] **1회성·폴백 소멸 확인**: settings `llm.models` 무변경(쓰기 0) · 폴백으로 엔진이 바뀌면 요청 model은 버리고 다음 엔진 설정값 재산출(§4.23 [중요①] `_handle_engine_failure` 경로가 이미 수행 — 회귀 확인만). 미지정 시 기존 동작 바이트 수준 불변.
+- [x] `assert_engine_selectable` **확장 1곳**(검증 이원화 금지): 기존 엔진 상태 검증 + model 규칙 — (a) `engine`이 auto·미지정인데 `model` 지정 = **422**("모델을 지정하려면 엔진을 먼저 선택하세요") (b) 명시 엔진의 소목록(`models`)에 없는 값 = **422**(서버 완성 문장 — 무시·폴백 금지: 요청 명시값의 조용한 대체가 진짜 오호출이다. §4.23 결정 ④의 "무시·폴백"은 settings 잔존값 전용 규칙임을 주석으로 구분).
+- [x] **적용 8곳 전수**(9개 진입점 — §4.23 ⓒ 실측 그대로): convert(파일/URL)·regenerate·fetch/import·answer-key process·explain·applied-exam generate·improve gen generate·improve regression run — 라우터는 `model?` 통과만, 통과값이 잡 레코드 `job["_model"]` 초기값을 대체(invoke 공통 경로 무변경 — §4.23 ⓑ).
+- [x] **1회성·폴백 소멸 확인**: settings `llm.models` 무변경(쓰기 0) · 폴백으로 엔진이 바뀌면 요청 model은 버리고 다음 엔진 설정값 재산출(§4.23 [중요①] `_handle_engine_failure` 경로가 이미 수행 — 회귀 확인만). 미지정 시 기존 동작 바이트 수준 불변.
 
 ### 4. 프론트 — 작업 센터 패널·진입점 (screens §5 공통 레이아웃·§5.14)
 
-- [ ] **전역 패널 신설**(`components/JobCenterPanel.tsx` — 이름 구현 재량): 목록 렌더(진행 = `LlmJobProgress` 재사용·대기 순번·종료 상태 배지 — label·문구는 서버 값 그대로), [화면으로 이동](kind→라우트 **매핑 상수 1곳** — 복원 훅과 공유, 모르는 kind 미렌더), 취소 버튼(대기 = 즉시 / 실행 중 = **확인 다이얼로그 고정 문구 "실행 중 취소는 이미 처리된 토큰만큼 요금이 발생할 수 있습니다"**), 일시정지 토글(+안내 1줄 "실행 중인 작업은 끝까지 진행됩니다 — 다음 작업부터 보류합니다"). 409·404는 서버 message 렌더 + 목록 갱신. 취소됨 = 중립 토큰(오류 색 아님). 색상 전부 토큰.
-- [ ] **진입점**: PC/태블릿 사이드바 **하단 고정 버튼**(도움말 항목 위 — F39 관례, running+queued 건수 배지, 접힘 레일 = 아이콘+`title`+배지 점) · 모바일 = **좌측 드로어 항목**(하단 탭바 5개 불변 — 드로어 내 구체 위치는 기존 구성에 맞춰 실측). 패널은 라우트 이동 없이 열림(퀴즈·시험 세션 무영향).
-- [ ] **폴링 전역 1곳**: TanStack Query 키 1개를 배지·패널·복원 훅이 공유(중복 폴링 금지) — 진행 중 잡 있을 때만 짧은 간격, 없으면 완만(간격 구현 재량).
-- [ ] `api/types.ts`: 잡 목록 타입 + 전 kind 상태 유니온에 `'cancelled'` 추가 — 기존 폴링 컴포넌트(`LlmJobProgress` 소비처 전수)가 cancelled를 종료 상태("작업이 취소되었습니다")로 렌더.
+- [x] **전역 패널 신설**(`components/JobCenterPanel.tsx` — 이름 구현 재량): 목록 렌더(진행 = `LlmJobProgress` 재사용·대기 순번·종료 상태 배지 — label·문구는 서버 값 그대로), [화면으로 이동](kind→라우트 **매핑 상수 1곳** — 복원 훅과 공유, 모르는 kind 미렌더), 취소 버튼(대기 = 즉시 / 실행 중 = **확인 다이얼로그 고정 문구 "실행 중 취소는 이미 처리된 토큰만큼 요금이 발생할 수 있습니다"**), 일시정지 토글(+안내 1줄 "실행 중인 작업은 끝까지 진행됩니다 — 다음 작업부터 보류합니다"). 409·404는 서버 message 렌더 + 목록 갱신. 취소됨 = 중립 토큰(오류 색 아님). 색상 전부 토큰. (2026-08-03 프론트 구현 — 실기동 연결은 백엔드 완성 후 검증)
+- [x] **진입점**: PC/태블릿 사이드바 **하단 고정 버튼**(도움말 항목 위 — F39 관례, running+queued 건수 배지, 접힘 레일 = 아이콘+`title`+배지 점) · 모바일 = **좌측 드로어 항목**(하단 탭바 5개 불변 — 신설 햄버거 버튼으로 드로어 진입, 기존 공용 드로어 없어 이번에 신설). 패널은 라우트 이동 없이 열림(퀴즈·시험 세션 무영향).
+- [x] **폴링 전역 1곳**: TanStack Query 키 1개(`llmJobsKey = ['llm','jobs']`)를 배지·패널·복원 훅이 공유(중복 폴링 금지) — 진행 중 잡 있을 때만 짧은 간격(3s), 없으면 완만(15s).
+- [x] `api/types.ts`: 잡 목록 타입(`LlmJobItem`·`LlmJobsResponse` 등) + 전 kind 상태 유니온(`ConvertJobStatus`)에 `'cancelled'` 추가 — 기존 폴링 컴포넌트(`LlmJobProgress` 소비처 전수: RegenerateJobPanel·ExplainJobPanel·AnswerKeyImportWizard·AppliedExamPanel·ImproveGenWizard·ImproveRegressionWizard·FetchImportWizard·ImportQueue)가 cancelled를 종료 상태("작업이 취소되었습니다")로 렌더.
 
 ### 5. 프론트 — EngineSelect 모델 소목록·재진입 복원 훅 (설계 §4.24 ④⑤·screens §5.9·§5.12·§5.14)
 
-- [ ] **EngineSelect 확장**(컴포넌트 1곳 — 사용처 7곳 자동 반영): 구체 엔진 선택 시 그 엔진의 `models` 소목록 select 노출 — 기본 = "설정값(현재: {selected_model label})", auto·소목록 빈 엔진(codex-cli)은 미노출, **자유 입력 없음 유지**. 선택값을 각 시작 호출의 `model?`로 전달(사용처 7곳: Import·FetchImportWizard·AppliedExamPanel·AnswerKeyImportWizard·ExplainJobPanel·ImproveGenWizard·ImproveRegressionWizard). 422는 서버 message 그대로 렌더.
-- [ ] **공용 복원 훅 신설**(이름 구현 재량): 화면 진입 시 잡 목록에서 자기 kind(+ref 일치)의 running·queued 잡 재발견 → 해당 kind의 **기존 상태 엔드포인트** 폴링 재개 + "진행 중 작업을 복원했습니다" 소표기(F40-① recovered 전례). done 잡(TTL 내)의 결과 복원은 화면 재량(applied = 결과 요약·[응시 시작] 복원).
-- [ ] **적용 화면 전수(§4.24 ⓓ — 화면별 개별 구현 금지)**: ① `AppliedExamPanel`(**원 결함 지점 — 필수·최우선**) ② `ExplainJobPanel` ③ `AnswerKeyImportWizard` ④ `ImproveGenWizard` ⑤ `ImproveRegressionWizard` ⑥ `RegenerateJobPanel`(기존 "진행 중 배지"와 중복 렌더 금지 — 훅으로 수렴, 실측). **ImportQueue·FetchImportWizard는 기존 localStorage 복원 불변**(검토 단계 1차 키 = preview_id — §5.9).
-- [ ] **ImportQueue 처리 중 1건 [취소] 노출**(S13 한계 해소 — §5.9 개정): 작업 센터와 같은 cancel API·같은 확인 다이얼로그. 한계 문구는 화면에서 제거(매뉴얼은 7절).
+- [x] **EngineSelect 확장**(컴포넌트 1곳 — 사용처 7곳 자동 반영): 구체 엔진 선택 시 그 엔진의 `models` 소목록 select 노출 — 기본 = "설정값(현재: {selected_model label})", auto·소목록 빈 엔진(codex-cli)은 미노출, **자유 입력 없음 유지**. 선택값을 각 시작 호출의 `model?`로 전달(사용처 7곳: Import·FetchImportWizard·AppliedExamPanel·AnswerKeyImportWizard·ExplainJobPanel·ImproveGenWizard·ImproveRegressionWizard). 422는 서버 message 그대로 렌더.
+- [x] **공용 복원 훅 신설**(`hooks/useJobRecovery.ts`): 화면 진입 시 잡 목록에서 자기 kind(+ref 일치)의 running·queued 잡 재발견 → 해당 kind의 **기존 상태 엔드포인트** 폴링 재개 + "진행 중 작업을 복원했습니다" 소표기(F40-① recovered 전례). done 잡(TTL 내)의 결과 복원은 화면 재량(applied = 결과 요약·[응시 시작] 복원, `includeDone` 옵션으로 구현).
+- [x] **적용 화면 전수(§4.24 ⓓ — 화면별 개별 구현 금지)**: ① `AppliedExamPanel`(**원 결함 지점 — 필수·최우선**) ② `ExplainJobPanel` ③ `AnswerKeyImportWizard` ④ `ImproveGenWizard` ⑤ `ImproveRegressionWizard` ⑥ `RegenerateJobPanel`(기존 "진행 중 배지"와 중복 렌더 금지 — 훅으로 수렴). **ImportQueue·FetchImportWizard는 기존 localStorage 복원 불변**(검토 단계 1차 키 = preview_id — §5.9).
+- [x] **ImportQueue 처리 중 1건 [취소] 노출**(S13 한계 해소 — §5.9 개정): 작업 센터와 같은 cancel API(`useCancelLlmJob`)·같은 확인 다이얼로그. 기존 화면에는 한계 문구 자체가 렌더돼 있지 않았음(매뉴얼 문구는 7절 담당 범위).
 
 ### 6. 테스트·검증
 
-- [ ] **단위 테스트**(잡 제어·검증은 핵심 로직 취급 — 불변 규칙 7의 예외, F47 전례): ① **취소 상태 전이**(queued 제거·running 중단·done/error/cancelled = 409·미존재 404·전이 후 목록 반영) ② **레이스**(완료 선착 = 409 + 결과 보존 · 취소 선착 = 후착 산출물 폐기) ③ **pause/resume**(다음 잡 보류·running 무영향·멱등·paused 중 등록 = 대기 적재) ④ **model 검증**(auto+model 422 · 소목록 밖 422 · 유효값 = `job["_model"]` 대체 · 미지정 = 설정값 폴백 불변 · 폴백 시 재산출 · settings 무변경 · 9개 진입점 공통 헬퍼 경유) ⑤ **잡 목록**(전 kind 파생·정렬·ref·label에 정답·해설·원문 부재). — 신규 `backend/tests/test_job_center.py`(이름 재량), 기존 스위트 전체 통과.
-- [ ] 스모크(실기동): **`engine=auto` 실행 금지·422 유발 값·무LLM 엔드포인트만 사용**(stage-21 사고 재발 방지 규약 승계) — 잡 목록 형식·pause/resume 왕복·model 422 두 종·cancel 404/409 확인. 실행 중 취소·실 진행 목록은 사용자 이행으로.
+- [x] **단위 테스트**(잡 제어·검증은 핵심 로직 취급 — 불변 규칙 7의 예외, F47 전례): ① **취소 상태 전이**(queued 제거·running 중단·done/error/cancelled = 409·미존재 404·전이 후 목록 반영) ② **레이스**(완료 선착 = 409 + 결과 보존 · 취소 선착 = 후착 산출물 폐기) ③ **pause/resume**(다음 잡 보류·running 무영향·멱등·paused 중 등록 = 대기 적재) ④ **model 검증**(auto+model 422 · 소목록 밖 422 · 유효값 = `job["_model"]` 대체 · 미지정 = 설정값 폴백 불변 · 폴백 시 재산출 · settings 무변경 · 9개 진입점 공통 헬퍼 경유) ⑤ **잡 목록**(전 kind 파생·정렬·ref·label에 정답·해설·원문 부재). — 신규 `backend/tests/test_job_center.py`(28건, Windows 프로세스 트리 종료 실측 1건 포함) + 기존 스위트 전체(461건: 기존 433 + 신규 28) 통과 확인 완료(2026-08-03).
+- [x] 스모크(실기동): **`engine=auto` 실행 금지·422 유발 값·무LLM 엔드포인트만 사용**(stage-21 사고 재발 방지 규약 승계) — 잡 목록 형식·pause/resume 왕복·model 422 두 종·cancel 404/409 확인. 실행 중 취소·실 진행 목록은 사용자 이행으로. — 오케스트레이터가 uvicorn(포트 8021)로 수행, 전건 통과(완료 기록). 409는 실 잡 없이 재현 불가라 단위 테스트·검토자 in-process 스모크로 갈음.
 - [ ] **취소·복원 실측(사용자 이행 — 실 LLM 소비용)**: ① 실 잡 1건 running 중 취소 — CLI 프로세스 트리 실제 종료(작업 관리자 확인)·부분 과금 usage 기록(R24 이행) ② 응용 모의고사 생성 중 이탈→재진입 — 진행 패널 자동 복원 확인(원 결함 해소 실증). 결과를 완료 기록에 기입.
-- [ ] stage-reviewer(Opus) 검토 — DoD 자동 검증 항목 전건.
+- [x] stage-reviewer(Opus) 검토 — DoD 자동 검증 항목 전건. — 1차(치명 0·중요 2·경미 6 — DoD 5 미충족) → 수정 2회 반영 → **최종 통과(DoD 자동 검증 6/6·치명 0·중요 0·경미 5 잔여)**. 완료 기록 참조.
 
 ### 7. 문서
 
-- [ ] 구현 확정 사항 기록(§4.24·이 문서 완료 기록 — 특히 프로세스 트리 종료 방식 실측·label 합성 규칙. 구현 중 계약과 어긋나면(특히 DDL·잡 영속화) 착수 중단 후 보고).
-- [ ] 사용자 매뉴얼(F39): 작업 센터(버튼 위치·배지)·취소(부분 과금 안내)·일시정지의 정직한 의미·작업 화면 모델 선택·재진입 복원 추가 + **S13 "처리 중 1건 취소 불가" 한계 서술 제거**.
-- [ ] 이 문서 체크박스 갱신(불변 규칙 10) · CLAUDE.md 문서 지도 갱신(F48·M22·4.1~4.24·[S22] — 오케스트레이터 담당).
+- [x] 구현 확정 사항 기록(§4.24·이 문서 완료 기록 — 특히 프로세스 트리 종료 방식 실측·label 합성 규칙. 구현 중 계약과 어긋나면(특히 DDL·잡 영속화) 착수 중단 후 보고). — 완료 기록에 기입(계약 이탈 0 — DDL·Alembic·DB 쓰기·settings 키 전부 0 확인).
+- [x] 사용자 매뉴얼(F39): 작업 센터(버튼 위치·배지)·취소(부분 과금 안내)·일시정지의 정직한 의미·작업 화면 모델 선택·재진입 복원 추가 + **S13 "처리 중 1건 취소 불가" 한계 서술 제거**. — 22장 신설 + 목차 등재 + 5장 한계 문구 [취소] 안내로 개정(2026-08-03).
+- [x] 이 문서 체크박스 갱신(불변 규칙 10) · CLAUDE.md 문서 지도 갱신(F48·M22·4.1~4.24·[S22] — 오케스트레이터 담당, 2026-08-03 구현 완료 상태 반영).
 
 ## DoD (완료 정의)
 
@@ -114,3 +114,12 @@
 - **폴링 부하**: 인메모리 조회라 서버 비용은 0이지만 쿼리 키 공유가 깨지면 배지·패널·훅이 삼중 폴링한다 — 전역 1곳 규약(§5.14) 준수 확인.
 
 ## 완료 기록 (착수 후 기입)
+
+- **2026-08-03 백엔드 구현(backend-dev, 1~3절·6절 단위 테스트)**: `convert_service.py`(잡 목록 파생 `list_jobs_overview`·label 합성·`_job_ref`·취소 `cancel_job`/`_JobCancelled`/`_raise_if_cancelled` 체크포인트(엔진 재시도 루프 7곳+회귀 사례 루프)·`_terminate_process_tree`·pause `_QUEUE_PAUSED`/`_QUEUE_RESUME_EVENT`(워커 픽업 지점 1곳)·레이스 직렬화(`_JOBS_LOCK` 구간 3곳 — done/error/cancel)·`_resolve_engine_and_model` 공통 헬퍼) · `llm_engine_service.assert_engine_selectable` model 규칙 (a)(b) 확장 · `routers/llm.py` 신규 4 엔드포인트 · 라우터 8곳 `model?` 통과 · 스키마 5종 `'cancelled'` 순수 추가 · `codex_adapter.run_exec`에 `on_process_start` 콜백. 신규 `tests/test_job_center.py` 28건 포함 **전체 461건 통과**.
+- **label 합성 규칙(kind별)**: convert 파일 `『{파일명}』 변환` · convert URL `『{url}』 변환` · fetch `『{자격 회차}』 사이트 반입` · regenerate `『{doc_no} {제목}』 재생성` · explain `『{doc_no} {제목}』 풀이 생성` · answer_key `『{파일명}』 답지 가공` · applied_exam `AI 응용 문항 생성 — {범위} ({n}문항)` · improve_proposal `반입 개선 제안 생성 — 사례 {n}건` · improve_regression `반입 개선 회귀 재검증 — 사례 {n}건`. 정답·해설·LLM 산출 원문은 스키마 수준 부재(검토자 확인).
+- **프로세스 트리 종료 실측(R24)**: Windows에서 `Popen.terminate()`는 부모만 죽여 자식(claude/codex)이 잔존 — **`taskkill /F /T /PID`로 트리 종료** 채택. 실제 부모→자식 파이썬 트리를 띄워 자식 소멸까지 확인하는 실측 테스트 포함(`test_job_center.py`). 종료 실패 시 잡은 cancelled 확정 + 서버 로그 경고만. API 엔진 취소는 스트림 핸들 close + 루프 내 취소 플래그 폴링(베스트 에포트 — SDK 타 스레드 close 안전성은 실호출 금지로 미검증). claude/codex 실 트리 종료는 DoD 7(사용자 이행) 잔여.
+- **2026-08-03 프론트 구현(frontend-dev, 4~5절)**: 신설 `JobCenterPanel.tsx`(전역 슬라이드 오버/바텀시트)·`JobCenterButton.tsx`(사이드바 하단·모바일 드로어 진입점, running+queued 배지)·`hooks/useJobRecovery.ts`(공용 복원 훅)·`utils/jobRoutes.ts`(kind→라우트 매핑 상수 1곳). 폴링 전역 1곳(`llmJobsKey` 단일 키 — 진행 중 3s/유휴 15s). EngineSelect 모델 소목록 select 확장(사용처 7곳 `model?` 전달). `'cancelled'` 전 소비처 종료 상태 렌더. ImportQueue 처리 중 [취소]+확인 다이얼로그(S13 한계 해소). 재량 처리: 모바일 범용 드로어가 없어 햄버거+드로어 최소 신설(하단 탭바 5개 불변 — 검토자 계약 내 판정) · [화면으로 이동] 딥링크 쿼리(`?mode=applied`·`?tab=improve`·`?mode=answer_key`) · ImproveRegressionWizard `proposal?` 선택화(reg_id 역참조 API 부재) · 복원 잡 [다시 시도] 숨김(신고 사유 미보관).
+- **2026-08-03 stage-reviewer(Opus) 검토 — 1차(치명 0·중요 2·경미 6, DoD 5 미충족) → 수정 2회 → 최종 통과**: 중요 2건은 모두 복원 훅 재점화(① enabled 변화 시 래치 해제로 improve 위저드 무한 재개방 ② AppliedExamPanel 재설정이 done 잡 복원에 되돌려짐). 수정 = `useJobRecovery` 래치를 **"마운트당 1회 검사"**(isFetched 도달 시 found 무관 잠금 + `resetKey` 옵션 — Regenerate/Explain만 `doc.id` 전달)로 재설계. 표적 재검토 2회로 **완전 해소 확인**(경미 3 "자기 잡 복원 오표기"도 부수 해소) · **DoD 자동 검증 6/6 · pytest 461 · 빌드·dist 바이트 일치 · 신규 4 엔드포인트 in-process 스모크 통과**.
+- **잔여 경미 5건(게이트 아님 — 사용자 결정 대기)**: ① 잡 시작 뮤테이션이 `llmJobsKey`를 무효화하지 않아 시작 후 15초 내 이탈→복귀 시 그 마운트 미복원·배지 최대 15초 지연(1줄 invalidate 권고 — 우선순위 최상) ② 취소 확정↔산출물 저장 사이 수 ms 창(applied/regression — "폐기" 계약과 미세 불일치) ③ 딥링크가 같은 라우트에서 무동작(useState 초기값에서만 쿼리 읽음) ④ pause/resume 실패 조용히 소실(onError 없음) ⑤ 모바일 드로어 딤 배경 없음(`bg-black/40` 관례 불일치). +model 적용 로직 2곳 중복(드리프트 위험 관찰).
+- **오케스트레이터 스모크(uvicorn 8021, 무LLM)**: 잡 목록 형식·pause/resume 왕복(paused 반영)·cancel 404 문장·model 422 두 종(auto+model·소목록 밖) 전건 통과 · dist 신규 번들 서빙 확인. `engine=auto` 실행 0(stage-21 규약 준수).
+- **계약과 어긋나 보류한 것**: 없음 — DDL·Alembic·DB 쓰기·settings 키 전부 0, 신규 엔드포인트 정확히 4개(검토자 diff 전수 확인).

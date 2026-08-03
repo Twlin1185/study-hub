@@ -80,6 +80,8 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
   // 게시물이 2건이면 충돌한다(2026-07-27 검토 지적 — 잠재 오반입 버그).
   const [selectedExamRef, setSelectedExamRef] = useState<string | null>(null)
   const [engine, setEngine] = useState<LlmEngine>('auto')
+  // S22(설계 §4.24 ④·⑤, F48) — 요청 단위 모델 오버라이드. 미선택(null) = 설정값.
+  const [model, setModel] = useState<string | null>(null)
   const [agreed, setAgreed] = useState(false)
   const [jobId, setJobId] = useState<string | null>(resumed?.jobId ?? null)
 
@@ -182,6 +184,7 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
         cert_ref: source.cert_ref,
         exam_ref: examRef,
         engine: opts?.engineOverride ?? engine,
+        model: model ?? undefined,
         // §4.13 — 목록 응답의 exam_key를 그대로 실행 요청에 실어 보낸다(S13: 단일 어댑터라
         // 사실상 항등 전달이지만 계약·호출 형태는 유지).
         exam_key: selectedExam.exam_key,
@@ -207,6 +210,7 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
     setShowNotices(false)
     setSelectedExamRef(null)
     setEngine('auto')
+    setModel(null)
     setAgreed(false)
     setJobId(null)
   }
@@ -232,6 +236,8 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
   const unavailable = jobId != null ? jobUnavailable(jobQuery) : null
   const running = jobId != null && unavailable == null && (jobQuery.data == null || jobQuery.data.status === 'running')
   const jobFailed = jobQuery.data?.status === 'error'
+  // 취소됨(S22, §4.24 ②) — 오류가 아닌 중립 종료 상태.
+  const jobCancelled = jobQuery.data?.status === 'cancelled'
   const done = jobQuery.data?.status === 'done'
   const previewFetchFailed = done && (previewFetch.isError || !jobQuery.data?.result_preview_id)
   const previewExpired = previewFetch.isError && previewFetch.error instanceof ApiError && previewFetch.error.status === 404
@@ -516,7 +522,7 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
 
           <div>
             <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>
-            <EngineSelect value={engine} onChange={setEngine} />
+            <EngineSelect value={engine} onChange={setEngine} modelValue={model} onModelChange={setModel} />
           </div>
 
           {/* 고정 고지(설계 §4.13·§5.9) — 항상 표시, 확인 없이 실행 불가 */}
@@ -627,6 +633,19 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
                   )}
                 </div>
               )}
+              <button
+                type="button"
+                onClick={resetAll}
+                className="w-fit rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+              >
+                처음부터 다시
+              </button>
+            </div>
+          )}
+
+          {jobCancelled && (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-muted">작업이 취소되었습니다.</p>
               <button
                 type="button"
                 onClick={resetAll}

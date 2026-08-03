@@ -1,10 +1,71 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
-import type { ApiKeyResponse, InstallEngineResponse, LlmEngineId, LlmStatusResponse } from './types'
+import type {
+  ApiKeyResponse,
+  InstallEngineResponse,
+  LlmEngineId,
+  LlmJobCancelResponse,
+  LlmJobsResponse,
+  LlmQueuePauseResponse,
+  LlmStatusResponse,
+} from './types'
 
 // 설계 §4.11 (S8) — 엔진 진단·API 키 관리.
 export const llmKeys = {
   status: ['llm', 'status'] as const,
+}
+
+// 설계 §4.24(S22, F48) — 전역 잡 목록. TanStack Query 키 1개(§5.14 "폴링 전역 1곳")를 사이드바
+// 배지·JobCenterPanel·복원 훅이 공유한다(중복 폴링 금지). 진행 중(running·queued) 잡이 있을
+// 때만 짧은 간격, 없으면 완만(인메모리 조회라 서버 비용 0 — 간격은 구현 재량).
+export const llmJobsKey = ['llm', 'jobs'] as const
+
+const JOBS_ACTIVE_POLL_MS = 3000
+const JOBS_IDLE_POLL_MS = 15000
+
+export function useLlmJobs() {
+  return useQuery({
+    queryKey: llmJobsKey,
+    queryFn: () => api.get<LlmJobsResponse>('/llm/jobs'),
+    refetchInterval: (query) => {
+      const items = query.state.data?.items ?? []
+      const active = items.some((it) => it.status === 'running' || it.status === 'queued')
+      return active ? JOBS_ACTIVE_POLL_MS : JOBS_IDLE_POLL_MS
+    },
+  })
+}
+
+// 진행 중(running+queued) 건수 — 사이드바·모바일 드로어 배지 공용 파생값.
+export function activeJobCount(data: LlmJobsResponse | undefined): number {
+  if (!data) return 0
+  return data.items.filter((it) => it.status === 'running' || it.status === 'queued').length
+}
+
+// POST /api/llm/jobs/{id}/cancel — queued=즉시 제거(비용 0)/running=중단(부분 과금, 확인
+// 다이얼로그는 JobCenterPanel·ImportQueue 공용). 409(이미 종료)·404(미존재·만료)는 서버 message를
+// 그대로 렌더하는 것이 호출부 책임 — 여기서는 성공 시 목록만 무효화한다.
+export function useCancelLlmJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: string) => api.post<LlmJobCancelResponse>(`/llm/jobs/${jobId}/cancel`),
+    onSettled: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
+  })
+}
+
+export function usePauseLlmQueue() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<LlmQueuePauseResponse>('/llm/queue/pause'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
+  })
+}
+
+export function useResumeLlmQueue() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<LlmQueuePauseResponse>('/llm/queue/resume'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
+  })
 }
 
 export function useLlmStatus() {

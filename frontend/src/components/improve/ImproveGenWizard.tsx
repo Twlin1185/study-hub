@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   useImproveGenJob,
   useImproveGenPrepare,
   useStartImproveGen,
 } from '../../api/improve'
 import { jobUnavailable } from '../../api/convert'
+import { useJobRecovery } from '../../hooks/useJobRecovery'
 import { ApiError } from '../../api/client'
 import Modal from '../Modal'
 import LlmJobProgress from '../LlmJobProgress'
@@ -30,16 +31,26 @@ interface ImproveGenWizardProps {
   onClose: () => void
   // 생성 잡이 완료(성공)되면 호출 — 호출부가 제안 목록을 새로고침하고 탭을 전환할 수 있게 한다.
   onGenerated?: () => void
+  // 재진입 복원(설계 §4.24 ⑤·ⓓ, F48) — 호출부(ImproveCaseList)가 공용 복원 훅으로 이미
+  // running·queued 잡을 발견했을 때 넘긴다. 있으면 prepare를 건너뛰고 곧바로 진행 표시로
+  // 들어간다(caseIds는 이 경로에서 쓰이지 않는다 — prepare를 타지 않으므로).
+  resumeGenId?: string
 }
 
 // 설계 §4.22 ②(F46, S20) — 개선 제안 생성. prepare(LLM 0 견적) → 확인 스텝(estimate·엔진·
 // 과금형·고지, FetchImportWizard 전례) → generate(LLM 호출) → 진행(LlmJobProgress) → 결과
 // 요약(proposal 수 + discarded 사유 — 조용한 축소 금지).
-export default function ImproveGenWizard({ caseIds, onClose, onGenerated }: ImproveGenWizardProps) {
-  const [step, setStep] = useState<Step>('preparing')
-  const [genId, setGenId] = useState<string | null>(null)
+export default function ImproveGenWizard({ caseIds, onClose, onGenerated, resumeGenId }: ImproveGenWizardProps) {
+  const [step, setStep] = useState<Step>(resumeGenId ? 'progress' : 'preparing')
+  const [genId, setGenId] = useState<string | null>(resumeGenId ?? null)
   const [engine, setEngine] = useState<LlmEngine>('auto')
+  // S22(설계 §4.24 ④·⑤, F48) — 요청 단위 모델 오버라이드. 미선택(null) = 설정값.
+  const [model, setModel] = useState<string | null>(null)
   const [agreed, setAgreed] = useState(false)
+  // 재진입 복원 소표기(F40-① recovered 전례). resumeGenId로 이미 열린 경우도 복원된 것이다.
+  const [recoveredNotice, setRecoveredNotice] = useState(Boolean(resumeGenId))
+  // prepare 자동 호출을 건너뛸지 — ref 동기 갱신이라 같은 커밋 내 다른 effect와 경합하지 않는다.
+  const skipPrepareRef = useRef(Boolean(resumeGenId))
 
   const prepareMutation = useImproveGenPrepare()
   const generateMutation = useStartImproveGen()
@@ -59,11 +70,31 @@ export default function ImproveGenWizard({ caseIds, onClose, onGenerated }: Impr
     )
   }
 
+  // 공용 재진입 복원 훅 — resumeGenId가 이미 있으면(호출부가 이미 발견) 끈다(중복 판정 금지).
+  const { checked: jobsChecked } = useJobRecovery({
+    kind: 'improve_proposal',
+    enabled: !resumeGenId,
+    onRecovered: (job) => {
+      const gid = job.ref?.gen_id
+      if (!gid) return
+      skipPrepareRef.current = true
+      setGenId(gid)
+      setStep('progress')
+      setRecoveredNotice(true)
+    },
+  })
+
   useEffect(() => {
+    // 잡 목록의 첫 조회가 끝나기 전에 prepare를 쏘면 복원 판정과 경합한다(잡 목록 응답이 늦게
+    // 와도 이미 새 gen이 시작돼 버릴 수 있음) — jobsChecked가 true가 된 뒤에만 판단한다.
+    // resumeGenId가 있으면애초에 이 판단 자체가 필요 없다(skipPrepareRef가 마운트 시 이미 true).
+    if (resumeGenId) return
+    if (!jobsChecked) return
+    if (skipPrepareRef.current) return
     runPrepare()
     // 최초 1회만 — 사례 선택은 위저드가 열린 시점에 고정된다(선택 조정은 닫고 다시 선택).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [jobsChecked])
 
   useEffect(() => {
     if (step === 'progress' && genJobQuery.data?.status === 'done') setStep('result')
@@ -73,7 +104,7 @@ export default function ImproveGenWizard({ caseIds, onClose, onGenerated }: Impr
   function handleGenerate() {
     if (!genId) return
     generateMutation.mutate(
-      { genId, engine },
+      { genId, engine, model: model ?? undefined },
       {
         onSuccess: () => setStep('progress'),
       },
@@ -86,6 +117,8 @@ export default function ImproveGenWizard({ caseIds, onClose, onGenerated }: Impr
     unavailable == null &&
     (genJobQuery.data == null || genJobQuery.data.status === 'running')
   const jobFailed = genJobQuery.data?.status === 'error'
+  // 취소됨(S22, §4.24 ②) — 오류가 아닌 중립 종료 상태.
+  const jobCancelled = genJobQuery.data?.status === 'cancelled'
   const result = genJobQuery.data?.result
 
   return (
@@ -123,7 +156,13 @@ export default function ImproveGenWizard({ caseIds, onClose, onGenerated }: Impr
 
             <div>
               <p className="mb-1 text-xs font-semibold text-muted">사용 엔진 (과금형 표시)</p>
-              <EngineSelect value={engine} onChange={setEngine} billingLabels={BILLING_LABEL} />
+              <EngineSelect
+                value={engine}
+                onChange={setEngine}
+                billingLabels={BILLING_LABEL}
+                modelValue={model}
+                onModelChange={setModel}
+              />
             </div>
 
             <div className="rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">
@@ -154,6 +193,7 @@ export default function ImproveGenWizard({ caseIds, onClose, onGenerated }: Impr
 
         {(step === 'progress' || step === 'result') && (
           <div className="flex flex-col gap-3">
+            {recoveredNotice && <p className="text-xs text-accent">진행 중 작업을 복원했습니다.</p>}
             {running && <LlmJobProgress progress={genJobQuery.data?.progress} includeDownloading={false} />}
 
             {unavailable && (
@@ -179,6 +219,8 @@ export default function ImproveGenWizard({ caseIds, onClose, onGenerated }: Impr
             )}
 
             {jobFailed && <LlmErrorInfoView errorInfo={genJobQuery.data?.error_info} />}
+
+            {jobCancelled && <p className="text-sm text-muted">작업이 취소되었습니다.</p>}
 
             {step === 'result' && result && (
               <div className="flex flex-col gap-3">

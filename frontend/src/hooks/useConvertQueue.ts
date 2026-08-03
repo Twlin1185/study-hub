@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQueries } from '@tanstack/react-query'
+import { useQueries, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../api/client'
 import {
   ACTIVE_POLL_INTERVAL_MS,
@@ -8,6 +8,7 @@ import {
   fetchConvertJob,
   startConvertRequest,
 } from '../api/convert'
+import { useCancelLlmJob } from '../api/llm'
 import { newEntryId, readQueue, writeQueue } from '../utils/convertQueue'
 import type { StoredQueueEntry } from '../utils/convertQueue'
 import type { ConvertJobResponse, JobProgress, LlmEngine, LlmErrorInfo } from '../api/types'
@@ -24,7 +25,9 @@ import type { ConvertJobResponse, JobProgress, LlmEngine, LlmErrorInfo } from '.
 
 export const MAX_QUEUE_BATCH = 10
 
-export type QueueItemStatus = 'queued' | 'running' | 'ready' | 'committed' | 'error'
+// S22(설계 §4.24 ②, F48): 'cancelled' 추가 — 작업 센터와 같은 cancel API로 "처리 중 1건"을
+// 취소한 결과(S13 한계 해소, §5.9 개정). 오류가 아닌 중립 종료 상태.
+export type QueueItemStatus = 'queued' | 'running' | 'ready' | 'committed' | 'error' | 'cancelled'
 
 export interface QueueItem {
   entry: StoredQueueEntry
@@ -53,9 +56,11 @@ export interface QueueFileInput {
 }
 
 // S21(설계 §4.23) — 반입 시작 화면 engine 선택(§5.9 ①). 배치 전체에 같은 엔진을 적용한다
-// (파일별 개별 엔진 지정은 이 단계 범위 밖 — "요청 단위 모델 오버라이드 없음"과 동일 원칙).
+// (파일별 개별 엔진 지정은 이 단계 범위 밖). model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드,
+// 배치 전체(이번 선택분)에 같이 적용된다(engine과 동일 원칙).
 export interface StartOptions {
   engine?: LlmEngine
+  model?: string
 }
 
 function labelOf(entry: StoredQueueEntry): string {
@@ -81,6 +86,10 @@ export function useConvertQueue() {
   const filesRef = useRef<Map<string, File>>(new Map())
   // refetchInterval 콜백이 최신 active 잡을 읽을 수 있게 ref로 들고 있는다.
   const activeJobIdRef = useRef<string | null>(null)
+  const qc = useQueryClient()
+  // S22(설계 §4.24 ②, F48) — 처리 중 1건 [취소](작업 센터와 같은 cancel API). 취소 성공 시 다음
+  // 폴링을 기다리지 않고 그 항목의 잡 쿼리를 즉시 다시 조회해 화면에 반영한다.
+  const cancelJobMutation = useCancelLlmJob()
 
   const updateEntry = useCallback(
     (id: string, patch: Partial<StoredQueueEntry>) => {
@@ -130,6 +139,9 @@ export function useConvertQueue() {
       else if (previewId) status = 'ready'
       else if (entry.startError) status = 'error'
       else if (lost) status = 'error'
+      // 취소됨(S22, §4.24 ②) — 오류가 아닌 중립 종료 상태. [취소]는 처리 중 1건에만 노출하므로
+      // (§5.9 개정) 여기 도달하는 잡은 사실상 그 항목뿐이다.
+      else if (data?.status === 'cancelled') status = 'cancelled'
       else if (data?.status === 'error') status = 'error'
       else if (data?.status === 'done') status = 'error' // done인데 preview_id가 없는 경우
       else status = 'queued' // 'running'은 아래에서 active 1건에만 부여
@@ -214,6 +226,7 @@ export function useConvertQueue() {
             kind: 'file',
             file,
             engine: opts?.engine,
+            model: opts?.model,
             categoryPath: entry.categoryPath,
           })
           updateEntry(entry.id, { jobId: res.job_id, startError: null, startErrorInfo: null })
@@ -249,7 +262,7 @@ export function useConvertQueue() {
       })
       setStarting(true)
       try {
-        const res = await startConvertRequest({ kind: 'url', url, engine: opts?.engine, categoryPath })
+        const res = await startConvertRequest({ kind: 'url', url, engine: opts?.engine, model: opts?.model, categoryPath })
         updateEntry(entry.id, { jobId: res.job_id, startError: null, startErrorInfo: null })
       } catch (err) {
         updateEntry(entry.id, {
@@ -336,6 +349,19 @@ export function useConvertQueue() {
 
   const entryById = useCallback((id: string | null) => items.find((it) => it.entry.id === id) ?? null, [items])
 
+  // S22(설계 §4.24 ②, F48) — 처리 중 1건 [취소]. 확인 다이얼로그(고정 문구)는 호출부(ImportQueue)
+  // 책임 — 여기서는 API 호출·재조회만 담당한다.
+  const cancelEntry = useCallback(
+    (id: string) => {
+      const entry = entries.find((e) => e.id === id)
+      if (!entry?.jobId) return
+      cancelJobMutation.mutate(entry.jobId, {
+        onSettled: () => qc.invalidateQueries({ queryKey: convertJobKey(entry.jobId as string) }),
+      })
+    },
+    [entries, cancelJobMutation, qc],
+  )
+
   return {
     items,
     pendingCount,
@@ -347,6 +373,9 @@ export function useConvertQueue() {
     markCommitted,
     removeEntry,
     clearFinished,
+    cancelEntry,
+    cancelling: cancelJobMutation.isPending,
+    cancelError: cancelJobMutation.error,
     entryById,
   }
 }

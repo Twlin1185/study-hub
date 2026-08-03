@@ -8,6 +8,7 @@ import {
 } from '../api/answerKey'
 import { jobUnavailable } from '../api/convert'
 import { useCategoryTree } from '../api/categories'
+import { useJobRecovery } from '../hooks/useJobRecovery'
 import { ApiError } from '../api/client'
 import CategoryScopePicker from './CategoryScopePicker'
 import LlmJobProgress from './LlmJobProgress'
@@ -77,6 +78,8 @@ export default function AnswerKeyImportWizard() {
   const [file, setFile] = useState<File | null>(null)
   const [uploadResult, setUploadResult] = useState<AnswerKeyUploadResponse | null>(null)
   const [engine, setEngine] = useState<LlmEngine>('auto')
+  // S22(설계 §4.24 ④·⑤, F48) — 요청 단위 모델 오버라이드. 미선택(null) = 설정값.
+  const [model, setModel] = useState<string | null>(null)
   const [agreed, setAgreed] = useState(false)
   const [keyId, setKeyId] = useState<string | null>(null)
   const [previewData, setPreviewData] = useState<{
@@ -84,11 +87,27 @@ export default function AnswerKeyImportWizard() {
     unmatched: AnswerKeyUnmatched
   } | null>(null)
   const [selections, setSelections] = useState<Record<number, boolean>>({})
+  // 재진입 복원 소표기(설계 §4.24 ⑤·ⓓ, F40-① recovered 전례).
+  const [recoveredNotice, setRecoveredNotice] = useState(false)
 
   const treeQuery = useCategoryTree()
   const uploadMutation = useUploadAnswerKey()
   const processMutation = useStartAnswerKeyProcess()
   const applyMutation = useApplyAnswerKey()
+
+  // 공용 재진입 복원 훅 — 이 위저드는 진입 시점에 자기 key_id를 아직 모르므로 kind만으로
+  // 매칭한다(§4.24 ⑤). 이미 진행 중(scope 이후 단계)이면 훅을 끈다(중복 렌더 금지).
+  useJobRecovery({
+    kind: 'answer_key',
+    enabled: step === 'scope',
+    onRecovered: (job) => {
+      const recoveredKeyId = job.ref?.key_id
+      if (!recoveredKeyId) return
+      setKeyId(recoveredKeyId)
+      setStep('process')
+      setRecoveredNotice(true)
+    },
+  })
   const statusQuery = useAnswerKeyStatus(step === 'process' ? keyId : null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -117,10 +136,12 @@ export default function AnswerKeyImportWizard() {
     setFile(null)
     setUploadResult(null)
     setEngine('auto')
+    setModel(null)
     setAgreed(false)
     setKeyId(null)
     setPreviewData(null)
     setSelections({})
+    setRecoveredNotice(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -141,7 +162,7 @@ export default function AnswerKeyImportWizard() {
   function handleStartProcess() {
     if (!keyId) return
     processMutation.mutate(
-      { keyId, engine },
+      { keyId, engine, model: model ?? undefined },
       {
         onSuccess: () => setStep('process'),
       },
@@ -181,6 +202,8 @@ export default function AnswerKeyImportWizard() {
   const running =
     step === 'process' && unavailable == null && (statusQuery.data == null || statusQuery.data.status === 'running')
   const jobFailed = step === 'process' && statusQuery.data?.status === 'error'
+  // 취소됨(S22, §4.24 ②) — 오류가 아닌 중립 종료 상태.
+  const jobCancelled = step === 'process' && statusQuery.data?.status === 'cancelled'
 
   const selectedCount = Object.values(selections).filter(Boolean).length
 
@@ -279,7 +302,7 @@ export default function AnswerKeyImportWizard() {
 
           <div>
             <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>
-            <EngineSelect value={engine} onChange={setEngine} />
+            <EngineSelect value={engine} onChange={setEngine} modelValue={model} onModelChange={setModel} />
           </div>
 
           <label className="flex items-center gap-2 text-sm text-primary">
@@ -313,6 +336,7 @@ export default function AnswerKeyImportWizard() {
 
       {step === 'process' && (
         <div className="flex flex-col gap-3">
+          {recoveredNotice && <p className="text-xs text-accent">진행 중 작업을 복원했습니다.</p>}
           {running && <LlmJobProgress progress={statusQuery.data?.progress} includeDownloading={false} />}
 
           {unavailable && (
@@ -349,6 +373,19 @@ export default function AnswerKeyImportWizard() {
           {jobFailed && (
             <div className="flex flex-col gap-2">
               <LlmErrorInfoView errorInfo={statusQuery.data?.error_info} legacyError={statusQuery.data?.error} />
+              <button
+                type="button"
+                onClick={resetAll}
+                className="w-fit rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+              >
+                처음부터 다시
+              </button>
+            </div>
+          )}
+
+          {jobCancelled && (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-muted">작업이 취소되었습니다.</p>
               <button
                 type="button"
                 onClick={resetAll}

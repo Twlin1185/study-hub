@@ -80,6 +80,8 @@ class FetchImportRequest(BaseModel):
     # exam_key를 이 값으로 덮어써 목록 표기·분류 경로·imported 판정을 일치시킨다.
     # 미지정 시 기존 동작 완전 불변(§4.13).
     exam_key: Optional[str] = None
+    # S22(F48 ④·ⓒ) — 요청 단위 모델 오버라이드(선택). 검증은 서버 공통 헬퍼가 수행.
+    model: Optional[str] = None
 
 
 class FetchJobStart(BaseModel):

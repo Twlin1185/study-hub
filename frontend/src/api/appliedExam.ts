@@ -35,10 +35,11 @@ export function usePrepareAppliedExam() {
 
 // POST /api/applied-exam/{gen_id}/generate — 생성 잡 시작(convert 잡 큐 재사용, kind 'applied_exam',
 // 동시 1개). 진행·완료 조회는 job_id가 아니라 gen_id로 한다(아래 useAppliedExamStatus).
+// model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드(engine 명시 필요·소목록 밖=422, 미지정=설정값).
 export function useStartAppliedExamGenerate() {
   return useMutation({
-    mutationFn: ({ genId, engine }: { genId: string; engine?: LlmEngine }) =>
-      api.post<AppliedExamGenerateResponse>(`/applied-exam/${genId}/generate`, { engine }),
+    mutationFn: ({ genId, engine, model }: { genId: string; engine?: LlmEngine; model?: string }) =>
+      api.post<AppliedExamGenerateResponse>(`/applied-exam/${genId}/generate`, { engine, model }),
   })
 }
 

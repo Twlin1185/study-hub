@@ -497,8 +497,11 @@ export interface AppliedExamPrepareResponse {
   estimate: AppliedExamEstimate
 }
 
+// S22(설계 §4.24 ④ — F48): model? 1회성 오버라이드 — engine이 auto·미지정이면 422(엔진 먼저
+// 선택), 소목록 밖 값도 422. 미지정 = 설정값 폴백(기존 동작 불변).
 export interface AppliedExamGenerateRequest {
   engine?: LlmEngine
+  model?: string
 }
 
 export interface AppliedExamGenerateResponse {
@@ -1002,7 +1005,9 @@ export interface JobProgress {
 }
 
 // ---- Claude CLI 변환 · 재생성 (설계 §4.10·§4.11, F23·F30·F34·F35, S6·S8) ----
-export type ConvertJobStatus = 'running' | 'done' | 'error'
+// S22(설계 §4.24 ② — F48): 'cancelled' 순수 추가 — 전 kind 상태 응답 공통(오류 아님, error_info
+// 없음). 이 유니온을 재사용하는 AppliedExamStatus·ImproveJobStatus에도 함께 반영된다.
+export type ConvertJobStatus = 'running' | 'done' | 'error' | 'cancelled'
 
 export interface ConvertJobStartResponse {
   job_id: string
@@ -1415,11 +1420,13 @@ export type FetchExamsResponse = FetchExamItem[]
 // exam_key를 이 값으로 덮어써 목록 표기·분류 경로·imported 판정을 일치시킨다.
 // S13: 단일 어댑터에서는 목록 키와 수집 키가 같아 사실상 항등 전달 — 계약 유지 목적.
 // 미지정 시 기존 동작(어댑터 자체 키) 완전 불변.
+// model?(S22, 설계 §4.24 ④) — 1회성 오버라이드, 규칙은 AppliedExamGenerateRequest 주석 참조.
 export interface FetchImportRequest {
   adapter: FetchAdapterId
   cert_ref: string
   exam_ref: string
   engine?: LlmEngine
+  model?: string
   exam_key?: string
 }
 
@@ -1441,4 +1448,74 @@ export interface StreakResponse {
   current_streak: number
   best_streak: number
   today: StreakToday
+}
+
+// ---- LLM 작업 센터 (설계 §4.24, S22, F48) ----
+// 전역 잡 목록·취소·대기열 일시정지·요청 단위 model 오버라이드. 신규 엔드포인트 4개는 전부
+// LLM 0·DB 0(인메모리 조회·플래그) — §4.24 ⓐ. 전 kind 8종이 같은 잡 큐·레코드를 공유하므로
+// 목록 1개가 전 kind를 덮는다(현행 실측).
+export type LlmJobKind =
+  | 'convert'
+  | 'fetch'
+  | 'regenerate'
+  | 'answer_key'
+  | 'explain'
+  | 'applied_exam'
+  | 'improve_proposal'
+  | 'improve_regression'
+
+// kind별 참조 id(§4.24 ⓓ 표) — [화면으로 이동]·복원 훅 공유 키. 모르는/없는 필드는 생략된다
+// (필드 유무로 렌더를 결정하는 기존 관례, §4.17② 참고).
+export interface LlmJobRef {
+  preview_id?: string | null
+  document_id?: number | null
+  gen_id?: string | null
+  reg_id?: string | null
+  key_id?: string | null
+}
+
+// 전역 목록 전용 상태 유니온 — kind별 상태 응답(ConvertJobStatus)에는 없는 'queued'(대기 중,
+// 아직 워커가 집지 않음)가 여기서만 구분된다(§4.24 ⓐ — 전역 목록이 큐 위치까지 파생한다).
+export type LlmJobListStatus = ConvertJobStatus | 'queued'
+
+// label·상태 문구는 서버가 완성한 한국어 문장 그대로(§4.10 notes 관례 — 프론트 포맷 분기 금지).
+// engine·model은 이 잡에 유효 적용된 값(model: null = 모델 인자 미전달). 정답·해설·LLM 산출
+// 원문은 이 스키마 어디에도 없다(불변 규칙 1 — 목록 응답 수준에서 부재).
+export interface LlmJobItem {
+  job_id: string
+  kind: LlmJobKind
+  status: LlmJobListStatus
+  label: string
+  engine: string | null
+  model: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+  progress?: JobProgress | null
+  error_info?: LlmErrorInfo | null
+  ref: LlmJobRef
+}
+
+export interface LlmJobQueueInfo {
+  paused: boolean
+  concurrency: number
+}
+
+// GET /api/llm/jobs — 정렬: running → queued(등록순) → 종료(최신순). 페이지네이션 없음(잡 TTL
+// 1시간 내 레코드뿐 — 상한 자연 형성).
+export interface LlmJobsResponse {
+  queue: LlmJobQueueInfo
+  items: LlmJobItem[]
+}
+
+// POST /api/llm/jobs/{id}/cancel 응답 — usage는 running 취소(부분 과금 정직 표기)에만 실린다.
+// 이미 종료된 잡(done·error·cancelled) = 409, 미존재·TTL 만료 = 404(§3 에러 규약 그대로).
+export interface LlmJobCancelResponse {
+  status: 'cancelled'
+  usage?: JobUsage | null
+}
+
+// POST /api/llm/queue/pause·resume 응답 — 멱등, 인메모리(서버 재시작 시 해제).
+export interface LlmQueuePauseResponse {
+  paused: boolean
 }

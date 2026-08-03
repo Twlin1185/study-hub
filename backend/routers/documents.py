@@ -167,7 +167,9 @@ def start_regenerate(
     document_id: int, payload: RegenerateRequest, db: Session = Depends(get_db)
 ) -> RegenerateJobStart:
     """오류 신고 → 재생성 잡 시작 (F30). convert 잡 큐 재사용(동시 1개)."""
-    job_id = convert_service.start_regenerate_job(db, document_id, payload.reason, engine=payload.engine)
+    job_id = convert_service.start_regenerate_job(
+        db, document_id, payload.reason, engine=payload.engine, model=payload.model
+    )
     return RegenerateJobStart(job_id=job_id)
 
 
@@ -197,7 +199,7 @@ def start_explain(
     document_id: int, payload: ExplainRequest, db: Session = Depends(get_db)
 ) -> ExplainJobStart:
     """대상 제한: 문제 타입 + explanation 비어 있음(있으면 409). convert 잡 큐 재사용."""
-    job_id = convert_service.start_explain_job(db, document_id, engine=payload.engine)
+    job_id = convert_service.start_explain_job(db, document_id, engine=payload.engine, model=payload.model)
     return ExplainJobStart(job_id=job_id)
 
 

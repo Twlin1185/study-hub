@@ -10,6 +10,7 @@ import {
 } from '../api/appliedExam'
 import { jobUnavailable } from '../api/convert'
 import { useLlmStatus } from '../api/llm'
+import { useJobRecovery } from '../hooks/useJobRecovery'
 import { useExamSessionStore } from '../stores/examSession'
 import { ApiError } from '../api/client'
 import CategoryScopePicker from './CategoryScopePicker'
@@ -58,6 +59,8 @@ export default function AppliedExamPanel() {
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [countInput, setCountInput] = useState('10')
   const [engine, setEngine] = useState<LlmEngine>('auto')
+  // S22(설계 §4.24 ④·⑤, F48) — 요청 단위 모델 오버라이드. 미선택(null) = 설정값.
+  const [model, setModel] = useState<string | null>(null)
   const [agreed, setAgreed] = useState(false)
   const [prepareResult, setPrepareResult] = useState<AppliedExamPrepareResponse | null>(null)
   const [genId, setGenId] = useState<string | null>(null)
@@ -66,6 +69,8 @@ export default function AppliedExamPanel() {
   // 단계로 넘어가며 쿼리를 끄면(캐시 키가 바뀌어) 응답을 잃는다. 여기 로컬 상태로 고정해 둔다
   // (AnswerKeyImportWizard의 previewData 로컬 캡처 전례와 동일 패턴).
   const [summaryResult, setSummaryResult] = useState<AppliedExamResult | null>(null)
+  // 재진입 복원 소표기(F40-① recovered 전례, 설계 §4.24 ⑤) — 원 결함 지점(계획서 §14 F48 배경 ④).
+  const [recoveredNotice, setRecoveredNotice] = useState(false)
 
   const treeQuery = useCategoryTree()
   const statusQuery = useLlmStatus()
@@ -94,16 +99,34 @@ export default function AppliedExamPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, genStatusQuery.data])
 
+  // 공용 재진입 복원 훅(설계 §4.24 ⑤·ⓓ, §5.14) — 화면 진입 시 running·queued(+ done, TTL 내
+  // 결과 복원 포함 — 화면 재량) applied_exam 잡을 재발견하면 진행 표시를 이어받는다. genId가
+  // 없을 때만 활성화(이미 로컬에 추적 중이면 재복원 시도 안 함 — 중복 렌더 금지).
+  useJobRecovery({
+    kind: 'applied_exam',
+    enabled: genId == null,
+    includeDone: true,
+    onRecovered: (job) => {
+      const recoveredGenId = job.ref?.gen_id
+      if (!recoveredGenId) return
+      setGenId(recoveredGenId)
+      setStep('process')
+      setRecoveredNotice(true)
+    },
+  })
+
   function resetAll() {
     setStep('setup')
     setCategoryId(null)
     setCountInput('10')
     setEngine('auto')
+    setModel(null)
     setAgreed(false)
     setPrepareResult(null)
     setGenId(null)
     setStartError(null)
     setSummaryResult(null)
+    setRecoveredNotice(false)
   }
 
   function handlePrepare() {
@@ -123,7 +146,7 @@ export default function AppliedExamPanel() {
   function handleGenerate() {
     if (!prepareResult) return
     generateMutation.mutate(
-      { genId: prepareResult.gen_id, engine },
+      { genId: prepareResult.gen_id, engine, model: model ?? undefined },
       {
         onSuccess: () => {
           setGenId(prepareResult.gen_id)
@@ -172,6 +195,8 @@ export default function AppliedExamPanel() {
     unavailable == null &&
     (genStatusQuery.data == null || genStatusQuery.data.status === 'running')
   const jobFailed = step === 'process' && genStatusQuery.data?.status === 'error'
+  // 취소됨(S22, §4.24 ②) — 오류가 아닌 중립 종료 상태.
+  const jobCancelled = step === 'process' && genStatusQuery.data?.status === 'cancelled'
   const shortfall = summaryResult != null && summaryResult.generated < summaryResult.requested
 
   return (
@@ -211,7 +236,7 @@ export default function AppliedExamPanel() {
 
                 <div>
                   <p className="mb-1 text-xs font-semibold text-muted">엔진</p>
-                  <EngineSelect value={engine} onChange={setEngine} />
+                  <EngineSelect value={engine} onChange={setEngine} modelValue={model} onModelChange={setModel} />
                 </div>
               </div>
 
@@ -293,6 +318,9 @@ export default function AppliedExamPanel() {
 
           {step === 'process' && (
             <div className="flex flex-col gap-3">
+              {recoveredNotice && (
+                <p className="text-xs text-accent">진행 중 작업을 복원했습니다.</p>
+              )}
               {running && <LlmJobProgress progress={genStatusQuery.data?.progress} includeDownloading={false} />}
 
               {unavailable && (
@@ -334,6 +362,19 @@ export default function AppliedExamPanel() {
                     errorInfo={genStatusQuery.data?.error_info}
                     legacyError={genStatusQuery.data?.error}
                   />
+                  <button
+                    type="button"
+                    onClick={resetAll}
+                    className="w-fit rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+                  >
+                    처음부터 다시
+                  </button>
+                </div>
+              )}
+
+              {jobCancelled && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm text-muted">작업이 취소되었습니다.</p>
                   <button
                     type="button"
                     onClick={resetAll}

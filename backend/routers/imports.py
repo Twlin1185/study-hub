@@ -93,7 +93,7 @@ def process_answer_key(
     key_id: str, payload: AnswerKeyProcessRequest, db: Session = Depends(get_db)
 ) -> AnswerKeyProcessStart:
     """LLM 가공 잡 시작(convert 잡 큐 재사용 — kind='answer_key', 동시 1개)."""
-    job_id = answer_key_service.start_processing(db, key_id, engine=payload.engine)
+    job_id = answer_key_service.start_processing(db, key_id, engine=payload.engine, model=payload.model)
     return AnswerKeyProcessStart(job_id=job_id)
 
 

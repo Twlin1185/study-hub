@@ -49,6 +49,8 @@ class AppliedExamPrepareResult(BaseModel):
 # --- generate --------------------------------------------------------------------
 class AppliedExamGenerateRequest(BaseModel):
     engine: EngineChoice = "auto"
+    # S22(F48 ④·ⓒ) — 요청 단위 모델 오버라이드(선택). 검증은 서버 공통 헬퍼가 수행.
+    model: Optional[str] = None
 
 
 class AppliedExamGenerateStart(BaseModel):
@@ -75,7 +77,8 @@ class AppliedExamResult(BaseModel):
     document_ids: List[int] = Field(default_factory=list)
 
 
-AppliedExamGenStatus = Literal["prepared", "running", "done", "error"]
+# S22(F48 ②) — 'cancelled' 순수 추가(기존 값·필드 불변, 설계 §4.24 ⓑ).
+AppliedExamGenStatus = Literal["prepared", "running", "done", "error", "cancelled"]
 
 
 class AppliedExamStatus(BaseModel):

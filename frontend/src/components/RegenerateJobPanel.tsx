@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useApplyRegenerate, useRegenerate, useRegenerateJob } from '../api/convert'
+import { useJobRecovery } from '../hooks/useJobRecovery'
 import { clearStoredRegenerateJob, getStoredRegenerateJob, setStoredRegenerateJob } from '../utils/regenerateJobs'
 import type { DocumentDetail, LlmEngine } from '../api/types'
 import { ApiError } from '../api/client'
@@ -23,16 +24,38 @@ interface RegenerateJobPanelProps {
 export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
   const [stored, setStored] = useState(() => getStoredRegenerateJob(doc.id))
   const [dismissed, setDismissed] = useState(false)
+  // 재진입 복원 소표기(설계 §4.24 ⑤·ⓓ, F40-① recovered 전례).
+  const [recoveredNotice, setRecoveredNotice] = useState(false)
   const jobId = stored?.jobId ?? null
   const active = jobId != null && !dismissed
   const jobQuery = useRegenerateJob(active ? doc.id : null, active ? jobId : null)
   const applyRegenerate = useApplyRegenerate()
   const retryRegenerate = useRegenerate()
 
+  // 공용 재진입 복원 훅 — localStorage 기록이 없는데 이 문서의 running·queued regenerate 잡이
+  // 실제로 있으면 복원한다(기존 "진행 중 배지"=localStorage 경로와 중복 렌더 금지 — active일 때
+  // 훅을 끈다). "이유" 텍스트는 서버가 갖고 있지 않으므로 빈 문자열로 저장해 두고, 실패 시
+  // [다시 시도] 버튼은 reason이 실제로 있을 때만 노출한다(아래 stored?.reason 조건).
+  // resetKey: doc.id — 이 패널은 문서 상세 안에서 doc가 바뀌어도 컴포넌트가 재마운트되지 않으므로
+  // (같은 라우트 패턴 재사용), doc.id 전환을 "진짜 새 진입"으로 알려 래치를 다시 연다
+  // (stage-reviewer 지적 — enabled 자체 재-true 전환만으로는 재점화하지 않게 훅이 개정됨).
+  useJobRecovery({
+    kind: 'regenerate',
+    enabled: !active,
+    matchRef: (ref) => ref.document_id === doc.id,
+    resetKey: doc.id,
+    onRecovered: (job) => {
+      setStoredRegenerateJob(doc.id, { jobId: job.job_id, reason: '' })
+      setStored({ jobId: job.job_id, reason: '' })
+      setRecoveredNotice(true)
+    },
+  })
+
   // 다른 문서 상세로 이동했을 때 그 문서의 잡 상태를 다시 확인한다.
   useEffect(() => {
     setStored(getStoredRegenerateJob(doc.id))
     setDismissed(false)
+    setRecoveredNotice(false)
   }, [doc.id])
 
   if (!active) {
@@ -87,7 +110,12 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
   }
 
   if (!job || job.status === 'running') {
-    return <LlmJobProgress progress={job?.progress} includeDownloading={false} />
+    return (
+      <div className="flex flex-col gap-2">
+        {recoveredNotice && <p className="text-xs text-accent">진행 중 작업을 복원했습니다.</p>}
+        <LlmJobProgress progress={job?.progress} includeDownloading={false} />
+      </div>
+    )
   }
 
   if (job.status === 'error') {
@@ -96,7 +124,9 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
         <LlmErrorInfoView
           errorInfo={job.error_info}
           legacyError={job.error}
-          onRetry={stored ? handleRetry : undefined}
+          // 복원된 잡(reason 빈 문자열)은 재시도 시 빈 사유로 재요청하게 되므로 [다시 시도]를
+          // 숨긴다 — 서버가 갖고 있지 않은 원 신고 사유를 프론트가 지어낼 수 없다.
+          onRetry={stored?.reason ? handleRetry : undefined}
           retrying={retryRegenerate.isPending}
         />
         <button
@@ -106,6 +136,25 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
             setDismissed(true)
           }}
           className="mt-3 rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+        >
+          닫기
+        </button>
+      </div>
+    )
+  }
+
+  // 취소됨(S22, §4.24 ②) — 오류가 아닌 중립 종료 상태.
+  if (job.status === 'cancelled') {
+    return (
+      <div className="rounded-lg border border-border bg-surface p-4">
+        <p className="text-sm text-muted">작업이 취소되었습니다.</p>
+        <button
+          type="button"
+          onClick={() => {
+            clearStoredRegenerateJob(doc.id)
+            setDismissed(true)
+          }}
+          className="mt-2 rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
         >
           닫기
         </button>

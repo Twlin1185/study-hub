@@ -164,7 +164,7 @@ def upload_answer_key(
 # ---------------------------------------------------------------------------
 # ② LLM 가공 잡 시작·조회
 # ---------------------------------------------------------------------------
-def start_processing(db: Session, key_id: str, *, engine: str = "auto") -> str:
+def start_processing(db: Session, key_id: str, *, engine: str = "auto", model: Optional[str] = None) -> str:
     state = _get_key_or_404(key_id)
     existing_job_id = state.get("job_id")
     if existing_job_id is not None:
@@ -183,6 +183,8 @@ def start_processing(db: Session, key_id: str, *, engine: str = "auto") -> str:
         source_filename=state["filename"],
         source_bytes=state["source_bytes"],
         engine=engine,
+        key_id=key_id,
+        model=model,
     )
     with _KEYS_LOCK:
         current = _KEYS.get(key_id)

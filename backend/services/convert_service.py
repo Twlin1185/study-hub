@@ -19,6 +19,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 import queue
 import shutil
 import subprocess
@@ -80,10 +81,33 @@ _QUEUE: "queue.Queue[str]" = queue.Queue()
 _WORKER_LOCK = threading.Lock()
 _WORKER_STARTED = False
 
+# S22(F48 ①②③, 설계 §4.24) — 전역 잡 목록·취소·대기열 일시정지. 저장 지점은 전부
+# 인메모리(DDL 0·settings 0) — `_JOBS_LOCK`을 그대로 재사용해 직렬화한다(신규 락 추가 없음
+# — 잡 레코드 상태 갱신·조회가 전부 이 한 락 아래 있어야 취소-완료 레이스가 정확히
+# 직렬화된다, §4.24 ⓑ).
+_CURRENT_JOB_ID: Optional[str] = None  # 워커가 지금 실제로 처리 중인 job_id(큐 대기와 구분)
+_QUEUE_PAUSED = False  # 조회용 플래그(응답 표시) — 실제 보류는 아래 이벤트가 담당
+_QUEUE_RESUME_EVENT = threading.Event()
+_QUEUE_RESUME_EVENT.set()  # 기본 = 일시정지 아님
+
 
 class ClaudeCliError(Exception):
     """claude CLI 실행 실패/부재 — llm_engine_service.classify_cli_failure로 사람이 읽는
     error_info로 변환된 뒤에만 사용자에게 노출된다(원문 그대로 노출 금지)."""
+
+
+class _JobCancelled(Exception):
+    """S22(F48 ②) — 취소 확정 후 조기 종료 신호(내부 전용, 사용자에게 노출되지 않는다).
+    잡 레코드 상태는 이 예외가 발생하기 **전에** 이미 `cancel_job`이 'cancelled'로 확정해
+    둔다 — `_process_job`은 이 예외(또는 이미 'cancelled'인 상태)를 보면 실패로 기록하지
+    않고 결과를 폐기한다(설계 §4.24 ⓑ, 취소-완료 레이스에서 취소가 이긴 경로)."""
+
+
+def _raise_if_cancelled(job: dict) -> None:
+    """엔진 호출 재시도 루프(`while True:`) 진입 시점 체크포인트 — 취소가 큐 대기·이전
+    폴백 재시도 사이에 확정됐다면 다음 엔진 호출을 시작하기 전에 조기 종료한다."""
+    if job.get("_cancel_requested"):
+        raise _JobCancelled()
 
 
 # ---------------------------------------------------------------------------
@@ -537,6 +561,19 @@ def _run_claude_cli_streaming(
     except OSError as exc:
         raise ClaudeCliError(f"claude CLI 실행 파일을 찾지 못했습니다: {exc}") from exc
 
+    # S22(F48 ②·ⓑ) — 취소 엔드포인트가 다른 스레드에서 이 핸들로 프로세스(트리)를 종료할 수
+    # 있도록 잡 레코드에 등록한다(잡 종료 시 반드시 해제 — try/finally).
+    _register_job_proc(job_id, proc)
+
+    try:
+        return _run_claude_cli_streaming_body(proc, prompt, timeout_seconds=timeout_seconds, job_id=job_id)
+    finally:
+        _register_job_proc(job_id, None)
+
+
+def _run_claude_cli_streaming_body(
+    proc: subprocess.Popen, prompt: str, *, timeout_seconds: int, job_id: str
+) -> str:
     try:
         if proc.stdin is not None:
             proc.stdin.write(prompt)
@@ -608,6 +645,15 @@ def _run_claude_cli_streaming(
     reader_thread.join(timeout=5)
     stderr_thread.join(timeout=5)
     stderr_text = "".join(stderr_chunks)
+
+    # S22(F48 ②) — 취소 확정 잡은 프로세스가 어떻게 끝났든(킬로 인한 비정상 종료 포함)
+    # 조기 종료 신호로 마무리한다 — 사용자에게는 이미 'cancelled'로 노출되므로 아래의
+    # 일반 실패 분류(엔진 오류·폴백 시도)를 타지 않는다(§4.24 ⓑ, 결과 폐기).
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        cancelled = bool(job is not None and job.get("_cancel_requested"))
+    if cancelled:
+        raise _JobCancelled()
 
     if state["result_text"] is None:
         if proc.returncode != 0:
@@ -686,12 +732,19 @@ def _run_api_streaming(
     content_blocks.append({"type": "text", "text": prompt_text})
 
     text_parts: List[str] = []
+    cancelled = False
     try:
         with client.messages.stream(
             model=model,
             max_tokens=API_MAX_OUTPUT_TOKENS,
             messages=[{"role": "user", "content": content_blocks}],
         ) as stream:
+            # S22(F48 ②·ⓑ) — 취소 엔드포인트가 다른 스레드에서 이 핸들로 스트림(연결)을
+            # 종료할 수 있도록 잡 레코드에 등록한다.
+            with _JOBS_LOCK:
+                job = _JOBS.get(job_id)
+                if job is not None:
+                    job["_api_stream"] = stream
             for event in stream:
                 etype = getattr(event, "type", None)
                 if etype == "content_block_delta":
@@ -702,6 +755,14 @@ def _run_api_streaming(
                     _touch_activity(job_id)
                 elif etype in ("message_start", "content_block_start", "message_delta", "ping"):
                     _touch_activity(job_id)
+                with _JOBS_LOCK:
+                    job = _JOBS.get(job_id)
+                    if job is not None and job.get("_cancel_requested"):
+                        cancelled = True
+                if cancelled:
+                    break
+            if cancelled:
+                raise _JobCancelled()
             final_message = stream.get_final_message()
         usage = getattr(final_message, "usage", None)
         if usage is not None:
@@ -714,6 +775,11 @@ def _run_api_streaming(
             )
     except anthropic.APIError as exc:
         raise llm_engine_service.ApiEngineError(str(exc), original=exc) from exc
+    finally:
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            if job is not None:
+                job["_api_stream"] = None
 
     result_text = "".join(text_parts).strip()
     if not result_text:
@@ -925,7 +991,14 @@ def _handle_engine_failure(
     다음 available 엔진이 있으며 아직 폴백을 시도하지 않았다면 job['_engine']을 바꾸고
     True(재시도)를 반환한다. 그렇지 않으면 job['_error_info']를 채우고 False를 반환한다
     (호출부가 그대로 raise). 다음 후보는 항상 `llm.priority` 배열에서 찾는다(설계 §4.17 ③)
-    — `other = "api" if engine == "cli" else "cli"` 류의 이항 분기는 두지 않는다."""
+    — `other = "api" if engine == "cli" else "cli"` 류의 이항 분기는 두지 않는다.
+
+    S22(F48 ②) — 취소가 확정된 잡은 폴백을 시도하지 않는다(취소 도중 발생한 예외를 "엔진
+    실패"로 오분류해 다른 엔진으로 재시도하면 취소가 무력화된다) — 분류·한도 기억·재시도
+    판단 전부 건너뛰고 즉시 False를 반환해 호출부가 그대로 raise하게 둔다(`_process_job`이
+    이미 'cancelled'로 확정된 잡은 이 예외를 오류로 기록하지 않는다)."""
+    if job.get("_cancel_requested"):
+        return False
     base = llm_engine_service.classify_engine_failure(engine, exc)
 
     db = SessionLocal()
@@ -1127,9 +1200,26 @@ def _ensure_worker() -> None:
 
 
 def _worker_loop() -> None:
+    global _CURRENT_JOB_ID
     while True:
         job_id = _QUEUE.get()
-        _process_job(job_id)
+        # S22(F48 ③) — 일시정지는 "다음 잡 시작"만 보류한다. 이미 시작된(현재 처리 중인)
+        # 잡은 이 지점을 지나지 않으므로 영향이 없다 — 이 대기 지점 1곳이 유일한 판정 지점
+        # (설계 §4.24 결정 ③ "워커의 다음 잡 픽업 지점 1곳에서 판정").
+        _QUEUE_RESUME_EVENT.wait()
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            if job is None or job.get("status") == "cancelled":
+                # TTL 만료로 이미 지워졌거나, 대기 중(큐 제거 대상) 취소가 먼저 확정된 잡 —
+                # 조용히 건너뛴다(§4.24 ②: queued → cancelled = 큐 제거, LLM 0).
+                continue
+            job["_dequeued_at"] = dt.datetime.now()
+            _CURRENT_JOB_ID = job_id
+        try:
+            _process_job(job_id)
+        finally:
+            with _JOBS_LOCK:
+                _CURRENT_JOB_ID = None
 
 
 def _process_job(job_id: str) -> None:
@@ -1162,14 +1252,24 @@ def _process_job(job_id: str) -> None:
             result = _do_explain_job(job_id, job)
         with _JOBS_LOCK:
             job = _JOBS.get(job_id)
-            if job is not None:
+            if job is not None and job.get("status") == "cancelled":
+                # S22(F48 ②ⓑ) — 취소-완료 레이스에서 취소가 먼저 확정됐다: 완료 산출물은
+                # 폐기한다(결과를 쓰지 않는다 — "취소가 완료 결과를 지우는 경로 0"과 대칭으로,
+                # 여기서는 "완료가 취소 확정을 지우는 경로"도 0이어야 한다).
+                pass
+            elif job is not None:
                 job["status"] = "done"
                 job["result"] = result
                 now = dt.datetime.now()
+                job["_finished_at"] = now
                 started = job.get("_started_at") or now
                 _record_eta_sample(
                     job["kind"], job.get("_input_size") or 0, int((now - started).total_seconds() * 1000)
                 )
+    except _JobCancelled:
+        # S22(F48 ②) — 취소 확정 후 조기 종료 신호. 잡 상태는 `cancel_job`이 이미
+        # 'cancelled'로 확정해 두었다 — 여기서는 아무 것도 기록하지 않는다(오류 아님).
+        pass
     except Exception as exc:  # noqa: BLE001 - 잡 실패를 기록하고 워커는 계속 돈다
         collect_job_kind: Optional[str] = None
         collect_error_info: Optional[dict] = None
@@ -1179,8 +1279,13 @@ def _process_job(job_id: str) -> None:
         collect_raw_output: Optional[str] = None
         with _JOBS_LOCK:
             job = _JOBS.get(job_id)
-            if job is not None:
+            if job is not None and job.get("status") == "cancelled":
+                # S22(F48 ②ⓑ) — 취소가 먼저 확정된 뒤 도착한 예외(킬로 인한 비정상 종료 등
+                # 취소의 부산물) — 오류로 기록하지 않는다(폴백 시도·사례 수집도 하지 않는다).
+                pass
+            elif job is not None:
                 job["status"] = "error"
+                job["_finished_at"] = dt.datetime.now()
                 if isinstance(exc, (ClaudeCliError, llm_engine_service.ApiEngineError, codex_adapter.CodexCliError)):
                     # 엔진 원문(CLI stderr·anthropic 예외 문자열)은 error_info로만 노출한다.
                     job["error"] = None
@@ -1239,6 +1344,208 @@ def _process_job(job_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# S22(F48 — 설계 §4.24) — 전역 잡 목록·취소·대기열 일시정지
+#
+# 저장 지점은 전부 인메모리(`_JOBS`·위 모듈 전역 플래그) — DDL·settings 신설 없음. 이 절의
+# 함수들은 LLM 호출·DB 쓰기를 하지 않는다(조회·인메모리 플래그 전환뿐).
+# ---------------------------------------------------------------------------
+def _terminate_process_tree(proc: subprocess.Popen) -> None:
+    """CLI 서브프로세스(트리) 종료 — Windows는 `taskkill /F /T /PID`로 자식까지 정리한다.
+
+    실측 근거(설계 §4.24 ⓑ "Windows 프로세스 트리 기준 실측"): `Popen.terminate()`/`.kill()`은
+    Windows에서 대상 PID 하나에만 `TerminateProcess`를 거는 것과 동치라, claude/codex CLI가
+    내부적으로 띄우는 자식 프로세스는 부모가 죽어도 남아 토큰을 계속 소모할 수 있다(R24).
+    `taskkill /T`(트리 종료) `/F`(강제)가 표준적인 회피책이다. 종료 실패가 감지돼도 예외를
+    올리지 않는다 — 잡은 이미(호출부에서) cancelled로 확정돼 있고, 여기서는 서버 로그
+    경고만 남긴다(사용자 응답에 내부 상태를 노출하지 않는다)."""
+    pid = proc.pid
+    try:
+        if os.name == "nt":
+            result = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                _LOGGER.warning(
+                    "프로세스 트리 종료 실패(taskkill 반환코드=%s, pid=%s): %s — 자식 프로세스가 "
+                    "남아 있으면 토큰이 계속 소모될 수 있습니다",
+                    result.returncode,
+                    pid,
+                    (result.stderr or "").strip()[:2000],
+                )
+        else:  # pragma: no cover - 이 프로젝트는 Windows 전용 배포(R12)
+            proc.terminate()
+    except Exception:  # noqa: BLE001 - 종료 시도 실패는 잡의 cancelled 확정에 영향 없음
+        _LOGGER.warning("프로세스 트리 종료 중 예외(pid=%s) — 잡은 cancelled로 확정됨", pid, exc_info=True)
+    finally:
+        try:
+            proc.wait(timeout=5)
+        except Exception:  # noqa: BLE001 - 이미 죽었거나 대기 실패해도 무시(로그만으로 충분)
+            pass
+
+
+def cancel_job(job_id: str) -> dict:
+    """취소(설계 §4.24 ②·ⓑ) — 상태 전이: `queued → cancelled`(큐 제거, LLM 0) ·
+    `running → cancelled`(실행 중단, 부분 과금 가능 — 마지막 usage를 응답에 실어 정직 표기).
+    그 외(done·error·cancelled)에서는 409(전이 없음). 미존재·TTL 만료는 404.
+
+    레이스 직렬화: `_JOBS_LOCK` 구간 안에서 현재 상태를 확인하고 그 자리에서 'cancelled'로
+    확정한다 — `_process_job`의 완료 처리도 반드시 같은 락 아래에서 상태를 쓰므로, 두 갱신 중
+    먼저 락을 얻는 쪽이 이긴다(완료가 먼저면 이 함수가 409를 던지고, 취소가 먼저면
+    `_process_job`이 이미 확정된 'cancelled'를 보고 결과를 폐기한다)."""
+    _purge_expired_jobs()
+    proc_to_kill: Optional[subprocess.Popen] = None
+    stream_to_close: Any = None
+    usage_snapshot: Optional[dict] = None
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            raise NotFoundError(
+                "작업을 찾을 수 없습니다(만료되었을 수 있습니다)", detail={"job_id": job_id}
+            )
+        current_status = job.get("status")
+        if current_status in ("done", "error", "cancelled"):
+            raise ConflictError(
+                "이미 완료된 작업입니다 — 결과가 보존돼 있습니다",
+                detail={"job_id": job_id, "status": current_status},
+            )
+        # 여기 도달 = queued 또는 running(내부 상태 literal — §4.24 ①에서 설명한 대로 잡
+        # 레코드는 큐 대기 중에도 'running'으로 남아 있고, 실제 진행 중 여부는
+        # `_CURRENT_JOB_ID`로만 구분된다) — 어느 쪽이든 이 자리에서 즉시 확정한다.
+        job["status"] = "cancelled"
+        job["_cancel_requested"] = True
+        job["_finished_at"] = dt.datetime.now()
+        usage = job.get("_usage") or {}
+        if usage.get("input_tokens") or usage.get("output_tokens") or usage.get("cost_usd") is not None:
+            usage_snapshot = {
+                "input_tokens": usage.get("input_tokens", 0),
+                "output_tokens": usage.get("output_tokens", 0),
+                "cost_usd": usage.get("cost_usd"),
+            }
+        if job_id == _CURRENT_JOB_ID:
+            proc_to_kill = job.get("_proc")
+            stream_to_close = job.get("_api_stream")
+
+    if proc_to_kill is not None:
+        _terminate_process_tree(proc_to_kill)
+    if stream_to_close is not None:
+        try:
+            stream_to_close.close()
+        except Exception:  # noqa: BLE001 - 스트림 종료 실패는 취소 확정에 영향 없음
+            _LOGGER.warning("API 엔진 스트림 종료 중 오류(취소는 이미 확정됨)", exc_info=True)
+
+    return {"status": "cancelled", "usage": usage_snapshot}
+
+
+def pause_queue() -> bool:
+    """`POST /api/llm/queue/pause`(멱등) — 다음 잡 시작만 보류(running 잡은 무영향).
+    인메모리 플래그(서버 재시작 시 해제 — settings 저장 없음, 결정 ③)."""
+    global _QUEUE_PAUSED
+    with _JOBS_LOCK:
+        _QUEUE_PAUSED = True
+        _QUEUE_RESUME_EVENT.clear()
+    return True
+
+
+def resume_queue() -> bool:
+    """`POST /api/llm/queue/resume`(멱등) — 보류 해제, 대기 순서대로 실행 재개."""
+    global _QUEUE_PAUSED
+    with _JOBS_LOCK:
+        _QUEUE_PAUSED = False
+        _QUEUE_RESUME_EVENT.set()
+    return False
+
+
+def is_queue_paused() -> bool:
+    with _JOBS_LOCK:
+        return _QUEUE_PAUSED
+
+
+def _job_list_status(job_id: str, job: dict, *, current_job_id: Optional[str]) -> str:
+    """목록 전용 파생 상태 — 종료 상태(done·error·cancelled)는 그대로, 내부 'running'
+    literal은 실제로 지금 워커가 처리 중인지(`current_job_id`)로 running/queued를 가른다.
+    각 kind의 기존 상태 엔드포인트(§4.10 등)는 이 파생을 쓰지 않는다(기존 계약 불변)."""
+    raw = job.get("status")
+    if raw in ("done", "error", "cancelled"):
+        return raw
+    return "running" if job_id == current_job_id else "queued"
+
+
+def _job_ref(job: dict) -> dict:
+    """kind→참조 id 매핑(설계 §4.24 ⓓ 표 그대로) — 화면 이동·복원의 키. 정답·해설·LLM 산출
+    원문은 절대 포함하지 않는다(id·라벨 수준만)."""
+    kind = job.get("kind")
+    result = job.get("result") or {}
+    if kind in ("convert", "fetch"):
+        return {"preview_id": result.get("result_preview_id")}
+    if kind in ("regenerate", "explain"):
+        return {"document_id": job.get("document_id")}
+    if kind == "answer_key":
+        return {"key_id": job.get("_key_id")}
+    if kind == "applied_exam":
+        return {"gen_id": job.get("gen_id")}
+    if kind == "improve_proposal":
+        return {"gen_id": job.get("gen_id")}
+    if kind == "improve_regression":
+        return {"reg_id": job.get("_reg_id")}
+    return {}
+
+
+def _job_list_item(job_id: str, job: dict, *, current_job_id: Optional[str]) -> dict:
+    status = _job_list_status(job_id, job, current_job_id=current_job_id)
+    return {
+        "job_id": job_id,
+        "kind": job.get("kind"),
+        "status": status,
+        # label은 각 start_*_job이 생성 시점에 서버 완성 문장으로 합성해 job['_label']에
+        # 저장해 둔다(§4.24 ① "프론트 포맷 분기 금지") — 이 함수는 값을 그대로 옮길 뿐,
+        # 여기서 파일명·제목을 조립하지 않는다(LLM 0·DB 0 유지 — 조립에 DB 조회가 필요 없게
+        # 이미 생성 시점에 확정해 둔 값만 쓴다).
+        "label": job.get("_label") or job.get("kind"),
+        "engine": job.get("_engine"),
+        "model": job.get("_model"),
+        "created_at": job["created_at"].isoformat(),
+        "started_at": job["_dequeued_at"].isoformat() if job.get("_dequeued_at") else None,
+        "finished_at": job["_finished_at"].isoformat() if job.get("_finished_at") else None,
+        "progress": _progress_snapshot(job) if status == "running" else None,
+        "error_info": job.get("_error_info") if status == "error" else None,
+        "ref": _job_ref(job),
+    }
+
+
+def list_jobs_overview() -> dict:
+    """`GET /api/llm/jobs`(설계 §4.24 ⓐ) — 인메모리 잡 레코드에서 파생(LLM 0·DB 0).
+    정렬: running → queued(등록순) → 종료(최신순)."""
+    _purge_expired_jobs()
+    with _JOBS_LOCK:
+        snapshot = list(_JOBS.items())
+        current_job_id = _CURRENT_JOB_ID
+        paused = _QUEUE_PAUSED
+
+    running: List[dict] = []
+    queued: List[dict] = []
+    terminal: List[dict] = []
+    for job_id, job in snapshot:
+        item = _job_list_item(job_id, job, current_job_id=current_job_id)
+        if item["status"] == "running":
+            running.append(item)
+        elif item["status"] == "queued":
+            queued.append(item)
+        else:
+            terminal.append(item)
+
+    queued.sort(key=lambda it: it["created_at"])  # 등록순(오름차순)
+    terminal.sort(key=lambda it: it["finished_at"] or it["created_at"], reverse=True)  # 최신순
+
+    return {
+        "queue": {"paused": paused, "concurrency": 1},
+        "items": running + queued + terminal,
+    }
+
+
+# ---------------------------------------------------------------------------
 # 변환(F23·F34·F35-1) — 파일 업로드/URL → LLM 엔진 → 반입 preview로 자동 연결
 # ---------------------------------------------------------------------------
 def _build_convert_prompt_cli(convert_md: str, tmp_path: Path) -> str:
@@ -1290,17 +1597,38 @@ def _build_convert_prompt_codex(convert_md: str, tmp_path: Path, *, group: Optio
     )
 
 
+def _register_job_proc(job_id: str, proc: Optional[subprocess.Popen]) -> None:
+    """S22(F48 ②) — CLI 서브프로세스 핸들을 잡 레코드에 등록(취소 엔드포인트가 다른
+    스레드에서 이 핸들로 프로세스 트리를 종료한다). `None`이면 핸들 해제(종료 후 정리)."""
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is not None:
+            job["_proc"] = proc
+
+
 def _run_codex_streaming(
     prompt: str, *, timeout_seconds: int, job_id: str, model: Optional[str] = None
 ) -> str:
     """`model`(설계 §4.23 ⓑ) — `None`이면 `-m` 플래그를 전달하지 않는다(현행 동작 불변)."""
-    return codex_adapter.run_exec(
-        prompt,
-        cwd=BASE_DIR,
-        timeout_seconds=timeout_seconds,
-        on_activity=lambda: _touch_activity(job_id),
-        model=model,
-    )
+    try:
+        result = codex_adapter.run_exec(
+            prompt,
+            cwd=BASE_DIR,
+            timeout_seconds=timeout_seconds,
+            on_activity=lambda: _touch_activity(job_id),
+            model=model,
+            on_process_start=lambda proc: _register_job_proc(job_id, proc),
+        )
+    finally:
+        _register_job_proc(job_id, None)
+    # S22(F48 ②) — 취소 확정 잡은(킬로 인한 비정상 종료로 CodexCliError가 나든, 정상
+    # 종료로 결과가 나왔든) 조기 종료 신호로 마무리한다(§4.24 ⓑ, 결과 폐기).
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        cancelled = bool(job is not None and job.get("_cancel_requested"))
+    if cancelled:
+        raise _JobCancelled()
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1397,6 +1725,7 @@ def _do_convert(job_id: str, job: dict) -> dict:
     attempted_fallback = False
     text_result: Optional[str] = None
     while True:
+        _raise_if_cancelled(job)  # S22(F48 ②) — 취소 확정 시 다음 엔진 호출 전에 조기 종료
         engine = job["_engine"]
         _set_phase(job_id, "llm_running")
         try:
@@ -1707,6 +2036,7 @@ def _do_fetch(job_id: str, job: dict) -> dict:
     attempted_fallback = False
     text_result: Optional[str] = None
     while True:
+        _raise_if_cancelled(job)  # S22(F48 ②) — 취소 확정 시 다음 엔진 호출 전에 조기 종료
         engine = job["_engine"]
         _set_phase(job_id, "llm_running")
         try:
@@ -1801,6 +2131,7 @@ def start_fetch_job(
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     exam_key: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> str:
     """사이트 반입 잡(kind='fetch') 시작 — convert 잡 큐 재사용(동시 1개). 진행·결과 조회는
     기존 `GET /api/convert/{job_id}`. phase는 'fetching'부터 시작한다(설계 §4.13)."""
@@ -1816,12 +2147,7 @@ def start_fetch_job(
     if not cert_ref or not exam_ref:
         raise ValidationAppError("cert_ref·exam_ref가 필요합니다")
 
-    llm_engine_service.assert_engine_selectable(db, engine)
-    resolved_engine = llm_engine_service.resolve_engine(db, engine)
-    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
-    pre_fallback = applied_engine != resolved_engine
-    resolved_engine = applied_engine
-    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
+    resolved_engine, selected_model, pre_fallback = _resolve_engine_and_model(db, engine, model)
 
     job_id = f"ftc_{uuid.uuid4().hex[:8]}"
     job = _new_job_base("fetch", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model)
@@ -1837,6 +2163,9 @@ def start_fetch_job(
             "_exam_key_override": exam_key,
             "_phase": "fetching",
             "_phase_detail": source_url,
+            # S22(F48 ①) — label 서버 합성(kind별 — 회차 라벨 수준. 완료 후 상세 회차명은
+            # 미리보기에서 확인 — 목록은 조회 시점에 확정 가능한 값만 쓴다, LLM 0·DB 0 유지).
+            "_label": f"『{cert_ref} {exam_ref}』 사이트 반입",
         }
     )
     with _JOBS_LOCK:
@@ -1844,6 +2173,29 @@ def start_fetch_job(
     _ensure_worker()
     _QUEUE.put(job_id)
     return job_id
+
+
+def _resolve_engine_and_model(
+    db: Session, engine: str, model: Optional[str]
+) -> Tuple[str, Optional[str], bool]:
+    """9개 진입점 공통 헬퍼(설계 §4.24 ⓒ — 검증 로직 이원화 금지) — `assert_engine_selectable`
+    (엔진 상태 + model 규칙 (a)(b))을 거친 뒤 (resolved_engine, selected_model, pre_fallback)을
+    반환한다.
+
+    `model`이 지정됐고 사전 폴백(원격 한도 기억에 의한 즉시 엔진 전환)이 일어나지 않았으면
+    그 값을 잡의 초기 모델로 그대로 쓴다(1회성 — settings 무변경). 사전 폴백이 일어났으면
+    요청 model은 버리고 새 엔진의 설정값으로 재산출한다(설계 §4.24 결정 ④ⓓ "폴백 시 소멸" —
+    런타임 폴백(`_handle_engine_failure`)과 대칭)."""
+    llm_engine_service.assert_engine_selectable(db, engine, model=model)
+    resolved_engine = llm_engine_service.resolve_engine(db, engine)
+    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
+    pre_fallback = applied_engine != resolved_engine
+    resolved_engine = applied_engine
+    if model and not pre_fallback:
+        selected_model = model
+    else:
+        selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
+    return resolved_engine, selected_model, pre_fallback
 
 
 def _new_job_base(kind: str, *, resolved_engine: str, requested_engine: str, model: Optional[str]) -> dict:
@@ -1875,6 +2227,14 @@ def _new_job_base(kind: str, *, resolved_engine: str, requested_engine: str, mod
         "_notes": [],  # S14 — 성공 결과 소표기(사이트 반입에서 함께 저장한 원본 등)
         "_extra_tmp_paths": [],  # S16(F42) — cp949 CLI 재인코딩 tmp 등 부가 파생물(정리 대상)
         "_cli_recoded_path": None,  # S16(F42) — cp949 CLI 재인코딩 tmp 캐시(잡당 1회 생성)
+        # S22(F48, 설계 §4.24) — 전역 잡 목록·취소·대기열 일시정지용 값 확장(기존 필드·상태
+        # 계약은 불변, 값 추가만 — §4.24 결정 ① "잡 레코드에 부족한 필드가 없으면 값 추가만").
+        "_label": None,  # kind별 서버 완성 라벨(각 start_*_job이 생성 시점에 합성해 채운다)
+        "_cancel_requested": False,  # 취소 확정 여부(폴백 재시도·엔진 호출 조기 종료 신호)
+        "_proc": None,  # 현재 실행 중인 CLI 서브프로세스 핸들(취소 시 프로세스 트리 종료용)
+        "_api_stream": None,  # 현재 실행 중인 API 엔진 스트림 핸들(취소 시 연결 종료용)
+        "_dequeued_at": None,  # 워커가 실제로 이 잡을 집어든 시각(목록의 started_at — §4.24 ①)
+        "_finished_at": None,  # 종료(done·error·cancelled) 확정 시각(목록의 finished_at·정렬 키)
     }
 
 
@@ -1886,6 +2246,7 @@ def start_convert_job(
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     category_path: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> str:
     _purge_expired_jobs()
     category_path = normalize_category_path(category_path)
@@ -1894,12 +2255,7 @@ def start_convert_job(
             "prompts/convert.md 프롬프트 파일을 찾을 수 없습니다",
             detail={"path": str(CONVERT_PROMPT_PATH)},
         )
-    llm_engine_service.assert_engine_selectable(db, engine)
-    resolved_engine = llm_engine_service.resolve_engine(db, engine)
-    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
-    pre_fallback = applied_engine != resolved_engine
-    resolved_engine = applied_engine
-    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
+    resolved_engine, selected_model, pre_fallback = _resolve_engine_and_model(db, engine, model)
 
     CONVERT_TMP_DIR.mkdir(exist_ok=True)
     job_id = f"cvt_{uuid.uuid4().hex[:8]}"
@@ -1917,6 +2273,8 @@ def start_convert_job(
             "_tmp_path": str(tmp_path),
             "_input_size": len(upload_bytes),
             "_category_path": category_path,
+            # S22(F48 ①) — label 서버 합성(kind별 — 파일명 수준, LLM 산출 미포함).
+            "_label": f"『{upload_filename}』 변환",
         }
     )
     with _JOBS_LOCK:
@@ -1933,6 +2291,7 @@ def start_convert_job_from_url(
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     category_path: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> str:
     """URL 반입(F35 1단계) — 다운로드도 워커에서 수행(요청 스레드 블로킹 금지),
     phase='downloading'부터 잡으로 처리한다."""
@@ -1945,12 +2304,7 @@ def start_convert_job_from_url(
         )
     if not url or not url.strip():
         raise ValidationAppError("url이 비어 있습니다")
-    llm_engine_service.assert_engine_selectable(db, engine)
-    resolved_engine = llm_engine_service.resolve_engine(db, engine)
-    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
-    pre_fallback = applied_engine != resolved_engine
-    resolved_engine = applied_engine
-    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
+    resolved_engine, selected_model, pre_fallback = _resolve_engine_and_model(db, engine, model)
 
     job_id = f"cvt_{uuid.uuid4().hex[:8]}"
     job = _new_job_base("convert", resolved_engine=resolved_engine, requested_engine=engine, model=selected_model)
@@ -1963,6 +2317,8 @@ def start_convert_job_from_url(
             "_phase": "downloading",
             "_phase_detail": url.strip(),
             "_category_path": category_path,
+            # S22(F48 ①) — label 서버 합성(kind별 — URL을 파일명 대체 수준으로 표기).
+            "_label": f"『{url.strip()}』 변환",
         }
     )
     with _JOBS_LOCK:
@@ -2088,6 +2444,7 @@ def _do_regenerate(job_id: str, job: dict) -> dict:
     attempted_fallback = False
     text_result: Optional[str] = None
     while True:
+        _raise_if_cancelled(job)  # S22(F48 ②) — 취소 확정 시 다음 엔진 호출 전에 조기 종료
         engine = job["_engine"]
         _set_phase(job_id, "llm_running")
         try:
@@ -2128,13 +2485,14 @@ def start_regenerate_job(
     *,
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    model: Optional[str] = None,
 ) -> str:
     _purge_expired_jobs()
     document = document_service.get_document_or_404(db, document_id)
     # 검토 지적 ③ — 422(엔진 비활성·비가용)로 거부될 요청이 F46 제안함 사례로 잘못 남는
     # 것을 막기 위해, 부수 효과(사례 수집)보다 먼저 검증한다(문서 조회 직후 — 404는
     # 여전히 사례 수집보다 앞이어야 하므로 이 순서 유지).
-    llm_engine_service.assert_engine_selectable(db, engine)
+    llm_engine_service.assert_engine_selectable(db, engine, model=model)
     tags = document_service._tags_for_document(db, document_id)
     choices = json.loads(document.choices) if document.choices else None
 
@@ -2163,11 +2521,18 @@ def start_regenerate_job(
     except Exception:  # noqa: BLE001 - 수집 실패가 신고(F30) 자체를 막으면 안 된다
         _LOGGER.warning("F30 신고 사례 수집 중 오류(신고 자체는 계속 진행)", exc_info=True)
 
+    # assert_engine_selectable(model 규칙 포함)는 위에서 이미 통과했다 — 재검증하지 않고
+    # 엔진 해석·모델 산출만 수행한다(검증 로직 이원화 금지, §4.24 ⓒ — 이 함수만 문서 조회·
+    # 사례 수집이 검증과 자원 계산 사이에 끼어 있어 `_resolve_engine_and_model`을 그대로
+    # 재사용하면 assert가 중복 호출된다).
     resolved_engine = llm_engine_service.resolve_engine(db, engine)
     applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
     pre_fallback = applied_engine != resolved_engine
     resolved_engine = applied_engine
-    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
+    if model and not pre_fallback:
+        selected_model = model
+    else:
+        selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
 
     prompt = _build_regenerate_prompt(document, tags, choices, reason, source_note, engine=resolved_engine)
 
@@ -2181,6 +2546,8 @@ def start_regenerate_job(
             "_prompt": prompt,
             "_timeout": timeout_seconds,
             "_input_size": len(prompt.encode("utf-8")),
+            # S22(F48 ①) — label 서버 합성(kind별 — 문서 doc_no/제목 수준, LLM 산출 미포함).
+            "_label": f"『{document.doc_no} {document.title}』 재생성",
         }
     )
     with _JOBS_LOCK:
@@ -2377,6 +2744,7 @@ def _do_answer_key_job(job_id: str, job: dict) -> dict:
     attempted_fallback = False
     text_result: Optional[str] = None
     while True:
+        _raise_if_cancelled(job)  # S22(F48 ②) — 취소 확정 시 다음 엔진 호출 전에 조기 종료
         engine = job["_engine"]
         _set_phase(job_id, "llm_running")
         try:
@@ -2434,15 +2802,15 @@ def start_answer_key_job(
     source_bytes: bytes,
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    key_id: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> str:
-    """답지 가공 잡 시작(convert 잡 큐 재사용 — kind='answer_key', 동시 1개)."""
+    """답지 가공 잡 시작(convert 잡 큐 재사용 — kind='answer_key', 동시 1개).
+
+    `key_id`(S22 F48 ⓓ) — 잡 목록의 ref 파생용(화면 복원 키). 선택값으로 둔 이유는 기존
+    호출부·테스트가 이 값 없이도 호출하던 계약을 깨지 않기 위함(생략 시 ref.key_id=None)."""
     _purge_expired_jobs()
-    llm_engine_service.assert_engine_selectable(db, engine)
-    resolved_engine = llm_engine_service.resolve_engine(db, engine)
-    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
-    pre_fallback = applied_engine != resolved_engine
-    resolved_engine = applied_engine
-    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
+    resolved_engine, selected_model, pre_fallback = _resolve_engine_and_model(db, engine, model)
 
     CONVERT_TMP_DIR.mkdir(exist_ok=True)
     job_id = f"ak_{uuid.uuid4().hex[:8]}"
@@ -2459,6 +2827,9 @@ def start_answer_key_job(
             "_source_bytes": source_bytes,
             "_tmp_path": str(tmp_path),
             "_input_size": len(source_bytes),
+            "_key_id": key_id,
+            # S22(F48 ①) — label 서버 합성(kind별 — 파일명 수준, LLM 산출 미포함).
+            "_label": f"『{source_filename}』 답지 가공",
         }
     )
     with _JOBS_LOCK:
@@ -2540,6 +2911,7 @@ def _do_explain_job(job_id: str, job: dict) -> dict:
     attempted_fallback = False
     text_result: Optional[str] = None
     while True:
+        _raise_if_cancelled(job)  # S22(F48 ②) — 취소 확정 시 다음 엔진 호출 전에 조기 종료
         engine = job["_engine"]
         _set_phase(job_id, "llm_running")
         try:
@@ -2579,6 +2951,7 @@ def start_explain_job(
     *,
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    model: Optional[str] = None,
 ) -> str:
     """대상 제한(설계 §4.20 ②) — 문제 타입 + explanation 비어 있음. 있으면 409(교정·재작성은
     F30 재생성 경로)."""
@@ -2604,12 +2977,7 @@ def start_explain_job(
     if document.source_detail:
         source_note = f"{source_note + chr(10) if source_note else ''}원본 위치: {document.source_detail}"
 
-    llm_engine_service.assert_engine_selectable(db, engine)
-    resolved_engine = llm_engine_service.resolve_engine(db, engine)
-    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
-    pre_fallback = applied_engine != resolved_engine
-    resolved_engine = applied_engine
-    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
+    resolved_engine, selected_model, pre_fallback = _resolve_engine_and_model(db, engine, model)
 
     prompt = _build_explain_prompt(document, choices, source_note, engine=resolved_engine)
 
@@ -2623,6 +2991,8 @@ def start_explain_job(
             "_prompt": prompt,
             "_timeout": timeout_seconds,
             "_input_size": len(prompt.encode("utf-8")),
+            # S22(F48 ①) — label 서버 합성(kind별 — 문서 doc_no/제목 수준, LLM 산출 미포함).
+            "_label": f"『{document.doc_no} {document.title}』 풀이 생성",
         }
     )
     with _JOBS_LOCK:
@@ -2796,6 +3166,7 @@ def _do_applied_exam_job(job_id: str, job: dict) -> dict:
     attempted_fallback = False
     text_result: Optional[str] = None
     while True:
+        _raise_if_cancelled(job)  # S22(F48 ②) — 취소 확정 시 다음 엔진 호출 전에 조기 종료
         engine = job["_engine"]
         _set_phase(job_id, "llm_running")
         try:
@@ -2843,16 +3214,12 @@ def start_applied_exam_job(
     basis_docs: List[dict],
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    model: Optional[str] = None,
 ) -> str:
     """생성 잡 시작(convert 잡 큐 재사용 — kind='applied_exam', 동시 1개). `basis_docs`는
     prepare가 이미 수집한 문서 스냅샷(첨부 파일 없음 — 텍스트 프롬프트에 그대로 삽입)."""
     _purge_expired_jobs()
-    llm_engine_service.assert_engine_selectable(db, engine)
-    resolved_engine = llm_engine_service.resolve_engine(db, engine)
-    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
-    pre_fallback = applied_engine != resolved_engine
-    resolved_engine = applied_engine
-    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
+    resolved_engine, selected_model, pre_fallback = _resolve_engine_and_model(db, engine, model)
 
     prompt = _build_applied_exam_prompt(basis_docs, requested_count)
 
@@ -2871,6 +3238,8 @@ def start_applied_exam_job(
             "_basis_docs": basis_docs,
             "_requested_count": requested_count,
             "_scope_label": scope_label,
+            # S22(F48 ①) — label 서버 합성(kind별 — 범위 라벨·사례 수 수준, 예시 그대로).
+            "_label": f"AI 응용 문항 생성 — {scope_label} ({requested_count}문항)",
         }
     )
     with _JOBS_LOCK:
@@ -2912,6 +3281,7 @@ def _do_improve_proposal_job(job_id: str, job: dict) -> dict:
     attempted_fallback = False
     text_result: Optional[str] = None
     while True:
+        _raise_if_cancelled(job)  # S22(F48 ②) — 취소 확정 시 다음 엔진 호출 전에 조기 종료
         engine = job["_engine"]
         _set_phase(job_id, "llm_running")
         try:
@@ -2977,17 +3347,13 @@ def start_improve_proposal_job(
     case_ids: List[str],
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    model: Optional[str] = None,
 ) -> str:
     """제안 생성 잡 시작(convert 잡 큐 재사용 — kind='improve_proposal', 동시 1개).
     `prompt`는 prepare가 이미 조립·검증(200,000자 상한)을 마친 텍스트 그대로 쓴다
     (재조립하지 않는다 — prepare와 generate 사이 드리프트 방지)."""
     _purge_expired_jobs()
-    llm_engine_service.assert_engine_selectable(db, engine)
-    resolved_engine = llm_engine_service.resolve_engine(db, engine)
-    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
-    pre_fallback = applied_engine != resolved_engine
-    resolved_engine = applied_engine
-    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
+    resolved_engine, selected_model, pre_fallback = _resolve_engine_and_model(db, engine, model)
 
     job_id = f"ipp_{uuid.uuid4().hex[:8]}"
     job = _new_job_base(
@@ -3002,6 +3368,8 @@ def start_improve_proposal_job(
             "_timeout": timeout_seconds,
             "_input_size": len(prompt.encode("utf-8")),
             "_case_ids": list(case_ids),
+            # S22(F48 ①) — label 서버 합성(kind별 — 사례 수 수준, LLM 산출 미포함).
+            "_label": f"반입 개선 제안 생성 — 사례 {len(case_ids)}건",
         }
     )
     with _JOBS_LOCK:
@@ -3192,6 +3560,11 @@ def _do_improve_regression_job(job_id: str, job: dict) -> dict:
     results: List[dict] = []
     case_ids: List[str] = job["_case_ids"]
     for i, case_id in enumerate(case_ids, start=1):
+        # S22(F48 ②) — 사례별 순차 처리라 폴백 재시도 루프가 없다(§ 상단 설명 그대로) —
+        # 취소는 다음 사례로 넘어가기 전에 확인해 조기 종료한다(이미 처리된 사례 결과는
+        # 버리지 않는다 — `_process_job`이 그래도 전체를 폐기하지만, 부분 산출은 어차피
+        # DB·preview에 기록되지 않는 검증 전용 잡이라 안전하다).
+        _raise_if_cancelled(job)
         _set_phase(job_id, "llm_running", f"{i}/{len(case_ids)} — {case_id}")
         try:
             record = improve_service.get_case_or_404(case_id)
@@ -3213,15 +3586,11 @@ def start_improve_regression_job(
     case_ids: List[str],
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    model: Optional[str] = None,
 ) -> str:
     """회귀 재검증 잡 시작(convert 잡 큐 재사용 — kind='improve_regression', 동시 1개)."""
     _purge_expired_jobs()
-    llm_engine_service.assert_engine_selectable(db, engine)
-    resolved_engine = llm_engine_service.resolve_engine(db, engine)
-    applied_engine = llm_engine_service.apply_remembered_limit(db, resolved_engine)
-    pre_fallback = applied_engine != resolved_engine
-    resolved_engine = applied_engine
-    selected_model = llm_engine_service.get_selected_model(db, resolved_engine)
+    resolved_engine, selected_model, pre_fallback = _resolve_engine_and_model(db, engine, model)
 
     job_id = f"irg_{uuid.uuid4().hex[:8]}"
     job = _new_job_base(
@@ -3235,6 +3604,8 @@ def start_improve_regression_job(
             "_timeout": timeout_seconds,
             "_input_size": 0,
             "_case_ids": list(case_ids),
+            # S22(F48 ①) — label 서버 합성(kind별 — 사례 수 수준, LLM 산출 미포함).
+            "_label": f"반입 개선 회귀 재검증 — 사례 {len(case_ids)}건",
         }
     )
     with _JOBS_LOCK:

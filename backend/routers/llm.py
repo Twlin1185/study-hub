@@ -7,8 +7,16 @@ from starlette import status
 
 from database import get_db
 from exceptions import ValidationAppError
-from schemas.llm import ApiKeyRequest, ApiKeySaved, InstallEngineResponse, LlmStatus
-from services import llm_engine_service
+from schemas.llm import (
+    ApiKeyRequest,
+    ApiKeySaved,
+    InstallEngineResponse,
+    JobCancelResult,
+    JobListResponse,
+    LlmStatus,
+    QueuePauseResult,
+)
+from services import convert_service, llm_engine_service
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
@@ -50,3 +58,33 @@ def install_engine(engine_id: str) -> InstallEngineResponse:
         raise ValidationAppError("설치를 지원하지 않는 엔진입니다", detail={"engine": engine_id})
     result = llm_engine_service.install_engine(normalized)
     return InstallEngineResponse(**result)
+
+
+# ---------------------------------------------------------------------------
+# S22(F48, 설계 §4.24) — LLM 작업 센터: 전역 잡 목록·취소·대기열 일시정지
+# 신규 엔드포인트 4개 — 전부 LLM 0·DB 0(인메모리 조회·플래그 전환뿐).
+# ---------------------------------------------------------------------------
+@router.get("/jobs", response_model=JobListResponse)
+def list_jobs() -> JobListResponse:
+    """전역 잡 목록 — 정렬: running → queued(등록순) → 종료(최신순). 페이지네이션 없음
+    (잡 TTL 1시간 내 레코드뿐 — 상한 자연 형성)."""
+    return JobListResponse(**convert_service.list_jobs_overview())
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=JobCancelResult)
+def cancel_job(job_id: str) -> JobCancelResult:
+    """취소 — queued=큐 제거(비용 0) / running=실행 중단(부분 과금 가능 — 마지막 usage
+    표기). 이미 종료된 작업은 409, 미존재·TTL 만료는 404(설계 §4.24 ⓐⓑ)."""
+    return JobCancelResult(**convert_service.cancel_job(job_id))
+
+
+@router.post("/queue/pause", response_model=QueuePauseResult)
+def pause_queue() -> QueuePauseResult:
+    """대기열 일시정지 — 다음 잡 시작만 보류(running 잡은 계속). 멱등."""
+    return QueuePauseResult(paused=convert_service.pause_queue())
+
+
+@router.post("/queue/resume", response_model=QueuePauseResult)
+def resume_queue() -> QueuePauseResult:
+    """재개 — 보류 해제, 대기 순서대로 실행. 멱등."""
+    return QueuePauseResult(paused=convert_service.resume_queue())

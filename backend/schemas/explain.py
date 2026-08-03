@@ -11,6 +11,8 @@ from schemas.convert import EngineChoice, ErrorInfo, JobProgress
 
 class ExplainRequest(BaseModel):
     engine: EngineChoice = "auto"
+    # S22(F48 ④·ⓒ) — 요청 단위 모델 오버라이드(선택). 검증은 서버 공통 헬퍼가 수행.
+    model: Optional[str] = None
 
 
 class ExplainJobStart(BaseModel):
@@ -26,7 +28,8 @@ class ExplainDraft(BaseModel):
 
 class ExplainJobStatus(BaseModel):
     job_id: str
-    status: Literal["running", "done", "error"]
+    # S22(F48 ②) — 'cancelled' 순수 추가(기존 값 불변, 설계 §4.24 ⓑ).
+    status: Literal["running", "done", "error", "cancelled"]
     draft: Optional[ExplainDraft] = None
     explanation_source: Optional[Literal["generated"]] = None
     error: Optional[str] = None

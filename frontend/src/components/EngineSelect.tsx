@@ -28,6 +28,13 @@ export interface EngineSelectProps {
   billingLabels?: Record<string, string>
   disabled?: boolean
   className?: string
+  // S22(설계 §4.24 ④, F48) — 요청 단위 모델 오버라이드. value가 구체 엔진이고 그 엔진의 models
+  // 소목록이 비어 있지 않을 때만 소목록 select를 노출한다(auto·소목록 빈 엔진(codex-cli)은
+  // 미노출 — 자유 입력 없음 유지, §4.23 결정 재확인). null/undefined = "설정값" 선택.
+  // 사용처가 modelValue·onModelChange를 넘기지 않으면(기존 7곳 이외 호출부) 이 select 자체가
+  // 렌더되지 않아 기존 화면 동작이 완전히 불변이다.
+  modelValue?: string | null
+  onModelChange?: (model: string | null) => void
 }
 
 export default function EngineSelect({
@@ -37,10 +44,28 @@ export default function EngineSelect({
   billingLabels,
   disabled,
   className,
+  modelValue,
+  onModelChange,
 }: EngineSelectProps) {
   const statusQuery = useLlmStatus()
   const refreshStatus = useRefreshLlmStatus()
   const engines = statusQuery.data?.engines ?? []
+
+  // 현재 선택된 구체 엔진 — auto·미매칭(legacy 'cli'|'api' 별칭 등)이면 null이라 모델 select가
+  // 자연히 미노출된다(엔진을 먼저 선택해야 모델을 고를 수 있다, §4.24 ④ 규칙 (a)와 정합).
+  const selectedEngine = value !== 'auto' ? (engines.find((e) => e.id === value) ?? null) : null
+
+  function handleEngineChange(next: LlmEngine) {
+    onChange(next)
+    // 엔진이 바뀌면 이전 엔진의 모델 id를 들고 있지 않도록 초기화(다른 엔진에 남의 모델 id를
+    // 전달하는 사고 경로 차단 — §4.23 [중요①] 폴백 시 모델 재산출 관례와 같은 정신).
+    onModelChange?.(null)
+  }
+
+  function modelLabel(engine: LlmEngineStatus, modelId: string | null): string {
+    if (!modelId) return '기본값'
+    return engine.models.find((m) => m.id === modelId)?.label ?? modelId
+  }
 
   return (
     <div className={`flex flex-col gap-2 ${className ?? ''}`}>
@@ -48,7 +73,7 @@ export default function EngineSelect({
         <button
           type="button"
           disabled={disabled}
-          onClick={() => onChange('auto')}
+          onClick={() => handleEngineChange('auto')}
           aria-pressed={value === 'auto'}
           className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
             value === 'auto' ? 'bg-accent text-on-accent' : 'bg-bg text-muted hover:bg-surface-raised'
@@ -66,7 +91,7 @@ export default function EngineSelect({
             <button
               type="button"
               disabled={disabled || gated}
-              onClick={() => onChange(engine.id)}
+              onClick={() => handleEngineChange(engine.id)}
               aria-pressed={value === engine.id}
               className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${
                 value === engine.id ? 'bg-accent text-on-accent' : 'bg-bg text-muted hover:bg-surface-raised'
@@ -91,6 +116,27 @@ export default function EngineSelect({
           </div>
         )
       })}
+
+      {onModelChange && selectedEngine && selectedEngine.models.length > 0 && (
+        <label className="flex w-fit flex-col gap-1 pl-1 text-[11px] text-muted">
+          모델
+          <select
+            value={modelValue ?? ''}
+            disabled={disabled}
+            onChange={(e) => onModelChange(e.target.value || null)}
+            className="rounded border border-border bg-bg px-2 py-1 text-xs text-primary outline-none focus:border-accent disabled:opacity-50"
+          >
+            <option value="">
+              설정값(현재: {modelLabel(selectedEngine, selectedEngine.selected_model ?? selectedEngine.default_model)})
+            </option>
+            {selectedEngine.models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
     </div>
   )
 }

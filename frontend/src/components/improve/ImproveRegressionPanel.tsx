@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useImproveProposals } from '../../api/improve'
+import { useJobRecovery } from '../../hooks/useJobRecovery'
 import ImproveRegressionWizard from './ImproveRegressionWizard'
 import { PROPOSAL_KIND_BADGE_CLASS, PROPOSAL_KIND_LABEL } from './labels'
 import type { ImproveProposalListItem } from '../../api/types'
@@ -18,6 +19,19 @@ function formatDate(iso: string | null | undefined): string {
 export default function ImproveRegressionPanel() {
   const appliedQuery = useImproveProposals('applied')
   const [target, setTarget] = useState<ImproveProposalListItem | null>(null)
+  // 재진입 복원(설계 §4.24 ⑤·ⓓ, F48) — proposal 객체 없이 reg_id만으로도 위저드를 열 수 있다
+  // (ImproveRegressionWizard의 proposal? 선택 지원 — resume 모드는 select 단계를 쓰지 않는다).
+  const [resumeRegId, setResumeRegId] = useState<string | null>(null)
+
+  useJobRecovery({
+    kind: 'improve_regression',
+    enabled: !target && !resumeRegId,
+    onRecovered: (job) => {
+      const rid = job.ref?.reg_id
+      if (!rid) return
+      setResumeRegId(rid)
+    },
+  })
 
   const items = appliedQuery.data ?? []
 
@@ -58,8 +72,19 @@ export default function ImproveRegressionPanel() {
         ))}
       </ul>
 
-      {target && (
-        <ImproveRegressionWizard proposal={target} onClose={() => setTarget(null)} onDone={() => setTarget(null)} />
+      {(target || resumeRegId) && (
+        <ImproveRegressionWizard
+          proposal={target ?? undefined}
+          resumeRegId={target ? undefined : (resumeRegId ?? undefined)}
+          onClose={() => {
+            setTarget(null)
+            setResumeRegId(null)
+          }}
+          onDone={() => {
+            setTarget(null)
+            setResumeRegId(null)
+          }}
+        />
       )}
     </div>
   )

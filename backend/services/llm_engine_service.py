@@ -500,7 +500,7 @@ def next_fallback_engine(db: Session, engine: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # 명시 지정 422 방어 (설계 §4.23 ⓒ·결정 ⑥) — 공통 헬퍼 1개, 8곳 잡 시작 지점이 공유
 # ---------------------------------------------------------------------------
-def assert_engine_selectable(db: Session, engine: str) -> None:
+def assert_engine_selectable(db: Session, engine: str, *, model: Optional[str] = None) -> None:
     """`engine`이 auto가 아닌 명시 엔진 id(legacy 별칭 포함)이고 그 엔진이 비활성·비가용이면
     잡 생성 전 422(§3 `VALIDATION_ERROR`)로 거부한다. `auto`·미등록 값은 상태를 검증하지
     않는 것이 원칙이나(auto의 후보 산출 자체가 `is_engine_candidate`를 경유하므로 비활성
@@ -509,9 +509,23 @@ def assert_engine_selectable(db: Session, engine: str) -> None:
     껐다)이면 `auto`도 잡 생성 전 422로 막는다 — 그렇지 않으면 `resolve_engine`의 최종
     폴백이 꺼진 엔진을 반환·실행해 DoD 1("꺼진 엔진 호출 경로 0")을 위반한다. 이 후보·
     상태 판정은 위 `is_engine_enabled`/`is_engine_available`만 재사용한다(검증 로직
-    이원화 금지)."""
+    이원화 금지).
+
+    `model`(설계 §4.24 ④·ⓒ — S22, §4.23 ⓑ 개정) — 요청 파라미터로 지정된 경우에만 검증한다
+    (미지정 시 완전 불변, 기존 동작 그대로). 규칙 2개: **(a)** `engine`이 auto(또는 미등록
+    값)인데 `model`이 오면 422("모델을 지정하려면 엔진을 먼저 선택하세요" — auto는 어느
+    엔진의 소목록인지 결정할 수 없다). **(b)** 명시 엔진의 소목록(`models`)에 없는 값이면
+    422(무시·폴백 아님 — 요청 명시값을 조용히 다른 모델로 돌리는 것이 진짜 오호출이다).
+    ※ 이 규칙은 **요청 파라미터** 전용이다 — `get_selected_model`의 "소목록 밖 값은 조용히
+    `default_model` 폴백"은 **저장된 settings 잔존값**(구 설정·소목록 개정 후 잔존)에 대한
+    전방 호환 규칙으로 서로 다른 계약이다(혼동 금지)."""
     normalized = normalize_engine_id(engine)
     if normalized not in ENGINE_REGISTRY:
+        if model:
+            raise ValidationAppError(
+                "모델을 지정하려면 엔진을 먼저 선택하세요",
+                detail={"engine": engine, "model": model, "reason": "model_requires_explicit_engine"},
+            )
         if not any(is_engine_enabled(db, eid) for eid in ENGINE_REGISTRY):
             raise ValidationAppError(
                 "모든 엔진이 꺼져 있습니다 — 설정에서 엔진을 켜세요",
@@ -536,6 +550,13 @@ def assert_engine_selectable(db: Session, engine: str) -> None:
             )
             reason = "key_not_registered"
         raise ValidationAppError(message, detail={"engine": normalized, "reason": reason})
+    if model:
+        valid_ids = {m["id"] for m in meta.get("models") or []}
+        if model not in valid_ids:
+            raise ValidationAppError(
+                f"{label} 엔진에서 선택할 수 없는 모델입니다",
+                detail={"engine": normalized, "model": model, "reason": "model_not_in_list"},
+            )
 
 
 # ---------------------------------------------------------------------------
