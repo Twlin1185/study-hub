@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { categoryKeys } from './categories'
 import { documentKeys } from './documents'
+import { llmJobsKey } from './llm'
 import type {
   AnswerKeyApplyResult,
   AnswerKeyStatusResponse,
@@ -30,10 +31,13 @@ export function useUploadAnswerKey() {
 // LLM 가공 잡 시작 — job_id는 서버 잡 큐 내부 식별자일 뿐, 상태 폴링은 key_id로 한다
 // (GET /api/import/answer-key/{key_id}, 아래 useAnswerKeyStatus).
 // model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드(engine 명시 필요·소목록 밖=422, 미지정=설정값).
+// 시작 성공 시 잡 목록(llmJobsKey) 무효화(검토 반영 — api/convert.ts useStartConvert와 동일 근거).
 export function useStartAnswerKeyProcess() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ keyId, engine, model }: { keyId: string; engine?: LlmEngine; model?: string }) =>
       api.post<ConvertJobStartResponse>(`/import/answer-key/${keyId}/process`, { engine, model }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
   })
 }
 

@@ -3202,6 +3202,11 @@ def _do_applied_exam_job(job_id: str, job: dict) -> dict:
     # (applied_exam_service가 모듈 최상단에서 이 모듈을 import하므로 역방향은 지연시킨다).
     from services import applied_exam_service
 
+    # S22(검토 반영 — 취소 확정과 저장 사이의 창 봉합) — LLM 반환 후에도 취소가 확정될 수
+    # 있으므로, DB 쓰기(finalize_generation) 직전에 다시 한 번 확인한다. 창을 "LLM 반환~
+    # 저장"에서 "이 체크~저장"으로 좁힌다(완전한 원자성은 요구되지 않음 — 완료 승리 계약은
+    # `_process_job`이 그대로 보존).
+    _raise_if_cancelled(job)
     return applied_exam_service.finalize_generation(job, items)
 
 
@@ -3574,6 +3579,10 @@ def _do_improve_regression_job(job_id: str, job: dict) -> dict:
             )
             continue
         outcome, detail = _regression_run_case(job_id, job, record)
+        # S22(검토 반영) — LLM 반환(_regression_run_case) 후에도 취소가 확정될 수 있으므로,
+        # 사례 저장(append_regression) 직전에 다시 확인해 창을 좁힌다(위 applied_exam과
+        # 동일한 근거 — 완료 승리 계약은 `_process_job`이 그대로 보존).
+        _raise_if_cancelled(job)
         improve_service.append_regression(case_id, reg_id=job["_reg_id"], outcome=outcome)
         results.append({"case_id": case_id, "outcome": outcome, "detail": detail})
     return {"results": results}

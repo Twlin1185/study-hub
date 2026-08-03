@@ -126,7 +126,18 @@ export default function JobCenterPanel({ open, onClose }: JobCenterPanelProps) {
             </span>
             <button
               type="button"
-              onClick={() => (paused ? resumeMutation.mutate() : pauseMutation.mutate())}
+              onClick={() => {
+                setActionError(null)
+                if (paused) {
+                  resumeMutation.mutate(undefined, {
+                    onError: (e) => setActionError(errMsg(e, '재개에 실패했습니다.')),
+                  })
+                } else {
+                  pauseMutation.mutate(undefined, {
+                    onError: (e) => setActionError(errMsg(e, '일시정지에 실패했습니다.')),
+                  })
+                }
+              }}
               disabled={pauseMutation.isPending || resumeMutation.isPending}
               className="rounded border border-border px-3 py-1.5 text-xs font-medium text-primary hover:bg-bg disabled:opacity-50"
             >

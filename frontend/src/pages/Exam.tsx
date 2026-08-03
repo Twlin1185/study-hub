@@ -120,6 +120,13 @@ export default function ExamPage() {
   const [examMode, setExamMode] = useState<'real' | 'applied'>(
     searchParams.get('mode') === 'applied' ? 'applied' : 'real',
   )
+  // 검토 반영 — 이미 이 라우트에 있는 상태에서 딥링크(쿼리 파라미터)만 바뀌는 경우(useState
+  // 초기값은 마운트 시 1회만 읽힌다) 대응. 파라미터가 실제로 'applied'로 바뀔 때만 반응하고,
+  // 그 외에는 사용자가 수동으로 고른 탭을 그대로 둔다.
+  const modeParam = searchParams.get('mode')
+  useEffect(() => {
+    if (modeParam === 'applied') setExamMode('applied')
+  }, [modeParam])
 
   const [examNodeId, setExamNodeId] = useState<number | null>(null)
   const [selectedSubjects, setSelectedSubjects] = useState<Set<number>>(new Set())

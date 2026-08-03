@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useApplySuggestions, useSuggestions } from '../api/suggestions'
 import { ApiError } from '../api/client'
@@ -17,6 +17,13 @@ export default function SuggestionsPage() {
   // S22(설계 §4.24 ⓓ, F48) — 작업 센터 [화면으로 이동]이 `?tab=improve`로 이 탭을 곧바로 연다.
   const [searchParams] = useSearchParams()
   const [tab, setTab] = useState<InboxTab>(searchParams.get('tab') === 'improve' ? 'improve' : 'classify')
+  // 검토 반영 — 이미 이 라우트에 있는 상태에서 딥링크(쿼리 파라미터)만 바뀌는 경우(useState
+  // 초기값은 마운트 시 1회만 읽힌다) 대응. 파라미터가 실제로 'improve'로 바뀔 때만 반응하고,
+  // 그 외에는 사용자가 수동으로 고른 탭을 그대로 둔다.
+  const tabParam = searchParams.get('tab')
+  useEffect(() => {
+    if (tabParam === 'improve') setTab('improve')
+  }, [tabParam])
   const navigate = useNavigate()
   const suggestionsQuery = useSuggestions()
   const applySuggestions = useApplySuggestions()
