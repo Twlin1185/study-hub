@@ -10,16 +10,17 @@ import datetime as dt
 import json
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import models
 from database import Base
 from exceptions import ValidationAppError
-from schemas.applied_exam import AppliedExamPrepareRequest
+from schemas.applied_exam import AppliedExamGenerateRequest, AppliedExamPrepareRequest
 from schemas.exam import ExamAnswerItem, ExamSubmitRequest
 from services import applied_exam_service, convert_service, exam_service, quiz_service
-from services import source_match
+from services import source_match, tag_rule_service
 from services.source_match import SourceMatcher
 
 
@@ -34,6 +35,15 @@ def db():
     finally:
         session.close()
         engine.dispose()
+
+
+@pytest.fixture()
+def restore_queue_paused():
+    """`test_job_center.py` 전례 — 큐를 일시정지해 워커가 실제 잡을 집어가 진짜 CLI를
+    부르지 못하게 한다(실 LLM 호출 절대 금지). 테스트가 실패해도 다음 테스트를 막지
+    않도록 항상 resume한다."""
+    yield
+    convert_service.resume_queue()
 
 
 def _valid_item(**overrides) -> dict:
@@ -568,3 +578,461 @@ def test_invalid_output_action_applied_exam_truncated_variant():
     msg = convert_service._invalid_output_action(truncated=True, job_kind="applied_exam")
     assert "문항 수를 줄이거나" in msg
     assert "원본" not in msg
+
+
+# ---------------------------------------------------------------------------
+# S24(F50) — 누적('accumulate')·1회성('oneshot') 생성 모드 (설계 §4.21 S24 개정 블록)
+# ---------------------------------------------------------------------------
+
+# ① mode 기본값 = accumulate · 잘못된 값 422(스키마 Literal 검증 — FastAPI가 자동으로
+#    §3 VALIDATION_ERROR 형태로 변환하는 계층은 기존 엔진 Literal 필드와 동일 인프라라
+#    여기서는 스키마 경계만 검증한다).
+def test_generate_request_mode_defaults_to_accumulate():
+    assert AppliedExamGenerateRequest().mode == "accumulate"
+
+
+def test_generate_request_mode_oneshot_accepted():
+    assert AppliedExamGenerateRequest(mode="oneshot").mode == "oneshot"
+
+
+def test_generate_request_invalid_mode_rejected_422():
+    with pytest.raises(ValidationError):
+        AppliedExamGenerateRequest(mode="bogus")
+
+
+def test_start_applied_exam_job_stores_mode_in_job_record_label_unchanged(db, restore_queue_paused):
+    """잡 레코드에 mode를 보관하되 label은 불변(체크리스트 ①) — 큐를 일시정지해 워커가
+    실제로 잡을 집어가지 못하게 한 뒤 잡 딕셔너리만 즉시 검사하고 치운다."""
+    convert_service.pause_queue()
+    job_id_default = convert_service.start_applied_exam_job(
+        db=db, gen_id="g1", scope_label="범위", requested_count=2, basis_docs=[], engine="claude-cli"
+    )
+    job_id_oneshot = convert_service.start_applied_exam_job(
+        db=db, gen_id="g2", scope_label="범위", requested_count=2, basis_docs=[], engine="claude-cli", mode="oneshot"
+    )
+    with convert_service._JOBS_LOCK:
+        job_default = convert_service._JOBS.pop(job_id_default)
+        job_oneshot = convert_service._JOBS.pop(job_id_oneshot)
+
+    assert job_default["_mode"] == "accumulate"
+    assert job_oneshot["_mode"] == "oneshot"
+    # label = 범위 라벨·요청 문항 수 수준 그대로(mode 문구가 섞이지 않는다)
+    assert job_default["_label"] == job_oneshot["_label"] == "AI 응용 문항 생성 — 범위 (2문항)"
+
+
+def test_build_applied_exam_prompt_tags_instruction_only_for_accumulate():
+    """생성 프롬프트 출력 스키마 확장(accumulate만) — oneshot은 tags 지시 자체가 없다
+    (출력 토큰 절감이 1회성의 존재 이유)."""
+    prompt_accumulate = convert_service._build_applied_exam_prompt([], 3, mode="accumulate")
+    prompt_oneshot = convert_service._build_applied_exam_prompt([], 3, mode="oneshot")
+    assert "tags" in prompt_accumulate
+    assert "tags" not in prompt_oneshot
+
+
+def test_get_status_result_includes_mode_field(db, restore_queue_paused):
+    """상태 응답 `result`에 `mode` 필드 순수 추가(체크리스트 마지막 항목) — 실 LLM 호출
+    없이 잡을 'done'으로 직접 마킹해(단위 테스트 관례) `get_status`가 §4.21 S24 개정
+    블록이 요구하는 필드를 API 스키마(`AppliedExamStatus.result.mode`)까지 그대로
+    실어 나르는지 확인한다."""
+    convert_service.pause_queue()
+    job_id = convert_service.start_applied_exam_job(
+        db=db, gen_id="g-status", scope_label="범위", requested_count=1, basis_docs=[], engine="claude-cli",
+        mode="oneshot",
+    )
+    with convert_service._JOBS_LOCK:
+        job = convert_service._JOBS[job_id]
+        job["status"] = "done"
+        job["result"] = {
+            "run_category_id": 1,
+            "requested": 1,
+            "generated": 1,
+            "document_ids": [1],
+            "discarded": [],
+            "mode": "oneshot",
+        }
+
+    with applied_exam_service._GENS_LOCK:
+        applied_exam_service._GENS["g-status"] = {
+            "created_at": dt.datetime.now(),
+            "category_ids": [],
+            "scope_label": "범위",
+            "requested_count": 1,
+            "basis_docs": [],
+            "source_counts": {"past_question": 0, "question": 0, "concept": 0},
+            "estimate": {"approx_input_tokens": 1, "assumed": False},
+            "job_id": job_id,
+        }
+
+    status_out = applied_exam_service.get_status("g-status")
+    assert status_out.result is not None
+    assert status_out.result.mode == "oneshot"
+
+    with convert_service._JOBS_LOCK:
+        convert_service._JOBS.pop(job_id, None)
+    with applied_exam_service._GENS_LOCK:
+        applied_exam_service._GENS.pop("g-status", None)
+
+
+# ② accumulate = DocumentTag 저장 + suggestion 생성(auto 규칙에서도 linked 0·suggested만)
+def test_save_generated_accumulate_saves_tags_and_forces_suggestion_even_for_auto_rule(db):
+    real_cat, basis_doc = _seed_basis(db)
+    auto_target_cat = models.Category(name="자동분류대상")
+    db.add(auto_target_cat)
+    db.flush()
+    db.add(models.TagRule(category_id=auto_target_cat.id, tag_query="응용키워드", mode="auto"))
+    db.commit()
+
+    job = {
+        "_basis_docs": [
+            {"id": basis_doc.id, "doc_no": "DOC-0001", "type": "past_question", "title": "기출1", "content": "기출 본문"}
+        ],
+        "_engine": "claude-cli",
+        "_scope_label": "범위",
+        "_requested_count": 1,
+        "_mode": "accumulate",
+    }
+    item = _valid_item(tags=["응용키워드", "다른키워드"])
+    result = applied_exam_service._save_generated(db, job, [item])
+    assert result["mode"] == "accumulate"
+    gen_doc_id = result["document_ids"][0]
+
+    tag_names = set(
+        db.query(models.Tag.name)
+        .join(models.DocumentTag, models.DocumentTag.tag_id == models.Tag.id)
+        .filter(models.DocumentTag.document_id == gen_doc_id)
+        .all()
+    )
+    assert tag_names == {("응용키워드",), ("다른키워드",)}
+
+    # auto 규칙이 매칭돼도 즉시 연결(linked)되지 않는다 — suggested 강제(승인 없는 자동
+    # 연결 경로 0 유지, 격리 원칙 R22).
+    linked = (
+        db.query(models.CategoryDocument)
+        .filter(
+            models.CategoryDocument.category_id == auto_target_cat.id,
+            models.CategoryDocument.document_id == gen_doc_id,
+        )
+        .all()
+    )
+    assert linked == []
+
+    suggestion = (
+        db.query(models.Suggestion)
+        .filter(
+            models.Suggestion.document_id == gen_doc_id,
+            models.Suggestion.category_id == auto_target_cat.id,
+        )
+        .one()
+    )
+    assert suggestion.status == "pending"
+
+
+# ---------------------------------------------------------------------------
+# stage-reviewer 지적(중요 1) — 자동 연결(linked) 차단은 호출부 플래그가 아니라
+# `tag_rule_service._apply_rule_to_document`의 **문서 기준 판정**(`_is_applied_exam_generated`)
+# 하나로 귀결돼야 한다 — scan_document(트리거 1·2)·scan_rule(트리거 3) 전수가 이 판정을
+# 경유하는지, 그리고 일반 문서의 auto 즉시 연결 회귀가 없는지 확인한다.
+# ---------------------------------------------------------------------------
+def test_scan_rule_bulk_apply_suggests_only_for_applied_exam_generated_document(db):
+    """scan_rule(트리거 3 — 일괄 스캔, force_suggest 없이 호출)에서도 응용 생성물은
+    문서 기준 판정으로 걸러져 suggested만 만든다 — auto 규칙이어도 linked 행 0.
+    생성은 oneshot 모드로 만들어(생성 시점엔 태그 0) 이후 별도로 태그가 붙은 시나리오를
+    검증한다. 주의: oneshot 생성물도 격리 분류 연결(ⓐ linked_by='applied_exam')과
+    derived_from(ⓑ created_by='applied_exam') 신호를 둘 다 가지므로 이 테스트는 이중
+    신호 상태를 검증한다 — ⓑ 단독 경로(격리 분류 연결이 해제된 문서)는 별도 미검증
+    (검토 관찰 2026-08-04: OR 판정 코드 경로상 동등하나 커버리지 공백으로 기록)."""
+    real_cat, basis_doc = _seed_basis(db)
+    job = {
+        "_basis_docs": [
+            {"id": basis_doc.id, "doc_no": "DOC-0001", "type": "past_question", "title": "기출1", "content": "기출 본문"}
+        ],
+        "_engine": "claude-cli",
+        "_scope_label": "범위",
+        "_requested_count": 1,
+        "_mode": "oneshot",
+    }
+    result = applied_exam_service._save_generated(db, job, [_valid_item()])
+    gen_doc_id = result["document_ids"][0]
+
+    # scan_rule 트리거 자체만 격리해 검증하기 위해 태그는 직접 심는다(replace_tags 경유가
+    # 아니다 — 그 경로는 아래 별도 테스트에서 검증).
+    tag = models.Tag(name="응용키워드-scanrule")
+    db.add(tag)
+    db.flush()
+    db.add(models.DocumentTag(document_id=gen_doc_id, tag_id=tag.id))
+    db.commit()
+
+    target_cat = models.Category(name="자동분류대상-scanrule")
+    db.add(target_cat)
+    db.flush()
+    rule = models.TagRule(category_id=target_cat.id, tag_query="응용키워드-scanrule", mode="auto")
+    db.add(rule)
+    db.commit()
+
+    created = tag_rule_service.scan_rule(db, rule.id)
+    assert created == 1
+
+    linked = (
+        db.query(models.CategoryDocument)
+        .filter(
+            models.CategoryDocument.category_id == target_cat.id,
+            models.CategoryDocument.document_id == gen_doc_id,
+        )
+        .all()
+    )
+    assert linked == []
+
+    suggestion = (
+        db.query(models.Suggestion)
+        .filter(
+            models.Suggestion.document_id == gen_doc_id,
+            models.Suggestion.category_id == target_cat.id,
+        )
+        .one()
+    )
+    assert suggestion.status == "pending"
+
+
+def test_replace_tags_triggered_scan_suggests_only_for_applied_exam_generated_document(db):
+    """document_service.replace_tags(트리거 2 — 태그 수동 편집)가 호출하는 scan_document는
+    force_suggest 없이 호출되지만, 응용 생성물이면 문서 기준 판정으로 걸러져 suggested만
+    만든다 — auto 규칙이어도 linked 행 0."""
+    from services import document_service
+
+    real_cat, basis_doc = _seed_basis(db)
+    job = {
+        "_basis_docs": [
+            {"id": basis_doc.id, "doc_no": "DOC-0001", "type": "past_question", "title": "기출1", "content": "기출 본문"}
+        ],
+        "_engine": "claude-cli",
+        "_scope_label": "범위",
+        "_requested_count": 1,
+        "_mode": "oneshot",
+    }
+    result = applied_exam_service._save_generated(db, job, [_valid_item()])
+    gen_doc_id = result["document_ids"][0]
+
+    target_cat = models.Category(name="자동분류대상-replacetags")
+    db.add(target_cat)
+    db.flush()
+    db.add(models.TagRule(category_id=target_cat.id, tag_query="응용키워드-replacetags", mode="auto"))
+    db.commit()
+
+    document_service.replace_tags(db, gen_doc_id, ["응용키워드-replacetags"])
+
+    linked = (
+        db.query(models.CategoryDocument)
+        .filter(
+            models.CategoryDocument.category_id == target_cat.id,
+            models.CategoryDocument.document_id == gen_doc_id,
+        )
+        .all()
+    )
+    assert linked == []
+
+    suggestion = (
+        db.query(models.Suggestion)
+        .filter(
+            models.Suggestion.document_id == gen_doc_id,
+            models.Suggestion.category_id == target_cat.id,
+        )
+        .one()
+    )
+    assert suggestion.status == "pending"
+
+
+def test_normal_document_auto_rule_still_links_immediately_regression(db):
+    """일반(응용 생성물이 아닌) 문서는 문서 기준 판정에 걸리지 않아 auto 규칙이 종전처럼
+    즉시 연결된다 — 회귀 없음(stage-reviewer 지적 — 중요 1)."""
+    normal_doc = models.Document(
+        doc_no="DOC-NORMAL-1", type="question", title="일반문항", content="본문", is_active=1
+    )
+    db.add(normal_doc)
+    db.flush()
+    tag = models.Tag(name="일반키워드")
+    db.add(tag)
+    db.flush()
+    db.add(models.DocumentTag(document_id=normal_doc.id, tag_id=tag.id))
+    db.commit()
+
+    target_cat = models.Category(name="자동분류대상-일반")
+    db.add(target_cat)
+    db.flush()
+    db.add(models.TagRule(category_id=target_cat.id, tag_query="일반키워드", mode="auto"))
+    db.commit()
+
+    counts = tag_rule_service.scan_document(db, normal_doc.id)
+    assert counts == {"linked": 1, "suggested": 0}
+
+    linked = (
+        db.query(models.CategoryDocument)
+        .filter(
+            models.CategoryDocument.category_id == target_cat.id,
+            models.CategoryDocument.document_id == normal_doc.id,
+        )
+        .one()
+    )
+    assert linked.linked_by == "rule"
+
+
+# ③ oneshot = 태그 0·스캔 0(종전 동작 회귀)
+def test_save_generated_oneshot_no_tags_no_scan_call(db, monkeypatch):
+    real_cat, basis_doc = _seed_basis(db)
+    scan_calls = {"n": 0}
+    original_scan = tag_rule_service.scan_document
+
+    def _spy(*args, **kwargs):
+        scan_calls["n"] += 1
+        return original_scan(*args, **kwargs)
+
+    monkeypatch.setattr(applied_exam_service.tag_rule_service, "scan_document", _spy)
+
+    job = {
+        "_basis_docs": [
+            {"id": basis_doc.id, "doc_no": "DOC-0001", "type": "past_question", "title": "기출1", "content": "기출 본문"}
+        ],
+        "_engine": "claude-cli",
+        "_scope_label": "범위",
+        "_requested_count": 1,
+        "_mode": "oneshot",
+    }
+    # tags가 정상적으로 붙어 있어도(누적 모드 프롬프트를 거쳐 온 게 아니라는 가정 하에)
+    # oneshot 분기는 이를 완전히 무시해야 한다.
+    item = _valid_item(tags=["무시될키워드"])
+    result = applied_exam_service._save_generated(db, job, [item])
+    assert result["mode"] == "oneshot"
+    gen_doc_id = result["document_ids"][0]
+
+    assert db.query(models.DocumentTag).filter(models.DocumentTag.document_id == gen_doc_id).count() == 0
+    assert scan_calls["n"] == 0
+
+
+# ④ tags 필드 위반 = 태그만 무시·문항 유지(discarded 미포함)
+def test_validate_items_tags_not_a_list_ignored_item_kept():
+    basis = {"DOC-0001": {"doc_no": "DOC-0001"}}
+    items = [_valid_item(tags="응용키워드,다른키워드")]  # 문자열 — 비배열 위반
+    passed, discarded = applied_exam_service.validate_items(items, basis, SourceMatcher(None))
+    assert discarded == {}
+    assert len(passed) == 1
+    assert passed[0]["tags"] == []
+
+
+def test_validate_items_tags_with_any_non_string_element_discards_whole_array_not_item():
+    """stage-reviewer 지적(경미 3) — 관례(`convert_service._normalize_regenerate_draft`,
+    F44 전례)는 배열에 비-문자열 원소가 하나라도 섞이면 **배열 전체**를 무시한다(부분
+    필터가 아니다). 문항 자체는 여전히 유지된다(discarded 미포함)."""
+    basis = {"DOC-0001": {"doc_no": "DOC-0001"}}
+    items = [_valid_item(tags=["응용키워드", 123, None, "다른키워드"])]
+    passed, discarded = applied_exam_service.validate_items(items, basis, SourceMatcher(None))
+    assert discarded == {}
+    assert len(passed) == 1
+    assert passed[0]["tags"] == []
+
+
+def test_validate_items_tags_all_strings_trimmed_deduped_order_preserved():
+    """전부 문자열인 배열만 §8.2 정규화(공백 정리·빈 값 제거·중복 제거, 원 순서 유지)를
+    거친다."""
+    basis = {"DOC-0001": {"doc_no": "DOC-0001"}}
+    items = [_valid_item(tags=["응용키워드", "  ", "응용키워드", " 다른키워드 "])]
+    passed, discarded = applied_exam_service.validate_items(items, basis, SourceMatcher(None))
+    assert discarded == {}
+    assert len(passed) == 1
+    assert passed[0]["tags"] == ["응용키워드", "다른키워드"]
+
+
+def test_validate_items_missing_tags_key_defaults_to_empty_list():
+    """oneshot 프롬프트는 tags 지시 자체가 없으므로 raw 항목에 키가 없다 — 통과 항목의
+    tags는 안전하게 빈 리스트로 귀결된다."""
+    basis = {"DOC-0001": {"doc_no": "DOC-0001"}}
+    items = [_valid_item()]  # tags 키 자체 없음
+    passed, discarded = applied_exam_service.validate_items(items, basis, SourceMatcher(None))
+    assert discarded == {}
+    assert passed[0]["tags"] == []
+
+
+# ⑤ derived_from — 근거 연결은 양 모드 공통(체크리스트 ⑤)
+def test_derived_from_recorded_in_both_modes(db):
+    for idx, mode in enumerate(("accumulate", "oneshot")):
+        real_cat = models.Category(name=f"실전분류-{mode}")
+        db.add(real_cat)
+        db.flush()
+        # 숫자가 아닌 접미사 — `_generate_doc_no`의 max(substr(...)::int) 계산에서 캐스트
+        # 실패로 NULL 취급돼(무시) 이후 생성 문서 doc_no와 절대 충돌하지 않는다.
+        basis_doc = models.Document(
+            doc_no=f"DOC-BASIS-{mode}", type="past_question", title="기출1", content="기출 본문", is_active=1
+        )
+        db.add(basis_doc)
+        db.flush()
+        db.add(
+            models.CategoryDocument(category_id=real_cat.id, document_id=basis_doc.id, linked_by="manual")
+        )
+        db.commit()
+
+        job = {
+            "_basis_docs": [
+                {
+                    "id": basis_doc.id,
+                    "doc_no": basis_doc.doc_no,
+                    "type": "past_question",
+                    "title": "기출1",
+                    "content": "기출 본문",
+                }
+            ],
+            "_engine": "claude-cli",
+            "_scope_label": f"범위-{mode}",
+            "_requested_count": 1,
+            "_mode": mode,
+        }
+        result = applied_exam_service._save_generated(db, job, [_valid_item(basis=[basis_doc.doc_no])])
+        gen_doc_id = result["document_ids"][0]
+        rel = (
+            db.query(models.DocumentRelation)
+            .filter(models.DocumentRelation.from_document_id == gen_doc_id)
+            .one()
+        )
+        assert rel.relation == "derived_from"
+        assert rel.created_by == "applied_exam"
+        assert rel.to_document_id == basis_doc.id
+
+
+# ⑥ 격리 불변 — accumulate 모드에서도 실전 트리 연결 0·마커 부착·기본 제외가 그대로다
+# (태그·suggestion이 생겨도 격리 원칙 자체는 개정 대상이 아니다).
+def test_accumulate_mode_isolation_marker_and_real_tree_unaffected(db):
+    real_cat, basis_doc = _seed_basis(db)
+    auto_target_cat = models.Category(name="다른실전분류")
+    db.add(auto_target_cat)
+    db.flush()
+    db.add(models.TagRule(category_id=auto_target_cat.id, tag_query="응용키워드", mode="auto"))
+    db.commit()
+
+    job = {
+        "_basis_docs": [
+            {"id": basis_doc.id, "doc_no": "DOC-0001", "type": "past_question", "title": "기출1", "content": "기출 본문"}
+        ],
+        "_engine": "claude-cli",
+        "_scope_label": "범위",
+        "_requested_count": 1,
+        "_mode": "accumulate",
+    }
+    result = applied_exam_service._save_generated(db, job, [_valid_item(tags=["응용키워드"])])
+    gen_doc_id = result["document_ids"][0]
+
+    doc = db.get(models.Document, gen_doc_id)
+    assert doc.content.startswith("> [AI 생성 문항] ")  # 마커 부착
+
+    # 실전 트리(real_cat·auto_target_cat)에 연결된 행 0 — suggestion만 생겼을 뿐
+    real_links = (
+        db.query(models.CategoryDocument)
+        .filter(
+            models.CategoryDocument.document_id == gen_doc_id,
+            models.CategoryDocument.category_id.in_([real_cat.id, auto_target_cat.id]),
+        )
+        .all()
+    )
+    assert real_links == []
+
+    # 기본 제외 — 실전 분류 기준 quiz 스코프에는 여전히 안 나온다
+    real_scope_ids = quiz_service.eligible_document_ids(
+        db, category_ids=[real_cat.id, auto_target_cat.id], wrong_only=False
+    )
+    assert gen_doc_id not in real_scope_ids

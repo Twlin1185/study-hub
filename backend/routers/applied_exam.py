@@ -46,8 +46,11 @@ def generate(
     gen_id: str, payload: AppliedExamGenerateRequest, db: Session = Depends(get_db)
 ) -> AppliedExamGenerateStart:
     """생성 잡 시작 — convert 잡 큐 재사용(kind='applied_exam', 동시 1개). 검증 게이트 통과
-    문항만 잡 말미 한 트랜잭션으로 저장한다(별도 승인 엔드포인트 없음 — 설계 §4.21 결정 ⑤)."""
-    job_id = applied_exam_service.start_generation(db, gen_id, engine=payload.engine, model=payload.model)
+    문항만 잡 말미 한 트랜잭션으로 저장한다(별도 승인 엔드포인트 없음 — 설계 §4.21 결정 ⑤).
+    `mode`(S24 — F50 ①, 기본 accumulate)는 잡 레코드에 인메모리로만 보관된다."""
+    job_id = applied_exam_service.start_generation(
+        db, gen_id, engine=payload.engine, model=payload.model, mode=payload.mode
+    )
     return AppliedExamGenerateStart(job_id=job_id)
 
 

@@ -43,7 +43,7 @@ from schemas.applied_exam import (
 )
 from schemas.exam import ExamCut, ExamHistorySubject, ExamSubjectReport, ExamSubmitRequest, ExamTotal
 from services import attempt_service, category_service, exam_scoring, llm_engine_service, settings_service
-from services import source_match, tree_utils
+from services import document_service, source_match, tag_rule_service, tree_utils
 from services.document_service import _generate_doc_no
 
 # ---------------------------------------------------------------------------
@@ -58,6 +58,11 @@ GEN_TTL = dt.timedelta(hours=1)
 ROOT_CATEGORY_NAME = "AI 응용 모의고사"
 ROOT_CATEGORY_SETTING_KEY = "applied_exam.root_category_id"
 MARKER_PREFIX = "[AI 생성 문항]"
+
+# S24(F50 ①) — 누적('accumulate' — 태그 부여 + suggested 강제 스캔) · 1회성('oneshot' —
+# 종전 그대로 태그 0·스캔 0). 요청 스키마 기본값은 accumulate(설계 §4.21 S24 개정 블록).
+MODE_ACCUMULATE = "accumulate"
+MODE_ONESHOT = "oneshot"
 
 DISCARD_INVALID_ITEM = "invalid_item"
 DISCARD_INVALID_ANSWER = "invalid_answer"
@@ -222,7 +227,14 @@ def prepare(db: Session, payload: AppliedExamPrepareRequest) -> AppliedExamPrepa
 # ---------------------------------------------------------------------------
 # ② generate — 잡 시작·상태 조회 (convert 잡 큐 재사용, kind='applied_exam')
 # ---------------------------------------------------------------------------
-def start_generation(db: Session, gen_id: str, *, engine: str = "auto", model: Optional[str] = None) -> str:
+def start_generation(
+    db: Session,
+    gen_id: str,
+    *,
+    engine: str = "auto",
+    model: Optional[str] = None,
+    mode: str = MODE_ACCUMULATE,
+) -> str:
     from services import convert_service  # 지연 import — convert_service가 이 모듈을 되부르는
     # 순환(마무리 단계 finalize_generation)을 피한다.
 
@@ -244,6 +256,7 @@ def start_generation(db: Session, gen_id: str, *, engine: str = "auto", model: O
         basis_docs=state["basis_docs"],
         engine=engine,
         model=model,
+        mode=mode,
     )
     with _GENS_LOCK:
         current = _GENS.get(gen_id)
@@ -270,6 +283,8 @@ def get_status(gen_id: str) -> AppliedExamStatus:
             generated=raw_result["generated"],
             discarded=[AppliedExamDiscarded(**d) for d in raw_result.get("discarded", [])],
             document_ids=raw_result.get("document_ids", []),
+            # S24(F50 ④) — 상태 응답 순수 추가(표시용).
+            mode=raw_result.get("mode", MODE_ACCUMULATE),
         )
     return AppliedExamStatus(
         gen_id=gen_id,
@@ -279,6 +294,28 @@ def get_status(gen_id: str) -> AppliedExamStatus:
         error_info=job.get("error_info"),
         result=result_out,
     )
+
+
+# ---------------------------------------------------------------------------
+# S24(F50 ②) — tags 정규화. **관례 정합(stage-reviewer 지적 — 경미 3)**: 배열이 아니거나
+# 원소 중 하나라도 문자열이 아니면 **배열 전체를 무시**한다(부분 필터가 아니다) —
+# `convert_service._normalize_regenerate_draft`(tags 처리, F44 전례)와 동일 규약. 그
+# 검사를 통과한(전부 문자열인) 배열에 한해서만 공백 정리·빈 값 제거·중복 제거(원 순서
+# 유지)를 적용한다. 위반이어도 예외를 던지지 않고 조용히 빈 리스트로 귀결된다 — 태그는
+# 채점 무관 부속 메타라 검증 게이트의 폐기 사유(discarded[])에 추가하지 않는다(문항
+# 자체는 유지, 설계 §4.21 S24 개정 블록 ②).
+# ---------------------------------------------------------------------------
+def _normalize_tags(raw_tags: object) -> List[str]:
+    if not isinstance(raw_tags, list) or not all(isinstance(t, str) for t in raw_tags):
+        return []
+    normalized: List[str] = []
+    seen = set()
+    for t in raw_tags:
+        clean = t.strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            normalized.append(clean)
+    return normalized
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +343,8 @@ def validate_items(
        이 역적용(생성 — True=복제 폐기)에서 그대로 쓰면 10자 미만의 짧은 생성 지문이
        전부 오폐기되므로, 같은 임계값 미만이면 복제 판정 자체를 건너뛴다(검토 지적 ②
        — `source_match`의 정규화 함수·상수를 그대로 재사용, 중복 구현 금지).
+    ⓔ S24(F50 ②) — `tags`(accumulate 모드 전용 출력 확장)는 `_normalize_tags`로 정규화만
+       하고 위반이어도 폐기 사유에 넣지 않는다(태그는 채점 무관 부속 메타 — 문항은 유지).
     """
     passed: List[dict] = []
     discard_counts: Dict[str, int] = defaultdict(int)
@@ -360,6 +399,10 @@ def validate_items(
                 "answer": answer.strip(),
                 "explanation": explanation.strip(),
                 "basis": list(basis),
+                # S24(F50 ②) — accumulate 모드 전용 출력 확장. oneshot 프롬프트는 tags를
+                # 지시하지 않으므로 raw에 키 자체가 없고, 여기선 항상 빈 리스트로 안전
+                # 귀결된다(위반이어도 문항은 그대로 통과 — 위 _normalize_tags 참고).
+                "tags": _normalize_tags(raw.get("tags")),
             }
         )
 
@@ -439,6 +482,11 @@ def _save_generated(db: Session, job: dict, passed_items: List[dict]) -> dict:
     requested = job["_requested_count"]
     marker = _build_question_marker(engine)
     today = dt.date.today().isoformat()
+    # S24(F50 ①) — job에 `_mode`가 없는 호출(레거시 단위 테스트가 손수 구성한 job dict)은
+    # 설계 §4.21 S24 개정 블록의 문서화된 기본값(accumulate)으로 안전 귀결시킨다. 다만
+    # 실제 문항에 tags가 비어 있으면(레거시 테스트 전례 그대로) DocumentTag는 하나도
+    # 생기지 않고 `scan_document`도 태그 0건이라 조기 반환해 기존 회귀는 깨지지 않는다.
+    mode = job.get("_mode", MODE_ACCUMULATE)
 
     document_ids: List[int] = []
     try:
@@ -485,6 +533,17 @@ def _save_generated(db: Session, job: dict, passed_items: List[dict]) -> dict:
                         created_by="applied_exam",
                     )
                 )
+
+            # S24(F50 ②) — 저장 분기: accumulate만 DocumentTag 저장 + `scan_document`
+            # (auto 규칙도 suggested 강제 — 자동 연결(linked) 경로 0 유지). oneshot은
+            # 이 블록 자체를 건너뛴다(태그 0·스캔 0 — 종전 그대로, 설계 §4.21 결정 ①
+            # "태그 미부여"가 oneshot에 그대로 상속된다).
+            if mode == MODE_ACCUMULATE:
+                tags = item.get("tags") or []
+                if tags:
+                    document_service._apply_tag_replacement(db, document, tags)
+                tag_rule_service.scan_document(db, document.id, force_suggest=True)
+
             document_ids.append(document.id)
 
         db.commit()
@@ -497,6 +556,7 @@ def _save_generated(db: Session, job: dict, passed_items: List[dict]) -> dict:
         "requested": requested,
         "generated": len(document_ids),
         "document_ids": document_ids,
+        "mode": mode,
     }
 
 

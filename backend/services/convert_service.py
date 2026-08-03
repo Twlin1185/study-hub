@@ -3097,8 +3097,19 @@ _APPLIED_EXAM_INSTRUCTIONS = (
     "- 기출 문항을 그대로 베끼거나 표현만 살짝 바꾸지 마라 — 반드시 새로운 문장·예시로 재구성하라.\n"
     "- 근거 문서에 없는 사실을 지어내지 마라.\n"
     "- 각 문항마다 근거로 삼은 문서의 doc_no를 basis 배열에 명시하라(최소 1개, 아래 근거 문서 "
-    "목록에 실제로 있는 값만 사용하라 — 서버가 결정론으로 검증한다).\n\n"
-    "## 출력 형식(엄수)\n"
+    "목록에 실제로 있는 값만 사용하라 — 서버가 결정론으로 검증한다).\n"
+)
+
+# S24(F50 ②) — accumulate 모드 전용 출력 확장 지시. **같은 LLM 호출**(별도 호출 0)로
+# items[].tags를 함께 받는다 — oneshot은 이 지시 자체를 프롬프트에 넣지 않는다(출력
+# 토큰 절감이 1회성의 존재 이유, 설계 §4.21 S24 개정 블록 ①).
+_APPLIED_EXAM_TAGS_INSTRUCTION = (
+    "- 각 문항마다 핵심 개념을 나타내는 태그 3~6개를 tags 배열에 담아라(기존 문서 태그 "
+    "관례와 같은 수준의 짧은 단어·구 — 문장형 금지).\n"
+)
+
+_APPLIED_EXAM_SCHEMA_ONESHOT = (
+    "\n## 출력 형식(엄수)\n"
     "코드펜스·설명 문장 없이, 아래 형식의 JSON 객체 하나만 출력하라:\n"
     '{"items": [{"content": "...", "choices": ["...", "...", "...", "..."], '
     '"answer": "1", "explanation": "...", "basis": ["DOC-0012"]}, ...]}\n'
@@ -3109,10 +3120,32 @@ _APPLIED_EXAM_INSTRUCTIONS = (
     "- basis: 근거로 삼은 문서의 doc_no 목록.\n"
 )
 
+_APPLIED_EXAM_SCHEMA_ACCUMULATE = (
+    "\n## 출력 형식(엄수)\n"
+    "코드펜스·설명 문장 없이, 아래 형식의 JSON 객체 하나만 출력하라:\n"
+    '{"items": [{"content": "...", "choices": ["...", "...", "...", "..."], '
+    '"answer": "1", "explanation": "...", "basis": ["DOC-0012"], '
+    '"tags": ["키워드1", "키워드2", "키워드3"]}, ...]}\n'
+    "- content: 문항 지문.\n"
+    "- choices: 보기 4개(배열 길이 정확히 4).\n"
+    "- answer: 정답 보기 번호(1~4, 1부터 시작하는 문자열).\n"
+    "- explanation: 해설.\n"
+    "- basis: 근거로 삼은 문서의 doc_no 목록.\n"
+    "- tags: 문항 핵심 키워드 3~6개(누적 모드 전용 — 태그 자동 분류 규칙과 연계된다).\n"
+)
 
-def _build_applied_exam_prompt(basis_docs: List[dict], requested_count: int) -> str:
+
+def _build_applied_exam_prompt(
+    basis_docs: List[dict], requested_count: int, mode: str = "accumulate"
+) -> str:
+    if mode == "accumulate":
+        instructions = (
+            _APPLIED_EXAM_INSTRUCTIONS + _APPLIED_EXAM_TAGS_INSTRUCTION + _APPLIED_EXAM_SCHEMA_ACCUMULATE
+        )
+    else:
+        instructions = _APPLIED_EXAM_INSTRUCTIONS + _APPLIED_EXAM_SCHEMA_ONESHOT
     lines = [
-        _APPLIED_EXAM_INSTRUCTIONS,
+        instructions,
         "---",
         "",
         f"## 이번 생성 대상 — 객관식 응용 문항 {requested_count}개",
@@ -3156,6 +3189,10 @@ def _normalize_applied_exam_items(payload: Any) -> List[dict]:
                 "answer": raw.get("answer") if isinstance(raw.get("answer"), str) else None,
                 "explanation": raw.get("explanation") if isinstance(raw.get("explanation"), str) else None,
                 "basis": basis,
+                # S24(F50 ②) — accumulate 전용 출력 확장. 여기서는 봉투 그대로 넘기고
+                # 실제 정규화·위반 무시는 `applied_exam_service.validate_items`(단일
+                # 출처, `_normalize_tags`)가 맡는다(봉투 정제 vs 게이트 판정 경계 유지).
+                "tags": raw.get("tags"),
             }
         )
     return items
@@ -3220,13 +3257,17 @@ def start_applied_exam_job(
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     model: Optional[str] = None,
+    mode: str = "accumulate",
 ) -> str:
     """생성 잡 시작(convert 잡 큐 재사용 — kind='applied_exam', 동시 1개). `basis_docs`는
-    prepare가 이미 수집한 문서 스냅샷(첨부 파일 없음 — 텍스트 프롬프트에 그대로 삽입)."""
+    prepare가 이미 수집한 문서 스냅샷(첨부 파일 없음 — 텍스트 프롬프트에 그대로 삽입).
+    `mode`(S24 — F50 ①, 기본 accumulate)는 잡 레코드에만 보관한다(label 불변 — 아래
+    `_label` 조립에 관여하지 않는다) — `_do_applied_exam_job`→`finalize_generation`→
+    `_save_generated`가 `job["_mode"]`로 저장 분기(태그·scan_document)를 결정한다."""
     _purge_expired_jobs()
     resolved_engine, selected_model, pre_fallback = _resolve_engine_and_model(db, engine, model)
 
-    prompt = _build_applied_exam_prompt(basis_docs, requested_count)
+    prompt = _build_applied_exam_prompt(basis_docs, requested_count, mode)
 
     job_id = f"apx_{uuid.uuid4().hex[:8]}"
     job = _new_job_base(
@@ -3243,6 +3284,7 @@ def start_applied_exam_job(
             "_basis_docs": basis_docs,
             "_requested_count": requested_count,
             "_scope_label": scope_label,
+            "_mode": mode,
             # S22(F48 ①) — label 서버 합성(kind별 — 범위 라벨·사례 수 수준, 예시 그대로).
             "_label": f"AI 응용 문항 생성 — {scope_label} ({requested_count}문항)",
         }

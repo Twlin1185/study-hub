@@ -17,6 +17,11 @@ from pydantic import BaseModel, Field
 from schemas.convert import EngineChoice, ErrorInfo, JobProgress
 from schemas.exam import ExamCut, ExamHistorySubject, ExamSubjectReport, ExamTotal
 
+# S24(F50 ①) — 누적('accumulate')·1회성('oneshot') 생성 모드. 미지정 = accumulate 기본
+# (종전 동작과 다른 기본값 — oneshot이 종전과 동일). 두 값 외는 FastAPI가 Literal
+# 검증으로 422(§3 VALIDATION_ERROR)를 자동 생성한다(엔진 Literal 전례와 동일한 계층).
+AppliedExamMode = Literal["accumulate", "oneshot"]
+
 
 # --- prepare (LLM 0) ------------------------------------------------------------
 class AppliedExamPrepareRequest(BaseModel):
@@ -51,6 +56,8 @@ class AppliedExamGenerateRequest(BaseModel):
     engine: EngineChoice = "auto"
     # S22(F48 ④·ⓒ) — 요청 단위 모델 오버라이드(선택). 검증은 서버 공통 헬퍼가 수행.
     model: Optional[str] = None
+    # S24(F50 ①) — 미지정 = accumulate 기본.
+    mode: AppliedExamMode = "accumulate"
 
 
 class AppliedExamGenerateStart(BaseModel):
@@ -75,6 +82,10 @@ class AppliedExamResult(BaseModel):
     generated: int
     discarded: List[AppliedExamDiscarded] = Field(default_factory=list)
     document_ids: List[int] = Field(default_factory=list)
+    # S24(F50 ④) — 표시용 순수 추가(기존 필드 불변). 기본값은 요청 스키마(:60)·서비스
+    # 기본값(MODE_ACCUMULATE)과 일관되게 accumulate로 통일한다(stage-reviewer 지적 —
+    # 경미 4: 서비스가 항상 값을 채워 넣으므로 실동작에는 영향 없고 모순만 제거).
+    mode: AppliedExamMode = "accumulate"
 
 
 # S22(F48 ②) — 'cancelled' 순수 추가(기존 값·필드 불변, 설계 §4.24 ⓑ).

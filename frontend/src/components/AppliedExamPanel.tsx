@@ -20,7 +20,13 @@ import LlmLimitBanner from './LlmLimitBanner'
 import EngineSelect from './EngineSelect'
 import Stepper from './Stepper'
 import type { StepperStep } from './Stepper'
-import type { AppliedExamDiscardReason, AppliedExamPrepareResponse, AppliedExamResult, LlmEngine } from '../api/types'
+import type {
+  AppliedExamDiscardReason,
+  AppliedExamMode,
+  AppliedExamPrepareResponse,
+  AppliedExamResult,
+  LlmEngine,
+} from '../api/types'
 
 // 설계 §4.21(S19, F45) — 모의고사 구성 화면의 [AI 응용] 탭 본문. ① 범위·문항 수·엔진 선택 →
 // [생성 준비](prepare, LLM 0) → ② 사용량 확인(확인 없이 생성 불가) → [생성 시작](generate) →
@@ -41,6 +47,14 @@ const BILLING_LABEL: Record<string, string> = {
   metered: '종량 과금',
 }
 
+// S24(설계 §4.21 S24 개정 블록 ①, F50) — 누적/1회성 선택. 기본 accumulate(종전 동작(태그
+// 없음)과 다른 기본값 — oneshot이 종전과 동일). 고정 설명 문구는 계약 원문 그대로 유지한다.
+const MODE_LABEL: Record<AppliedExamMode, string> = {
+  accumulate: '누적 (기본)',
+  oneshot: '1회성',
+}
+const MODE_ONESHOT_NOTE = '1회성은 태그를 만들지 않아 생성 출력이 조금 절약됩니다'
+
 const DISCARD_REASON_LABEL: Record<AppliedExamDiscardReason, string> = {
   invalid_item: '형식 오류(필수 항목 누락)',
   invalid_answer: '정답 형식 오류',
@@ -58,6 +72,8 @@ export default function AppliedExamPanel() {
   const [step, setStep] = useState<Step>('setup')
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [countInput, setCountInput] = useState('10')
+  // S24(설계 §4.21 S24 개정 블록 ①, F50) — 기본 accumulate(사용자 확정 "누적이 default").
+  const [mode, setMode] = useState<AppliedExamMode>('accumulate')
   const [engine, setEngine] = useState<LlmEngine>('auto')
   // S22(설계 §4.24 ④·⑤, F48) — 요청 단위 모델 오버라이드. 미선택(null) = 설정값.
   const [model, setModel] = useState<string | null>(null)
@@ -119,6 +135,7 @@ export default function AppliedExamPanel() {
     setStep('setup')
     setCategoryId(null)
     setCountInput('10')
+    setMode('accumulate')
     setEngine('auto')
     setModel(null)
     setAgreed(false)
@@ -146,7 +163,7 @@ export default function AppliedExamPanel() {
   function handleGenerate() {
     if (!prepareResult) return
     generateMutation.mutate(
-      { genId: prepareResult.gen_id, engine, model: model ?? undefined },
+      { genId: prepareResult.gen_id, engine, model: model ?? undefined, mode },
       {
         onSuccess: () => {
           setGenId(prepareResult.gen_id)
@@ -238,6 +255,25 @@ export default function AppliedExamPanel() {
                   <p className="mb-1 text-xs font-semibold text-muted">엔진</p>
                   <EngineSelect value={engine} onChange={setEngine} modelValue={model} onModelChange={setModel} />
                 </div>
+
+                {/* S24(설계 §4.21 S24 개정 블록 ①, F50) — 누적/1회성 선택, 기본 누적. */}
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-muted">생성 방식</p>
+                  <div className="flex items-center gap-3 text-sm text-primary">
+                    {(['accumulate', 'oneshot'] as AppliedExamMode[]).map((m) => (
+                      <label key={m} className="flex items-center gap-1">
+                        <input
+                          type="radio"
+                          name="applied-exam-mode"
+                          checked={mode === m}
+                          onChange={() => setMode(m)}
+                        />
+                        {MODE_LABEL[m]}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-muted">{MODE_ONESHOT_NOTE}</p>
+                </div>
               </div>
 
               {prepareMutation.isError && (
@@ -277,6 +313,7 @@ export default function AppliedExamPanel() {
                   사용 엔진: {engineLabel}
                   {engineBilling && ` (${BILLING_LABEL[engineBilling] ?? engineBilling})`}
                 </p>
+                <p className="mt-1 text-xs text-muted">생성 방식: {MODE_LABEL[mode]}</p>
               </div>
 
               <LlmLimitBanner />
@@ -409,6 +446,15 @@ export default function AppliedExamPanel() {
                     ))}
                   </ul>
                 )}
+                {/* S24(설계 §4.21 S24 개정 블록, F50) — result.mode 표시. 태그 수치는 표시하지
+                    않는다(stage-reviewer 중요②: documents/batch로 문항 상세를 미리 내려받으면
+                    응시 전 정답·해설이 네트워크 응답에 노출돼 "사전 미리보기 없음" 방어선을
+                    침해한다 — 격리 원칙과 별개로 채점 전 정답 노출 자체가 문제). 고정 문구만. */}
+                <p className="mt-2 text-xs text-muted">
+                  생성 방식: {MODE_LABEL[summaryResult.mode]}
+                  {summaryResult.mode === 'accumulate' &&
+                    ' — 누적 모드: 태그가 부여되었습니다. 분류 연결 제안은 제안함에서 확인하세요.'}
+                </p>
               </div>
 
               {startError && <p className="text-sm text-wrong">{startError}</p>}
