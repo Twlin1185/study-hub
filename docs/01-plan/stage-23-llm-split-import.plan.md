@@ -57,9 +57,9 @@
 
 ### 4. 프론트 — 분할 위저드·진입점
 
-- [ ] too_large 실패 렌더에 [분할 반입] 버튼(`alternatives` 아는 값만 렌더 관례 — `'split_import'` 추가, `api/types.ts` 유니온 확장).
-- [ ] **분할 위저드 신설**(`components/SplitImportWizard.tsx` — 이름 구현 재량, Stepper 재사용): ① 분석(휴리스틱 즉시 — uncertain이면 "LLM 정밀 분석?(예상 비용)" 제안 + EngineSelect(모델 소목록 — F47/F48 재사용)) ② **분할안 확인(핵심 게이트)**: 조각 목록(제목·크기·head 발췌)·체크박스·인접 [합치기](경계 문자 편집 없음 — 확정)·조각별 `category_path` 초안 편집 ③ 비용 확인(선택분 estimate 합계 — 프론트 단순 합산) ④ [선택 N조각 변환 시작] → 기존 ImportQueue 화면 합류(신규 진행 UI 없음).
-- [ ] 재사용·복원: analyze 잡 = `LlmJobProgress`·`useJobRecovery`(kind 매핑 `utils/jobRoutes.ts` 추가)·작업 센터 취소. 같은 원본 재분할 시 "기존 분할안 재사용(비용 0)/새로 분석" 선택 UI. 색상 전부 토큰.
+- [x] too_large 실패 렌더에 [분할 반입] 버튼(`alternatives` 아는 값만 렌더 관례 — `'split_import'` 추가, `api/types.ts` 유니온 확장). (2026-08-04 프론트 구현 — 백엔드 응답과의 실계약 대조는 미완, 아래 완료 기록 참고)
+- [x] **분할 위저드 신설**(`components/SplitImportWizard.tsx` — 이름 구현 재량, Stepper 재사용): ① 분석(휴리스틱 즉시 — uncertain이면 "LLM 정밀 분석?(예상 비용)" 제안 + EngineSelect(모델 소목록 — F47/F48 재사용)) ② **분할안 확인(핵심 게이트)**: 조각 목록(제목·크기·head 발췌)·체크박스·인접 [합치기](경계 문자 편집 없음 — 확정)·조각별 `category_path` 초안 편집 ③ 비용 확인(선택분 estimate 합계 — 프론트 단순 합산) ④ [선택 N조각 변환 시작] → 기존 ImportQueue 화면 합류(신규 진행 UI 없음). (2026-08-04)
+- [x] 재사용·복원: analyze 잡 = `LlmJobProgress`·`useJobRecovery`(kind 매핑 `utils/jobRoutes.ts` 추가)·작업 센터 취소. 같은 원본 재분할 시 "기존 분할안 재사용(비용 0)/새로 분석" 선택 UI. 색상 전부 토큰. (2026-08-04)
 
 ### 5. 테스트·검증
 
@@ -109,4 +109,4 @@
 
 ## 완료 기록 (착수 후 기입)
 
-- (미착수 — 착수 순서상 S25(F51)·S24(F50) 완료 후 진행)
+- **2026-08-04 프론트(체크리스트 4절) 구현 완료** — 오케스트레이터 지시로 병렬 착수(착수 순서 메모와 무관하게 지시받음). 신설: `frontend/src/components/SplitImportWizard.tsx`(source→analyze→chunks→cost 4스텝, Stepper·EngineSelect·LlmJobProgress·LlmErrorInfoView·CategoryPathField 재사용) · `frontend/src/api/split.ts`(4개 엔드포인트 훅). 수정: `api/types.ts`(Split* 타입군·`LlmJobKind` 'split_analyze'·`LlmJobRef.split_id` 추가) · `utils/jobRoutes.ts`(kind 매핑) · `hooks/useConvertQueue.ts`(`addJobs`·`getFile` 추가) · `utils/convertQueue.ts`(`QueueSourceKind` 'split' 추가) · `components/LlmErrorInfo.tsx`·`components/ImportQueue.tsx`(onSplitImport 배선) · `pages/Import.tsx`(entryMode 'split_import', 딥링크 `?mode=split_import&split_id=`). `npm run build` 통과(오류 0). **백엔드 미착수라 §4.25 계약과의 실접속 대조는 미완** — 특히 GET 상태 응답의 status 값 목록(명세 원문 미기재, 'ready' 상태 도입은 프론트 추정)과 `enqueue`의 `category_paths` 키(그룹 대표 chunk_id로 추정) 2곳은 백엔드 구현 시 반드시 대조.

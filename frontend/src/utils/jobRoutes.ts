@@ -16,6 +16,13 @@ const JOB_KIND_ROUTES: Partial<Record<LlmJobKind, (ref: LlmJobRef) => string | n
   applied_exam: () => '/exam?mode=applied',
   improve_proposal: () => '/suggestions?tab=improve',
   improve_regression: () => '/suggestions?tab=improve',
+  // S23(§4.25, F49) — split_id가 있으면 딥링크로 곧장 붙이고(위저드가 GET으로 상태를 이어
+  // 받는다), 없어도 answer_key와 같은 kind-only 복원 관례로 화면은 연다(위저드 내부
+  // useJobRecovery가 kind만으로 매칭해 splitId를 스스로 찾는다).
+  split_analyze: (ref) =>
+    ref.split_id
+      ? `/import?mode=split_import&split_id=${encodeURIComponent(ref.split_id)}`
+      : '/import?mode=split_import',
 }
 
 export function jobCenterRoute(item: Pick<LlmJobItem, 'kind' | 'ref'>): string | null {

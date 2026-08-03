@@ -66,6 +66,9 @@ interface ImportQueueListProps {
   onRetryApi: (entryId: string, engineId?: string) => void
   // invalid_output(F40-④) — 시작 화면으로 돌아가 원본을 나눠 다시 올리게 한다.
   onSplitReupload: () => void
+  // too_large(S23, §4.25, F49) — alternatives에 'split_import'가 실린 항목에서 분할 위저드를
+  // 연다. 항목(entry)을 넘겨받아 호출부가 sourceKind(file/url)에 맞는 원본을 되찾는다.
+  onSplitImport: (item: QueueItem) => void
   onClearFinished: () => void
   // S22(설계 §4.24 ②, F48) — 처리 중 1건 [취소](S13 한계 해소, §5.9 개정). 확인 다이얼로그는
   // 이 컴포넌트가 띄우고(작업 센터와 같은 고정 문구), 실제 API 호출은 호출부(useConvertQueue)가 한다.
@@ -83,6 +86,7 @@ export default function ImportQueueList({
   onRemove,
   onRetryApi,
   onSplitReupload,
+  onSplitImport,
   onClearFinished,
   onCancel,
   cancelling,
@@ -177,6 +181,7 @@ export default function ImportQueueList({
                 onRetry={item.retryable ? (engineId) => onRetryApi(item.entry.id, engineId) : undefined}
                 retrying={starting}
                 onSplitReupload={onSplitReupload}
+                onSplitImport={() => onSplitImport(item)}
               />
             )}
 

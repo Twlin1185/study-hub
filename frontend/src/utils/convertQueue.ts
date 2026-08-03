@@ -12,7 +12,10 @@ import type { LlmErrorInfo } from '../api/types'
 const QUEUE_KEY = 'study-hub:convert-queue'
 const LEGACY_KEY = 'study-hub:convert-job'
 
-export type QueueSourceKind = 'file' | 'url' | 'fetch'
+// 'split'(S23, §4.25, F49) — 분할 위저드가 enqueue한 조각. 서버가 이미 등록한 기존 convert
+// 잡의 job_id를 그대로 받아 큐에 편입하는 항목이라, POST /api/convert를 다시 부르는 'file'과
+// 달리 File 객체·재시도 대상이 없다(원본 재업로드는 위저드 쪽 책임 — §4.25 세칙).
+export type QueueSourceKind = 'file' | 'url' | 'fetch' | 'split'
 
 export interface StoredQueueEntry {
   // 프론트 전용 식별자 — jobId가 아직 없는 시작 대기 상태에서도 카드를 구분해야 한다.
@@ -37,7 +40,7 @@ export interface StoredQueueEntry {
 }
 
 function isValidKind(v: unknown): v is QueueSourceKind {
-  return v === 'file' || v === 'url' || v === 'fetch'
+  return v === 'file' || v === 'url' || v === 'fetch' || v === 'split'
 }
 
 export function newEntryId(): string {
