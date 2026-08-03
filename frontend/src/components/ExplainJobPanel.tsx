@@ -51,10 +51,13 @@ export default function ExplainJobPanel({ doc }: ExplainJobPanelProps) {
   // 공용 재진입 복원 훅 — localStorage 기록이 없는데(예: 다른 세션에서 시작) 이 문서의
   // running·queued explain 잡이 실제로 있으면 복원한다. localStorage에 이미 기록이 있으면
   // (active=true) 그 경로가 우선이라 훅을 끈다(중복 렌더 금지).
+  // resetKey: doc.id — 문서 상세 안에서 doc가 바뀌어도 이 컴포넌트는 재마운트되지 않으므로
+  // doc.id 전환을 "진짜 새 진입"으로 알려 래치를 다시 연다(stage-reviewer 지적 반영).
   useJobRecovery({
     kind: 'explain',
     enabled: !active,
     matchRef: (ref) => ref.document_id === doc.id,
+    resetKey: doc.id,
     onRecovered: (job) => {
       setStoredExplainJob(doc.id, { jobId: job.job_id })
       setStored({ jobId: job.job_id })

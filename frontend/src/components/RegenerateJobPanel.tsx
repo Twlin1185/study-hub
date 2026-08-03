@@ -36,10 +36,14 @@ export default function RegenerateJobPanel({ doc }: RegenerateJobPanelProps) {
   // 실제로 있으면 복원한다(기존 "진행 중 배지"=localStorage 경로와 중복 렌더 금지 — active일 때
   // 훅을 끈다). "이유" 텍스트는 서버가 갖고 있지 않으므로 빈 문자열로 저장해 두고, 실패 시
   // [다시 시도] 버튼은 reason이 실제로 있을 때만 노출한다(아래 stored?.reason 조건).
+  // resetKey: doc.id — 이 패널은 문서 상세 안에서 doc가 바뀌어도 컴포넌트가 재마운트되지 않으므로
+  // (같은 라우트 패턴 재사용), doc.id 전환을 "진짜 새 진입"으로 알려 래치를 다시 연다
+  // (stage-reviewer 지적 — enabled 자체 재-true 전환만으로는 재점화하지 않게 훅이 개정됨).
   useJobRecovery({
     kind: 'regenerate',
     enabled: !active,
     matchRef: (ref) => ref.document_id === doc.id,
+    resetKey: doc.id,
     onRecovered: (job) => {
       setStoredRegenerateJob(doc.id, { jobId: job.job_id, reason: '' })
       setStored({ jobId: job.job_id, reason: '' })
