@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api } from './client'
 import { documentKeys } from './documents'
+import { llmJobsKey } from './llm'
 import type {
   ConvertJobResponse,
   ConvertJobStartResponse,
@@ -47,8 +48,15 @@ export function startConvertRequest(input: StartConvertInput): Promise<ConvertJo
   })
 }
 
+// S22(검토 반영) — 시작 성공 시 잡 목록(llmJobsKey)을 무효화한다. 이 목록을 사이드바 배지·
+// JobCenterPanel·복원 훅이 공유하므로(설계 §5.14 "폴링 전역 1곳") 낡은 채로 두면 시작 직후
+// 화면을 떠났다 돌아왔을 때 최대 유휴 폴링 간격(15초)만큼 배지·복원이 늦는다.
 export function useStartConvert() {
-  return useMutation({ mutationFn: startConvertRequest })
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: startConvertRequest,
+    onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
+  })
 }
 
 // S13(F40-①, 설계 §4.3) — 보존된 반입 JSON 내려받기 링크. 최악의 경우에도 사용자가 파일을 손에
@@ -112,7 +120,9 @@ export function useConvertedPreview(previewId: string | null) {
 
 // F30 — 문제 오류 신고 → 재생성 잡 시작 (convert 잡 큐 재사용, 동시 1개). engine은 §4.11 신규
 // 파라미터 — 한도 초과 후 재시도 시 다음 후보 엔진 id로 재요청하는 계약(§4.17③, 이항 아님).
+// 시작 성공 시 잡 목록 무효화(검토 반영, useStartConvert와 동일 근거).
 export function useRegenerate() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({
       documentId,
@@ -123,6 +133,7 @@ export function useRegenerate() {
       reason: string
       engine?: LlmEngine
     }) => api.post<ConvertJobStartResponse>(`/documents/${documentId}/regenerate`, { reason, engine }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
   })
 }
 

@@ -103,6 +103,13 @@ export default function ImportPage() {
   const [entryMode, setEntryMode] = useState<EntryMode>(() =>
     searchParams.get('mode') === 'answer_key' ? 'answer_key' : initialEntryMode(),
   )
+  // 검토 반영 — 이미 이 라우트에 있는 상태에서 딥링크(쿼리 파라미터)만 바뀌는 경우(useState
+  // 초기값은 마운트 시 1회만 읽힌다) 대응. 파라미터가 실제로 'answer_key'로 바뀔 때만 반응하고,
+  // 그 외에는 사용자가 수동으로 고른 진입 모드를 그대로 둔다.
+  const modeParam = searchParams.get('mode')
+  useEffect(() => {
+    if (modeParam === 'answer_key') setEntryMode('answer_key')
+  }, [modeParam])
   const [step, setStep] = useState<WizardStep>('select')
   const [jsonFile, setJsonFile] = useState<File | null>(null)
   const [sourceFile, setSourceFile] = useState<File | null>(null)

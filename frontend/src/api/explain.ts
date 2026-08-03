@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { documentKeys } from './documents'
+import { llmJobsKey } from './llm'
 import type { ConvertJobStartResponse, DocumentDetail, ExplainJobResponse, LlmEngine } from './types'
 
 const POLL_INTERVAL_MS = 2000
@@ -10,10 +11,13 @@ const POLL_INTERVAL_MS = 2000
 // 사전 필터링한다.
 
 // model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드(engine 명시 필요·소목록 밖=422, 미지정=설정값).
+// 시작 성공 시 잡 목록(llmJobsKey) 무효화(검토 반영 — api/convert.ts useStartConvert와 동일 근거).
 export function useStartExplain() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ documentId, engine, model }: { documentId: number; engine?: LlmEngine; model?: string }) =>
       api.post<ConvertJobStartResponse>(`/documents/${documentId}/explain`, { engine, model }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
   })
 }
 

@@ -8,7 +8,7 @@ import {
   fetchConvertJob,
   startConvertRequest,
 } from '../api/convert'
-import { useCancelLlmJob } from '../api/llm'
+import { useCancelLlmJob, llmJobsKey } from '../api/llm'
 import { newEntryId, readQueue, writeQueue } from '../utils/convertQueue'
 import type { StoredQueueEntry } from '../utils/convertQueue'
 import type { ConvertJobResponse, JobProgress, LlmEngine, LlmErrorInfo } from '../api/types'
@@ -230,6 +230,9 @@ export function useConvertQueue() {
             categoryPath: entry.categoryPath,
           })
           updateEntry(entry.id, { jobId: res.job_id, startError: null, startErrorInfo: null })
+          // 검토 반영 — 훅 밖 직접 호출 경로도 시작 성공 시 잡 목록을 무효화한다(api/*.ts 잡 시작
+          // 훅과 동일 근거, 사이드바 배지·복원 훅이 낡은 목록을 보지 않게).
+          qc.invalidateQueries({ queryKey: llmJobsKey })
         } catch (err) {
           updateEntry(entry.id, {
             startError: startErrorMessage(err),
@@ -239,7 +242,7 @@ export function useConvertQueue() {
       }
       setStarting(false)
     },
-    [updateEntry],
+    [updateEntry, qc],
   )
 
   const startUrl = useCallback(
@@ -264,6 +267,7 @@ export function useConvertQueue() {
       try {
         const res = await startConvertRequest({ kind: 'url', url, engine: opts?.engine, model: opts?.model, categoryPath })
         updateEntry(entry.id, { jobId: res.job_id, startError: null, startErrorInfo: null })
+        qc.invalidateQueries({ queryKey: llmJobsKey })
       } catch (err) {
         updateEntry(entry.id, {
           startError: startErrorMessage(err),
@@ -272,7 +276,7 @@ export function useConvertQueue() {
       }
       setStarting(false)
     },
-    [updateEntry],
+    [updateEntry, qc],
   )
 
   // [다시 시도] — S15(설계 §4.17③): 엔진은 호출자가 error_info.fallback_engine에서 구해 넘긴다
@@ -309,6 +313,7 @@ export function useConvertQueue() {
           startErrorInfo: null,
           committed: false,
         })
+        qc.invalidateQueries({ queryKey: llmJobsKey })
       } catch (err) {
         updateEntry(id, {
           startError: startErrorMessage(err),
@@ -317,7 +322,7 @@ export function useConvertQueue() {
       }
       setStarting(false)
     },
-    [entries, updateEntry],
+    [entries, updateEntry, qc],
   )
 
   const markCommitted = useCallback(

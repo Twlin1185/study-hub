@@ -209,7 +209,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           §5 공통 레이아웃, F39 관례). 향후 다른 항목이 필요해지면 이 자리에 늘린다. */}
       {mobileDrawerOpen && (
         <div
-          className="fixed inset-0 z-50 flex md:hidden print:hidden"
+          className="fixed inset-0 z-50 flex bg-black/40 md:hidden print:hidden"
           onClick={() => setMobileDrawerOpen(false)}
           role="presentation"
         >

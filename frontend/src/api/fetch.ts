@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
+import { llmJobsKey } from './llm'
 import type {
   ConvertJobStartResponse,
   FetchAdaptersResponse,
@@ -39,9 +40,12 @@ export function useFetchExams() {
 
 // convert 잡 큐 재사용(kind='fetch') — 응답 형태는 useStartConvert와 동일 {job_id}.
 // 진행·결과 조회는 기존 GET /api/convert/{job_id}(useConvertJob)를 그대로 쓴다.
+// 시작 성공 시 잡 목록(llmJobsKey) 무효화(검토 반영 — api/convert.ts useStartConvert와 동일 근거).
 export function useFetchImport() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: FetchImportRequest) => api.post<ConvertJobStartResponse>('/fetch/import', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
   })
 }
 

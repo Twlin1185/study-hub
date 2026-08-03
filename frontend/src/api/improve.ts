@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type Paginated } from './client'
+import { llmJobsKey } from './llm'
 import type {
   ImproveApplyResponse,
   ImproveCaseItem,
@@ -66,10 +67,13 @@ export function useImproveGenPrepare() {
 }
 
 // model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드(engine 명시 필요·소목록 밖=422, 미지정=설정값).
+// 시작 성공 시 잡 목록(llmJobsKey) 무효화(검토 반영 — api/convert.ts useStartConvert와 동일 근거).
 export function useStartImproveGen() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ genId, engine, model }: { genId: string; engine?: LlmEngine; model?: string }) =>
       api.post<ConvertJobStartResponse>(`/improve/gen/${genId}/generate`, { engine, model }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
   })
 }
 
@@ -140,10 +144,13 @@ export function useImproveRegressionPrepare() {
 }
 
 // model(S22, 설계 §4.24 ④, F48) — 1회성 오버라이드(engine 명시 필요·소목록 밖=422, 미지정=설정값).
+// 시작 성공 시 잡 목록(llmJobsKey) 무효화(검토 반영 — api/convert.ts useStartConvert와 동일 근거).
 export function useStartImproveRegression() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ regId, engine, model }: { regId: string; engine?: LlmEngine; model?: string }) =>
       api.post<ConvertJobStartResponse>(`/improve/regression/${regId}/run`, { engine, model }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
   })
 }
 
