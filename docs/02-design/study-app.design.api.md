@@ -5,7 +5,7 @@
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S22] = stage 1~22에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
+구현 단계 표기: [S1]~[S25] = stage 1~25에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만.)
 
 ### 4.1 분류 Categories
 
@@ -524,7 +524,7 @@ backend/services/fetchers/
 ### 4.18 다양한 문서 포맷 반입 — 판별·추출 계층 (S16 — F42. **계약 확정 2026-07-29, stage-16 선행 절차 D1·D2·D3 해소분**)
 
 > 근거: 계획서 §14 F42 "실측 현황"(단일 출처) — 파일 반입에 확장자·매직 바이트 검사가 없고, API 엔진의 무조건 utf-8 디코드 폴백(`convert_service._api_content_blocks_for_file`)이 docx/xlsx 바이너리를 **mojibake로 조용히 LLM에 투입**한다. 이 절은 그 결함의 수정 계약이며, 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-16 DoD 6).
-> 원칙 재확인: `sources/` 원본 불변(추출 텍스트는 저장하지 않는 파생물 — R18 정신) · 미리보기 승인 없는 자동 반입 금지(R7) · 오류 원문 노출 금지 + 안내는 **서버 완성 문장**(`error_info`·`notes` — §4.10·§4.11 관례, 프론트 포맷 분기 금지) · **서버측 자동 분할 금지**(F40-④ 결정 유지). (**S23 개정 예고**: "재제안 시 근거 필요" 단서가 2026-08-04 실사례(98.9만 자 URL 반입 `too_large`)로 충족 — **F49(대용량 원본 LLM 분할 반입, 계획서 §14 F49)가 이 금지 문면을 개정**한다. 금지의 실질 3건(부분 잘림 투입 금지·서버측 PDF 파일 분할 금지(§4.11 불변)·무승인 자동 반입 금지)은 전부 계승 — 계약은 잔여 결정 확정 후 §4.25 신설 시 확정. 이 문장은 S16 시점 기준으로 보존.)
+> 원칙 재확인: `sources/` 원본 불변(추출 텍스트는 저장하지 않는 파생물 — R18 정신) · 미리보기 승인 없는 자동 반입 금지(R7) · 오류 원문 노출 금지 + 안내는 **서버 완성 문장**(`error_info`·`notes` — §4.10·§4.11 관례, 프론트 포맷 분기 금지) · **서버측 자동 분할 금지**(F40-④ 결정 유지). (**S23 개정 예고**: "재제안 시 근거 필요" 단서가 2026-08-04 실사례(98.9만 자 URL 반입 `too_large`)로 충족 — **F49(대용량 원본 LLM 분할 반입, 계획서 §14 F49)가 이 금지 문면을 개정**한다. 금지의 실질 3건(부분 잘림 투입 금지·서버측 PDF 파일 분할 금지(§4.11 불변)·무승인 자동 반입 금지)은 전부 계승 — 계약 정본 = **§4.25(2026-08-04 확정)**. 이 문장은 S16 시점 기준으로 보존.)
 
 **① 지원 포맷 매트릭스 (포맷 × 경로(파일/URL) × 엔진)**
 
@@ -566,7 +566,7 @@ backend/services/fetchers/
 
 - 상한: A군 디코드·B군 추출 텍스트 공통 **200,000자**(원문 문자 수 기준). 근거: 회차 단위 기출(60문항 ≈ 3~6만 자)의 3배 이상 여유 — "명백한 과대 입력"만 차단하는 보수 상한이다(실질 병목은 출력 상한 잘림 = `invalid_output`이고, 이 상한은 그 전에 **입력 쪽에서 비용 0으로** 멈추는 안전판). settings 키로 만들지 않는다(YAGNI — 값 변경은 계획서 확정 절차).
 - 판정 시점: `phase='preparing'`(판별·추출·디코드 직후) — **LLM 호출 전**. xlsx 시트·행·열 상한 초과(④)도 같은 kind로 종료.
-- 문구(서버 완성 문장): message "추출된 텍스트가 너무 깁니다(약 N자 — 상한 200,000자)" / action "원본을 과목·회차 단위로 나눠 개별 파일로 반입해 주세요"(F40-④ `invalid_output`의 분할 권고와 같은 계열 — **서버측 자동 분할은 하지 않는다**). `fallback_available=false`(엔진을 바꿔도 같음 — `invalid_output` 전례), `alternatives` 없음. §4.11 kind 목록에 등재 완료. (**S23 개정 예고**: F49(계획서 §14 — 2026-08-04 등재)가 too_large 초과 원본에 **다단계 사용자 개입형 분할 반입 경로**를 추가 예정 — 20만 자 상한 자체와 LLM 호출 전 비용 0 차단은 불변, 개정 후보는 안내 문구·`alternatives`(신규 값 `'split_import'`)뿐. §4.25 신설 시 확정 — 이 문장은 S16 시점 기준으로 보존.)
+- 문구(서버 완성 문장): message "추출된 텍스트가 너무 깁니다(약 N자 — 상한 200,000자)" / action "원본을 과목·회차 단위로 나눠 개별 파일로 반입해 주세요"(F40-④ `invalid_output`의 분할 권고와 같은 계열 — **서버측 자동 분할은 하지 않는다**). `fallback_available=false`(엔진을 바꿔도 같음 — `invalid_output` 전례), `alternatives` 없음. §4.11 kind 목록에 등재 완료. (**S23 개정 예고**: F49(계획서 §14 — 2026-08-04 등재)가 too_large 초과 원본에 **다단계 사용자 개입형 분할 반입 경로**를 추가 예정 — 20만 자 상한 자체와 LLM 호출 전 비용 0 차단은 불변, 개정 확정분은 안내 문구·convert 잡 발생분 `alternatives`(신규 값 `'split_import'`)·원본 sources/ 저장뿐. 계약 정본 = **§4.25(2026-08-04 확정 — 개정 지점 전수 표)** — 이 문장은 S16 시점 기준으로 보존.)
 
 **⑥ `unsupported_format` 포맷별 폴백 안내 — 확정 문안 (서버 완성 문장, qnet `_unsupported_message` 전례)**
 
@@ -799,7 +799,7 @@ backend/services/fetchers/
 1. **prepare(LLM 0)**: 범위 = `category_ids` 각각의 하위 트리 전체(§4.6 deep 원칙). 수집 대상 = `is_active=1`의 question·past_question(응용의 원형)·concept(개념 근거). 문제·개념 문서 합계 0건 = 422("생성 근거가 될 문서가 없습니다"). `count` = 1~**20**(1회 실행 상한 — 초과 요청 422, 더 필요하면 분할 실행). 컨텍스트 합계 200,000자 초과 = 422(결정 ⑥). 응답: `{gen_id, scope_label, source_counts: {past_question, question, concept}, requested_count, estimate: {approx_input_tokens, assumed}}`. gen 상태(수집 문서 id·정규화 텍스트)는 인메모리 TTL 1시간 — 서버 재시작 시 소실 = prepare 재실행(LLM 0이라 무비용).
 2. **생성 잡(kind `'applied_exam'`)**: 프롬프트는 코드 내 조립(regenerate 전례 — `prompts/convert.md` 불변·반입 규격 §8.2와 무관). 지시 = 범위 문서(doc_no 라벨 포함)를 근거로 **기출에 없던 표현의 응용 문항** N개 생성, **전 문항 객관식(4지선다) 고정**(단답·서술 생성 금지 — 생성 단답의 정규화 채점은 표현 변형에 취약해 채점 오염(R22)을 키운다), 문항마다 `basis`(근거 doc_no 배열) 명시 필수. 출력 = 순수 JSON `{"items":[{"content","choices":[4],"answer":"1"~"4","explanation","basis":["DOC-0012",…]}]}`(위반 = `invalid_output` — §4.17 ⑤ 규율 그대로).
 3. **검증 게이트(문항 단위 — 서버 기계 검증, 결정 ⑦)**: 각 문항에 대해 ⓐ `content`·`choices`(4개)·`explanation` 필수(explanation은 사후 검토 방어선의 재료 — 누락 = 폐기) ⓑ `answer` = 1-base 번호 문자열 강제 — 위반 = **문항 전체 폐기**(F44의 "answer 필드만 제거" 해석은 여기 부적용: 정답 없는 생성 문항은 채점 불가라 응시에 쓸 수 없다) ⓒ **basis 서버 결정론 검증** — basis의 각 doc_no가 prepare 수집 집합에 실재해야 함(부재·범위 밖 = 문항 폐기, LLM의 매칭 판단을 신뢰하지 않는다 — F44 결정 ② 관례) ⓓ **복제 검출** — 생성 `content`를 근거 문서 정규화 텍스트에 `SourceMatcher`(§4.17 ⑥ 알고리즘·임계 그대로)로 대조해 **일치(커버리지 ≥0.6) = 복제 판정·문항 폐기**(응용 훈련이 목적 — 기출 통째 재출제는 실패. §4.17 ⑥의 역적용: 반입은 "원본에 없으면 의심", 생성은 "원본에 있으면 실패"). 폐기 사유는 `discarded[]`에 구조화(`invalid_item|invalid_answer|missing_explanation|bad_basis|duplicate_of_source`).
-4. **저장(잡 말미 한 트랜잭션 — 결정 ⑤)**: 통과 문항만 — ⓐ 예약 루트 확인·생성(settings 포인터) ⓑ 런 분류 생성(이름 = `{scope_label} — {YYYY-MM-DD HH:MM}`) ⓒ documents INSERT(type='question', content 서두 마커 서버 부착, answer·explanation·choices 저장, `source_id=null`, `source_detail="AI 응용 생성 {YYYY-MM-DD}"` — **"N번" 패턴 금지**(F44 답지 매칭 키 오염 방지), **태그 미부여**(태그 규칙 자동 연결로 본류 유입되는 뒷문 차단)) ⓓ `category_documents` 연결(linked_by='applied_exam', sort_order=생성 순번) ⓔ `document_relations('derived_from','applied_exam')` 기록. 통과 0건 = 잡 실패(§4.11 error_info — DB 무변경). **미리보기 승인 단계가 없는 대신, 쓰기 목적지가 격리 분류로 한정**되는 것이 이 기능의 방어선이다(R7 관례의 명시적 예외 — 근거·대응은 R22).
+4. **저장(잡 말미 한 트랜잭션 — 결정 ⑤)**: 통과 문항만 — ⓐ 예약 루트 확인·생성(settings 포인터) ⓑ 런 분류 생성(이름 = `{scope_label} — {YYYY-MM-DD HH:MM}`) ⓒ documents INSERT(type='question', content 서두 마커 서버 부착, answer·explanation·choices 저장, `source_id=null`, `source_detail="AI 응용 생성 {YYYY-MM-DD}"` — **"N번" 패턴 금지**(F44 답지 매칭 키 오염 방지), **태그 미부여**(태그 규칙 자동 연결로 본류 유입되는 뒷문 차단 — **S24 개정**: F50이 mode별로 분기, 아래 "S24 개정 블록" 참조. 이 문장은 S19 시점 기준으로 보존)) ⓓ `category_documents` 연결(linked_by='applied_exam', sort_order=생성 순번) ⓔ `document_relations('derived_from','applied_exam')` 기록. 통과 0건 = 잡 실패(§4.11 error_info — DB 무변경). **미리보기 승인 단계가 없는 대신, 쓰기 목적지가 격리 분류로 한정**되는 것이 이 기능의 방어선이다(R7 관례의 명시적 예외 — 근거·대응은 R22).
 5. **상태 조회(GET)**: `{status, progress, error_info, result?: {run_category_id, requested, generated, discarded: [{reason, count}], document_ids}}`. 잡 성공 = 저장 완료 — 이후 gen 상태가 TTL로 소실돼도 응시는 런 분류만으로 가능(exam/session — 아래).
 
 **응시·제출·리포트 (F25 §4.14 재사용 — 차이 전수)**
@@ -812,7 +812,7 @@ backend/services/fetchers/
 **격리 규약 (본류 제외 지점 전수 — 구조적 격리, 필터 코드 아님)**
 
 - **일반 퀴즈·실전 모의고사(F25)**: quiz/session·exam/session은 분류 범위로 출제한다 — 생성 문항은 실전 트리에 연결되지 않으므로 **자연 제외**(제외 필터 코드가 없어도 성립. 사용자가 런 분류를 명시 선택하면 출제됨 — "기본 제외"의 옵트인 예외로 수용).
-- **SRS**: 생성 문항이 SRS에 들어가는 경로는 **응용 응시의 오답(불변 규칙 2 트랜잭션)뿐** — 그 카드는 srs/today에 정상 등장한다(**격리의 예외가 아니라 격리 저장을 택한 이유 그 자체** — 오답 복습 루프, §14 F45 ③). 그 외 유입 경로 0: flashcard 타입 아님·study 학습 트랙은 사용자가 런 분류를 열지 않는 한 무관·태그 미부여(규칙 자동 연결 차단 — 위 4-ⓒ).
+- **SRS**: 생성 문항이 SRS에 들어가는 경로는 **응용 응시의 오답(불변 규칙 2 트랜잭션)뿐** — 그 카드는 srs/today에 정상 등장한다(**격리의 예외가 아니라 격리 저장을 택한 이유 그 자체** — 오답 복습 루프, §14 F45 ③). 그 외 유입 경로 0: flashcard 타입 아님·study 학습 트랙은 사용자가 런 분류를 열지 않는 한 무관·태그 미부여(규칙 자동 연결 차단 — 위 4-ⓒ. **S24 개정**: accumulate 모드는 태그를 부여하되 규칙 연계를 **제안 강제**로 묶어 "승인 없는 자동 연결 경로 0"은 그대로 유지 — 아래 S24 개정 블록).
 - **탐색·검색·통계**: 문서 목록·검색에는 나타난다(숨기지 않는다 — 조용한 은닉보다 **격리 분류 경로 + content 마커 상시 표기**가 원칙). 분류 서브트리 기준 파생 뷰(시험별 통계·약점 분석·D-Day 부스트)는 실전 트리 기준이라 자연 제외, 전역 집계(히트맵·스트릭)에는 포함(실제 학습 활동이므로 — 명문화).
 - **정리**: 런 분류·생성 문항의 삭제는 기존 분류 관리·소프트 삭제 경로 그대로(자동 만료·정리 없음 — YAGNI).
 
@@ -826,6 +826,17 @@ backend/services/fetchers/
 - 채점 코어 = `backend/services/exam_service.py`(§4.14 — 커밋 없는 공용 채점 함수·배치 트랜잭션·history 파생 로직. submit·history 재사용 지점) · 출제 자격 판정 = quiz_service(§4.14 관례).
 - 신설 제안: `backend/services/applied_exam_service.py`(prepare·격리 분류 관리·검증 게이트·저장 트랜잭션) + `backend/routers/applied_exam.py` + `backend/schemas/applied_exam.py`.
 - 프론트: 퀴즈 설정(§5.6)·모의고사 구성(§5.12) 확장 + `ExamRun`·결과 리포트 재사용(제출 엔드포인트 분기·basis 렌더) · `FetchImportWizard`(사용량 확인 스텝 전례) · `LlmJobProgress`·`LlmErrorInfo`(진행·오류) · zustand `examSession` 확장(applied 컨텍스트 — §7).
+
+**S24 개정 블록 — F50 누적·1회성 모드 (계약 확정 2026-08-04, stage-24 착수 전 결정 ①~④ 해소분. 본문 보존 + 병기 방식 — §4.23 ⓑ 관례, 신설 절 없음)**
+
+> 근거: 계획서 §14 F50(단일 출처 — 사용자 요청 원문·실측·결정 ①~④). 개정 대상은 위 결정 ①·저장 4-ⓒ·격리 규약의 **"태그 미부여"** 서술뿐 — 격리 저장·마커·기본 제외·채점 계약은 전부 불변. 개정 근거: "태그 미부여"의 실질은 **출처(검증 안 된 생성물)와 승인(자동 연결) 문제**였는데, 실측상 태그는 생성 호출의 출력 확장(추가 LLM 호출 0)으로 얻을 수 있고 규칙 연계를 제안 강제로 묶으면 "승인 없는 본류 유입" 뒷문은 여전히 0이다 — 사용자 요청(2026-08-04)으로 부분 개정(번복 절차: 계획서 §14 F50 등재 → 확정 → 본 블록).
+
+- **① `mode` 파라미터**: `POST /api/applied-exam/{gen_id}/generate` body에 `mode?: 'accumulate' | 'oneshot'` 추가 — **미지정 = `accumulate` 기본**(사용자 확정 "누적이 default". 종전 동작(항상 태그 없음)과 다른 기본값임을 명시 — oneshot이 종전과 동일). 두 값 외 = 422(§3). AI 응용 탭 스텝 ①에 선택 UI(기본 누적 + 1줄 설명 "1회성은 태그를 만들지 않아 생성 출력이 조금 절약됩니다").
+- **② accumulate = 태그 부여**: 생성 프롬프트 출력 스키마에 `items[].tags`(문자열 배열) 추가 — **같은 LLM 호출**(§14 F50 실측: 별도 호출 0·출력 토큰 소폭). 검증 = 반입 규격 tags 정규화 관례(§8.2) 재사용, **tags 필드 위반 = 태그만 무시·문항 유지**(태그는 채점 무관 부속 메타 — 검증 게이트 3의 폐기 사유에 추가하지 않는다). 저장 4-ⓒ 분기: accumulate = DocumentTag 저장 + 저장 후 `scan_document` 실행하되 **auto 규칙도 suggested 강제**(응용 생성물 한정 — 규칙 mode를 무시하고 제안함 승인 경유만. 자동 연결(linked) 경로 0 = 격리 원칙 유지) / oneshot = 종전 그대로(태그 미부여·스캔 없음).
+- **③ oneshot = 태그 생략만**: 문서 저장·격리 분류·content 마커·SRS/일반 퀴즈 기본 제외·`derived_from` 근거 연결(비용 0 — 양 모드 공통)은 전부 종전 그대로(F45 결정 ① "일회용 기각"은 번복하지 않는다 — 불변 규칙 2). `suggest_relations`류 신규 개념연결 제안은 양 모드 모두 도입하지 않음(사전 미리보기 부재로 승인 지점이 없다 — 기존 `derived_from`으로 충족, YAGNI).
+- **④ 소급 없음**: 기존 생성물 태그 자동 소급 없음(별도 LLM 호출 필요 — YAGNI, 수동 태그 편집(§5.3)로 갈음. 실수요 확인 시 계획서 먼저).
+- **DDL 0건·Alembic 0건·신규 엔드포인트 0개 (2026-08-04 재확인)**: mode = 요청 파라미터·잡 레코드 값(인메모리), 태그 = 기존 tags/document_tags, 규칙 제안 = 기존 suggestions 수명주기(§4.9 계약 불변). 상태 응답 `result`에 `mode` 필드 순수 추가(표시용). 구현 중 어긋나면 착수 중단 후 보고(임의 확정 금지).
+- 구현 앵커: `applied_exam_service`(프롬프트 출력 스키마·검증·저장 분기·scan 호출) · `tag_rule_service.scan_document`(suggested 강제 옵션 — 호출부 플래그, 규칙 의미론 자체는 무변경) · `AppliedExamPanel`(모드 선택 UI) · 작업 지시서 = `stage-24-applied-exam-mode.plan.md`.
 
 ### 4.22 반입 자기 개선 루프 — 실패 사례·개선 제안·회귀 재검증 (S20 — F46. **계약 확정 2026-08-02, stage-20 착수 전 결정 ①~⑦ 해소분**)
 
@@ -1046,4 +1057,53 @@ backend/services/fetchers/
 
 - 백엔드: `backend/services/convert_service.py`(잡 레코드·큐·워커가 수렴된 파일 — 목록 파생·취소 전이·paused 플래그·label 합성이 여기 얹힌다. `_JOBS` 구조는 구현 실측) · `backend/services/llm_engine_service.py`(`assert_engine_selectable` 확장 — model 규칙 (a)(b)) · `backend/routers/llm.py`(신규 4 엔드포인트) · 각 시작 라우터 8곳(`model?` 파라미터 통과만 — 개별 검증 금지).
 - 프론트: 신설 `components/JobCenterPanel.tsx`(이름 구현 재량 — 전역 패널·배지 버튼) · 공용 복원 훅 1개(`api/` 훅 — 이름 구현 재량) + 적용 화면 6곳(ⓓ 표) · `components/EngineSelect.tsx`(모델 소목록 select 확장 — 사용처 7곳 자동 반영) · `api/types.ts`(잡 목록 타입·`'cancelled'` 상태 값).
+
+### 4.25 대용량 원본 LLM 분할 반입 — 구조 분석·분할안 확인·조각 투입 (S23 — F49. **계약 확정 2026-08-04, 착수 전 결정 전건(컨셉 + ㉮~㉳) 해소분**)
+
+> 근거: 계획서 §14 F49(단일 출처 — 배경 실사례(98.9만 자 URL `too_large`)·확정 컨셉 5단계·결정 ㉮~㉳·R25). 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-23 DoD).
+> 원칙 재확인: **다단계 + 사용자 개입형이 컨셉의 정체성**(2026-08-04 사용자 확정 — "링크만 주면 전자동" 명시 배제): 분할안 확인(2단계)과 조각별 미리보기 승인(4단계 — R7)은 생략 불가. 실행 전 사용량 안내(F35 — 휴리스틱은 무비용, LLM 개입 지점은 전부 확인 스텝 뒤) · `sources/` 원본 불변(조각은 파생물) · 오류 원문 노출 금지·서버 완성 문장(§4.11) · 에러 규약 §3 · **조각 = 원문 연속 부분 문자열(서버 결정론 절단 — LLM은 경계 오프셋·라벨만 산출, 본문 재작성 경로 0)**. 판별·추출은 §4.18 계층 그대로(이 절은 그 뒤에 얹는 분기 — 20만 자 이하 원본의 계약은 완전 불변).
+
+**착수 전 결정 확정 (2026-08-04 — 컨셉(사용자 정정 반영) + 잔여 ㉮~㉳ 전건)**
+
+- **플로우 5단계(컨셉 확정)**: 0단계 추출(LLM 0 — 초과 시에만 진입) → 1단계 구조 분석(**휴리스틱 우선·무비용**, 불확실 시에만 LLM 정밀 분석 — 확인 스텝) → 2단계 **분할안 제시 + 사용자 확인**(체크박스 선택 + 인접 [합치기] — **경계 문자 단위 편집은 과설계 기각 확정**) → 3단계 선택 조각의 기존 convert 잡 N개 투입 → 4단계 조각별 미리보기 승인. **적용 범위 = URL + 파일 업로드 공통**(`too_large` 판정 지점이 단일 — `phase='preparing'`).
+- **㉮ 크기 = 확정**: 조각 목표 3~6만 자(휴리스틱·정밀 분석의 목표 지시값 — 강제 아님) · **조각당 상한 200,000자**(기존 `MAX_TEXT_CHARS` 재사용 — convert 계약 불변. [합치기] 결과 초과 = 합치기 거부, 서버 완성 문장).
+- **㉯ 원본 총 상한 = 2,000,000자 확정**(초과 = 분할 시작 전 422 정직 거부 — "원본이 너무 큽니다(약 N자 — 분할 반입 상한 2,000,000자)" + 수동 분할 안내). settings 화 안 함(D2-⑥ 관례).
+- **㉰ 조각 수 상한 = 40개 확정**(분할안 산출 결과가 초과 = 422 거부·수동 분할 안내 — 자동 재병합으로 눙치지 않는다).
+- **㉱ 잡 형태 = 확정**: 휴리스틱 스캔 = **동기**(LLM 0·잡 불요) · **LLM 정밀 분석만 신규 잡 kind `'split_analyze'`**(공유 잡 큐 — §4.10·§4.11 계약 그대로, F48 §4.24에 값 확장 합류: kind 8→9종, label 예 `『{원본명}』 분할 정밀 분석`, ref = `{split_id}`, 복원 화면 = 분할 위저드) · 조각 변환 = **기존 convert 잡**(신규 kind 아님 — 잡·preview 1:1 계약 불변).
+- **㉲ 보존 = 확정**: 분할 상태(경계 오프셋·라벨·선택 이력)를 **`import/split/` JSON 최근 20건**(R18 상수 관례 — 초과 시 오래된 것부터 삭제, git·백업(F27) 제외) + 인메모리 TTL 1시간. 조각 텍스트는 저장하지 않는다(원본 `sources/` + 오프셋으로 결정론 재절단 — R18 파생물 정신, 서버 재시작 후에도 분석 비용 재지불 없음). **`too_large` 종료 시에도 원본 `sources/` 저장을 계약으로 확정**(§4.18 ④·⑥ 대칭 — 현행이 미저장이면 stage-23에서 저장 추가, action 앞머리 "원본은 sources/에 저장했습니다." 동일 적용).
+- **㉳ 진입·중복·F46 = 확정**: convert 잡 발생 `too_large`의 `error_info.alternatives` = `['split_import']`(신규 값 — 아는 값만 렌더 전방 호환, §4.11. fetch 잡 발생분은 기존 정책 그대로) → [분할 반입] 버튼. 상시 별도 메뉴 없음(YAGNI). **같은 원본(내용 hash12 — F46 관례) 재분할 요청 = 기존 분할 레코드 감지 → "기존 분할안 재사용(비용 0) / 새로 분석" 선택 안내**. `split_analyze` 잡 실패(kind `invalid_output` 등)는 **F46 실패 사례 수집에 포함**(§4.22 수집 지점 확장 — F46 "확장은 계획서 먼저" 단서의 이행. `too_large`·환경 실패 제외 규칙은 동일).
+
+**ⓐ 신규 엔드포인트 4개**
+
+| 메서드/경로 | 설명 |
+|---|---|
+| `POST /api/import/split` | 분할 시작 — multipart `file` 또는 `{url}`(convert와 동일 수신 게이트 — §4.18 판별·추출·SSRF·MIME 재사용). **동기·LLM 0**: 다운로드→판별→추출→원본 `sources/` 저장→총 상한(㉯) 검증→**휴리스틱 경계 스캔**→분할안 반환. 응답 `{split_id, source_chars, confidence: 'ok'\|'uncertain', chunks: [...], analyze_estimate: {approx_input_tokens, assumed}}`. 20만 자 이하 원본 = 422("분할이 필요 없는 크기입니다 — 일반 반입을 이용하세요") |
+| `POST /api/import/split/{split_id}/analyze` | **LLM 정밀 분석 잡 시작**(kind `'split_analyze'`) — body `{engine?, model?}`(§4.23 ⓒ·§4.24 ⓒ 검증 계약 그대로 — `assert_engine_selectable` 경유·**적용 지점 전수 표에 9번째로 추가**). 확인 스텝 뒤에만 호출(F35 — estimate는 split 응답에 동봉). → `202 {job_id}` |
+| `GET /api/import/split/{split_id}` | 상태·분할안 조회 — `{status, progress?, error_info?, chunks: [{chunk_id, label, start, end, chars, head(앞부분 발췌 200자), estimate: {approx_input_tokens, assumed}}]}`. 정밀 분석 완료 시 chunks가 갱신본으로 대체(휴리스틱안은 보존 이력). LLM 산출 원문·정답 미포함(발췌는 원문 부분 문자열 — 추출 텍스트 수준, preview 아님) |
+| `POST /api/import/split/{split_id}/enqueue` | **선택 조각 투입** — body `{selections: [[chunk_id,…],…], category_paths?: {chunk_id: path}}`. selections의 각 그룹 = 조각 1개 또는 **인접 chunk_id 연속 구간**([합치기] — 비인접·중복·미존재 = 422, 병합 결과가 조각당 상한(㉮) 초과 = 422). 서버가 오프셋 결정론 재절단→조각을 A군 텍스트로 **기존 convert 잡 N개 등록**(ImportQueue 계약 그대로 — `category_path` 전달은 F40-③ 재사용, 조각별 독립 실패). 응답 `{jobs: [{job_id, chunk_ids, label}]}` |
+
+- **조각 무결성 결정론 검증(투입 전 서버 검증 — LLM 불신)**: 전체 chunks는 `start` 오름차순·중첩 0·합집합 = 원본 전체(경계 누락 시 자동으로 "무라벨 구간" 조각 생성 — 조용한 탈락 금지). 정밀 분석 산출 오프셋은 **휴리스틱 후보 집합 ∪ 발췌 구간 내 위치**만 수용(범위 밖 창작 오프셋 = `invalid_output`). 재절단 결과는 항상 `원문[start:end]`(바이트 수준 일치 — 재작성 검출 불요, 원리상 불가).
+- **정밀 분석 입력 규약**: 원문 전문이 아니라 **경계 후보 오프셋 + 후보 주변 발췌(각 ~200자) + 문서 서두/말미 표본**만 투입(입력이 원본의 수 % 수준 — 98.9만 자급 전문은 컨텍스트 초과로 원리상 불가). 출력 = 순수 JSON(경계 확정 목록·조각 라벨) — 위반 = `invalid_output`(§4.17 ⑤ 규율).
+- **조각 convert 투입 세칙**: 조각 잡은 원본을 재저장하지 않는다(원본은 split 시작 시 1회 저장 — 중복 저장 금지, 잡 레코드가 split_id·chunk_ids 참조 보유). 조각 라벨은 `category_path` 초안으로만 쓰이고(2단계에서 사용자 편집 가능 — F40-③ 검증 규칙 동일), 분류 확정은 기존 preview 승인 경로(`suggest_categories`·commit `approve_categories`) 그대로.
+
+**기존 결정·서술 개정 지점 전수 (S23)**
+
+| 개정 대상 | 개정 내용 |
+|---|---|
+| §4.18 원칙 재확인 "서버측 자동 분할 금지(F40-④ 결정 유지)" | **본 절이 개정**(문면 개정 — 실질 3건(부분 잘림 투입 금지·PDF 파일 분할 금지·무승인 자동 반입 금지)은 전부 계승). §4.18 본문 보존 + 예고 병기(관례) |
+| §4.18 ⑤ `too_large` action "과목·회차 단위로 나눠 개별 파일로 반입해 주세요" | action에 분할 반입 안내 병기 + **convert 잡 발생분 `alternatives` = `['split_import']`**(종전 "없음" → 값 1개. fetch 잡 발생분은 기존 유지 — §4.18 ⑥·§4.19 관례) + 원본 sources/ 저장 확정(㉲) |
+| §4.11 `alternatives` 값 목록 | **`'split_import'` 순수 추가**(아는 값만 렌더 전방 호환 — 기존 값·기본값 불변) |
+| §4.11 "서버측 PDF 분할은 하지 않는다"(F40-④ `invalid_output` 서술) | **불변**(F49는 추출 텍스트의 분할 — pdf 경로(claude-cli 파일 전달)는 too_large 판정 자체가 없어 범위 밖) |
+| §4.23 ⓒ·§4.24 ⓒ "잡 시작 8곳 전수"(`assert_engine_selectable`·`model?`) | `POST /api/import/split/{split_id}/analyze`가 **9번째 지점**으로 추가(공통 헬퍼 경유 — 이원화 금지) |
+| §4.24 잡 kind 8종(목록·label·ref·복원 ⓓ 표) | **`'split_analyze'` 추가로 9종** — label·ref(`split_id`)·복원 화면(분할 위저드)·kind→라우트 매핑 상수 값 추가 |
+| §4.22 F46 수집 지점(convert·fetch 잡 실패 kind) | `split_analyze` 잡 실패 포함(㉳ — too_large·환경 실패 제외 규칙 동일) |
+
+**DDL 변경 0건·Alembic 0건 — 재확인 근거 (2026-08-04, 결정 전건)**
+
+- 이 절의 저장 지점 전수: **`sources/` 원본**(split 시작 시 1회 — 기존 관례) · **`import/split/` JSON**(분할 상태 최근 20건 — 파일, git·백업 제외) · **인메모리**(split 상태 TTL 1시간·`split_analyze` 잡 레코드) · 조각 convert 잡 이후는 **기존 convert 경로의 저장물 그대로**(변경 없음). **새 테이블·컬럼·인덱스 0, Alembic 0, settings 키 0. 신규 엔드포인트 4개**(분할 시작·정밀 분석·상태·투입). 구현 중 이 전제가 깨지면 착수 중단 후 보고(임의 확정 금지).
+
+**구현 앵커 (2026-08-04 — 파일 수준. 행 번호는 구현 시 실측)**
+
+- 백엔드: 신설 `backend/services/split_service.py`(휴리스틱 스캔·오프셋 검증·재절단·`import/split/` 관리) + `backend/routers/split.py`(신규 4 엔드포인트) · `backend/services/doc_extract.py`(추출 재사용 — 무변경이 정상) · `backend/services/convert_service.py`(잡 kind `'split_analyze'` 등록·label·ref·조각 convert 잡 등록 지점·`alternatives` 값) · `backend/services/llm_engine_service.py`(검증 지점 9번째 — 헬퍼 호출만).
+- 프론트: 신설 분할 위저드(`components/SplitImportWizard.tsx` — 이름 구현 재량: 분석→분할안 확인(체크박스·[합치기])→비용 확인→투입, Stepper·EngineSelect·LlmJobProgress 재사용) · `pages/Import.tsx`(too_large 실패 렌더에 [분할 반입] 버튼 — `alternatives` 값) · `utils/jobRoutes.ts`(kind 매핑 추가) · `api/types.ts`(split 타입·kind 유니온).
 
