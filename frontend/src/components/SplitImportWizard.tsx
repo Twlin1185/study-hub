@@ -10,7 +10,15 @@ import { useJobRecovery } from '../hooks/useJobRecovery'
 import { jobUnavailable } from '../api/convert'
 import { useSplitAnalyze, useSplitEnqueue, useSplitStatus, useStartSplit } from '../api/split'
 import { ApiError } from '../api/client'
-import type { LlmEngine, SplitChunk, SplitEnqueueJobItem, SplitStartResponse } from '../api/types'
+import type {
+  LlmEngine,
+  SplitChunk,
+  SplitConfidence,
+  SplitEnqueueJobItem,
+  SplitFallback,
+  SplitReuseInfo,
+  SplitStartResponse,
+} from '../api/types'
 
 // 설계 §4.25(S23, F49) — 대용량 원본 LLM 분할 반입 위저드. 5단계 컨셉(계획서 §14 F49) 중
 // 0단계(추출)는 원본 확보 시 즉시·자동으로 수행되고(이 컴포넌트의 'source'→분석 진입), 1~3단계를
@@ -104,12 +112,23 @@ export default function SplitImportWizard({
 
   const startedRef = useRef(false)
 
+  // stage-reviewer 재수정(2026-08-04, [경미-3]) — confidence:'ok'이고 균등 분할 폴백도 아니면
+  // 정밀 분석 카드 없이 곧장 분할안 확인으로 진행한다. 재사용 여부를 아직 고르지 않았으면
+  // (reuse 있음) 그 선택이 항상 우선한다.
+  function shouldAutoAdvance(data: {
+    reuse?: SplitReuseInfo | null
+    confidence: SplitConfidence
+    fallback?: SplitFallback | null
+  }): boolean {
+    return !data.reuse && data.confidence === 'ok' && data.fallback !== 'even_split'
+  }
+
   function applyStart(data: SplitStartResponse) {
     setStartResult(data)
     setSplitId(data.split_id)
     setGroups(toGroups(data.chunks))
-    setStep('analyze')
     setReusePrompt(Boolean(data.reuse))
+    setStep(shouldAutoAdvance(data) ? 'chunks' : 'analyze')
   }
 
   // 진입 시 원본이 이미 있으면(too_large [분할 반입]) 곧바로 분할 시작을 시도한다 — 재마운트당
@@ -135,18 +154,26 @@ export default function SplitImportWizard({
   })
 
   // 원격 상태 반영 — (a) 딥링크·재사용 선택 등으로 splitId만 있고 groups가 아직 없을 때 초기
-  // 채움, (b) 정밀 분석 완료(done) 시 갱신본으로 대체 후 확인 단계로(§4.25 — "chunks가 갱신본으로
-  // 대체, 휴리스틱안은 이력 보존"은 서버 쪽 이력 얘기이고 화면은 항상 최신만 반영한다).
+  // 채움, (b) 정밀 분석 완료('analyzed') 시 갱신본으로 **무조건** 대체 후 확인 단계로(§4.25 —
+  // "chunks가 갱신본으로 대체" — stage-reviewer 재수정([중요-1] ②)으로 `groups.length===0`
+  // 가드를 완료 분기에서 제거했다: 이미 휴리스틱 groups가 채워진 상태에서 분석이 끝나도 유료
+  // 갱신본을 버리지 않는다), (c) confidence:'ok'·비폴백이면 카드 없이 자동으로 다음 단계로.
   useEffect(() => {
     if (step !== 'analyze' || !statusQuery.data) return
+    const data = statusQuery.data
     if (groups.length === 0) {
-      setGroups(toGroups(statusQuery.data.chunks))
+      setGroups(toGroups(data.chunks))
     }
-    if (statusQuery.data.status === 'done') {
-      setGroups(toGroups(statusQuery.data.chunks))
+    if (data.status === 'analyzed') {
+      setGroups(toGroups(data.chunks))
+      setStep('chunks')
+      return
+    }
+    if (data.status === 'ready' && !reusePrompt && shouldAutoAdvance(data)) {
       setStep('chunks')
     }
-  }, [step, statusQuery.data, groups.length])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, statusQuery.data, groups.length, reusePrompt])
 
   function handleManualSubmit() {
     if (manualFile) {
@@ -160,6 +187,9 @@ export default function SplitImportWizard({
     if (!startResult?.reuse) return
     setSplitId(startResult.reuse.split_id)
     setReusePrompt(false)
+    // 재사용 대상은 다른 split이다 — 방금 만든 split의 POST 응답을 정보원으로 계속 쓰면
+    // 엉뚱한 confidence·estimate가 보인다(아래 `info` 파생값이 GET 결과로 넘어가게 비운다).
+    setStartResult(null)
     setGroups([]) // 재사용 split의 GET 상태로 다시 채운다(비용 0 — 새로 분석하지 않는다).
   }
 
@@ -252,10 +282,21 @@ export default function SplitImportWizard({
   }))
 
   const analyzeUnavailable = step === 'analyze' ? jobUnavailable(statusQuery) : null
-  const analyzeRunning = statusQuery.data?.status === 'running'
+  // stage-reviewer 재수정(2026-08-04, [중요-1]) — 백엔드 확정값은 'analyzing'/'analyzed'다
+  // (ConvertJobStatus의 'running'/'done'이 아니다).
+  const analyzeRunning = statusQuery.data?.status === 'analyzing'
   const analyzeFailed = statusQuery.data?.status === 'error'
   const analyzeCancelled = statusQuery.data?.status === 'cancelled'
   const awaitingRemote = step === 'analyze' && groups.length === 0 && !reusePrompt
+
+  // [경미-1] 재수정 — GET도 split_id·source_chars·confidence·analyze_estimate·reuse·fallback을
+  // 함께 내려주므로, 딥링크·재사용 복원 세션(startResult가 없는 세션)에서도 이 값들로 정밀 분석
+  // 제안(견적 확인 포함)을 구성한다. 신선한 POST 응답이 있으면 그걸 우선한다(같은 splitId를
+  // 가리키는 한 더 먼저 확보한 값이라 화면 깜빡임이 없다).
+  const info = startResult ?? statusQuery.data ?? null
+  // [경미-3] 재수정 — confidence:'ok'이고 균등 분할 폴백이 아니면 카드를 아예 보여주지 않는다
+  // (§5.15 계약). uncertain이거나 fallback:'even_split'일 때만 정밀 분석을 제안한다.
+  const showAnalyzeSuggestion = info != null && (info.confidence === 'uncertain' || info.fallback === 'even_split')
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
@@ -349,16 +390,23 @@ export default function SplitImportWizard({
             </div>
           )}
 
-          {!reusePrompt && startResult && (
+          {!reusePrompt && info && (
             <div className="rounded border border-border bg-bg p-3 text-sm">
               <p className="text-primary">
-                원본 {startResult.source_chars.toLocaleString()}자 · 조각 {startResult.chunks.length}개(휴리스틱)
+                원본 {info.source_chars.toLocaleString()}자 · 조각 {groups.length}개(휴리스틱)
               </p>
-              <p className="mt-1 text-xs text-muted">
-                {startResult.confidence === 'ok'
-                  ? '경계가 뚜렷해 정밀 분석 없이 진행할 수 있습니다.'
-                  : '경계가 불확실합니다 — 정밀 분석을 권장합니다(강제는 아닙니다).'}
-              </p>
+              {info.fallback === 'even_split' && (
+                <p className="mt-1 text-xs text-warning">
+                  구조를 찾지 못해 임시로 균등 분할했습니다 — 정밀 분석을 권장합니다.
+                </p>
+              )}
+              {info.fallback !== 'even_split' && (
+                <p className="mt-1 text-xs text-muted">
+                  {info.confidence === 'ok'
+                    ? '경계가 뚜렷해 정밀 분석 없이 진행할 수 있습니다.'
+                    : '경계가 불확실합니다 — 정밀 분석을 권장합니다(강제는 아닙니다).'}
+                </p>
+              )}
             </div>
           )}
 
@@ -378,18 +426,18 @@ export default function SplitImportWizard({
 
           {analyzeCancelled && <p className="text-sm text-muted">정밀 분석이 취소되었습니다.</p>}
 
-          {/* 견적(analyze_estimate)은 POST /import/split 응답에만 동봉된다(§4.25 ⓐ) — 재사용·
-              딥링크 복원으로 startResult가 없는 세션에서는 새 정밀 분석을 시작할 견적이 없으므로
-              시작 버튼을 아예 보여주지 않는다(확인 없는 LLM 호출 금지, F35). 이 경우에도 휴리스틱
-              분할안으로 진행하는 경로는 항상 남겨 둔다. */}
+          {/* [경미-3] confidence:'ok'(비폴백)면 카드 자체를 보여주지 않는다 — §5.15 계약, 카드
+              없이 다음 스텝으로 넘어가는 흐름은 위 이펙트(shouldAutoAdvance)가 자동 처리한다.
+              [경미-1] 견적(analyze_estimate)은 이제 GET 응답에도 동봉되므로(딥링크·재사용 복원
+              세션 포함) `info`(POST 우선, 없으면 GET)만 있으면 제안 카드를 구성할 수 있다. */}
           {!reusePrompt && !analyzeRunning && !analyzeMutation.isPending && !analyzeFailed && !analyzeCancelled && (
             <div className="flex flex-col gap-3">
-              {startResult && (
+              {showAnalyzeSuggestion && info && (
                 <div className="flex flex-col gap-3 rounded border border-border bg-bg p-3">
                   <LlmLimitBanner />
                   <p className="text-xs text-muted">
-                    예상 입력 토큰 약 {startResult.analyze_estimate.approx_input_tokens.toLocaleString()}
-                    {startResult.analyze_estimate.assumed && ' (가정치)'}
+                    예상 입력 토큰 약 {info.analyze_estimate.approx_input_tokens.toLocaleString()}
+                    {info.analyze_estimate.assumed && ' (가정치)'}
                   </p>
                   <div>
                     <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>

@@ -48,14 +48,16 @@ export function useSplitAnalyze() {
 
 export const splitStatusKey = (splitId: string) => ['import', 'split', splitId] as const
 
-// retry:false — 분할 레코드는 인메모리 TTL 1시간 + 디스크 복구(§4.25 ㉲) 관례. running(정밀
-// 분석 진행 중)에만 짧은 간격으로 재조회한다(convert 잡 폴링 전례, api/convert.ts).
+// retry:false — 분할 레코드는 인메모리 TTL 1시간 + 디스크 복구(§4.25 ㉲) 관례. 'analyzing'
+// (정밀 분석 진행 중)에만 짧은 간격으로 재조회한다(convert 잡 폴링 전례, api/convert.ts).
+// stage-reviewer 재수정(2026-08-04, [중요-1]) — 'running'이 아니라 'analyzing'이 백엔드
+// 확정값이라 이 조건이 맞지 않으면 폴링이 아예 켜지지 않는다(실측 파손 1번).
 export function useSplitStatus(splitId: string | null, enabled = true) {
   return useQuery({
     queryKey: splitStatusKey(splitId ?? ''),
     queryFn: () => api.get<SplitStatusResponse>(`/import/split/${splitId}`),
     enabled: splitId != null && enabled,
-    refetchInterval: (query) => (query.state.data?.status === 'running' ? POLL_INTERVAL_MS : false),
+    refetchInterval: (query) => (query.state.data?.status === 'analyzing' ? POLL_INTERVAL_MS : false),
     retry: false,
   })
 }

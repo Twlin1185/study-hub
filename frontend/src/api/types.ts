@@ -1555,6 +1555,11 @@ export interface SplitEstimate {
 // 사용자가 여전히 건너뛸 수 있다 — 강제 아님, §4.25 플로우 1단계).
 export type SplitConfidence = 'ok' | 'uncertain'
 
+// stage-reviewer 재수정(2026-08-04, [경미-3]) — 휴리스틱이 경계를 전혀 찾지 못해 임시 균등
+// 분할로 폴백했음을 알리는 값. 'even_split'이면 confidence와 무관하게 정밀 분석을 권장한다
+// (§5.15 계약 — confidence:'ok'라도 fallback:'even_split'이면 카드를 보여준다).
+export type SplitFallback = 'even_split'
+
 // head = 발췌(추출 텍스트의 앞부분 200자 수준 부분 문자열) — LLM 산출 원문·정답 무관(§4.25 ⓐ).
 export interface SplitChunk {
   chunk_id: string
@@ -1582,6 +1587,7 @@ export interface SplitStartResponse {
   chunks: SplitChunk[]
   analyze_estimate: SplitEstimate
   reuse?: SplitReuseInfo | null
+  fallback?: SplitFallback | null
 }
 
 // POST /api/import/split/{split_id}/analyze body — model?(S22 관례) 규칙은
@@ -1595,19 +1601,26 @@ export interface SplitAnalyzeResponse {
   job_id: string
 }
 
-// GET /api/import/split/{split_id} 상태 — 'ready'(가정 추가, 명세 원문에 값 나열 없음 — 최종
-// 보고 참고): 정밀 분석을 아직 시작하지 않은 휴리스틱 전용 상태. 나머지는 split_analyze 잡의
-// ConvertJobStatus 재사용(running·done·error·cancelled, §4.24 ② 'cancelled' 관례 포함).
-// analyze_estimate·confidence·source_chars는 이 응답에 없다(POST 응답에만 동봉 — §4.25 ⓐ) —
-// 재진입·재사용 경로에서 정밀 분석을 새로 시작하려면 새 견적이 필요하므로, 프론트는 이 상태만
-// 가진 세션에서는 정밀 분석 시작 버튼을 노출하지 않는다(견적 없는 LLM 호출 금지, F35).
-export type SplitStatus = ConvertJobStatus | 'ready'
+// GET /api/import/split/{split_id} 상태 — stage-reviewer 재수정(2026-08-04, [중요-1]) 백엔드
+// 확정값으로 교체: 'ready'(정밀 분석 미시작) · 'analyzing'(진행 중) · 'analyzed'(완료 — chunks가
+// 갱신본으로 대체) · 'error' · 'cancelled'(§4.24 ② 관례). ConvertJobStatus(running/done)를
+// 재사용하지 않는다(값 자체가 다르다).
+export type SplitStatus = 'ready' | 'analyzing' | 'analyzed' | 'error' | 'cancelled'
 
+// [경미-1] 재수정 — GET도 split_id·source_chars·confidence·analyze_estimate·reuse·fallback을
+// 함께 내려준다(정렬 ④ 반영분). 재진입·재사용 복원 세션에서도 이 응답만으로 정밀 분석 제안
+// (견적 확인 스텝 포함)을 다시 구성할 수 있다 — POST 응답에만 의존하지 않는다.
 export interface SplitStatusResponse {
+  split_id: string
+  source_chars: number
+  confidence: SplitConfidence
   status: SplitStatus
   progress?: JobProgress | null
   error_info?: LlmErrorInfo | null
   chunks: SplitChunk[]
+  analyze_estimate: SplitEstimate
+  reuse?: SplitReuseInfo | null
+  fallback?: SplitFallback | null
 }
 
 // POST /api/import/split/{split_id}/enqueue — selections 그룹 = 조각 1개 또는 인접 연속
