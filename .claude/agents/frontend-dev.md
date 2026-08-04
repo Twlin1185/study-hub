@@ -19,6 +19,12 @@ tools: Read, Write, Edit, Glob, Grep, Bash, PowerShell
 4. 낙관적 업데이트는 북마크·진도 완료에만. 나머지는 mutation 후 invalidate.
 5. 인쇄 뷰는 테마 무시하고 항상 라이트 렌더.
 
+## 토큰 규약
+- 설계·계획 문서는 전달받은 발췌·라인 구간만 읽는다 (전체 읽기 금지).
+- **`frontend/dist`는 빌드 산출물** — 읽기·grep·수정 금지. 소스는 `frontend/src`만.
+- `npm run build`는 성공/실패와 에러 줄만 확인 — 전체 빌드 로그를 컨텍스트에 올리지 않는다.
+- 색상 하드코딩 자가 점검은 grep 대신 `powershell -ExecutionPolicy Bypass -File scripts/invariant-scan.ps1` 실행 결과로 갈음한다.
+
 ## 작업 방식
 - 페이지는 `pages/`, 재사용 컴포넌트는 `components/`, API 훅은 `api/`에 리소스별로.
 - 구현 후 `npm run build`가 타입 에러 없이 통과해야 완료. dev 서버로 주요 흐름 스모크 확인.

@@ -13,17 +13,22 @@ tools: Read, Glob, Grep, Bash, PowerShell
 **토큰 규약**: `frontend/dist`(빌드 산출물)는 읽기·grep·diff 대상에서 제외한다 — 프론트 검증은
 `frontend/src`와 빌드 성공 여부로만. diff가 필요하면 `git diff -- . ':!frontend/dist'`.
 설계 문서는 전체를 읽지 말고 Grep으로 해당 §·[S<n>] 섹션을 찾아 그 구간만 Read한다.
+테스트는 `powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1`(요약만 출력 · 실패분만 `-Path`로 좁혀 재실행),
+빌드는 성공/실패와 에러 줄만 확인한다.
+**불변 규칙 스캔은 직접 grep하지 말 것** — 아래 3번 참조.
 
 ## 검토 절차
 1. 대상 stage 계획 문서의 **DoD 항목을 하나씩** 실제로 검증한다 — 코드 존재 확인이 아니라
    가능한 한 실행 확인(API 호출, 빌드, 테스트 실행). 검증 불가 항목은 "미검증"으로 명시.
 2. 설계-구현 갭: `study-app.design.api.md` §4(해당 단계 태그 API)·`study-app.design.screens.md` §5(화면)와 코드를 대조 — 명세와 다른 응답 형태, 누락 엔드포인트, 임의 추가분.
-3. 불변 규칙 위반 스캔 (전 단계 공통):
-   - quiz/session 응답에 정답·해설 포함 여부 (치명)
-   - attempts 트랜잭션 분리 여부 (치명)
-   - 색상 하드코딩 (`#`, `rgb(` 등 tokens.css 밖 사용 — grep)
-   - 물리 삭제 쿼리, sources/ 파일 수정 코드
-   - 에러 포맷·페이지네이션 규약 이탈
+3. 불변 규칙 위반 스캔 (전 단계 공통) — **스크립트 1회 실행으로 갈음한다**:
+   `powershell -ExecutionPolicy Bypass -File scripts/invariant-scan.ps1`
+   - 규칙 1(정답·해설 노출)·2(attempts 단일 트랜잭션)·3(물리 삭제)·4(sources/ 불변)·5(색상 하드코딩)을
+     기준선 대비로 검사한다. **PASS면 이 항목은 통과로 보고하고 넘어간다** — 개별 grep 재확인 금지.
+   - FAIL이면 출력된 `파일 : 기존→현재` 지점만 Read해 실제 위반인지 판정한다.
+     위반이 아니라 정당한 신규 사용이면(예: 새 연결 테이블 해제) 사유를 보고에 남기고,
+     사용자 승인 후 `-UpdateBaseline`으로 기준선을 갱신한다.
+   - 스크립트가 못 잡는 항목만 사람이 본다: 에러 포맷·페이지네이션 규약 이탈(설계 §3 대조).
 4. stage 체크리스트 `[x]` 표시와 실제 구현의 불일치.
 
 ## 보고 형식
