@@ -180,30 +180,63 @@ def _reextract_text(state: dict) -> str:
 # 휴리스틱 경계 스캔(무비용·동기 — LLM 0)
 #
 # 패턴(구현 실측 — 완료 기록에 기입): ① 마크다운 헤딩(#/##/###) ② 회차 헤더("제N회"·
-# "YYYY년 N회") ③ 과목 헤더("N과목"·"제N과목"·"과목:") ④ 문항 번호 리셋("1." 또는 "1)"
-# 재등장 — 약한 신호, ①②③이 하나도 없으면 confidence='uncertain').
+# "YYYY년 N회") ③ 과목 헤더("N과목"·"제N과목"·"과목:") ④ 문항 번호 진짜 리셋(약한 신호,
+# ①②③이 하나도 없으면 confidence='uncertain'). ④의 정밀 판정(오케스트레이터 스모크 결함
+# 수정, 2026-08-04 — 재현: 문항 60개×보기 줄 "  1) 보기1 2) 보기2 3) 보기3 4) 보기4" 314,389자
+# 표본이 회차 헤딩 5개 대신 조각 310개로 쪼개짐, 원인 = 들여쓴 보기 줄의 "1)"이 리셋으로
+# 오탐):
+#   (a) 행두(들여쓰기 0)에서 시작하는 "N. "만 인정(`N)` 보기 마커 형식은 제외 — 보기 줄은
+#       들여쓰기(2칸)까지 있어 이중으로 걸러진다.
+#   (b) 직전에 기록된 문항 번호(prev_number)가 1보다 크고, 이번 번호가 정확히 1일 때만
+#       "진짜 리셋"으로 인정한다(단순 재등장이 아니라 하강 후 복귀).
+#   (c) 강한 신호(헤딩·회차/과목 헤더)를 지나면 prev_number를 리셋한다 — 헤딩 바로 다음
+#       줄의 "1. ..."이 헤딩과 거의 같은 위치에 또 하나의 경계 후보(미세 조각)를 만드는
+#       것을 막는다(강한 신호 우선).
 # ---------------------------------------------------------------------------
 _HEADING_RE = re.compile(r"^#{1,3}\s+\S")
 _EXAM_ROUND_RE = re.compile(r"(제\s*\d+\s*회|\d{4}\s*년\s*\d+\s*회)")
 _SUBJECT_HEADER_RE = re.compile(r"^(?:\[?\d+\s*과목\]?|제\s*\d+\s*과목|과목\s*[:：])")
-_QUESTION_ONE_RE = re.compile(r"^\s*1\s*[.)]\s*\S")
+# 행두(들여쓰기 없음)·"N. " 형식만 — "N)"(보기 마커)·들여쓰기된 줄은 애초에 매치되지 않는다.
+_MAJOR_NUMBER_RE = re.compile(r"^(\d+)\.\s+\S")
+
+# 근접한 약한 신호(문항 번호 리셋)를 직전에 채택된 경계로 흡수해 목표 조각 크기(3~6만 자)에
+# 수렴시킨다(코디네이터 지시 ② — "진짜 구조가 40+일 때만" 40개 상한 422가 나오게 하는
+# 후처리). 헤딩 직후의 리셋은 (c)로 이미 걸러지지만, 헤딩이 없는 회차 전환처럼 강한 신호
+# 없이 짧은 간격으로 리셋이 몰리는 경우에도 이 반경 안이면 노이즈로 간주해 병합한다.
+_WEAK_MERGE_RADIUS_CHARS = 5_000
 
 
 def _scan_heuristic_boundaries(text: str) -> Tuple[List[Tuple[int, str]], str]:
     """returns (candidates=[(offset, label)], confidence)."""
-    candidates: List[Tuple[int, str]] = []
+    raw: List[Tuple[int, str, bool]] = []  # (offset, label, is_strong)
     strong_hits = 0
     offset = 0
+    prev_number: Optional[int] = None
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
         if stripped:
             label = stripped[:60]
             if _HEADING_RE.match(stripped) or _EXAM_ROUND_RE.search(stripped) or _SUBJECT_HEADER_RE.match(stripped):
-                candidates.append((offset, label))
+                raw.append((offset, label, True))
                 strong_hits += 1
-            elif _QUESTION_ONE_RE.match(line):
-                candidates.append((offset, label))
+                prev_number = None  # (c) 강한 신호를 지나면 번호 추적을 리셋 — 헤딩 직후 재등장 흡수
+            else:
+                match = _MAJOR_NUMBER_RE.match(line)
+                if match:
+                    number = int(match.group(1))
+                    if prev_number is not None and prev_number > 1 and number == 1:
+                        raw.append((offset, label, False))  # (b) 진짜 리셋만
+                    prev_number = number
         offset += len(line)
+
+    # 근접한 약한 후보를 직전에 채택된 후보로 흡수(위 상수 설명 — 강한 후보는 항상 채택).
+    candidates: List[Tuple[int, str]] = []
+    last_kept_offset: Optional[int] = None
+    for cand_offset, label, is_strong in raw:
+        if is_strong or last_kept_offset is None or (cand_offset - last_kept_offset) >= _WEAK_MERGE_RADIUS_CHARS:
+            candidates.append((cand_offset, label))
+            last_kept_offset = cand_offset
+
     confidence = "ok" if strong_hits > 0 else "uncertain"
     return candidates, confidence
 

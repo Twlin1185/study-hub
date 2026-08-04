@@ -81,11 +81,14 @@ def test_scan_heuristic_boundaries_detects_subject_headers_as_strong_ok_confiden
     assert any("2과목" in label for label in labels)
 
 
-def test_scan_heuristic_boundaries_weak_question_reset_only_is_uncertain():
-    text = "1. 문제입니다\n" + ("가" * 20) + "\n1) 다시 시작(리스트 아님)\n" + ("나" * 20)
+def test_scan_heuristic_boundaries_true_number_reset_without_heading_is_weak_uncertain():
+    """강한 신호 없이 문항 번호가 5 → 1로 "진짜" 리셋되는 경우만 약한 후보로 잡는다."""
+    section1 = "\n".join(f"{i}. 문항 {i} 지문 " + ("가" * 200) for i in range(1, 6))
+    section2 = "\n".join(f"{i}. 문항 {i} 지문 " + ("나" * 200) for i in range(1, 6))
+    text = section1 + "\n" + section2
     candidates, confidence = split_service._scan_heuristic_boundaries(text)
     assert confidence == "uncertain"
-    assert len(candidates) >= 1
+    assert len(candidates) == 1  # section1→section2 전환의 리셋 지점 1개만
 
 
 def test_scan_heuristic_boundaries_no_signal_is_uncertain_with_zero_candidates():
@@ -93,6 +96,53 @@ def test_scan_heuristic_boundaries_no_signal_is_uncertain_with_zero_candidates()
     candidates, confidence = split_service._scan_heuristic_boundaries(text)
     assert confidence == "uncertain"
     assert candidates == []
+
+
+def test_scan_heuristic_boundaries_ignores_indented_choice_markers_and_paren_format():
+    """오케스트레이터 스모크 결함 회귀 고정(2026-08-04) — 재현: 회차 5개×문항 60개, 각 문항이
+    "N. 지문…" 줄 + 들여쓴 "  1) 보기1  2) 보기2  3) 보기3  4) 보기4" 보기 줄로 구성된
+    314,389자 표본이 회차 헤딩 5개 대신 조각 310개(회차 5 + 보기 줄 300개 오탐)로 쪼개지던
+    결함. 보기 줄의 "1)"은 (a) 괄호 형식(마침표 아님) (b) 들여쓰기 2곳 모두에서 제외되어야
+    한다."""
+
+    def section(round_label: str, count: int) -> str:
+        lines = [f"# {round_label} 기출문제"]
+        for i in range(1, count + 1):
+            lines.append(f"{i}. 문제 {i}번의 지문입니다. " + ("내용 텍스트 채움. " * 90))
+            lines.append("  1) 보기1  2) 보기2  3) 보기3  4) 보기4")
+        return "\n".join(lines)
+
+    text = "\n\n".join(
+        section(f"{2020 + i}년 {i + 1}회", 60) for i in range(5)
+    )
+    assert len(text) > split_service.CHUNK_MAX_CHARS  # 실사례와 같은 규모(20만 자 초과) 재현
+    candidates, confidence = split_service._scan_heuristic_boundaries(text)
+    assert confidence == "ok"
+    assert len(candidates) == 5
+    assert all("기출문제" in label for _, label in candidates)
+
+
+def test_start_split_sample_five_rounds_sixty_questions_yields_five_chunks():
+    """위 표본을 실제 `start_split` 파이프라인 전체(무결성 검증·상한 3종 포함)로 완주해도
+    조각 5개·confidence ok로 끝나는지 확인(422 회귀 재발 방지)."""
+
+    def section(round_label: str, count: int) -> str:
+        lines = [f"# {round_label} 기출문제"]
+        for i in range(1, count + 1):
+            lines.append(f"{i}. 문제 {i}번의 지문입니다. " + ("내용 텍스트 채움. " * 90))
+            lines.append("  1) 보기1  2) 보기2  3) 보기3  4) 보기4")
+        return "\n".join(lines)
+
+    text = "\n\n".join(section(f"{2020 + i}년 {i + 1}회", 60) for i in range(5))
+    result = split_service.start_split(
+        upload_filename="big-sample.txt", upload_bytes=text.encode("utf-8")
+    )
+    assert result["confidence"] == "ok"
+    assert len(result["chunks"]) == 5
+    for chunk in result["chunks"]:
+        assert "기출문제" in chunk["label"]
+        # 목표 3~6만 자 지시값에 정확히 부합(강제 상한 재분할이 필요 없는 크기).
+        assert 30_000 <= chunk["chars"] <= 100_000
 
 
 # ---------------------------------------------------------------------------

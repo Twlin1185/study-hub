@@ -125,3 +125,11 @@
   - **테스트**: 신규 `tests/test_split_import.py` 23건(9항목 전건) + `test_job_center.py`·`test_engine_controls.py`·`test_doc_format_detect.py` 갱신. 전체 스위트 481 → **504건 통과**(pytest, 무LLM).
   - **스모크 사고 1건(자기 시정)**: 실 uvicorn 기동 후 HTTP로 분할 시작→GET→enqueue를 확인하던 중, enqueue가 등록한 convert 잡 큐를 사전에 일시정지(`POST /api/llm/queue/pause`)하지 않아 백그라운드 워커가 즉시 집어 claude-cli를 짧게 실행했다(투입 후 수 초 내 발견해 `POST /api/llm/jobs/{id}/cancel`로 즉시 취소 — 사용량 usage: input_tokens=2, output_tokens=67, 커밋된 문서·미리보기 없음). 원인은 스모크 절차 실수(단위 테스트는 전부 `pause_queue()`로 격리돼 있어 문제 없음) — 재발 방지로 이 문서·보고에 기록한다. 생성됐던 임시 산출물(`sources/`·`import/split/`의 스모크 파일)은 확인 후 삭제해 원상 복구했다.
   - **계약과 어긋나 보류한 것**: 없음(DDL·Alembic·settings 키 0 유지 확인, 신규 엔드포인트 정확히 4개).
+
+- **2026-08-04 백엔드 결함 수정(오케스트레이터 스모크 적발) — 휴리스틱 문항 번호 리셋 오탐**:
+  - **재현**: 회차 5개×문항 60개(회차 헤딩 + `N. 지문…` + 들여쓴 `  1) 보기1  2) 보기2  3) 보기3  4) 보기4` 보기 줄) 314,389자 표본을 `POST /api/import/split`에 투입하면 `422 조각 수가 상한(40개)을 초과했습니다(현재 310개)`.
+  - **원인(실측 확인)**: 옛 패턴 `^\s*1\s*[.)]\s*\S`가 들여쓰기(2칸)·괄호 형식(`1)`) 둘 다 허용해, 문항마다 있는 보기 줄의 `1)`을 "문항 번호 리셋"으로 오탐(회차 5 + 보기 줄 300개 = 후보 305~310개).
+  - **수정**(`services/split_service.py`): ① 행두(들여쓰기 0)·`N. `(마침표만, `N)` 제외) 형식만 인정하는 `_MAJOR_NUMBER_RE`로 교체 ② 직전에 기록한 문항 번호(`prev_number`)가 1보다 크고 이번 번호가 정확히 1일 때만 "진짜 리셋"으로 인정(단순 재등장 금지) ③ 강한 신호(헤딩·회차/과목 헤더)를 지나면 `prev_number`를 리셋해, 헤딩 바로 다음 줄의 "1. …"이 헤딩과 거의 같은 위치에 별도 미세 조각을 만드는 것을 차단(강한 신호 우선) ④ 그래도 남을 수 있는 근접 약한 후보를 위한 일반 후처리로 `_WEAK_MERGE_RADIUS_CHARS`(5,000자) 반경 안의 약한 후보를 직전 채택 후보에 흡수하는 병합 단계 추가(강한 후보는 항상 채택 — "진짜 구조가 40+일 때만" 422가 나오도록).
+  - **재실행 결과(실제 표본 파일 `big-sample.txt`, 314,389자)**: confidence=`ok`, **조각 5개**(각 62,878~62,999자 — 목표 3~6만 자에 부합), 라벨 = 각 회차 헤딩(`# 2021년 1회 기출문제` … `# 2025년 5회 기출문제`) 그대로. `start_split` 전체 파이프라인으로도 동일 확인.
+  - **회귀 테스트 추가**(`tests/test_split_import.py`): `test_scan_heuristic_boundaries_ignores_indented_choice_markers_and_paren_format`(위 표본 구조 재현, 후보 정확히 5개) · `test_start_split_sample_five_rounds_sixty_questions_yields_five_chunks`(전체 파이프라인, 조각 5개·각 3만~10만 자) · `test_scan_heuristic_boundaries_true_number_reset_without_heading_is_weak_uncertain`(강한 신호 없는 "진짜" 리셋은 여전히 잡히는지 확인 — 과교정 방지). 기존 `test_scan_heuristic_boundaries_weak_question_reset_only_is_uncertain`은 `N)` 패턴을 쓰고 있어 새 계약에 맞게 이름·내용을 교체.
+  - **pytest**: 신규 2건 추가로 `test_split_import.py` 23→25건, 전체 스위트 **504 → 506건 통과**(무LLM 유지).
