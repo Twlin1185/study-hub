@@ -27,7 +27,9 @@ export const MAX_QUEUE_BATCH = 10
 
 // S22(설계 §4.24 ②, F48): 'cancelled' 추가 — 작업 센터와 같은 cancel API로 "처리 중 1건"을
 // 취소한 결과(S13 한계 해소, §5.9 개정). 오류가 아닌 중립 종료 상태.
-export type QueueItemStatus = 'queued' | 'running' | 'ready' | 'committed' | 'error' | 'cancelled'
+// 'split_in_progress'(사용자 실사용 피드백 반영, §4.25) — too_large 실패 항목이 [분할 반입]으로
+// 분할을 시작(split_id 확보)한 뒤 아직 enqueue하지 않은 상태. 오류가 아닌 중립 상태(진행 앵커).
+export type QueueItemStatus = 'queued' | 'running' | 'ready' | 'committed' | 'error' | 'cancelled' | 'split_in_progress'
 
 export interface QueueItem {
   entry: StoredQueueEntry
@@ -137,6 +139,11 @@ export function useConvertQueue() {
       // preview_id를 확보한 뒤에는 잡이 사라져도(404) 검토를 계속할 수 있다 — 서버가 보존본에서
       // 미리보기를 복구한다(F40-①, §4.3). 그래서 'ready' 판정이 오류 판정보다 우선한다.
       else if (previewId) status = 'ready'
+      // split_id가 심어졌다는 것은 사용자가 이 too_large 실패 항목에서 [분할 반입]을 눌러 분할이
+      // 이미 시작됐다는 뜻이다(사용자 실사용 피드백 반영) — 여전히 startError는 남아 있지만
+      // (원래 convert 잡은 실패한 채) 오류가 아닌 "분할 진행 중" 중립 상태로 덮어쓴다. enqueue가
+      // 끝나면 이 항목 자체가 큐에서 제거되므로(addJobs) 이 분기에 계속 머무르지 않는다.
+      else if (entry.splitId) status = 'split_in_progress'
       else if (entry.startError) status = 'error'
       else if (lost) status = 'error'
       // 취소됨(S22, §4.24 ②) — 오류가 아닌 중립 종료 상태. [취소]는 처리 중 1건에만 노출하므로
@@ -329,8 +336,14 @@ export function useConvertQueue() {
   // 큐에 편입한다. startFiles/startUrl과 달리 POST /api/convert를 다시 부르지 않는다(중복
   // 시작 금지 — 잡은 서버가 이미 만들었다). "신규 진행 UI 없음"(체크리스트) — 이 큐·기존
   // ImportQueueList가 그대로 폴링·표시를 이어받는다.
+  // splitId(사용자 실사용 피드백 반영 — stage-reviewer 표적 확인 [관찰 (a)] 재수정) — enqueue의
+  // 출발점이 된 split_id를 가진 재진입 앵커 항목을 **전부** 제거한다: 조각들이 새 항목으로 이미
+  // 합류했으니 "분할 진행 중" 앵커를 그대로 두면 같은 원본이 두 번 남아 혼란스럽다(피드백 2건
+  // 반영). 단일 entryId 1개만 지우면, 같은 split을 재사용(hash12 재사용 안내)해 앵커가 두 개
+  // 이상 생긴 엣지에서 나머지 앵커가 남아 같은 조각을 다시 투입할 수 있다 — split_id 기준으로
+  // 매칭되는 항목 전부를 지운다.
   const addJobs = useCallback(
-    (jobs: { job_id: string; label: string }[]) => {
+    (jobs: { job_id: string; label: string }[], splitId?: string | null) => {
       if (jobs.length === 0) return
       const created: StoredQueueEntry[] = jobs.map((j) => ({
         id: newEntryId(),
@@ -342,15 +355,28 @@ export function useConvertQueue() {
         startError: null,
         startErrorInfo: null,
         createdAt: Date.now(),
+        splitId: null,
       }))
       setEntriesState((prev) => {
-        const next = [...prev, ...created]
+        const removedIds = splitId ? prev.filter((e) => e.splitId === splitId).map((e) => e.id) : []
+        for (const id of removedIds) filesRef.current.delete(id)
+        const withoutAnchors = removedIds.length > 0 ? prev.filter((e) => !removedIds.includes(e.id)) : prev
+        const next = [...withoutAnchors, ...created]
         writeQueue(next)
         return next
       })
       qc.invalidateQueries({ queryKey: llmJobsKey })
     },
     [qc],
+  )
+
+  // 재진입 앵커 관리(사용자 실사용 피드백 반영, §4.25) — [분할 반입]으로 분할이 시작되면(POST
+  // /api/import/split 성공) split_id를 심어 항목을 "분할 진행 중"으로 바꾼다. split이 서버에서
+  // 만료(404)된 채 [분할안 열기]를 누르면 null로 되돌려 원래 실패 상태([분할 반입] 재시도
+  // 가능)로 복귀한다.
+  const setEntrySplitId = useCallback(
+    (id: string, splitId: string | null) => updateEntry(id, { splitId }),
+    [updateEntry],
   )
 
   // 분할 위저드가 too_large 항목에서 [분할 반입]으로 넘어갈 때, 이번 세션에 남아 있는 File을
@@ -408,6 +434,7 @@ export function useConvertQueue() {
     startFiles,
     startUrl,
     addJobs,
+    setEntrySplitId,
     getFile,
     retryEntry,
     markCommitted,

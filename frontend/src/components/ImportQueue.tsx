@@ -16,6 +16,8 @@ function errMsg(e: unknown, fallback: string) {
 
 // S22(설계 §4.24 ②, F48) — 'cancelled' 추가(S13 한계 해소 — §5.9 개정: 처리 중 1건도 이제
 // [취소] 가능). 취소됨은 오류가 아닌 중립 상태라 배경·문구 모두 error와 구분한다.
+// 'split_in_progress'(사용자 실사용 피드백 반영, §4.25) — too_large 실패 항목이 [분할 반입]으로
+// 이미 분할을 시작한 상태. 오류가 아닌 중립 진행 상태라 error 배지와 구분한다.
 const STATUS_LABEL: Record<QueueItemStatus, string> = {
   queued: '대기',
   running: '변환 중',
@@ -23,6 +25,7 @@ const STATUS_LABEL: Record<QueueItemStatus, string> = {
   committed: '반입 완료',
   error: '실패',
   cancelled: '취소됨',
+  split_in_progress: '분할 진행 중',
 }
 
 const STATUS_CLASS: Record<QueueItemStatus, string> = {
@@ -32,6 +35,7 @@ const STATUS_CLASS: Record<QueueItemStatus, string> = {
   committed: 'bg-correct text-on-accent',
   error: 'bg-wrong text-on-accent',
   cancelled: 'border border-border text-muted',
+  split_in_progress: 'border border-accent text-accent',
 }
 
 function StatusBadge({ status }: { status: QueueItemStatus }) {
@@ -183,6 +187,21 @@ export default function ImportQueueList({
                 onSplitReupload={onSplitReupload}
                 onSplitImport={() => onSplitImport(item)}
               />
+            )}
+
+            {/* 재진입 앵커(사용자 실사용 피드백 반영, §4.25) — 위저드를 닫거나 다른 화면에
+                갔다 와도(새로고침 포함) 여기서 이어서 연다. */}
+            {item.status === 'split_in_progress' && (
+              <div className="flex flex-col gap-2 rounded border border-accent bg-accent-soft px-3 py-2 text-xs text-primary">
+                <p>분할 반입을 진행하던 원본입니다 — 이어서 조각을 확인하고 투입하세요.</p>
+                <button
+                  type="button"
+                  onClick={() => onSplitImport(item)}
+                  className="w-fit rounded bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90"
+                >
+                  분할안 열기
+                </button>
+              </div>
             )}
 
             {item.status === 'error' && !item.retryable && item.entry.sourceKind === 'file' && (
