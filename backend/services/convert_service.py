@@ -439,11 +439,16 @@ def _doc_parse_failed(filename: str, data: bytes, message: str) -> DocParseFaile
 def _too_large_error(filename: str, data: bytes, exc: "doc_extract.DocTooLargeError") -> TooLargeError:
     """S23(F49) ㉲ — 200,000자 상한 초과(`too_large`)도 원본을 sources/에 저장한 뒤 종료한다
     (unsupported_format·parse_failed와 대칭 — 종전에는 too_large만 저장하지 않던 결함을
-    이 단계에서 바로잡는다). action 앞머리를 "원본은 sources/에 저장했습니다."로 고정하고,
-    분할 반입 대안을 병기한다(§4.18 개정 지점 표 — convert 잡 발생분은 `alternatives`에
-    `'split_import'`도 함께 실린다)."""
+    이 단계에서 바로잡는다). action 앞머리를 "원본은 sources/에 저장했습니다."로 고정한다.
+
+    stage-reviewer 재수정([경미-4], 2026-08-04) — "또는 [분할 반입]을 이용하세요." 문구는
+    **여기서 붙이지 않는다**. 이 예외는 convert(파일·URL 반입)뿐 아니라 fetch·answer_key·
+    F30 재생성 등 [분할 반입] 버튼이 없는 화면에서도 발생하므로, 문구가 항상 붙으면 버튼
+    없는 화면에 안내만 뜨는 불일치가 생긴다. 분할 반입 안내는 `alternatives=['split_import']`
+    와 함께 **convert 잡 한정으로 `_fallback_error_info`가** 붙인다(job_kind를 아는 유일한
+    지점)."""
     import_service.save_source_file(filename, data)
-    action = f"원본은 sources/에 저장했습니다. {exc.action} 또는 [분할 반입]을 이용하세요."
+    action = f"원본은 sources/에 저장했습니다. {exc.action}"
     return TooLargeError(exc.public_message, action=action)
 
 
@@ -1171,13 +1176,20 @@ def _fallback_error_info(exc: Exception, *, job_kind: str = "convert") -> dict:
         # S23(F49 ㉳, §4.25 개정 지점 표): convert 잡(파일·URL 반입) 발생분은 [분할 반입]
         # 버튼을 위해 `alternatives=['split_import']`를 싣는다 — fetch 잡(qnet) 발생분은
         # 기존 값(빈 배열)을 그대로 유지한다(건드리지 않는다).
+        # stage-reviewer 재수정([경미-4], 2026-08-04) — "또는 [분할 반입]을 이용하세요."
+        # 문구도 **여기서만**(convert 한정) 덧붙인다. `_too_large_error`가 무조건 붙이면
+        # 버튼이 없는 fetch·answer_key·F30 재생성 화면에도 안내 문구만 뜨는 불일치가
+        # 생긴다 — job_kind를 아는 이 지점이 유일하게 올바른 부착 지점이다.
         alts = ["split_import"] if job_kind == "convert" else []
+        action = exc.action
+        if job_kind == "convert":
+            action = f"{action} 또는 [분할 반입]을 이용하세요."
         return {
             "kind": "too_large",
             "limit_kind": None,
             "resets_at": None,
             "message": exc.public_message,
-            "action": exc.action,
+            "action": action,
             "fallback_available": False,
             "alternatives": alts,
         }

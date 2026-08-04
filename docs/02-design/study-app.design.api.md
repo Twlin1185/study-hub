@@ -1077,10 +1077,12 @@ backend/services/fetchers/
 
 | 메서드/경로 | 설명 |
 |---|---|
-| `POST /api/import/split` | 분할 시작 — multipart `file` 또는 `{url}`(convert와 동일 수신 게이트 — §4.18 판별·추출·SSRF·MIME 재사용). **동기·LLM 0**: 다운로드→판별→추출→원본 `sources/` 저장→총 상한(㉯) 검증→**휴리스틱 경계 스캔**→분할안 반환. 응답 `{split_id, source_chars, confidence: 'ok'\|'uncertain', chunks: [...], analyze_estimate: {approx_input_tokens, assumed}}`. 20만 자 이하 원본 = 422("분할이 필요 없는 크기입니다 — 일반 반입을 이용하세요") |
-| `POST /api/import/split/{split_id}/analyze` | **LLM 정밀 분석 잡 시작**(kind `'split_analyze'`) — body `{engine?, model?}`(§4.23 ⓒ·§4.24 ⓒ 검증 계약 그대로 — `assert_engine_selectable` 경유·**적용 지점 전수 표에 9번째로 추가**). 확인 스텝 뒤에만 호출(F35 — estimate는 split 응답에 동봉). → `202 {job_id}` |
-| `GET /api/import/split/{split_id}` | 상태·분할안 조회 — `{status, progress?, error_info?, chunks: [{chunk_id, label, start, end, chars, head(앞부분 발췌 200자), estimate: {approx_input_tokens, assumed}}]}`. 정밀 분석 완료 시 chunks가 갱신본으로 대체(휴리스틱안은 보존 이력). LLM 산출 원문·정답 미포함(발췌는 원문 부분 문자열 — 추출 텍스트 수준, preview 아님) |
-| `POST /api/import/split/{split_id}/enqueue` | **선택 조각 투입** — body `{selections: [[chunk_id,…],…], category_paths?: {chunk_id: path}}`. selections의 각 그룹 = 조각 1개 또는 **인접 chunk_id 연속 구간**([합치기] — 비인접·중복·미존재 = 422, 병합 결과가 조각당 상한(㉮) 초과 = 422). 서버가 오프셋 결정론 재절단→조각을 A군 텍스트로 **기존 convert 잡 N개 등록**(ImportQueue 계약 그대로 — `category_path` 전달은 F40-③ 재사용, 조각별 독립 실패). 응답 `{jobs: [{job_id, chunk_ids, label}]}` |
+| `POST /api/import/split` | 분할 시작 — multipart `file` 또는 `{url}`(convert와 동일 수신 게이트 — §4.18 판별·추출·SSRF·MIME 재사용). **동기·LLM 0**: 다운로드→판별→추출→원본 `sources/` 저장→총 상한(㉯) 검증→**휴리스틱 경계 스캔**→분할안 반환. 응답 `{split_id, source_chars, confidence: 'ok'\|'uncertain', chunks: [...], analyze_estimate: {approx_input_tokens, assumed}, reuse: {split_id: string}\|null, fallback: 'even_split'\|null}`. 20만 자 이하 원본 = 422("분할이 필요 없는 크기입니다 — 일반 반입을 이용하세요"). `reuse`는 같은 원본(hash12) 기존 분할 레코드 감지 시 그 `split_id`(㉳ 재사용 안내 — 최소형). `fallback`(구현 확정, 2026-08-04 stage-reviewer 재수정 — 경미-5)은 휴리스틱 후보가 0건이라 균등 분할 폴백을 썼을 때만 `'even_split'`("조용한" 폴백 금지 — 조각 라벨도 `"구조 미탐지 — 임시 균등 i/n"`으로 명시, confidence는 `'uncertain'` 유지) |
+| `POST /api/import/split/{split_id}/analyze` | **LLM 정밀 분석 잡 시작**(kind `'split_analyze'`) — body `{engine?, model?}`(§4.23 ⓒ·§4.24 ⓒ 검증 계약 그대로 — `assert_engine_selectable` 경유·적용 지점 전수 표에 추가†). 확인 스텝 뒤에만 호출(F35 — estimate는 split 응답에 동봉). → `202 {job_id}` |
+| `GET /api/import/split/{split_id}` | 상태·분할안 조회 — `{status: 'ready'\|'analyzing'\|'analyzed'\|'error'\|'cancelled', progress?, error_info?, chunks: [{chunk_id, label, start, end, chars, head(앞부분 발췌 200자), estimate: {approx_input_tokens, assumed}}], analyze_estimate: {approx_input_tokens, assumed}, reuse: {split_id: string}\|null, fallback: 'even_split'\|null}`(구현 확정, 2026-08-04). `status='ready'`는 정밀 분석 미실행·미완료(AppliedExam `'prepared'` 전례) — `'analyzing'/'analyzed'`는 정밀 분석 잡의 진행·완료, `'error'/'cancelled'`는 그 잡의 실패·취소. `analyze_estimate`는 POST뿐 아니라 GET에도 **항상 동봉**(재진입 세션에서도 비용 확인 가능). 정밀 분석 완료 시 chunks가 갱신본으로 대체(휴리스틱안은 보존 이력). LLM 산출 원문·정답 미포함(발췌는 원문 부분 문자열 — 추출 텍스트 수준, preview 아님) |
+| `POST /api/import/split/{split_id}/enqueue` | **선택 조각 투입** — body `{selections: [[chunk_id,…],…], category_paths?: {chunk_id: path}}`. selections의 각 그룹 = 조각 1개 또는 **인접 chunk_id 연속 구간**([합치기] — 비인접·중복·미존재 = 422, 병합 결과가 조각당 상한(㉮) 초과 = 422). `category_paths`의 키는 **병합 그룹 내 최소 start의 chunk_id**(대표 키, 구현 확정 — 단일 조각 그룹은 그 조각 자신). 서버가 오프셋 결정론 재절단→조각을 A군 텍스트로 **기존 convert 잡 N개 등록**(ImportQueue 계약 그대로 — `category_path` 전달은 F40-③ 재사용, 조각별 독립 실패). 응답 `{jobs: [{job_id, chunk_ids, label}]}` |
+
+† **실측 정정(2026-08-04, stage-reviewer 재수정)**: 착수 시점 코드베이스(F48 stage-22 완료분)에 `assert_engine_selectable` 경유 지점이 이미 9곳 존재해(§4.23 ⓒ·§4.24 ⓒ 표의 "8곳" 서술은 그보다 이전 스냅샷) `split_analyze` 추가로 **10곳**이 됐다. 기능 요구(공통 헬퍼 경유)에는 영향 없음.
 
 - **조각 무결성 결정론 검증(투입 전 서버 검증 — LLM 불신)**: 전체 chunks는 `start` 오름차순·중첩 0·합집합 = 원본 전체(경계 누락 시 자동으로 "무라벨 구간" 조각 생성 — 조용한 탈락 금지). 정밀 분석 산출 오프셋은 **휴리스틱 후보 집합 ∪ 발췌 구간 내 위치**만 수용(범위 밖 창작 오프셋 = `invalid_output`). 재절단 결과는 항상 `원문[start:end]`(바이트 수준 일치 — 재작성 검출 불요, 원리상 불가).
 - **정밀 분석 입력 규약**: 원문 전문이 아니라 **경계 후보 오프셋 + 후보 주변 발췌(각 ~200자) + 문서 서두/말미 표본**만 투입(입력이 원본의 수 % 수준 — 98.9만 자급 전문은 컨텍스트 초과로 원리상 불가). 출력 = 순수 JSON(경계 확정 목록·조각 라벨) — 위반 = `invalid_output`(§4.17 ⑤ 규율).
@@ -1091,11 +1093,11 @@ backend/services/fetchers/
 | 개정 대상 | 개정 내용 |
 |---|---|
 | §4.18 원칙 재확인 "서버측 자동 분할 금지(F40-④ 결정 유지)" | **본 절이 개정**(문면 개정 — 실질 3건(부분 잘림 투입 금지·PDF 파일 분할 금지·무승인 자동 반입 금지)은 전부 계승). §4.18 본문 보존 + 예고 병기(관례) |
-| §4.18 ⑤ `too_large` action "과목·회차 단위로 나눠 개별 파일로 반입해 주세요" | action에 분할 반입 안내 병기 + **convert 잡 발생분 `alternatives` = `['split_import']`**(종전 "없음" → 값 1개. fetch 잡 발생분은 기존 유지 — §4.18 ⑥·§4.19 관례) + 원본 sources/ 저장 확정(㉲) |
+| §4.18 ⑤ `too_large` action "과목·회차 단위로 나눠 개별 파일로 반입해 주세요" | **convert 잡(파일·URL 반입) 발생분 한정**으로 action에 "또는 [분할 반입]을 이용하세요." 병기 + `alternatives` = `['split_import']`(종전 "없음" → 값 1개. fetch·answer_key·재생성 등 [분할 반입] 버튼이 없는 경로는 문구·값 둘 다 기존 유지 — 실측 정정, 2026-08-04 stage-reviewer 재수정 경미-4: 문구가 job_kind를 아는 지점(`_fallback_error_info`)에서만 붙는다) + 원본 sources/ 저장 확정(㉲, job_kind 무관 — 모든 경로 공통) |
 | §4.11 `alternatives` 값 목록 | **`'split_import'` 순수 추가**(아는 값만 렌더 전방 호환 — 기존 값·기본값 불변) |
 | §4.11 "서버측 PDF 분할은 하지 않는다"(F40-④ `invalid_output` 서술) | **불변**(F49는 추출 텍스트의 분할 — pdf 경로(claude-cli 파일 전달)는 too_large 판정 자체가 없어 범위 밖) |
-| §4.23 ⓒ·§4.24 ⓒ "잡 시작 8곳 전수"(`assert_engine_selectable`·`model?`) | `POST /api/import/split/{split_id}/analyze`가 **9번째 지점**으로 추가(공통 헬퍼 경유 — 이원화 금지) |
-| §4.24 잡 kind 8종(목록·label·ref·복원 ⓓ 표) | **`'split_analyze'` 추가로 9종** — label·ref(`split_id`)·복원 화면(분할 위저드)·kind→라우트 매핑 상수 값 추가 |
+| §4.23 ⓒ·§4.24 ⓒ "잡 시작 8곳 전수"(`assert_engine_selectable`·`model?`) | `POST /api/import/split/{split_id}/analyze`가 새 지점으로 추가 — 실측 정정: 착수 시점 이미 9곳이라 **10곳**(위 ⓐ 표 각주† 참고, 공통 헬퍼 경유는 불변 — 이원화 금지) |
+| §4.24 잡 kind 8종(목록·label·ref·복원 ⓓ 표) | **`'split_analyze'` 추가** — label·ref(`split_id`)·복원 화면(분할 위저드)·kind→라우트 매핑 상수 값 추가(정확한 종수는 위 각주† 참고) |
 | §4.22 F46 수집 지점(convert·fetch 잡 실패 kind) | `split_analyze` 잡 실패 포함(㉳ — too_large·환경 실패 제외 규칙 동일) |
 
 **DDL 변경 0건·Alembic 0건 — 재확인 근거 (2026-08-04, 결정 전건)**

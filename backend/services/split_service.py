@@ -192,10 +192,24 @@ def _reextract_text(state: dict) -> str:
 #   (c) 강한 신호(헤딩·회차/과목 헤더)를 지나면 prev_number를 리셋한다 — 헤딩 바로 다음
 #       줄의 "1. ..."이 헤딩과 거의 같은 위치에 또 하나의 경계 후보(미세 조각)를 만드는
 #       것을 막는다(강한 신호 우선).
+#
+# stage-reviewer 재수정([중요-2], 2026-08-04) — ②(회차 헤더)가 `.search()`로 줄 전체를
+# 훑어 **본문 줄 어디에든 "2020년 1회" 같은 문구가 있으면** 강한 후보로 오탐했다. 재현:
+# 문항마다 "{i}. 2020년 1회 기출문제 - 문항 {i} 지문 …" 형태로 회차 라벨이 반복 등장하는
+# 229,283자 표본 → 후보 300개(confidence='ok'인 채로) → 422. 등재 계기 cbtbank가 정확히
+# 이 형태(문항마다 회차 라벨 반복)라 이 결함이 더 치명적이었다(정밀 분석으로도 구제 불가 —
+# split 레코드 생성 전 422). 수정: 회차·과목 헤더 판정을 **헤더성 줄로 한정**한다 — 행두
+# 앵커(`_SUBJECT_HEADER_RE`와 대칭, `.search()` → `.match()`) + 줄 길이 상한
+# (`_HEADER_MAX_LINE_CHARS`, 실측 40자 — 실제 헤더 줄("2021년 1회 기출문제" 등)은 20자
+# 안팎, 문항 지문은 항상 훨씬 길다). 마크다운 헤딩(`#`)은 명시적 구조 마커라 길이 상한을
+# 적용하지 않는다. 헤더성 한정만으로 재현 표본이 정상화되어(아래 완료 기록 실측) 40개
+# 상한의 별도 구제 로직은 추가하지 않는다(㉰ 자동 재병합 금지 결정과 충돌 회피 + 과설계
+# 금지).
 # ---------------------------------------------------------------------------
 _HEADING_RE = re.compile(r"^#{1,3}\s+\S")
-_EXAM_ROUND_RE = re.compile(r"(제\s*\d+\s*회|\d{4}\s*년\s*\d+\s*회)")
+_EXAM_ROUND_RE = re.compile(r"^(?:제\s*\d+\s*회|\d{4}\s*년\s*\d+\s*회)")
 _SUBJECT_HEADER_RE = re.compile(r"^(?:\[?\d+\s*과목\]?|제\s*\d+\s*과목|과목\s*[:：])")
+_HEADER_MAX_LINE_CHARS = 40  # 헤더성 줄로 인정하는 최대 길이(문항 지문과 구분 — 실측)
 # 행두(들여쓰기 없음)·"N. " 형식만 — "N)"(보기 마커)·들여쓰기된 줄은 애초에 매치되지 않는다.
 _MAJOR_NUMBER_RE = re.compile(r"^(\d+)\.\s+\S")
 
@@ -204,6 +218,16 @@ _MAJOR_NUMBER_RE = re.compile(r"^(\d+)\.\s+\S")
 # 후처리). 헤딩 직후의 리셋은 (c)로 이미 걸러지지만, 헤딩이 없는 회차 전환처럼 강한 신호
 # 없이 짧은 간격으로 리셋이 몰리는 경우에도 이 반경 안이면 노이즈로 간주해 병합한다.
 _WEAK_MERGE_RADIUS_CHARS = 5_000
+
+
+def _is_header_like_strong_line(stripped: str) -> bool:
+    """행두 앵커 + (마크다운 헤딩이 아니면) 줄 길이 상한 — 회차/과목 헤더가 본문 줄 어디서든
+    걸리는 것을 막는다([중요-2] 재수정)."""
+    if _HEADING_RE.match(stripped):
+        return True
+    if len(stripped) > _HEADER_MAX_LINE_CHARS:
+        return False
+    return bool(_EXAM_ROUND_RE.match(stripped) or _SUBJECT_HEADER_RE.match(stripped))
 
 
 def _scan_heuristic_boundaries(text: str) -> Tuple[List[Tuple[int, str]], str]:
@@ -216,7 +240,7 @@ def _scan_heuristic_boundaries(text: str) -> Tuple[List[Tuple[int, str]], str]:
         stripped = line.strip()
         if stripped:
             label = stripped[:60]
-            if _HEADING_RE.match(stripped) or _EXAM_ROUND_RE.search(stripped) or _SUBJECT_HEADER_RE.match(stripped):
+            if _is_header_like_strong_line(stripped):
                 raw.append((offset, label, True))
                 strong_hits += 1
                 prev_number = None  # (c) 강한 신호를 지나면 번호 추적을 리셋 — 헤딩 직후 재등장 흡수
@@ -317,6 +341,28 @@ def _estimate_for_chars(chars: int) -> dict:
     return {"approx_input_tokens": max(int(chars / 1.5), 1), "assumed": False}
 
 
+_EVEN_SPLIT_LABEL_PREFIX = "구조 미탐지 — 임시 균등"
+
+
+def _even_split_fallback_chunks(total_len: int) -> List[dict]:
+    """휴리스틱 후보가 0건일 때의 폴백([경미-5], 2026-08-04 오케스트레이터 결정) — "조용한"
+    균등 분할이 아니라 명시적 임시 라벨(`"구조 미탐지 — 임시 균등 i/n"`)로 표시한다.
+    조각당 상한(㉮)과 같은 산식으로 자른다(기존 `_normalize_chunks`의 초과분 캡과 동일
+    로직 — 이 경로는 애초에 후보가 없어 그 함수를 거치지 않으므로 여기서 직접 계산한다)."""
+    pieces = max(math.ceil(total_len / CHUNK_MAX_CHARS), 1)
+    piece_len = math.ceil(total_len / pieces)
+    chunks: List[dict] = []
+    cursor = 0
+    for idx in range(pieces):
+        end = total_len if idx == pieces - 1 else min(cursor + piece_len, total_len)
+        chunks.append(
+            {"start": cursor, "end": end, "label": f"{_EVEN_SPLIT_LABEL_PREFIX} {idx + 1}/{pieces}"}
+        )
+        cursor = end
+    _assert_full_coverage(chunks, total_len)
+    return chunks
+
+
 def _attach_ids_heads_estimates(chunks: List[dict], text: str) -> List[dict]:
     out: List[dict] = []
     for i, chunk in enumerate(chunks, start=1):
@@ -402,7 +448,14 @@ def start_split(
         )
 
     candidates, confidence = _scan_heuristic_boundaries(text)
-    chunks = _normalize_chunks(candidates, source_chars)
+    fallback: Optional[str] = None
+    if candidates:
+        chunks = _normalize_chunks(candidates, source_chars)
+    else:
+        # [경미-5] 구조 신호 0건 — 균등 분할로 폴백하되 명시적으로 표시한다(조용한 폴백 금지).
+        # confidence는 이미 'uncertain'(strong_hits=0일 때만 이 분기에 온다).
+        chunks = _even_split_fallback_chunks(source_chars)
+        fallback = "even_split"
     if len(chunks) > MAX_CHUNKS:
         raise ValidationAppError(
             f"조각 수가 상한({MAX_CHUNKS}개)을 초과했습니다(현재 {len(chunks)}개) — "
@@ -433,6 +486,7 @@ def start_split(
         "analyze_job_id": None,
         "analyze_estimate": analyze_estimate,
         "duplicate_of": duplicate_of,
+        "fallback": fallback,  # [경미-5] 'even_split' | None — 프론트 안내용(조용한 폴백 금지)
         **analysis,
     }
     _remember_state(state)
@@ -449,6 +503,7 @@ def _to_start_result(state: dict) -> dict:
         "chunks": state["chunks"],
         "analyze_estimate": state["analyze_estimate"],
         "reuse": {"split_id": state["duplicate_of"]} if state.get("duplicate_of") else None,
+        "fallback": state.get("fallback"),
     }
 
 
@@ -513,6 +568,7 @@ def get_state_response(split_id: str) -> dict:
         "progress": progress,
         "error_info": error_info,
         "reuse": {"split_id": state["duplicate_of"]} if state.get("duplicate_of") else None,
+        "fallback": state.get("fallback"),
     }
 
 
@@ -638,6 +694,9 @@ def apply_analyze_result(split_id: str, payload: Any) -> List[dict]:
     state["chunks"] = chunk_records
     state["status"] = "analyzed"
     state["analyzed_at"] = dt.datetime.now().isoformat()
+    # [경미-5] 정밀 분석이 확정 경계를 냈으므로 폴백 상태는 해소된다(LLM이 실제 구조를
+    # 찾아낸 결과이지 균등 분할이 아니다).
+    state["fallback"] = None
     _remember_state(state)
     _persist_state(state)
     return chunk_records

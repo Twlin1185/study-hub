@@ -10,6 +10,11 @@ TTL 1시간뿐이다. 정밀 분석 잡(kind `'split_analyze'`)의 진행·오�
   3. 같은 원본(hash12) 기존 분할안 재사용 안내 = 최소형 `reuse: {"split_id": "..."}`.
   4. `analyze_estimate`는 POST(분할 시작) 응답뿐 아니라 **GET 상태 응답에도 동봉**한다
      (재진입·재사용 세션에서도 정밀 분석 비용 확인 스텝이 가능해야 한다, F35).
+
+stage-reviewer 재수정([경미-5], 2026-08-04 오케스트레이터 결정) — 휴리스틱 후보 0건일 때의
+균등 분할 폴백을 "조용히" 하지 않는다: 조각 라벨을 `"구조 미탐지 — 임시 균등 i/n"`으로
+명시하고(confidence는 'uncertain' 유지), `fallback: 'even_split'|null` 필드를 POST·GET
+응답 공통으로 싣는다(프론트가 폴백 여부를 안내 UI에 반영 — 프론트 후속 처리는 이 범위 밖).
 """
 from __future__ import annotations
 
@@ -46,6 +51,9 @@ class SplitReuse(BaseModel):
     split_id: str
 
 
+SplitFallback = Literal["even_split"]
+
+
 class SplitStartResult(BaseModel):
     split_id: str
     source_chars: int
@@ -53,6 +61,8 @@ class SplitStartResult(BaseModel):
     chunks: List[SplitChunk]
     analyze_estimate: SplitEstimate
     reuse: Optional[SplitReuse] = None
+    # [경미-5] 휴리스틱 후보 0건 → 균등 분할 폴백 여부(조용한 폴백 금지 — 명시 필드).
+    fallback: Optional[SplitFallback] = None
 
 
 class SplitAnalyzeRequest(BaseModel):
@@ -81,6 +91,7 @@ class SplitStateResponse(BaseModel):
     progress: Optional[JobProgress] = None
     error_info: Optional[ErrorInfo] = None
     reuse: Optional[SplitReuse] = None
+    fallback: Optional[SplitFallback] = None
 
 
 class SplitEnqueueRequest(BaseModel):

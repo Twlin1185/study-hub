@@ -439,7 +439,7 @@ def _register_fake_split_state(split_id: str) -> None:
         }
 
 
-def test_nine_entrypoints_apply_requested_model_via_common_helper(
+def test_ten_entrypoints_apply_requested_model_via_common_helper(
     db, monkeypatch, restore_queue_paused, tmp_path
 ):
     """10개 진입점 전부가 `_resolve_engine_and_model`(→ `assert_engine_selectable`)을 거쳐

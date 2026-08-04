@@ -122,6 +122,41 @@ def test_scan_heuristic_boundaries_ignores_indented_choice_markers_and_paren_for
     assert all("기출문제" in label for _, label in candidates)
 
 
+def test_scan_heuristic_boundaries_ignores_round_label_repeated_inside_body_lines():
+    """stage-reviewer 재수정([중요-2], 2026-08-04) — 등재 계기 cbtbank처럼 **문항마다
+    회차 라벨이 본문 줄 중간에 반복 등장**하는 표본(별도 헤더 줄 없음, 재현:
+    `"{i}. 2020년 1회 기출문제 - 문항 {i} 지문 …"`)이 `_EXAM_ROUND_RE.search()`(비앵커)에
+    걸려 문항 수만큼(약 300개) 강한 후보로 오탐되던 결함의 회귀 고정. 회차 판정을 행두
+    앵커로 좁힌 뒤에는 이런 본문 줄이 후보에 잡히지 않아야 한다(문항 번호도 리셋 없이
+    단조 증가하므로 약한 후보도 0건 — confidence는 'uncertain')."""
+    lines = [
+        f"{i}. 2020년 1회 기출문제 - 문항 {i} 지문입니다. " + ("내용 텍스트 채움. " * 10)
+        for i in range(1, 301)
+    ]
+    text = "\n".join(lines)
+    candidates, confidence = split_service._scan_heuristic_boundaries(text)
+    assert candidates == []
+    assert confidence == "uncertain"
+
+
+def test_start_split_round_label_repeated_in_body_lines_falls_back_without_422():
+    """위 표본을 `start_split` 전체 파이프라인으로 완주해도 422 없이 명시적 균등 분할
+    폴백(경미-5)으로 끝나야 한다(수정 전에는 조각 300개로 40개 상한 422)."""
+    lines = [
+        f"{i}. 2020년 1회 기출문제 - 문항 {i} 지문입니다. " + ("내용 텍스트 채움. " * 90)
+        for i in range(1, 301)
+    ]
+    text = "\n".join(lines)
+    assert len(text) > split_service.CHUNK_MAX_CHARS
+    result = split_service.start_split(
+        upload_filename="round-in-body.txt", upload_bytes=text.encode("utf-8")
+    )
+    assert result["confidence"] == "uncertain"
+    assert result["fallback"] == "even_split"
+    assert len(result["chunks"]) <= split_service.MAX_CHUNKS
+    assert all(chunk["label"].startswith("구조 미탐지") for chunk in result["chunks"])
+
+
 def test_start_split_sample_five_rounds_sixty_questions_yields_five_chunks():
     """위 표본을 실제 `start_split` 파이프라인 전체(무결성 검증·상한 3종 포함)로 완주해도
     조각 5개·confidence ok로 끝나는지 확인(422 회귀 재발 방지)."""
@@ -139,10 +174,25 @@ def test_start_split_sample_five_rounds_sixty_questions_yields_five_chunks():
     )
     assert result["confidence"] == "ok"
     assert len(result["chunks"]) == 5
+    assert result["fallback"] is None  # 진짜 구조를 찾았으므로 폴백이 아니다
     for chunk in result["chunks"]:
         assert "기출문제" in chunk["label"]
         # 목표 3~6만 자 지시값에 정확히 부합(강제 상한 재분할이 필요 없는 크기).
         assert 30_000 <= chunk["chars"] <= 100_000
+
+
+def test_start_split_no_structural_signal_uses_explicit_even_split_fallback():
+    """[경미-5, 2026-08-04 오케스트레이터 결정] 구조 신호가 전혀 없으면 "조용히" 균등
+    분할하지 않고 명시적으로 표시한다: 라벨 = "구조 미탐지 — 임시 균등 i/n", confidence는
+    'uncertain' 유지, 응답에 `fallback: 'even_split'`."""
+    text = "그냥 평범한 본문입니다. " * 20_000  # 구조 신호 0건, 20만 자 초과
+    assert len(text) > split_service.CHUNK_MAX_CHARS
+    result = split_service.start_split(upload_filename="plain.txt", upload_bytes=text.encode("utf-8"))
+    assert result["confidence"] == "uncertain"
+    assert result["fallback"] == "even_split"
+    assert len(result["chunks"]) >= 2
+    for i, chunk in enumerate(result["chunks"], start=1):
+        assert chunk["label"] == f"구조 미탐지 — 임시 균등 {i}/{len(result['chunks'])}"
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +280,7 @@ def _base_state(split_id: str, **overrides) -> dict:
         "tail_start": 900,
         "allowed_ranges": [[0, 100], [900, 1000]],
         "boundary_excerpts": [],
+        "fallback": None,
     }
     state.update(overrides)
     return state

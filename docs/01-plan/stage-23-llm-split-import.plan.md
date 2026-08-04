@@ -103,7 +103,7 @@
 ## 리스크
 
 - **R25(plan §15)**: 경계 오판(회차 혼합·문항 절단)·다단 비용 — 결정론 절단·커버리지 검증·2단계 확인·조각별 승인·오프셋 보존·hash12 재사용이 대응. 경계 품질 표본 = DoD 7(사용자 이행).
-- **휴리스틱 커버리지**: 후보 0(구조 불명)이 잦을 수 있다 — 그것이 정밀 분석의 존재 이유이고, 정밀 분석도 실패하면 수동 분할 안내 폴백 상존(정직 실패 — 조용한 균등 분할 금지).
+- **휴리스틱 커버리지**: 후보 0(구조 불명)이 잦을 수 있다 — 그것이 정밀 분석의 존재 이유이고, 정밀 분석도 실패하면 수동 분할 안내 폴백 상존(정직 실패 — 조용한 균등 분할 금지). **결정 확정(2026-08-04, stage-reviewer 재수정 경미-5 — 오케스트레이터 결정)**: 후보 0건일 때도 반입 자체는 균등 분할로 계속 진행하되 "조용히" 하지 않는다 — 조각 라벨을 `"구조 미탐지 — 임시 균등 i/n"`으로 명시하고 confidence는 `'uncertain'` 유지, 응답에 `fallback: 'even_split'|null` 필드를 추가해 프론트가 안내할 수 있게 한다(§4.25 반영 완료).
 - **분할안 UI 복잡도**: 조각 40개급 목록·[합치기]·비용 합계의 모바일 UX — Stepper 스텝 분리로 억제, 화면 계약은 착수 시 §5.15 신설로 고정.
 - **too_large 원본 저장 정합**: 현행 convert 경로가 미저장이면 저장 추가가 convert 쪽 변경을 수반 — §4.18 ④·⑥ 대칭 원칙 안에서 최소 수정(검토 중점 확인).
 
@@ -136,3 +136,41 @@
   - **pytest**: 신규 2건 추가로 `test_split_import.py` 23→25건, 전체 스위트 **504 → 506건 통과**(무LLM 유지). 수정 직후 에이전트 도구 장애로 최종 재실행이 미완이었던 것을 오케스트레이터가 재실행해 **506 passed 재확인**.
 - **2026-08-04 오케스트레이터 통합 스모크(uvicorn 8023, 휴리스틱 수정 후 재기동)**: **큐 일시정지 선행** 규약으로 수행 — ① 표본 314,389자 split → 조각 5개·confidence ok·analyze_estimate 동봉 ② GET 상태(`ready`·chunks·analyze_estimate 재진입 동봉) ③ enqueue(병합 [c1,c2]+단일 [c4]·category_paths) → convert 잡 2개가 **일시정지 대기열에만** 등록(병합 라벨 "『…1회…』 ~ 『…2회…』" 정상) ④ 비인접 병합 422("합치기는 인접한 조각끼리만 가능합니다") ⑤ analyze auto+model 422(10번째 지점 공통 헬퍼 경유 확인) ⑥ 20만 자 이하 422("분할이 필요 없는 크기입니다") ⑦ 대기 잡 취소(비용 0). 전건 통과.
   - **스모크 사고 2건째(오케스트레이터 과실 — 정직 기록)**: 대기 잡 2개 취소 중 첫 건의 취소 응답(빈 응답 — 네트워크 순단 추정)을 검증하지 않은 채 정리 목적으로 큐를 resume해, 미취소였던 첫 잡이 수 초간 실행돼 claude-cli가 실호출됐다(즉시 재취소 — 부분 과금 usage: input_tokens=2, output_tokens=3, 산출물 0·DB 오염 0·워크트리 클린 복구). 부수적으로 running 취소·부분 usage 동봉이 실동작으로 확인됐으나 "실 LLM 유료 실행 금지" 규약 위반은 사실. **교훈: 취소는 응답 검증 후에만 큐 재개** — 백엔드 에이전트의 1건(enqueue 전 pause 누락)과 함께 이 단계에서 같은 유형 2회 발생, 스모크 표준 절차(pause 선행 → 상태 검증 → resume)를 완료 기록에 고정한다.
+
+- **2026-08-04 stage-reviewer 검토(재수정 판정 — 치명 0·중요 2) 백엔드 담당분 수정**:
+  - **[중요-2] `_EXAM_ROUND_RE` 비앵커 search — 본문 줄 회차 라벨 반복 오탐**: 검토자 실측 —
+    문항 줄마다 `"{i}. 2020년 1회 기출문제 - 문항 {i} 지문 …"` 형태(등재 계기 cbtbank가
+    정확히 이 형태)로 회차 라벨이 반복되는 229,283자급 표본이 `.search()`(비앵커)에 걸려
+    후보 ~300개(confidence='ok')로 오탐 → 40개 상한 422(split 레코드 생성 전이라 정밀
+    분석으로도 구제 불가). **수정**(`split_service.py`): 회차·과목 헤더 판정을 `_is_header_
+    like_strong_line`로 통합 — 행두 앵커(`.search()`→`.match()`) + 줄 길이 상한
+    `_HEADER_MAX_LINE_CHARS`(40자, 실측 — 진짜 헤더는 20자 안팎·문항 지문은 항상 그보다
+    길다). 마크다운 헤딩(`#`)은 명시적 마커라 길이 상한 미적용. 재실행(직접 실행 확인,
+    207,887자 재현 표본): 후보 0건 → confidence='uncertain' → 균등 분할 폴백(아래 경미-5)
+    으로 **422 없이 2조각 완주**(수정 전 대비 후보 300→0). **추가 방어 재량 판단**: 헤더성
+    한정만으로 재현 표본이 정상화되어 40개 상한의 별도 구제 로직은 추가하지 않았다(㉰
+    자동 재병합 금지 결정과의 충돌 회피 + 과설계 금지 — 검토자 단서 그대로 이행).
+  - **[경미-4] `_too_large_error` action 문구 과잉**: "또는 [분할 반입]을 이용하세요." 문구를
+    `_too_large_error`(job_kind를 모른다)가 아니라 `_fallback_error_info`(job_kind를 아는
+    지점)로 이동해 **convert 잡 한정**으로만 붙인다. fetch·answer_key·재생성 등 버튼 없는
+    화면에는 문구도 뜨지 않는다(테스트로 3개 job_kind 분기 확인).
+  - **[경미-5, 오케스트레이터 결정] 폴백 명시화**: 휴리스틱 후보 0건 폴백을 유지하되 ①
+    조각 라벨을 `"구조 미탐지 — 임시 균등 i/n"`으로 명시 ② confidence는 'uncertain' 유지
+    ③ POST·GET 응답에 `fallback: 'even_split'|null` 필드 추가(`apply_analyze_result` 성공
+    시 `null`로 해소). 리스크 절·완료 기록에 결정 반영(위 "휴리스틱 커버리지" 리스크 항목).
+  - **[경미-6] 테스트 함수명 실측 정정**: `test_nine_entrypoints_…`→`test_ten_entrypoints_…`
+    (`test_job_center.py`), `test_all_nine_entrypoints_…`→`test_all_ten_entrypoints_…`
+    (`test_engine_controls.py`).
+  - **[경미-2] 설계 §4.25 계약 정본 갱신**(`docs/02-design/study-app.design.api.md`): status
+    값 목록(`ready|analyzing|analyzed|error|cancelled`)·`reuse:{split_id}`·`category_paths`
+    대표 키 규칙(그룹 최소 start chunk_id)·GET `analyze_estimate` 동봉·`fallback` 필드를
+    ⓐ 엔드포인트 표에 반영 + "8곳→10곳" 실측 정정 각주(†) 신설 + too_large action 문구가
+    convert 한정임을 개정 지점 표에 명시. 본문 구조·기존 결정 보존, 최소 편집.
+  - **수정 파일**: `services/split_service.py`(헤더 판정 통합·명시적 폴백)·`services/
+    convert_service.py`(`_too_large_error` action 축소·`_fallback_error_info` 조건부
+    부착)·`schemas/split.py`(`fallback` 필드)·`tests/test_split_import.py`(신규 3건: 회차
+    라벨 본문 오탐 회귀 2건(스캔 단위·전체 파이프라인)·명시적 폴백 라벨 확인 1건 + 기존
+    `_base_state`에 `fallback` 키 보강)·`tests/test_doc_format_detect.py`(action 문구
+    스코프 테스트 갱신)·`tests/test_job_center.py`·`tests/test_engine_controls.py`(함수명
+    개명)·`docs/02-design/study-app.design.api.md`.
+  - **pytest**: `test_split_import.py` 25→28건, 전체 스위트 **506 → 509건 통과**(무LLM).

@@ -398,7 +398,7 @@ def _make_question_document(db, doc_no: str):
     return doc
 
 
-def test_all_nine_entrypoints_propagate_assert_engine_selectable(db, monkeypatch):
+def test_all_ten_entrypoints_propagate_assert_engine_selectable(db, monkeypatch):
     from services import convert_service, split_service
 
     def _boom(_db, _engine, *, model=None):

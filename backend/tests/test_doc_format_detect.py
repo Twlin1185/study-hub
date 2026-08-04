@@ -414,9 +414,11 @@ def test_detect_text_over_char_limit_raises_too_large_before_llm_call(isolated_s
     assert "200,000" in exc_info.value.public_message
     # S16 검토 6 — §4.18 ⑤ 확정 문안 그대로("원본 텍스트가"가 아니라 "추출된 텍스트가").
     assert exc_info.value.public_message.startswith("추출된 텍스트가 너무 깁니다")
-    # S23(F49 ㉲) — too_large도 원본을 sources/에 저장하고 action 앞머리·분할 반입 안내 병기.
+    # S23(F49 ㉲) — too_large도 원본을 sources/에 저장하고 action 앞머리를 병기한다.
+    # stage-reviewer 재수정([경미-4]) — "분할 반입" 안내는 이 예외 자체(job_kind 모름)가
+    # 아니라 `_fallback_error_info`가 convert 잡 한정으로 붙인다(아래 별도 테스트로 확인).
     assert exc_info.value.action.startswith("원본은 sources/에 저장했습니다.")
-    assert "분할 반입" in exc_info.value.action
+    assert "분할 반입" not in exc_info.value.action
     saved = list(isolated_sources.glob("*huge.txt"))
     assert len(saved) == 1
     assert saved[0].read_bytes() == data
@@ -480,15 +482,23 @@ def test_detect_damaged_xlsx_maps_to_doc_parse_failed(isolated_sources):
 # error_info 매핑 — kind 재사용·신설 계약(§4.11·§4.18) 확인
 # ---------------------------------------------------------------------------
 def test_fallback_error_info_maps_too_large_kind():
-    exc = convert_service.TooLargeError("추출된 텍스트가 너무 깁니다(약 300,000자 — 상한 200,000자)")
+    exc = convert_service.TooLargeError(
+        "추출된 텍스트가 너무 깁니다(약 300,000자 — 상한 200,000자)", action="원본을 나눠 반입해 주세요."
+    )
     info = convert_service._fallback_error_info(exc, job_kind="convert")
     assert info["kind"] == "too_large"
     assert info["fallback_available"] is False
     # S23(F49 ㉳, §4.25 개정 지점 표) — convert 잡 발생분은 [분할 반입] 버튼을 위해
     # alternatives에 'split_import'가 실린다(fetch 잡 발생분은 기존 []을 유지).
     assert info["alternatives"] == ["split_import"]
+    # stage-reviewer 재수정([경미-4]) — "분할 반입" 안내 문구도 convert 잡 한정으로만 붙는다
+    # (버튼이 없는 fetch·answer_key·재생성 화면에는 문구도 뜨지 않아야 한다).
+    assert "분할 반입" in info["action"]
     fetch_info = convert_service._fallback_error_info(exc, job_kind="fetch")
     assert fetch_info["alternatives"] == []
+    assert "분할 반입" not in fetch_info["action"]
+    answer_key_info = convert_service._fallback_error_info(exc, job_kind="answer_key")
+    assert "분할 반입" not in answer_key_info["action"]
 
 
 def test_fallback_error_info_maps_doc_parse_failed_to_parse_failed_kind():
