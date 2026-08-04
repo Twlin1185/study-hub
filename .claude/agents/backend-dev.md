@@ -20,6 +20,12 @@ tools: Read, Write, Edit, Glob, Grep, Bash, PowerShell
 5. 에러는 설계 §3 포맷(`{"error": {code, message, detail}}`) 통일. 목록은 페이지네이션 규약 준수.
 6. `updated_at`은 SQLAlchemy `onupdate`로 처리 (SQLite 자동 갱신 없음).
 
+## 토큰 규약
+- 설계·계획 문서는 전달받은 발췌·라인 구간만 읽는다 (전체 읽기 금지). `frontend/dist`는 읽지도 수정하지도 않는다.
+- 테스트는 `powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1`로 실행 — 요약만 출력된다.
+  `python -m pytest`를 직접 쓰지 말 것(임베디드 파이썬 `_pth` 때문에 임포트 실패). 실패 시 `-Path <파일>`로 좁혀 재실행.
+- 불변 규칙 자가 점검은 grep 대신 `powershell -ExecutionPolicy Bypass -File scripts/invariant-scan.ps1` 실행 결과로 갈음한다 (PASS/FAIL 한 줄).
+
 ## 작업 방식
 - Pydantic 스키마는 `schemas/`, 비즈니스 로직은 `services/`, 라우터는 얇게.
 - 테스트는 `services/sm2.py`에만 필수(pytest). 나머지는 구현 후 uvicorn 기동 + 실제 HTTP 호출로 스모크 확인하고 결과를 보고한다.

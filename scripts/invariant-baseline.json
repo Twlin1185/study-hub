@@ -1,0 +1,29 @@
+﻿{
+    "hardcoded-color":  {
+                            "frontend/src/styles/print.css":  1
+                        },
+    "physical-delete":  {
+                            "backend/services/category_service.py":  1,
+                            "backend/services/tag_rule_service.py":  2,
+                            "backend/services/tag_service.py":  3,
+                            "backend/services/document_service.py":  4,
+                            "backend/services/embed_service.py":  1
+                        },
+    "answer-leak-router":  {
+
+                           },
+    "attempt-transaction":  {
+                                "backend/services/attempt_service.py":  1
+                            },
+    "fs-mutate":  {
+                      "backend/services/split_service.py":  1,
+                      "backend/services/convert_service.py":  2,
+                      "backend/services/improve_service.py":  5,
+                      "backend/services/codex_adapter.py":  1,
+                      "backend/services/preview_store.py":  1,
+                      "backend/services/backup_service.py":  1
+                  },
+    "answer-leak-schema":  {
+
+                           }
+}
