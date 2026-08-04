@@ -47,6 +47,17 @@ if "%NEED_BUILD%"=="1" (
     if errorlevel 1 (
         echo [WARN] npm not found - skipping build. The screen may be outdated.
     ) else (
+        rem Install dependencies first when package-lock.json is newer than the
+        rem last install marker npm leaves in node_modules (or marker is missing).
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "if(-not (Test-Path 'node_modules\.package-lock.json')){exit 1}; if((Get-Item 'package-lock.json').LastWriteTime -gt (Get-Item 'node_modules\.package-lock.json').LastWriteTime){exit 1}else{exit 0}"
+        if errorlevel 1 (
+            echo Frontend dependencies changed - running npm install first...
+            call npm install
+            if errorlevel 1 (
+                echo [ERROR] npm install failed. See messages above.
+                pause
+            )
+        )
         call npm run build
         if errorlevel 1 (
             echo [ERROR] frontend build failed. See messages above.
