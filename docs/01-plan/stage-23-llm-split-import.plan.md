@@ -175,3 +175,27 @@
     개명)·`docs/02-design/study-app.design.api.md`.
   - **pytest**: `test_split_import.py` 25→28건, 전체 스위트 **506 → 509건 통과**(무LLM).
 - **2026-08-04 표적 재검토 최종 통과(stage-reviewer, Opus)**: 중요 1(3중 파손 전수)·중요 2(재현 표본 후보 300→0 + 진짜 헤더 표본 정상 분할·헤딩 표본 회귀 없음 — 양방향 직접 실행 확인)·경미 1~6 전건 해소 — **DoD 자동 검증 6/6 · 치명 0·중요 0·경미 0 · pytest 509 · dist 바이트 일치**. 잔여 관찰 3건(결함 아님·차기 판단용): (A) 장식 접두 헤더(`■ …`·`【…】`)는 강한 신호에서 제외 — 실패 모드가 graceful(uncertain→정밀 분석 제안/명시 폴백)이라 현상 유지 타당, DoD 7 실사례에서 회차 헤더 미탐 시 첫 개선 후보(행두 앵커 앞 기호 1~2자 허용) (B) analyze 실패·취소 후 위저드에 "정밀 분석 없이 분할안 확인" 버튼이 사라짐(서버 안내 문구와 불일치 — 분할안은 서버 보존이라 재진입으로 복구 가능, 데이터 손실 0) (C) 조각 convert 잡의 커밋 문서가 sources/ 원본과 미연결(§4.25는 재저장 금지만 규정 — 링크 유지 필요 시 별도 등재).
+- **2026-08-04 DoD 7 사용자 피드백 반영 3건(프론트 전용, 신규 API 0, backend/dist 무변경)**:
+  피드백 원문 —
+  (1) "분할작업중에 다른창을 갔다오면 분할작업에 대해 접근하기 어려워"
+  (2) "텍스트가 너무길어 분할 작업하기로 했지만, 기존것이 남아있어 혼란스러워"
+  (3) "LLM 작업중 토큰 입력과 출력이라고 표시된거를 봤을때 총 토큰 사용량(또는 예상 사용량)을 알기 어려워"
+  - **(1)+(2) 재진입 앵커**: `utils/convertQueue.ts`(`StoredQueueEntry.splitId` 필드 추가) ·
+    `hooks/useConvertQueue.ts`(`QueueItemStatus`에 `'split_in_progress'` 추가·우선순위는 `ready`
+    다음·`error`보다 앞 · `setEntrySplitId(id, splitId)` 신설 · `addJobs(jobs, anchorEntryId?)`로
+    enqueue 성공 시 앵커 항목 제거) · `components/ImportQueue.tsx`("분할 진행 중" 중립 배지 +
+    [분할안 열기] 버튼, error 렌더와 분리) · `pages/Import.tsx`(`splitAnchorEntryId`/`splitResumeId`
+    상태로 [분할 반입]↔[분할안 열기] 분기, `SplitImportWizard`의 `onSplitStarted`(split_id 확보 시
+    앵커에 반영)·`onSplitExpired`(GET 404 시 앵커를 원래 실패 상태로 복귀 + 안내 배너) 콜백 배선,
+    작업 센터 딥링크(`?split_id=`)로 들어온 경우도 큐에서 같은 split_id 항목을 찾아 앵커로 편입) ·
+    `components/SplitImportWizard.tsx`(`onSplitStarted`/`onSplitExpired` prop 신설·`analyzeUnavailable`
+    게이팅 정리 — 만료 배너와 "정밀 분석 없이 분할안 확인" 카드가 동시에 뜨지 않게, 만료·연결 실패
+    상태에도 [닫기] 버튼 추가). localStorage 지속이라 새로고침 후에도 동작(기존 큐 지속 관례 그대로).
+  - **(3) 토큰 합계**: `components/LlmJobProgress.tsx`의 "토큰 입력 N · 출력 M" 표기에 "· 합계
+    N+M"을 추가(콤마 표기 관례 유지). **전수 실측**: 입력/출력 토큰을 보여주는 지점은 이 1곳뿐 —
+    `POST /api/llm/jobs/{id}/cancel` 응답의 `usage`(입력·출력 토큰 실림)는 현재 프론트 어디서도
+    렌더하지 않음(취소 후 목록 무효화만 수행, §5.14) — 렌더 지점이 없어 수정 대상 아님. `JobProgress`
+    에는 예상치(estimate/approx) 필드가 없어(실측치 `usage`만 존재) "예상 ~K" 병기는 추가하지
+    않음(백엔드 변경 금지 — 지시대로 없으면 추가하지 않음).
+  - **상태 전이(재진입 앵커)**: `[error: too_large]` --[분할 반입] 클릭·`POST /import/split` 성공--> `[split_in_progress: splitId=X]`(위저드 닫아도 유지) --[분할안 열기]·GET 성공--> 위저드 재개(analyze/chunks/cost 이어서) · --[분할안 열기]·GET 404(만료)--> 안내 배너 + `splitId=null`로 복귀 → `[error: too_large]`(재시도 가능) · --enqueue 성공--> 앵커 항목 제거(조각들이 새 `'split'` sourceKind 항목으로 큐 합류, 독립적인 queued→running→ready→committed 수명주기).
+  - **검증**: `npm run build` 통과(타입 에러 0) — 신규 API 0건·backend/·frontend/dist 무변경(빌드 산출물은 검증 후 원복).

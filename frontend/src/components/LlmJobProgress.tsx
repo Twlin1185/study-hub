@@ -114,7 +114,8 @@ export default function LlmJobProgress({
         {progress.usage && (
           <span>
             토큰 입력 {progress.usage.input_tokens.toLocaleString()} · 출력{' '}
-            {progress.usage.output_tokens.toLocaleString()}
+            {progress.usage.output_tokens.toLocaleString()} · 합계{' '}
+            {(progress.usage.input_tokens + progress.usage.output_tokens).toLocaleString()}
             {progress.usage.cost_usd != null && ` · 약 $${progress.usage.cost_usd.toFixed(3)}`}
           </span>
         )}

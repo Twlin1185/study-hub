@@ -123,6 +123,24 @@ export default function ImportPage() {
   // too_large [분할 반입] 버튼이 곧장 넘겨준 원본(§4.25 진입점) — 딥링크(split_id)로 들어온
   // 경우는 원본이 필요 없다(위저드가 GET으로 기존 분할안을 이어 받는다).
   const [splitInitialSource, setSplitInitialSource] = useState<SplitInitialSource | null>(null)
+  // 재진입 앵커(사용자 실사용 피드백 반영, §4.25) — [분할안 열기]로 이미 시작된 분할을 이어서
+  // 열 때 쓰는 split_id(딥링크 splitIdParam과 별개 — 큐 항목 클릭이 출처). 두 경로 다 있으면
+  // 큐 항목 클릭이 이번 세션에서 더 구체적인 의도이므로 우선한다.
+  const [splitResumeId, setSplitResumeId] = useState<string | null>(null)
+  // 위 splitResumeId·splitIdParam으로 위저드를 연 출발점이 된 큐 항목(too_large 실패 항목,
+  // 'split_in_progress') — split_id 확보(onSplitStarted)·enqueue 완료(제거)·만료 복귀
+  // (onSplitExpired)가 전부 이 id를 갱신 대상으로 삼는다.
+  const [splitAnchorEntryId, setSplitAnchorEntryId] = useState<string | null>(null)
+  const [splitExpiredNotice, setSplitExpiredNotice] = useState<string | null>(null)
+
+  // 작업 센터 딥링크(?split_id=)로 들어온 경우도 큐에 같은 split_id를 든 항목이 있으면 앵커로
+  // 잡는다(엔트리를 몰라도 재진입 경로가 일관되게 동작 — enqueue 시 제거·만료 시 복귀).
+  useEffect(() => {
+    if (!splitIdParam || splitAnchorEntryId) return
+    const match = queue.items.find((it) => it.entry.splitId === splitIdParam)
+    if (match) setSplitAnchorEntryId(match.entry.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitIdParam, queue.items])
   const [step, setStep] = useState<WizardStep>('select')
   const [jsonFile, setJsonFile] = useState<File | null>(null)
   const [sourceFile, setSourceFile] = useState<File | null>(null)
@@ -226,12 +244,23 @@ export default function ImportPage() {
   // too_large [분할 반입](§4.25 진입점, ㉳) — url 소스는 항상 재제출 가능(문자열 보존), file
   // 소스는 이번 세션에 File이 남아 있을 때만(retryable과 동일 근거). 둘 다 없으면 위저드
   // 자체의 'source' 단계(직접 재선택)로 열어 진입 자체는 항상 성공하게 한다.
+  //
+  // 재진입 앵커(사용자 실사용 피드백 반영) — 이 항목이 이미 split_id를 갖고 있으면('분할 진행
+  // 중', [분할안 열기]로 눌린 경우) 원본을 다시 묻지 않고 그 split_id로 곧장 이어서 연다.
   function handleSplitImport(item: QueueItem) {
-    if (item.entry.sourceKind === 'url' && item.entry.url) {
-      setSplitInitialSource({ kind: 'url', url: item.entry.url })
+    setSplitAnchorEntryId(item.entry.id)
+    setSplitExpiredNotice(null)
+    if (item.entry.splitId) {
+      setSplitInitialSource(null)
+      setSplitResumeId(item.entry.splitId)
     } else {
-      const file = queue.getFile(item.entry.id)
-      setSplitInitialSource(file ? { kind: 'file', file } : null)
+      if (item.entry.sourceKind === 'url' && item.entry.url) {
+        setSplitInitialSource({ kind: 'url', url: item.entry.url })
+      } else {
+        const file = queue.getFile(item.entry.id)
+        setSplitInitialSource(file ? { kind: 'file', file } : null)
+      }
+      setSplitResumeId(null)
     }
     setEntryMode('split_import')
   }
@@ -336,6 +365,20 @@ export default function ImportPage() {
         </div>
       )}
 
+      {/* 재진입 앵커 만료 안내(사용자 실사용 피드백 반영, §4.25) */}
+      {splitExpiredNotice && (
+        <div className="mb-4 flex items-center justify-between gap-2 rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">
+          <span>{splitExpiredNotice}</span>
+          <button
+            type="button"
+            onClick={() => setSplitExpiredNotice(null)}
+            className="shrink-0 text-xs text-muted hover:text-primary"
+          >
+            닫기
+          </button>
+        </div>
+      )}
+
       {step === 'select' && (
         <>
           <div className="mb-3 flex flex-wrap gap-2">
@@ -429,17 +472,37 @@ export default function ImportPage() {
           {entryMode === 'split_import' && (
             <SplitImportWizard
               initialSource={splitInitialSource}
-              resumeSplitId={splitIdParam}
+              resumeSplitId={splitResumeId ?? splitIdParam}
               onCancel={() => {
                 setSplitInitialSource(null)
+                setSplitResumeId(null)
+                setSplitAnchorEntryId(null)
                 setEntryMode('convert')
               }}
               onEnqueued={(jobs) => {
                 // 4단계(조각별 미리보기 승인)는 신규 진행 UI 없이 기존 ImportQueue 화면이
-                // 그대로 이어받는다(체크리스트 — 신규 진행 UI 없음).
-                queue.addJobs(jobs.map((j) => ({ job_id: j.job_id, label: j.label })))
+                // 그대로 이어받는다(체크리스트 — 신규 진행 UI 없음). 앵커 항목(재진입 앵커,
+                // 사용자 실사용 피드백 반영)은 조각들이 이미 합류했으니 큐에서 제거한다
+                // (원본이 두 번 남아 혼란스럽다는 피드백 반영).
+                queue.addJobs(jobs.map((j) => ({ job_id: j.job_id, label: j.label })), splitAnchorEntryId)
                 setSplitInitialSource(null)
+                setSplitResumeId(null)
+                setSplitAnchorEntryId(null)
                 setEntryMode('convert')
+              }}
+              onSplitStarted={(splitId) => {
+                // 재진입 앵커(사용자 실사용 피드백 반영) — split_id를 확보하면 앵커 항목을
+                // "분할 진행 중"으로 전환해, 위저드를 닫거나 다른 화면에 갔다 와도 [분할안
+                // 열기]로 이어서 열 수 있게 한다.
+                if (splitAnchorEntryId) queue.setEntrySplitId(splitAnchorEntryId, splitId)
+              }}
+              onSplitExpired={() => {
+                // split이 서버에서 만료(404 — TTL 1h·디스크 최근 20건 초과)됐다 — 앵커를
+                // 원래 실패 상태로 되돌려 [분할 반입] 재시도를 다시 열어 준다.
+                if (splitAnchorEntryId) queue.setEntrySplitId(splitAnchorEntryId, null)
+                setSplitExpiredNotice(
+                  '분할 작업 정보를 더 이상 확인할 수 없습니다(만료됨) — [분할 반입]을 다시 눌러 새로 시작해 주세요.',
+                )
               }}
             />
           )}

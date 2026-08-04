@@ -37,6 +37,13 @@ export interface StoredQueueEntry {
   startError?: string | null
   startErrorInfo?: LlmErrorInfo | null
   createdAt: number
+  // 재진입 앵커(사용자 실사용 피드백 반영, §4.25) — too_large 실패 항목에서 [분할 반입]으로
+  // 분할이 시작되면(POST /api/import/split 성공) 그 split_id를 여기 심어 이 항목을 "분할 진행
+  // 중"으로 표시한다. 위저드를 닫고 다른 화면에 갔다 와도(새로고침 포함) [분할안 열기]로 같은
+  // split_id를 이어서 열 수 있다 — 서버 분할 상태(TTL 1h + 디스크 최근 20건)가 근거.
+  // enqueue 성공(조각들이 새 convert 잡으로 큐에 합류) 시 이 항목 자체를 큐에서 제거해
+  // 중복 앵커가 남지 않게 한다(handleSplitImport/addJobs 호출부 책임).
+  splitId?: string | null
 }
 
 function isValidKind(v: unknown): v is QueueSourceKind {
@@ -65,6 +72,7 @@ function sanitize(raw: unknown): StoredQueueEntry | null {
     startError: typeof e.startError === 'string' ? e.startError : null,
     startErrorInfo: e.startErrorInfo ?? null,
     createdAt: typeof e.createdAt === 'number' ? e.createdAt : Date.now(),
+    splitId: typeof e.splitId === 'string' ? e.splitId : null,
   }
 }
 
@@ -95,6 +103,7 @@ function promoteLegacy(): StoredQueueEntry | null {
       startError: null,
       startErrorInfo: null,
       createdAt: Date.now(),
+      splitId: null,
     }
   } catch {
     return null

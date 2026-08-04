@@ -81,6 +81,12 @@ interface SplitImportWizardProps {
   resumeSplitId?: string | null
   onCancel: () => void
   onEnqueued: (jobs: SplitEnqueueJobItem[]) => void
+  // 재진입 앵커(사용자 실사용 피드백 반영) — split_id를 확보(POST 성공·재사용 선택 포함)할
+  // 때마다 알려 호출부가 출발점이 된 too_large 항목에 이 id를 심게 한다("분할 진행 중" 전환).
+  onSplitStarted?: (splitId: string) => void
+  // split이 서버에서 만료(404 — TTL 1h·디스크 최근 20건 초과)된 채로 재진입했을 때 알린다 —
+  // 호출부가 앵커 항목의 split_id를 지워 원래 실패 상태로 되돌린다([분할 반입] 재시도 가능).
+  onSplitExpired?: () => void
 }
 
 export default function SplitImportWizard({
@@ -88,6 +94,8 @@ export default function SplitImportWizard({
   resumeSplitId,
   onCancel,
   onEnqueued,
+  onSplitStarted,
+  onSplitExpired,
 }: SplitImportWizardProps) {
   const [step, setStep] = useState<Step>(resumeSplitId || initialSource ? 'analyze' : 'source')
   const [splitId, setSplitId] = useState<string | null>(resumeSplitId ?? null)
@@ -129,6 +137,9 @@ export default function SplitImportWizard({
     setGroups(toGroups(data.chunks))
     setReusePrompt(Boolean(data.reuse))
     setStep(shouldAutoAdvance(data) ? 'chunks' : 'analyze')
+    // 재진입 앵커(사용자 실사용 피드백 반영) — split_id를 확보한 즉시 호출부에 알려 too_large
+    // 항목을 "분할 진행 중"으로 전환한다(위저드를 닫아도 이 id로 이어서 열 수 있게).
+    onSplitStarted?.(data.split_id)
   }
 
   // 진입 시 원본이 이미 있으면(too_large [분할 반입]) 곧바로 분할 시작을 시도한다 — 재마운트당
@@ -185,12 +196,15 @@ export default function SplitImportWizard({
 
   function handleUseReuse() {
     if (!startResult?.reuse) return
-    setSplitId(startResult.reuse.split_id)
+    const reuseId = startResult.reuse.split_id
+    setSplitId(reuseId)
     setReusePrompt(false)
     // 재사용 대상은 다른 split이다 — 방금 만든 split의 POST 응답을 정보원으로 계속 쓰면
     // 엉뚱한 confidence·estimate가 보인다(아래 `info` 파생값이 GET 결과로 넘어가게 비운다).
     setStartResult(null)
     setGroups([]) // 재사용 split의 GET 상태로 다시 채운다(비용 0 — 새로 분석하지 않는다).
+    // 앵커도 재사용 대상 split_id로 갈아 끼운다(방금 만든 split이 아니라 이 id로 이어서 열려야).
+    onSplitStarted?.(reuseId)
   }
 
   function handleUseFresh() {
@@ -287,7 +301,19 @@ export default function SplitImportWizard({
   const analyzeRunning = statusQuery.data?.status === 'analyzing'
   const analyzeFailed = statusQuery.data?.status === 'error'
   const analyzeCancelled = statusQuery.data?.status === 'cancelled'
-  const awaitingRemote = step === 'analyze' && groups.length === 0 && !reusePrompt
+  const awaitingRemote = step === 'analyze' && groups.length === 0 && !reusePrompt && !analyzeUnavailable
+
+  // 재진입 앵커 만료(사용자 실사용 피드백 반영) — GET이 404(TTL 1h·디스크 최근 20건 초과로
+  // 소멸)면 앵커를 원래 실패 상태로 되돌리라고 호출부에 1회만 알린다(재마운트당 1회 — 폴링은
+  // 꺼져 있어(retry:false) 반복 호출 위험은 없지만 방어적으로 ref로 막는다).
+  const splitExpiredNotifiedRef = useRef(false)
+  useEffect(() => {
+    if (analyzeUnavailable === 'lost' && !splitExpiredNotifiedRef.current) {
+      splitExpiredNotifiedRef.current = true
+      onSplitExpired?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analyzeUnavailable])
 
   // [경미-1] 재수정 — GET도 split_id·source_chars·confidence·analyze_estimate·reuse·fallback을
   // 함께 내려주므로, 딥링크·재사용 복원 세션(startResult가 없는 세션)에서도 이 값들로 정밀 분석
@@ -430,7 +456,12 @@ export default function SplitImportWizard({
               없이 다음 스텝으로 넘어가는 흐름은 위 이펙트(shouldAutoAdvance)가 자동 처리한다.
               [경미-1] 견적(analyze_estimate)은 이제 GET 응답에도 동봉되므로(딥링크·재사용 복원
               세션 포함) `info`(POST 우선, 없으면 GET)만 있으면 제안 카드를 구성할 수 있다. */}
-          {!reusePrompt && !analyzeRunning && !analyzeMutation.isPending && !analyzeFailed && !analyzeCancelled && (
+          {!reusePrompt &&
+            !analyzeRunning &&
+            !analyzeMutation.isPending &&
+            !analyzeFailed &&
+            !analyzeCancelled &&
+            !analyzeUnavailable && (
             <div className="flex flex-col gap-3">
               {showAnalyzeSuggestion && info && (
                 <div className="flex flex-col gap-3 rounded border border-border bg-bg p-3">
@@ -488,7 +519,9 @@ export default function SplitImportWizard({
             </div>
           )}
 
-          {(analyzeFailed || analyzeCancelled) && (
+          {/* analyzeUnavailable(사용자 실사용 피드백 반영) — 만료(404)로 앵커를 되돌린 뒤에도
+              사용자가 직접 닫아야 원래 실패 상태([분할 반입] 재시도)를 확인할 수 있다. */}
+          {(analyzeFailed || analyzeCancelled || analyzeUnavailable) && (
             <div className="flex justify-start">
               <button
                 type="button"
