@@ -13,6 +13,8 @@ import Stepper from '../components/Stepper'
 import ConfirmDialog from '../components/ConfirmDialog'
 import FetchImportWizard from '../components/FetchImportWizard'
 import AnswerKeyImportWizard from '../components/AnswerKeyImportWizard'
+import SplitImportWizard from '../components/SplitImportWizard'
+import type { SplitInitialSource } from '../components/SplitImportWizard'
 import ImportQueueList, { ImportQueueSummary } from '../components/ImportQueue'
 import CategoryPathField, { categoryPathError, normalizeCategoryPath } from '../components/CategoryPathField'
 import type { StepperStep } from '../components/Stepper'
@@ -32,7 +34,9 @@ type WizardStep = 'select' | 'preview' | 'result'
 // sourceKind로 입력 UI만 갈린다. 'fetch' = 사이트에서 가져오기(§5.9, S10) — 자체 4단계 서브플로.
 // 'answer_key' = 답지·해설지 반입(§4.20 ①, F44, S18) — 반입 preview(§4.3)와 독립된 별도 경로
 // (매칭 미리보기·apply 응답 스키마가 다름). 자체 스텝을 갖는 AnswerKeyImportWizard가 전담한다.
-type EntryMode = 'json' | 'convert' | 'url' | 'fetch' | 'answer_key'
+// 'split_import'(S23, §4.25, F49) — 대용량 원본 분할 반입 위저드. 상시 메뉴 없음(YAGNI) —
+// too_large [분할 반입] 버튼 또는 작업 센터 딥링크(?mode=split_import)로만 진입한다.
+type EntryMode = 'json' | 'convert' | 'url' | 'fetch' | 'answer_key' | 'split_import'
 
 interface ItemDecisionState {
   action: ImportAction
@@ -100,16 +104,25 @@ export default function ImportPage() {
   // S22(설계 §4.24 ⓓ, F48) — 작업 센터 [화면으로 이동]이 `?mode=answer_key`로 답지 위저드를
   // 곧바로 연다(대기열 복원보다 우선 — 명시적으로 그 화면을 지목한 진입이므로).
   const [searchParams] = useSearchParams()
-  const [entryMode, setEntryMode] = useState<EntryMode>(() =>
-    searchParams.get('mode') === 'answer_key' ? 'answer_key' : initialEntryMode(),
-  )
+  const [entryMode, setEntryMode] = useState<EntryMode>(() => {
+    const mode = searchParams.get('mode')
+    if (mode === 'answer_key') return 'answer_key'
+    if (mode === 'split_import') return 'split_import'
+    return initialEntryMode()
+  })
   // 검토 반영 — 이미 이 라우트에 있는 상태에서 딥링크(쿼리 파라미터)만 바뀌는 경우(useState
-  // 초기값은 마운트 시 1회만 읽힌다) 대응. 파라미터가 실제로 'answer_key'로 바뀔 때만 반응하고,
-  // 그 외에는 사용자가 수동으로 고른 진입 모드를 그대로 둔다.
+  // 초기값은 마운트 시 1회만 읽힌다) 대응. 파라미터가 실제로 'answer_key'|'split_import'로
+  // 바뀔 때만 반응하고, 그 외에는 사용자가 수동으로 고른 진입 모드를 그대로 둔다.
   const modeParam = searchParams.get('mode')
+  // S23(§4.25 — 작업 센터 딥링크) split_id가 있으면 위저드가 GET으로 그 분할안을 이어 받는다.
+  const splitIdParam = searchParams.get('split_id')
   useEffect(() => {
     if (modeParam === 'answer_key') setEntryMode('answer_key')
+    if (modeParam === 'split_import') setEntryMode('split_import')
   }, [modeParam])
+  // too_large [분할 반입] 버튼이 곧장 넘겨준 원본(§4.25 진입점) — 딥링크(split_id)로 들어온
+  // 경우는 원본이 필요 없다(위저드가 GET으로 기존 분할안을 이어 받는다).
+  const [splitInitialSource, setSplitInitialSource] = useState<SplitInitialSource | null>(null)
   const [step, setStep] = useState<WizardStep>('select')
   const [jsonFile, setJsonFile] = useState<File | null>(null)
   const [sourceFile, setSourceFile] = useState<File | null>(null)
@@ -208,6 +221,19 @@ export default function ImportPage() {
       awaitingReview.current = false
       applyPreview(reviewQuery.data, true, item.notes)
     }
+  }
+
+  // too_large [분할 반입](§4.25 진입점, ㉳) — url 소스는 항상 재제출 가능(문자열 보존), file
+  // 소스는 이번 세션에 File이 남아 있을 때만(retryable과 동일 근거). 둘 다 없으면 위저드
+  // 자체의 'source' 단계(직접 재선택)로 열어 진입 자체는 항상 성공하게 한다.
+  function handleSplitImport(item: QueueItem) {
+    if (item.entry.sourceKind === 'url' && item.entry.url) {
+      setSplitInitialSource({ kind: 'url', url: item.entry.url })
+    } else {
+      const file = queue.getFile(item.entry.id)
+      setSplitInitialSource(file ? { kind: 'file', file } : null)
+    }
+    setEntryMode('split_import')
   }
 
   function handlePreviewSubmit() {
@@ -367,6 +393,7 @@ export default function ImportPage() {
                   setEntryMode('convert')
                   window.scrollTo({ top: 0, behavior: 'smooth' })
                 }}
+                onSplitImport={handleSplitImport}
                 onClearFinished={queue.clearFinished}
                 onCancel={queue.cancelEntry}
                 cancelling={queue.cancelling}
@@ -398,6 +425,23 @@ export default function ImportPage() {
               </p>
               <AnswerKeyImportWizard />
             </>
+          )}
+          {entryMode === 'split_import' && (
+            <SplitImportWizard
+              initialSource={splitInitialSource}
+              resumeSplitId={splitIdParam}
+              onCancel={() => {
+                setSplitInitialSource(null)
+                setEntryMode('convert')
+              }}
+              onEnqueued={(jobs) => {
+                // 4단계(조각별 미리보기 승인)는 신규 진행 UI 없이 기존 ImportQueue 화면이
+                // 그대로 이어받는다(체크리스트 — 신규 진행 UI 없음).
+                queue.addJobs(jobs.map((j) => ({ job_id: j.job_id, label: j.label })))
+                setSplitInitialSource(null)
+                setEntryMode('convert')
+              }}
+            />
           )}
         </>
       )}

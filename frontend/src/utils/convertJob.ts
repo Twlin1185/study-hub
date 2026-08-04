@@ -23,7 +23,10 @@ export function getStoredConvertJob(): StoredConvertJob | null {
   if (!entry || !entry.jobId) return null
   return {
     jobId: entry.jobId,
-    sourceKind: entry.sourceKind,
+    // 위 filter가 sourceKind==='fetch'만 남기므로 항상 리터럴로 좁혀 쓴다 — 대기열 쪽
+    // QueueSourceKind가 'split'(S23, §4.25)으로 넓어져도 이 어댑터의 계약(fetch 전용)은
+    // 그대로 'file'|'url'|'fetch'로 고정된다.
+    sourceKind: 'fetch',
     url: entry.url,
     fileName: entry.fileName,
     fetchLabel: entry.fetchLabel,

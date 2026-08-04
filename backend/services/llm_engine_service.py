@@ -498,7 +498,8 @@ def next_fallback_engine(db: Session, engine: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# 명시 지정 422 방어 (설계 §4.23 ⓒ·결정 ⑥) — 공통 헬퍼 1개, 8곳 잡 시작 지점이 공유
+# 명시 지정 422 방어 (설계 §4.23 ⓒ·결정 ⑥, §4.25) — 공통 헬퍼 1개, 10곳 잡 시작 지점이
+# 공유(S23에서 `split_analyze`가 10번째로 합류)
 # ---------------------------------------------------------------------------
 def assert_engine_selectable(db: Session, engine: str, *, model: Optional[str] = None) -> None:
     """`engine`이 auto가 아닌 명시 엔진 id(legacy 별칭 포함)이고 그 엔진이 비활성·비가용이면

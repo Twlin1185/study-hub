@@ -976,6 +976,9 @@ export type LlmLimitKind = 'session' | 'daily' | 'weekly' | 'model' | 'overall'
 // convert/regenerate 잡 실패 시 구조화된 오류(설계 §4.11) — 원문 CLI/API JSON은 여기 담기지 않는다.
 // alternatives(S14) — 이 실패에서 유효한 대안 액션 식별자 목록(예: 'file_import'). 프론트는 이
 // 값으로 버튼 노출을 결정하고, 문구는 만들지 않는다(kind별 하드코딩 대신 이 배열을 신뢰).
+// S23(§4.25, F49) — 'split_import' 추가: convert 잡 발생 too_large의 alternatives에만 실린다
+// (fetch 잡 발생분은 기존 정책 그대로, §4.25 ㉳). 타입은 여전히 string(좁은 유니온 아님) —
+// 아는 값만 렌더하는 기존 관례를 그대로 따른다.
 export interface LlmErrorInfo {
   kind: LlmErrorKind
   limit_kind?: LlmLimitKind | null
@@ -1460,8 +1463,8 @@ export interface StreakResponse {
 
 // ---- LLM 작업 센터 (설계 §4.24, S22, F48) ----
 // 전역 잡 목록·취소·대기열 일시정지·요청 단위 model 오버라이드. 신규 엔드포인트 4개는 전부
-// LLM 0·DB 0(인메모리 조회·플래그) — §4.24 ⓐ. 전 kind 8종이 같은 잡 큐·레코드를 공유하므로
-// 목록 1개가 전 kind를 덮는다(현행 실측).
+// LLM 0·DB 0(인메모리 조회·플래그) — §4.24 ⓐ. 전 kind 9종(S23 — 'split_analyze' 합류, §4.25)이
+// 같은 잡 큐·레코드를 공유하므로 목록 1개가 전 kind를 덮는다(현행 실측).
 export type LlmJobKind =
   | 'convert'
   | 'fetch'
@@ -1471,6 +1474,9 @@ export type LlmJobKind =
   | 'applied_exam'
   | 'improve_proposal'
   | 'improve_regression'
+  // S23(§4.25 ㉱, F49) — 대용량 원본 분할 반입의 LLM 정밀 분석 잡(휴리스틱·조각 변환은 잡 kind가
+  // 아니다: 전자는 동기 LLM 0, 후자는 기존 'convert' 잡 재사용).
+  | 'split_analyze'
 
 // kind별 참조 id(§4.24 ⓓ 표) — [화면으로 이동]·복원 훅 공유 키. 모르는/없는 필드는 생략된다
 // (필드 유무로 렌더를 결정하는 기존 관례, §4.17② 참고).
@@ -1480,6 +1486,9 @@ export interface LlmJobRef {
   gen_id?: string | null
   reg_id?: string | null
   key_id?: string | null
+  // S23(§4.25) — split_analyze 잡의 참조. ref 표 원문은 "ref는 split_id"뿐이라 다른 필드와 동일한
+  // optional 관례로 추가한다.
+  split_id?: string | null
 }
 
 // 전역 목록 전용 상태 유니온 — kind별 상태 응답(ConvertJobStatus)에는 없는 'queued'(대기 중,
@@ -1526,4 +1535,109 @@ export interface LlmJobCancelResponse {
 // POST /api/llm/queue/pause·resume 응답 — 멱등, 인메모리(서버 재시작 시 해제).
 export interface LlmQueuePauseResponse {
   paused: boolean
+}
+
+// ---- 대용량 원본 LLM 분할 반입 (설계 §4.25, S23, F49) ----
+//
+// 원칙 재확인: 조각 = 원문의 연속 부분 문자열(서버 결정론 절단 — LLM은 경계 오프셋·라벨만
+// 산출, 본문 재작성 경로 0). 휴리스틱 분석·분할안·enqueue까지 LLM 0(무비용) — LLM 개입은
+// split_analyze 잡 1종뿐이고 항상 견적 확인 스텝 뒤에만 호출된다. 저장은 sources/ 원본 +
+// import/split/ JSON(최근 20건) + 인메모리 TTL 1시간뿐 — 새 테이블 없음.
+
+// estimate 필드 관례(fetch_service.estimate_usage·answer-key·applied-exam 재사용) — 조각별
+// estimate와 정밀 분석(analyze_estimate) 모두 이 형태를 공유한다(§4.25 ⓐ).
+export interface SplitEstimate {
+  approx_input_tokens: number
+  assumed: boolean
+}
+
+// 'ok' = 경계가 뚜렷해 정밀 분석 없이 진행 가능 · 'uncertain' = 정밀 분석을 권장(확인 스텝에서
+// 사용자가 여전히 건너뛸 수 있다 — 강제 아님, §4.25 플로우 1단계).
+export type SplitConfidence = 'ok' | 'uncertain'
+
+// stage-reviewer 재수정(2026-08-04, [경미-3]) — 휴리스틱이 경계를 전혀 찾지 못해 임시 균등
+// 분할로 폴백했음을 알리는 값. 'even_split'이면 confidence와 무관하게 정밀 분석을 권장한다
+// (§5.15 계약 — confidence:'ok'라도 fallback:'even_split'이면 카드를 보여준다).
+export type SplitFallback = 'even_split'
+
+// head = 발췌(추출 텍스트의 앞부분 200자 수준 부분 문자열) — LLM 산출 원문·정답 무관(§4.25 ⓐ).
+export interface SplitChunk {
+  chunk_id: string
+  label: string
+  start: number
+  end: number
+  chars: number
+  head: string
+  estimate: SplitEstimate
+}
+
+// 같은 원본(hash12) 기존 분할 레코드 감지 안내(§4.25 ㉳) — "기존 분할안 재사용(비용 0)/새로
+// 분석" 선택 UI의 근거. 구체 필드는 명세에 세부 기재가 없어 재사용 판단에 필요한 최소 형태로
+// 추정(split_id만) — 최종 보고 참고.
+export interface SplitReuseInfo {
+  split_id: string
+}
+
+// POST /api/import/split 응답 — 동기·LLM 0(§4.25 ⓐ). 20만 자 이하·200만 자 초과·40조각
+// 초과는 422(서버 완성 문장, message 그대로 렌더 — 프론트 포맷 분기 금지).
+export interface SplitStartResponse {
+  split_id: string
+  source_chars: number
+  confidence: SplitConfidence
+  chunks: SplitChunk[]
+  analyze_estimate: SplitEstimate
+  reuse?: SplitReuseInfo | null
+  fallback?: SplitFallback | null
+}
+
+// POST /api/import/split/{split_id}/analyze body — model?(S22 관례) 규칙은
+// AppliedExamGenerateRequest 주석과 동일(엔진 먼저 선택, 소목록 밖=422, 미지정=설정값 폴백).
+export interface SplitAnalyzeRequest {
+  engine?: LlmEngine
+  model?: string
+}
+
+export interface SplitAnalyzeResponse {
+  job_id: string
+}
+
+// GET /api/import/split/{split_id} 상태 — stage-reviewer 재수정(2026-08-04, [중요-1]) 백엔드
+// 확정값으로 교체: 'ready'(정밀 분석 미시작) · 'analyzing'(진행 중) · 'analyzed'(완료 — chunks가
+// 갱신본으로 대체) · 'error' · 'cancelled'(§4.24 ② 관례). ConvertJobStatus(running/done)를
+// 재사용하지 않는다(값 자체가 다르다).
+export type SplitStatus = 'ready' | 'analyzing' | 'analyzed' | 'error' | 'cancelled'
+
+// [경미-1] 재수정 — GET도 split_id·source_chars·confidence·analyze_estimate·reuse·fallback을
+// 함께 내려준다(정렬 ④ 반영분). 재진입·재사용 복원 세션에서도 이 응답만으로 정밀 분석 제안
+// (견적 확인 스텝 포함)을 다시 구성할 수 있다 — POST 응답에만 의존하지 않는다.
+export interface SplitStatusResponse {
+  split_id: string
+  source_chars: number
+  confidence: SplitConfidence
+  status: SplitStatus
+  progress?: JobProgress | null
+  error_info?: LlmErrorInfo | null
+  chunks: SplitChunk[]
+  analyze_estimate: SplitEstimate
+  reuse?: SplitReuseInfo | null
+  fallback?: SplitFallback | null
+}
+
+// POST /api/import/split/{split_id}/enqueue — selections 그룹 = 조각 1개 또는 인접 연속
+// chunk_id 구간([합치기] 결과, 비인접·중복·미존재·상한 초과 = 422). category_paths 키는 명세에
+// 세부 규칙이 없어 각 그룹의 대표 chunk_id(그룹 배열의 첫 원소 = 원문 시작이 가장 앞선 조각)로
+// 추정했다 — 최종 보고 필수 확인 지점.
+export interface SplitEnqueueRequest {
+  selections: string[][]
+  category_paths?: Record<string, string>
+}
+
+export interface SplitEnqueueJobItem {
+  job_id: string
+  chunk_ids: string[]
+  label: string
+}
+
+export interface SplitEnqueueResponse {
+  jobs: SplitEnqueueJobItem[]
 }

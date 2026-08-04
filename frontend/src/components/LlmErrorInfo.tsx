@@ -46,6 +46,9 @@ interface LlmErrorInfoProps {
   // S14(설계 §4.13·§5.9 `unsupported_format`): qnet 게시물에 PDF 첨부가 없는 경우 — 원본은
   // sources/에 이미 저장돼 있으므로 파일 반입(F40 대기열)으로 이어가는 버튼을 제공한다.
   onContinueWithFile?: () => void
+  // S23(설계 §4.25, F49) — too_large(convert 잡 발생분만 — §4.25 ㉳)의 alternatives에
+  // 'split_import'가 실리면 분할 위저드를 여는 버튼을 제공한다.
+  onSplitImport?: () => void
 }
 
 export default function LlmErrorInfoView({
@@ -55,6 +58,7 @@ export default function LlmErrorInfoView({
   retrying,
   onSplitReupload,
   onContinueWithFile,
+  onSplitImport,
 }: LlmErrorInfoProps) {
   // 엔진 레지스트리(설계 §4.17②) — 버튼 라벨을 fallback_engine id로 찾는다. 이 훅은 이미
   // status 쿼리 캐시를 공유하므로(LlmEngineSection·LlmLimitBanner와 동일 키) 여기서 별도
@@ -117,6 +121,15 @@ export default function LlmErrorInfoView({
             className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
           >
             파일 반입으로 이어가기
+          </button>
+        )}
+        {errorInfo.alternatives?.includes('split_import') && onSplitImport && (
+          <button
+            type="button"
+            onClick={onSplitImport}
+            className="rounded border border-border px-3 py-1.5 text-xs text-primary hover:bg-bg"
+          >
+            분할 반입
           </button>
         )}
       </div>

@@ -33,6 +33,7 @@ from routers import (
     review_notes,
     search,
     settings,
+    split,
     srs,
     stats,
     study,
@@ -64,6 +65,7 @@ app.include_router(fetch.router)
 app.include_router(exam.router)
 app.include_router(applied_exam.router)
 app.include_router(improve.router)
+app.include_router(split.router)
 
 
 @app.on_event("startup")

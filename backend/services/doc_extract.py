@@ -48,12 +48,20 @@ class DocTooLargeError(Exception):
         self.action = action
 
 
-def enforce_max_chars(text: str, *, label: str = "추출된 텍스트") -> None:
+def enforce_max_chars(
+    text: str, *, label: str = "추출된 텍스트", max_chars: Optional[int] = None
+) -> None:
     """A군 디코드·B군 추출 텍스트 공통 200,000자 상한(§4.18 ⑤) — LLM 호출 전 비용 0 차단.
-    서버측 자동 분할은 하지 않는다(F40-④ 원칙과 동일 — 분할은 사용자 몫)."""
-    if len(text) > MAX_TEXT_CHARS:
+    서버측 자동 분할은 하지 않는다(F40-④ 원칙과 동일 — 분할은 사용자 몫).
+
+    `max_chars`(S23 — F49, 설계 §4.25) — 기본 `None`이면 `MAX_TEXT_CHARS`(기존 동작 완전
+    불변). 분할 반입(`split_service`)만 이 상한을 우회하려고 훨씬 큰 값을 넘겨 판별·추출
+    계층 자체는 중복 구현하지 않고 재사용한다 — 값 자체(200,000)를 바꾸는 것이 아니라
+    **호출자가 다른 상한을 적용**하는 것뿐이다."""
+    limit = MAX_TEXT_CHARS if max_chars is None else max_chars
+    if len(text) > limit:
         raise DocTooLargeError(
-            f"{label}가 너무 깁니다(약 {len(text):,}자 — 상한 {MAX_TEXT_CHARS:,}자)"
+            f"{label}가 너무 깁니다(약 {len(text):,}자 — 상한 {limit:,}자)"
         )
 
 
@@ -102,11 +110,12 @@ def _docx_table_to_md(table: Any) -> str:
     return _md_table(rows)
 
 
-def extract_docx_text(data: bytes) -> str:
+def extract_docx_text(data: bytes, *, max_chars: Optional[int] = None) -> str:
     """docx 바이트 → 문단+표(Markdown 표) 텍스트를 **문서 순서대로** 직렬화(§4.18 ④).
 
     수식(OMML)·이미지·텍스트박스는 소실된다 — 감지는 `docx_has_lost_elements`가 별도로
-    담당한다(호출부가 잡 notes에 소표기 1건을 붙인다). 200,000자 상한을 여기서 확인한다."""
+    담당한다(호출부가 잡 notes에 소표기 1건을 붙인다). 200,000자 상한을 여기서 확인한다.
+    `max_chars`(S23 — F49)는 `enforce_max_chars`로 그대로 전달(기본 동작 불변)."""
     try:
         import docx
     except ImportError as exc:  # pragma: no cover - requirements에 고정 설치되어야 정상
@@ -137,7 +146,7 @@ def extract_docx_text(data: bytes) -> str:
         raise DocExtractError("워드(docx) 문서 내용을 추출하지 못했습니다.") from exc
 
     text = "\n\n".join(parts).strip()
-    enforce_max_chars(text)  # S16 검토 6 — §4.18 ⑤ 확정 문안 그대로("추출된 텍스트가...")
+    enforce_max_chars(text, max_chars=max_chars)  # S16 검토 6 — §4.18 ⑤ 확정 문안 그대로
     return text
 
 
@@ -161,12 +170,14 @@ def docx_has_lost_elements(data: bytes) -> bool:
 # ---------------------------------------------------------------------------
 # xlsx 추출 (openpyxl)
 # ---------------------------------------------------------------------------
-def extract_xlsx_text(data: bytes) -> str:
+def extract_xlsx_text(data: bytes, *, max_chars: Optional[int] = None) -> str:
     """xlsx 바이트 → 시트별 Markdown 표(`## 시트: {이름}` + 표, D2-③ 확정)로 직렬화.
 
     시트 10개·시트당 500행·행당 50열 상한 초과 시 **부분 잘림 없이** `DocTooLargeError`로
-    중단한다(초과 지점을 message에 명시). 수식 셀은 계산값(`data_only=True` — 캐시 없으면
-    빈 값). 200,000자 상한도 여기서 확인한다."""
+    중단한다(초과 지점을 message에 명시 — 이 구조 상한은 `max_chars`와 무관하게 항상
+    적용된다, S23 F49 범위 밖 "B군 구조 상한 초과 분할 없음"). 수식 셀은 계산값
+    (`data_only=True` — 캐시 없으면 빈 값). 200,000자 상한(텍스트 길이)만 `max_chars`로
+    우회 가능하다(기본 `None` = 기존 동작 불변)."""
     try:
         import openpyxl
     except ImportError as exc:  # pragma: no cover - requirements에 고정 설치되어야 정상
@@ -228,5 +239,5 @@ def extract_xlsx_text(data: bytes) -> str:
         workbook.close()
 
     text = "\n\n".join(parts).strip()
-    enforce_max_chars(text)  # S16 검토 6 — §4.18 ⑤ 확정 문안 그대로("추출된 텍스트가...")
+    enforce_max_chars(text, max_chars=max_chars)  # S16 검토 6 — §4.18 ⑤ 확정 문안 그대로
     return text

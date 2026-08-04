@@ -325,6 +325,39 @@ export function useConvertQueue() {
     [entries, updateEntry, qc],
   )
 
+  // S23(설계 §4.25, F49) — 분할 위저드의 enqueue 응답(이미 서버에 등록된 기존 convert 잡)을
+  // 큐에 편입한다. startFiles/startUrl과 달리 POST /api/convert를 다시 부르지 않는다(중복
+  // 시작 금지 — 잡은 서버가 이미 만들었다). "신규 진행 UI 없음"(체크리스트) — 이 큐·기존
+  // ImportQueueList가 그대로 폴링·표시를 이어받는다.
+  const addJobs = useCallback(
+    (jobs: { job_id: string; label: string }[]) => {
+      if (jobs.length === 0) return
+      const created: StoredQueueEntry[] = jobs.map((j) => ({
+        id: newEntryId(),
+        jobId: j.job_id,
+        sourceKind: 'split',
+        fileName: j.label,
+        categoryPath: null,
+        committed: false,
+        startError: null,
+        startErrorInfo: null,
+        createdAt: Date.now(),
+      }))
+      setEntriesState((prev) => {
+        const next = [...prev, ...created]
+        writeQueue(next)
+        return next
+      })
+      qc.invalidateQueries({ queryKey: llmJobsKey })
+    },
+    [qc],
+  )
+
+  // 분할 위저드가 too_large 항목에서 [분할 반입]으로 넘어갈 때, 이번 세션에 남아 있는 File을
+  // 재사용하기 위한 조회(§4.25 진입점 — 파일 소스인데 새로고침으로 잃었으면 위저드가 직접
+  // 재업로드를 받는다).
+  const getFile = useCallback((id: string) => filesRef.current.get(id) ?? null, [])
+
   const markCommitted = useCallback(
     (id: string) => updateEntry(id, { committed: true }),
     [updateEntry],
@@ -374,6 +407,8 @@ export function useConvertQueue() {
     starting,
     startFiles,
     startUrl,
+    addJobs,
+    getFile,
     retryEntry,
     markCommitted,
     removeEntry,
