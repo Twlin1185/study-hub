@@ -471,6 +471,10 @@ export default function ImportPage() {
           )}
           {entryMode === 'split_import' && (
             <SplitImportWizard
+              // stage-reviewer 표적 확인([예방 1줄]) — resumeSplitId만 바뀌는 딥링크 재진입에서
+              // 위저드 내부 useState 초기값이 갱신되지 않는 사고를 예방하기 위해 split_id별로
+              // 강제 리마운트한다.
+              key={(splitResumeId ?? splitIdParam) ?? 'new'}
               initialSource={splitInitialSource}
               resumeSplitId={splitResumeId ?? splitIdParam}
               onCancel={() => {
@@ -479,12 +483,14 @@ export default function ImportPage() {
                 setSplitAnchorEntryId(null)
                 setEntryMode('convert')
               }}
-              onEnqueued={(jobs) => {
+              onEnqueued={(jobs, splitId) => {
                 // 4단계(조각별 미리보기 승인)는 신규 진행 UI 없이 기존 ImportQueue 화면이
-                // 그대로 이어받는다(체크리스트 — 신규 진행 UI 없음). 앵커 항목(재진입 앵커,
-                // 사용자 실사용 피드백 반영)은 조각들이 이미 합류했으니 큐에서 제거한다
-                // (원본이 두 번 남아 혼란스럽다는 피드백 반영).
-                queue.addJobs(jobs.map((j) => ({ job_id: j.job_id, label: j.label })), splitAnchorEntryId)
+                // 그대로 이어받는다(체크리스트 — 신규 진행 UI 없음). 이 split_id를 가진 재진입
+                // 앵커 항목은(재사용으로 앵커가 둘 이상 생겼더라도 전부) 조각들이 이미
+                // 합류했으니 큐에서 제거한다(원본이 두 번 남아 혼란스럽다는 피드백 반영 —
+                // stage-reviewer 표적 확인 [관찰 (a)] 재수정: entryId 1개가 아니라 split_id
+                // 기준 전체 제거).
+                queue.addJobs(jobs.map((j) => ({ job_id: j.job_id, label: j.label })), splitId)
                 setSplitInitialSource(null)
                 setSplitResumeId(null)
                 setSplitAnchorEntryId(null)

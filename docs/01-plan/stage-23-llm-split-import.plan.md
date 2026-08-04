@@ -175,19 +175,20 @@
     개명)·`docs/02-design/study-app.design.api.md`.
   - **pytest**: `test_split_import.py` 25→28건, 전체 스위트 **506 → 509건 통과**(무LLM).
 - **2026-08-04 표적 재검토 최종 통과(stage-reviewer, Opus)**: 중요 1(3중 파손 전수)·중요 2(재현 표본 후보 300→0 + 진짜 헤더 표본 정상 분할·헤딩 표본 회귀 없음 — 양방향 직접 실행 확인)·경미 1~6 전건 해소 — **DoD 자동 검증 6/6 · 치명 0·중요 0·경미 0 · pytest 509 · dist 바이트 일치**. 잔여 관찰 3건(결함 아님·차기 판단용): (A) 장식 접두 헤더(`■ …`·`【…】`)는 강한 신호에서 제외 — 실패 모드가 graceful(uncertain→정밀 분석 제안/명시 폴백)이라 현상 유지 타당, DoD 7 실사례에서 회차 헤더 미탐 시 첫 개선 후보(행두 앵커 앞 기호 1~2자 허용) (B) analyze 실패·취소 후 위저드에 "정밀 분석 없이 분할안 확인" 버튼이 사라짐(서버 안내 문구와 불일치 — 분할안은 서버 보존이라 재진입으로 복구 가능, 데이터 손실 0) (C) 조각 convert 잡의 커밋 문서가 sources/ 원본과 미연결(§4.25는 재저장 금지만 규정 — 링크 유지 필요 시 별도 등재).
-- **2026-08-04 DoD 7 사용자 피드백 반영 3건(프론트 전용, 신규 API 0, backend/dist 무변경)**:
+- **2026-08-04 DoD 7 사용자 피드백 반영 3건(프론트 전용, 신규 API 0, backend 무변경)**:
   피드백 원문 —
   (1) "분할작업중에 다른창을 갔다오면 분할작업에 대해 접근하기 어려워"
   (2) "텍스트가 너무길어 분할 작업하기로 했지만, 기존것이 남아있어 혼란스러워"
   (3) "LLM 작업중 토큰 입력과 출력이라고 표시된거를 봤을때 총 토큰 사용량(또는 예상 사용량)을 알기 어려워"
   - **(1)+(2) 재진입 앵커**: `utils/convertQueue.ts`(`StoredQueueEntry.splitId` 필드 추가) ·
     `hooks/useConvertQueue.ts`(`QueueItemStatus`에 `'split_in_progress'` 추가·우선순위는 `ready`
-    다음·`error`보다 앞 · `setEntrySplitId(id, splitId)` 신설 · `addJobs(jobs, anchorEntryId?)`로
-    enqueue 성공 시 앵커 항목 제거) · `components/ImportQueue.tsx`("분할 진행 중" 중립 배지 +
-    [분할안 열기] 버튼, error 렌더와 분리) · `pages/Import.tsx`(`splitAnchorEntryId`/`splitResumeId`
-    상태로 [분할 반입]↔[분할안 열기] 분기, `SplitImportWizard`의 `onSplitStarted`(split_id 확보 시
-    앵커에 반영)·`onSplitExpired`(GET 404 시 앵커를 원래 실패 상태로 복귀 + 안내 배너) 콜백 배선,
-    작업 센터 딥링크(`?split_id=`)로 들어온 경우도 큐에서 같은 split_id 항목을 찾아 앵커로 편입) ·
+    다음·`error`보다 앞 · `setEntrySplitId(id, splitId)` 신설 · `addJobs(jobs, splitId?)`로
+    enqueue 성공 시 그 split_id를 가진 앵커 항목 **전부** 제거) · `components/ImportQueue.tsx`
+    ("분할 진행 중" 중립 배지 + [분할안 열기] 버튼, error 렌더와 분리) ·
+    `pages/Import.tsx`(`splitAnchorEntryId`/`splitResumeId` 상태로 [분할 반입]↔[분할안 열기]
+    분기, `SplitImportWizard`의 `onSplitStarted`(split_id 확보 시 앵커에 반영)·`onSplitExpired`
+    (GET 404 시 앵커를 원래 실패 상태로 복귀 + 안내 배너) 콜백 배선, 작업 센터 딥링크
+    (`?split_id=`)로 들어온 경우도 큐에서 같은 split_id 항목을 찾아 앵커로 편입) ·
     `components/SplitImportWizard.tsx`(`onSplitStarted`/`onSplitExpired` prop 신설·`analyzeUnavailable`
     게이팅 정리 — 만료 배너와 "정밀 분석 없이 분할안 확인" 카드가 동시에 뜨지 않게, 만료·연결 실패
     상태에도 [닫기] 버튼 추가). localStorage 지속이라 새로고침 후에도 동작(기존 큐 지속 관례 그대로).
@@ -197,5 +198,26 @@
     렌더하지 않음(취소 후 목록 무효화만 수행, §5.14) — 렌더 지점이 없어 수정 대상 아님. `JobProgress`
     에는 예상치(estimate/approx) 필드가 없어(실측치 `usage`만 존재) "예상 ~K" 병기는 추가하지
     않음(백엔드 변경 금지 — 지시대로 없으면 추가하지 않음).
-  - **상태 전이(재진입 앵커)**: `[error: too_large]` --[분할 반입] 클릭·`POST /import/split` 성공--> `[split_in_progress: splitId=X]`(위저드 닫아도 유지) --[분할안 열기]·GET 성공--> 위저드 재개(analyze/chunks/cost 이어서) · --[분할안 열기]·GET 404(만료)--> 안내 배너 + `splitId=null`로 복귀 → `[error: too_large]`(재시도 가능) · --enqueue 성공--> 앵커 항목 제거(조각들이 새 `'split'` sourceKind 항목으로 큐 합류, 독립적인 queued→running→ready→committed 수명주기).
-  - **검증**: `npm run build` 통과(타입 에러 0) — 신규 API 0건·backend/·frontend/dist 무변경(빌드 산출물은 검증 후 원복).
+  - **상태 전이(재진입 앵커)**: `[error: too_large]` --[분할 반입] 클릭·`POST /import/split` 성공--> `[split_in_progress: splitId=X]`(위저드 닫아도 유지) --[분할안 열기]·GET 성공--> 위저드 재개(analyze/chunks/cost 이어서) · --[분할안 열기]·GET 404(만료)--> 안내 배너 + `splitId=null`로 복귀 → `[error: too_large]`(재시도 가능) · --enqueue 성공--> 그 split_id를 가진 앵커 항목 전부 제거(조각들이 새 `'split'` sourceKind 항목으로 큐 합류, 독립적인 queued→running→ready→committed 수명주기).
+  - **검증**: `npm run build` 통과(타입 에러 0) — 신규 API 0건·backend 무변경. `frontend/dist`는 이번
+    라운드 로컬 검증 빌드 후 원복(작업 중 `git status` 클린 유지) — 이어서 **오케스트레이터가
+    dist를 재빌드·커밋(9099a71 "build(stage-23): dist 재빌드(재진입 UX·토큰 합계)")**했다(빌드
+    산출물 커밋은 오케스트레이터 소관 — frontend-dev는 소스만 수정).
+- **2026-08-04 표적 확인 통과 — 소소 4건 반영(stage-reviewer 검토, 프론트 전용)**: 위 DoD 7
+  피드백 반영분에 대한 표적 확인에서 수정 힌트가 명시된 4건을 그대로 반영.
+  1. **[관찰-B 본체] 분석 실패·취소 후 dead end 해소**: `SplitImportWizard.tsx` —
+     `analyzeFailed`/`analyzeCancelled` 상태에서도 `groups.length > 0`(정밀 분석 이전에 이미
+     확보한 휴리스틱 분할안이 서버에 유효하게 남아 있음)이면 [닫기] 옆에 "정밀 분석 없이 분할안
+     확인" 버튼을 노출 — 분석 실패·취소가 더 이상 막다른 길이 되지 않는다.
+  2. **[관찰 (a)] 중복 앵커 방어**: `useConvertQueue.addJobs`의 두 번째 인자를 `anchorEntryId`
+     (단일 entryId)에서 `splitId`로 바꾸고, 그 split_id를 가진 큐 항목을 **전부** 제거하도록
+     수정 — 같은 split을 재사용(hash12 재사용 안내)해 앵커가 두 개 이상 생긴 엣지에서 남은
+     앵커가 같은 조각을 다시 투입하는 사고를 차단. `SplitImportWizard`의 `onEnqueued`도
+     `(jobs, splitId)` 2-인자로 확장해 호출부에 실제 split_id를 넘긴다.
+  3. **[예방 1줄] 위저드 리마운트 보장**: `Import.tsx`의 `<SplitImportWizard>`에
+     `key={(splitResumeId ?? splitIdParam) ?? 'new'}` 추가 — 딥링크로 `resumeSplitId`만 바뀌는
+     재진입에서 위저드 내부 `useState` 초기값이 갱신되지 않는 사고를 예방.
+  4. **[관찰 (c)] 문서 문장 정정**: 위 DoD 7 피드백 반영 기록의 "backend/dist 무변경" 문장을
+     실제(오케스트레이터의 dist 재빌드 커밋 9099a71)에 맞게 정정(이 항목 자체가 그 정정).
+  - **검증**: `npm run build` 통과(타입 에러 0). `frontend/dist`는 로컬 검증 빌드 후 다시
+    원복(작업 트리 클린 유지 — 커밋은 오케스트레이터 소관).

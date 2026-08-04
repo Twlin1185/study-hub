@@ -80,7 +80,10 @@ interface SplitImportWizardProps {
   // 작업 센터 딥링크·새로고침 복원(§4.24 ⑤, §4.25 ㉳) — 이미 만들어진 분할안을 이어서 연다.
   resumeSplitId?: string | null
   onCancel: () => void
-  onEnqueued: (jobs: SplitEnqueueJobItem[]) => void
+  // splitId(두 번째 인자, stage-reviewer 표적 확인 [관찰 (a)]) — 호출부가 이 split_id를 가진
+  // 큐 항목 "전부"를 정리할 수 있게 함께 넘긴다(같은 split을 재사용한 두 앵커가 남아 같은
+  // 조각을 중복 투입하는 엣지 차단 — 단일 anchorEntryId 제거로는 못 막는다).
+  onEnqueued: (jobs: SplitEnqueueJobItem[], splitId: string) => void
   // 재진입 앵커(사용자 실사용 피드백 반영) — split_id를 확보(POST 성공·재사용 선택 포함)할
   // 때마다 알려 호출부가 출발점이 된 too_large 항목에 이 id를 심게 한다("분할 진행 중" 전환).
   onSplitStarted?: (splitId: string) => void
@@ -284,7 +287,7 @@ export default function SplitImportWizard({
         selections,
         categoryPaths: Object.keys(categoryPaths).length > 0 ? categoryPaths : undefined,
       },
-      { onSuccess: (data) => onEnqueued(data.jobs) },
+      { onSuccess: (data) => onEnqueued(data.jobs, splitId) },
     )
   }
 
@@ -520,9 +523,13 @@ export default function SplitImportWizard({
           )}
 
           {/* analyzeUnavailable(사용자 실사용 피드백 반영) — 만료(404)로 앵커를 되돌린 뒤에도
-              사용자가 직접 닫아야 원래 실패 상태([분할 반입] 재시도)를 확인할 수 있다. */}
+              사용자가 직접 닫아야 원래 실패 상태([분할 반입] 재시도)를 확인할 수 있다.
+              stage-reviewer 표적 확인([관찰-B 본체]) — analyzeFailed/analyzeCancelled여도
+              서버에 유효한 휴리스틱 groups가 남아 있으면(정밀 분석 이전에 이미 확보한 분할안,
+              §4.25 ⓐ "휴리스틱안은 서버 이력 보존") 그걸 버리지 않고 곧장 분할안 확인으로 넘어갈
+              길을 열어 둔다 — 실패·취소가 dead end가 되지 않게. */}
           {(analyzeFailed || analyzeCancelled || analyzeUnavailable) && (
-            <div className="flex justify-start">
+            <div className="flex justify-between">
               <button
                 type="button"
                 onClick={onCancel}
@@ -530,6 +537,15 @@ export default function SplitImportWizard({
               >
                 닫기
               </button>
+              {(analyzeFailed || analyzeCancelled) && groups.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleSkipAnalyze}
+                  className="rounded border border-border px-4 py-2 text-sm text-primary hover:bg-bg"
+                >
+                  정밀 분석 없이 분할안 확인
+                </button>
+              )}
             </div>
           )}
         </div>

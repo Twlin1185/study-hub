@@ -336,11 +336,14 @@ export function useConvertQueue() {
   // 큐에 편입한다. startFiles/startUrl과 달리 POST /api/convert를 다시 부르지 않는다(중복
   // 시작 금지 — 잡은 서버가 이미 만들었다). "신규 진행 UI 없음"(체크리스트) — 이 큐·기존
   // ImportQueueList가 그대로 폴링·표시를 이어받는다.
-  // anchorEntryId(사용자 실사용 피드백 반영) — enqueue의 출발점이 된 too_large 실패 항목(재진입
-  // 앵커, 'split_in_progress')이 있으면 함께 제거한다: 조각들이 새 항목으로 이미 합류했으니
-  // "분할 진행 중" 앵커를 그대로 두면 같은 원본이 두 번 남아 혼란스럽다(피드백 2건 반영).
+  // splitId(사용자 실사용 피드백 반영 — stage-reviewer 표적 확인 [관찰 (a)] 재수정) — enqueue의
+  // 출발점이 된 split_id를 가진 재진입 앵커 항목을 **전부** 제거한다: 조각들이 새 항목으로 이미
+  // 합류했으니 "분할 진행 중" 앵커를 그대로 두면 같은 원본이 두 번 남아 혼란스럽다(피드백 2건
+  // 반영). 단일 entryId 1개만 지우면, 같은 split을 재사용(hash12 재사용 안내)해 앵커가 두 개
+  // 이상 생긴 엣지에서 나머지 앵커가 남아 같은 조각을 다시 투입할 수 있다 — split_id 기준으로
+  // 매칭되는 항목 전부를 지운다.
   const addJobs = useCallback(
-    (jobs: { job_id: string; label: string }[], anchorEntryId?: string | null) => {
+    (jobs: { job_id: string; label: string }[], splitId?: string | null) => {
       if (jobs.length === 0) return
       const created: StoredQueueEntry[] = jobs.map((j) => ({
         id: newEntryId(),
@@ -355,12 +358,13 @@ export function useConvertQueue() {
         splitId: null,
       }))
       setEntriesState((prev) => {
-        const withoutAnchor = anchorEntryId ? prev.filter((e) => e.id !== anchorEntryId) : prev
-        const next = [...withoutAnchor, ...created]
+        const removedIds = splitId ? prev.filter((e) => e.splitId === splitId).map((e) => e.id) : []
+        for (const id of removedIds) filesRef.current.delete(id)
+        const withoutAnchors = removedIds.length > 0 ? prev.filter((e) => !removedIds.includes(e.id)) : prev
+        const next = [...withoutAnchors, ...created]
         writeQueue(next)
         return next
       })
-      if (anchorEntryId) filesRef.current.delete(anchorEntryId)
       qc.invalidateQueries({ queryKey: llmJobsKey })
     },
     [qc],
