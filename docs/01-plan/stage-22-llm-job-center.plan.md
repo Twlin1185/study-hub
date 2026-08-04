@@ -2,7 +2,7 @@
 
 > 상위: `study-app.plan.md` **v0.33** §14(M22)·**F48**(배경 = 사용자 요청 4건·ⓐⓑⓒⓓ·확정 결정의 단일 출처) · 설계: **§4.24 신설 완료(2026-08-03, Design v1.26 — 잡 목록·취소·일시정지·model 파라미터·복원 계약의 정본)** · screens **§5.14 신설**(전역 패널·진입점·복원 훅)
 > 배경(등재 근거 — 2026-08-03 사용자 요청 4건): ① LLM 작업 전역 현황 화면(어디서든 — PC 좌하단 버튼·모바일 좌측 탭) ② 취소·일시 중단 ③ 작업 화면에서 모델 바로 선택 ④ **실측 결함**: 응용 모의고사 생성 중 화면을 떠났다 재진입하면 진행 표시가 복원되지 않음. F48 = 잡의 **보기(현황)·멈추기(취소·일시정지)·고르기(모델)·되찾기(복원)** 운용 계층.
-> **상태: 구현 완료(2026-08-03) — 검토 최종 통과(DoD 자동 검증 6/6·치명 0·중요 0·경미 5 잔여·pytest 461) → 경미 4건(①②③④⑤ 중 백엔드 ②·프론트 ①③④⑤) 후속 수정 완료(pytest 463·프론트 build 통과), model 적용 로직 중복 관찰 1건만 잔여(게이트 아님). 사용자 이행 항목(DoD 7 취소·복원 실측)만 잔여.**
+> **상태: 완료(2026-08-05) — 구현 완료(2026-08-03) + 검토 최종 통과(DoD 자동 검증 6/6·치명 0·중요 0·경미 5 잔여·pytest 461) → 경미 4건(①②③④⑤ 중 백엔드 ②·프론트 ①③④⑤) 후속 수정 완료(pytest 463·프론트 build 통과) → 사용자 이행 항목(DoD 7 취소·복원 실측) 2026-08-05 실사용 확인 완료·이상 없음. model 적용 로직 중복 관찰 1건만 잔여(게이트 아님).**
 > 순서 관계(plan §14): **F47(M21) 완성 전제 — 이행 완료(2026-08-03)**. 엔진·모델 레지스트리(`models`·`selected_model`)·공용 EngineSelect·422 공통 헬퍼(`assert_engine_selectable`)·잡 모델 필드(`job["_model"]`)를 전부 재사용한다. 파일 충돌 없음(주 수정처 = `convert_service`(잡 레코드·큐)·`routers/llm.py`·전역 패널·EngineSelect).
 > 불변 규칙 재확인: 스키마 변경 금지(6 — **DDL 0건·DB 쓰기 0·settings 키 0·신규 엔드포인트 4개 확정**, §4.24 말미) · 정답·해설 미노출(1 — 잡 목록 label은 파일명·제목·범위 수준, LLM 산출 원문 미포함) · 색상 토큰만(5) · 에러 규약 §3(409·422는 서버 완성 문장) · 오류 원문 노출 금지(§4.11) · **신규 엔드포인트는 전부 LLM 호출 0**(조회·제어 — 비용 0. 취소만 "이미 발생한 과금"을 다루며 새 과금을 만들지 않는다).
 
@@ -70,7 +70,7 @@
 
 - [x] **단위 테스트**(잡 제어·검증은 핵심 로직 취급 — 불변 규칙 7의 예외, F47 전례): ① **취소 상태 전이**(queued 제거·running 중단·done/error/cancelled = 409·미존재 404·전이 후 목록 반영) ② **레이스**(완료 선착 = 409 + 결과 보존 · 취소 선착 = 후착 산출물 폐기) ③ **pause/resume**(다음 잡 보류·running 무영향·멱등·paused 중 등록 = 대기 적재) ④ **model 검증**(auto+model 422 · 소목록 밖 422 · 유효값 = `job["_model"]` 대체 · 미지정 = 설정값 폴백 불변 · 폴백 시 재산출 · settings 무변경 · 9개 진입점 공통 헬퍼 경유) ⑤ **잡 목록**(전 kind 파생·정렬·ref·label에 정답·해설·원문 부재). — 신규 `backend/tests/test_job_center.py`(28건, Windows 프로세스 트리 종료 실측 1건 포함) + 기존 스위트 전체(461건: 기존 433 + 신규 28) 통과 확인 완료(2026-08-03).
 - [x] 스모크(실기동): **`engine=auto` 실행 금지·422 유발 값·무LLM 엔드포인트만 사용**(stage-21 사고 재발 방지 규약 승계) — 잡 목록 형식·pause/resume 왕복·model 422 두 종·cancel 404/409 확인. 실행 중 취소·실 진행 목록은 사용자 이행으로. — 오케스트레이터가 uvicorn(포트 8021)로 수행, 전건 통과(완료 기록). 409는 실 잡 없이 재현 불가라 단위 테스트·검토자 in-process 스모크로 갈음.
-- [ ] **취소·복원 실측(사용자 이행 — 실 LLM 소비용)**: ① 실 잡 1건 running 중 취소 — CLI 프로세스 트리 실제 종료(작업 관리자 확인)·부분 과금 usage 기록(R24 이행) ② 응용 모의고사 생성 중 이탈→재진입 — 진행 패널 자동 복원 확인(원 결함 해소 실증). 결과를 완료 기록에 기입.
+- [x] **취소·복원 실측(사용자 이행 — 실 LLM 소비용)**: ① 실 잡 1건 running 중 취소 — CLI 프로세스 트리 실제 종료(작업 관리자 확인)·부분 과금 usage 기록(R24 이행) ② 응용 모의고사 생성 중 이탈→재진입 — 진행 패널 자동 복원 확인(원 결함 해소 실증). 결과를 완료 기록에 기입. — **2026-08-05 사용자 실사용 확인 완료, 이상 없음**(완료 기록 참조).
 - [x] stage-reviewer(Opus) 검토 — DoD 자동 검증 항목 전건. — 1차(치명 0·중요 2·경미 6 — DoD 5 미충족) → 수정 2회 반영 → **최종 통과(DoD 자동 검증 6/6·치명 0·중요 0·경미 5 잔여)**. 완료 기록 참조.
 
 ### 7. 문서
@@ -125,3 +125,4 @@
 - **2026-08-03 프론트 경미 결함 수정(경미 ①③④⑤, 워크트리 `stage-22-minor-fixes`)**: ① 잡 시작 훅·직접호출 9곳 전수에 성공 시 `llmJobsKey` invalidate 추가 — `api/convert.ts`(`useStartConvert`·`useRegenerate`) · `api/fetch.ts`(`useFetchImport`) · `api/answerKey.ts`(`useStartAnswerKeyProcess`) · `api/explain.ts`(`useStartExplain`) · `api/appliedExam.ts`(`useStartAppliedExamGenerate`) · `api/improve.ts`(`useStartImproveGen`·`useStartImproveRegression`) · `hooks/useConvertQueue.ts`(훅 밖 직접 호출 경로 `startFiles`/`startUrl`/`retryEntry` 3곳, 이미 보유한 `queryClient`로 동일 처리). ③ `pages/Suggestions.tsx`·`pages/Exam.tsx`·`pages/Import.tsx` 세 화면에 쿼리 파라미터 값 변화만 구독하는 `useEffect`를 추가해 같은 라우트에서 딥링크 재진입 시에도 탭/모드가 전환되게 함(파라미터가 실제로 목표값으로 바뀔 때만 반응 — 사용자가 수동으로 바꾼 탭을 되돌리지 않음). ④ `components/JobCenterPanel.tsx`의 일시정지/재개 버튼 클릭에 `onError` 추가 — cancel과 동일한 `actionError` 표시 경로로 서버 message(또는 일반 실패 문구) 렌더. ⑤ `components/Layout.tsx` 모바일 드로어 오버레이에 `bg-black/40`(기존 `Modal.tsx`·`Explore.tsx`·`JobCenterPanel.tsx` 관례) 추가. `npm run build` 통과(`tsc -b && vite build`, 타입 에러 0).
 - **오케스트레이터 스모크(uvicorn 8021, 무LLM)**: 잡 목록 형식·pause/resume 왕복(paused 반영)·cancel 404 문장·model 422 두 종(auto+model·소목록 밖) 전건 통과 · dist 신규 번들 서빙 확인. `engine=auto` 실행 0(stage-21 규약 준수).
 - **계약과 어긋나 보류한 것**: 없음 — DDL·Alembic·DB 쓰기·settings 키 전부 0, 신규 엔드포인트 정확히 4개(검토자 diff 전수 확인).
+- **2026-08-05 DoD 7(사용자 이행) 실사용 확인 완료 — 이상 없음**: 사용자가 실 LLM 잡으로 ① running 중 취소(프로세스 트리 종료·부분 과금 usage 표기) ② 응용 모의고사 생성 중 이탈→재진입 복원을 직접 확인, 두 항목 모두 계약대로 동작(추가 결함 신고 0). **이로써 Stage 22의 모든 항목(자동 검증 6 + 사용자 이행 1) 완료 — 단계 종료.** 잔여 관찰은 model 적용 로직 2곳 중복(드리프트 위험, 게이트 아님) 1건뿐.
