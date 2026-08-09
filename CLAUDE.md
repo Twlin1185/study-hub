@@ -58,5 +58,5 @@
 - 테스트: `powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1` (요약만 출력 · `-Path tests/test_sm2.py` 부분 실행 · `-Full` 전체 로그)
   — 임베디드 파이썬(`python-embed/`, `_pth`)이라 `python -m pytest`는 임포트 실패한다. 래퍼가 sys.path를 주입한다.
 - 불변 규칙 검사: `powershell -ExecutionPolicy Bypass -File scripts/invariant-scan.ps1` (기준선 대비 신규 위반만 보고 · 정당한 변화면 `-UpdateBaseline`)
-- DB: 프로젝트 루트 `study.db` (SQLite WAL). 백업 = 파일 복사.
+- DB: 프로젝트 루트 `study.db` (SQLite WAL). 백업(F27) = `study.db` **VACUUM INTO** + `sources/` **zip 스냅샷** 2종 (`backend/services/backup_service.py` — 2026-08-09 실측 정정. 종전 "파일 복사" 서술은 구현보다 뒤처진 요약이었다. `sources/images/`도 백업에 포함된다).
 - 접속: PC `http://localhost:8000`, 폰 `http://<PC-IP>:8000` — **외부 포트포워딩 금지(R12)**.
