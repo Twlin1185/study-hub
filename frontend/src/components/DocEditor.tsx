@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Modal from './Modal'
+import ConfirmDialog from './ConfirmDialog'
 import MarkdownFieldEditor from './MarkdownFieldEditor'
 import { useCreateDocument, useDocument, useUpdateDocument } from '../api/documents'
 import { ApiError } from '../api/client'
@@ -38,9 +39,12 @@ interface DocEditorProps {
   onSaved?: (doc: DocumentDetail) => void
   // 'modal'(기본) = 팝업. 'page' = 전용 라우트(창, 9-5) — 같은 폼을 페이지 레이아웃으로 렌더.
   variant?: 'modal' | 'page'
+  // "창으로 열기" 이월 초안(10-1ⓒ 연장) — 있으면 서버 문서·빈 폼보다 우선하고, 즉시 dirty로
+  // 간주한다(DocEditPage가 sessionStorage에서 1회성으로 읽어 넘긴다).
+  initialDraft?: FormState | null
 }
 
-interface FormState {
+export interface FormState {
   type: DocumentType
   title: string
   content: string
@@ -54,6 +58,11 @@ function emptyForm(defaultType: DocumentType): FormState {
   return { type: defaultType, title: '', content: '', choices: '', answer: '', explanation: '', difficulty: '' }
 }
 
+// "창으로 열기" 이월 초안 sessionStorage 키(10-1ⓒ 연장) — DocEditPage가 1회성으로 읽고 즉시
+// 지운다. DocEditor가 FormState의 단일 출처이므로 이 파일에서 내보낸다(다른 파일은 손대지 않고
+// import만 하면 되게).
+export const DRAFT_STORAGE_KEY = 'docEditor.draft'
+
 export default function DocEditor({
   mode,
   documentId,
@@ -63,6 +72,7 @@ export default function DocEditor({
   onClose,
   onSaved,
   variant = 'modal',
+  initialDraft,
 }: DocEditorProps) {
   const editing = mode === 'edit'
   const navigate = useNavigate()
@@ -70,8 +80,11 @@ export default function DocEditor({
   const createDocument = useCreateDocument()
   const updateDocument = useUpdateDocument()
 
-  const [form, setForm] = useState<FormState>(() => emptyForm(defaultType))
+  const [form, setForm] = useState<FormState>(() => initialDraft ?? emptyForm(defaultType))
   const [error, setError] = useState<string | null>(null)
+  // "창으로 열기" 이월 초안으로 시작했으면 지시서대로 무조건 dirty로 간주한다(내용이 실제로
+  // 서버 값과 같아도 — 사용자가 편집 중이던 걸 이어받았다는 사실 자체가 dirty).
+  const startedFromDraftRef = useRef(initialDraft != null)
   // 본문·해설 각 MarkdownFieldEditor의 참조 삽입 팝업이 열려 있는 동안에는 바깥 모달이
   // Esc·배경 클릭으로 (편집 내용을 잃으며) 닫히지 않게 한다 — 9-4로 필드가 늘어나 두 인스턴스를
   // 함께 추적한다.
@@ -89,11 +102,19 @@ export default function DocEditor({
     setRefModalOpen((s) => (s.explanation === open ? s : { ...s, explanation: open }))
   }, [])
 
-  // edit 모드: 상세가 로드되면 폼을 채운다.
+  // 10-1ⓒ 미저장 보호 — 폼이 "초기값"(빈 폼, 또는 불러온 문서 그대로)과 다르면 닫기 시도(Esc·
+  // 오버레이·X·페이지 취소) 때 확인창을 거친다. 초기값은 edit 모드에서 문서가 로드되는 시점에
+  // form과 함께 갱신한다(로드 직후를 "변경 없음"으로 본다 — 로드 자체를 dirty로 오판하지 않게).
+  const initialFormRef = useRef<FormState>(emptyForm(defaultType))
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false)
+
+  // edit 모드: 상세가 로드되면 폼을 채운다 — 단, 이월 초안이 있으면 서버 값보다 우선이므로
+  // 이 로드 이펙트가 방금 적용한 초안을 덮어쓰지 않게 건너뛴다(지시서 "편집 모드에서는 서버
+  // 문서보다 이월 초안이 우선").
   const doc = docQuery.data
   useEffect(() => {
-    if (!editing || !doc) return
-    setForm({
+    if (!editing || !doc || initialDraft) return
+    const loaded: FormState = {
       type: doc.type,
       title: doc.title,
       content: doc.content ?? '',
@@ -101,8 +122,20 @@ export default function DocEditor({
       answer: doc.answer ?? '',
       explanation: doc.explanation ?? '',
       difficulty: doc.difficulty != null ? String(doc.difficulty) : '',
-    })
-  }, [editing, doc])
+    }
+    setForm(loaded)
+    initialFormRef.current = loaded
+  }, [editing, doc, initialDraft])
+
+  const isDirty = startedFromDraftRef.current || JSON.stringify(form) !== JSON.stringify(initialFormRef.current)
+
+  // 닫기 "시도" 진입점 — Esc·오버레이·X(Modal의 onClose)·페이지 닫기·폼의 취소 버튼이 전부 이
+  // 함수를 거친다. 저장 성공 경로(onSuccess 핸들러)는 이 함수를 부르지 않고 onSaved/onClose를
+  // 직접 호출하므로 확인 없이 닫힌다(지시서 "저장 성공 경로는 확인 없이 닫힘").
+  function attemptClose() {
+    if (isDirty) setConfirmCloseOpen(true)
+    else onClose()
+  }
 
   const questionLike = isQuestionLike(form.type)
   const submitting = createDocument.isPending || updateDocument.isPending
@@ -168,9 +201,21 @@ export default function DocEditor({
     }
   }
 
-  // "창으로 열기"(9-5) — 수정은 문서 id로, 신규 작성은 타입·분류 컨텍스트를 쿼리 파라미터로
-  // 유지한 채 전용 라우트로 이동한다. 저장·검증은 그 라우트에서도 이 컴포넌트 그대로 처리(공용).
+  // "창으로 열기"(9-5, 10-1ⓒ 연장) — 수정은 문서 id로, 신규 작성은 타입·분류 컨텍스트를 쿼리
+  // 파라미터로 유지한 채 전용 라우트로 이동한다. 저장·검증은 그 라우트에서도 이 컴포넌트 그대로
+  // 처리(공용). 폼이 초기값과 달라져 있으면(dirty) 그 내용을 sessionStorage에 1회성 초안으로
+  // 이월해 새 창/페이지가 그대로 이어받게 한다 — 초기값 그대로(빈 폼 등)면 이월할 것이 없으므로
+  // 건너뛴다(§10 잔여 경미-2: 안 그러면 새 페이지가 빈 폼인데도 "초안으로 시작 = dirty"가 되어
+  // 곧바로 닫기 확인창이 뜬다). 이월(또는 건너뜀) 후에는 onClose를 바로 부른다(확인 없이 닫힘,
+  // attemptClose를 거치지 않음 — 내용 손실이 아니다).
   function openInWindow() {
+    if (isDirty) {
+      try {
+        sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(form))
+      } catch {
+        // 사생활 보호 모드 등으로 sessionStorage 접근 불가 — 이월 없이 새 창은 그대로 연다.
+      }
+    }
     if (editing && documentId != null) {
       navigate(`/docs/${documentId}/edit`)
     } else {
@@ -235,6 +280,7 @@ export default function DocEditor({
         value={form.content}
         onChange={(next) => setForm((f) => ({ ...f, content: next }))}
         rows={8}
+        minHeightClass="min-h-[50vh]"
         docNo={doc?.doc_no}
         onRefModalOpenChange={handleContentRefModalOpenChange}
       />
@@ -288,7 +334,7 @@ export default function DocEditor({
       <div className="mt-2 flex justify-end gap-2">
         <button
           type="button"
-          onClick={onClose}
+          onClick={attemptClose}
           className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
         >
           취소
@@ -304,6 +350,22 @@ export default function DocEditor({
     </form>
   )
 
+  // 10-1ⓒ — 미저장 변경 확인창(ConfirmDialog 재사용, window.confirm 금지). 어느 variant에서든
+  // attemptClose가 dirty를 감지했을 때만 뜬다.
+  const confirmCloseDialog = confirmCloseOpen && (
+    <ConfirmDialog
+      title="편집 닫기"
+      message="작성 중인 내용이 있습니다. 닫을까요?"
+      confirmLabel="닫기"
+      danger
+      onConfirm={() => {
+        setConfirmCloseOpen(false)
+        onClose()
+      }}
+      onClose={() => setConfirmCloseOpen(false)}
+    />
+  )
+
   if (variant === 'page') {
     return (
       <div className="mx-auto max-w-3xl p-4">
@@ -311,13 +373,14 @@ export default function DocEditor({
           <h1 className="text-lg font-semibold text-primary">{editing ? '문서 편집' : '새 문서'}</h1>
           <button
             type="button"
-            onClick={onClose}
+            onClick={attemptClose}
             className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
           >
             닫기
           </button>
         </div>
         {body}
+        {confirmCloseDialog}
       </div>
     )
   }
@@ -325,11 +388,12 @@ export default function DocEditor({
   return (
     // 참조 삽입 팝업이 열려 있는 동안에는 바깥 모달이 Esc·배경 클릭으로 닫히지 않게 한다
     // (두 모달이 같은 window keydown을 듣기 때문 — 편집 내용 유실 방지). 팝업 쪽은 자체 핸들러로
-    // 스스로 닫히므로 여기서는 실제 onClose 대신 아무 것도 하지 않으면 충분하다.
+    // 스스로 닫히므로 여기서는 실제 onClose 대신 아무 것도 하지 않으면 충분하다. ref 팝업이 열려
+    // 있지 않으면 attemptClose로 보내 미저장 변경 확인(10-1ⓒ)을 거치게 한다.
     <Modal
       title={editing ? '문서 편집' : '새 문서'}
-      onClose={anyRefModalOpen ? () => {} : onClose}
-      widthClass="max-w-2xl"
+      onClose={anyRefModalOpen ? () => {} : attemptClose}
+      widthClass="max-w-6xl"
       headerExtra={
         <button
           type="button"
@@ -342,6 +406,7 @@ export default function DocEditor({
       }
     >
       {body}
+      {confirmCloseDialog}
     </Modal>
   )
 }
