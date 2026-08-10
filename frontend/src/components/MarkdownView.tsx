@@ -18,7 +18,15 @@ import { remarkStudyDirectives, remarkStudyRefs } from './markdown/remarkStudy'
 import { FOLD_DEFAULT_LABEL, HIDE_DEFAULT_LABEL } from './markdown/refSyntax'
 import EmbedCard from './markdown/EmbedCard'
 import { DocLinkChip, HeadingAnchorChip } from './markdown/RefChips'
-import { FoldSection, HideSection } from './markdown/DirectiveBlocks'
+import { CalloutBlock, FoldSection, HideSection, InlineSpoiler } from './markdown/DirectiveBlocks'
+import {
+  INK_TEXT_CLASS,
+  MARK_BG_CLASS,
+  PRINT_COLOR_EXACT_CLASS,
+  TEXT_SIZE_CLASS,
+  isPaletteColor,
+  isTextSize,
+} from './markdown/palette'
 
 interface MarkdownViewProps {
   content: string | null | undefined
@@ -30,6 +38,9 @@ interface MarkdownViewProps {
   // 단일 개행(Enter 1회)을 <br>로 렌더할지(stage-25, F51). 기본 true — 표본 확인 후
   // 해설 등 특정 용도만 끄고 싶으면 이 prop을 false로 넘기는 1줄 변경으로 되돌릴 수 있다.
   breaks?: boolean
+  // F52 인라인 표현 문법(밑줄·형광펜·글자색/크기·인라인 스포일러·콜아웃) 전체를 끄는 퇴로.
+  // 기본 true — 기존 참조(F43)·fold/hide는 이 prop과 무관하게 항상 동작한다.
+  inlineFormat?: boolean
 }
 
 // 토큰 기반 크기 클래스만 사용(색상·크기 하드코딩 금지) — small/default/large 3단계.
@@ -48,17 +59,19 @@ type MarkdownOptions = ComponentProps<typeof ReactMarkdown>
 // 쪼개는 breaks가 그보다 먼저 돌면(텍스트 노드 분절) 참조 스캔에 불필요한 위험이 생긴다 — 항상 breaks
 // 는 study 변환 이후에 실행되도록 고정한다(순서를 임시 unified 파이프라인으로 실측 확인 — 이 조합은
 // 크래시·오검출 없음을 확인했고, 아래 순서가 더 안전한 방향).
-const REMARK_PLUGINS_NO_BREAKS: MarkdownOptions['remarkPlugins'] = [
-  remarkGfm,
-  remarkMath,
-  remarkDirective,
-  remarkStudyDirectives,
-  remarkStudyRefs,
-]
-const REMARK_PLUGINS_WITH_BREAKS: MarkdownOptions['remarkPlugins'] = [
-  ...(REMARK_PLUGINS_NO_BREAKS ?? []),
-  remarkBreaks,
-]
+// remarkStudyDirectives·remarkStudyRefs는 { inlineFormat } 옵션을 받는 attacher다(F52) —
+// [attacher, options] 튜플로 넘겨 매 렌더 조합(breaks × inlineFormat)마다 최신 옵션을 반영한다
+// (REHYPE_PLUGINS의 [rehypeKatex, opts] 튜플 관례와 동일).
+function buildRemarkPlugins(breaks: boolean, inlineFormat: boolean): MarkdownOptions['remarkPlugins'] {
+  const base: MarkdownOptions['remarkPlugins'] = [
+    remarkGfm,
+    remarkMath,
+    remarkDirective,
+    [remarkStudyDirectives, { inlineFormat }],
+    [remarkStudyRefs, { inlineFormat }],
+  ]
+  return breaks ? [...(base ?? []), remarkBreaks] : base
+}
 // rehype-katex는 rehype-highlight보다 먼저 둔다 — remark-math는 수식을
 // `<code class="language-math math-inline|math-display">`로 내보내므로(remark-math 명세), 블록 수식은
 // `<pre><code>` 형태가 되어 rehype-highlight의 대상 조건(코드 블록)과 겹친다. highlight가 먼저 돌면
@@ -85,10 +98,16 @@ function attr(node: unknown, key: string): string {
 
 // 코드 하이라이트는 rehype-highlight의 클래스만 붙이고 색은 토큰(prose 스타일)으로 제어한다.
 // (규칙 #1: 색상 하드코딩 금지 — hljs 테마 CSS 대신 토큰 기반 최소 스타일만 사용)
-export default function MarkdownView({ content, scale = 'default', docNo, breaks = true }: MarkdownViewProps) {
+export default function MarkdownView({
+  content,
+  scale = 'default',
+  docNo,
+  breaks = true,
+  inlineFormat = true,
+}: MarkdownViewProps) {
   const remarkPlugins = useMemo<MarkdownOptions['remarkPlugins']>(
-    () => (breaks ? REMARK_PLUGINS_WITH_BREAKS : REMARK_PLUGINS_NO_BREAKS),
-    [breaks],
+    () => buildRemarkPlugins(breaks, inlineFormat),
+    [breaks, inlineFormat],
   )
   // 임베드 해석 캐시는 "열람 컴포넌트 수명" 동안만 산다(설계 §4.19 ③ — 전역 영속 캐시 금지).
   // 루트 MarkdownView가 인스턴스를 만들고, 임베드 카드 아래의 중첩 렌더는 그것을 공유한다.
@@ -114,7 +133,13 @@ export default function MarkdownView({ content, scale = 'default', docNo, breaks
               docNo={attr(node, 'data-ref-target')}
               alias={attr(node, 'data-ref-alias')}
               renderContent={(childContent, childDocNo) => (
-                <MarkdownView content={childContent} scale={scale} docNo={childDocNo} breaks={breaks} />
+                <MarkdownView
+                  content={childContent}
+                  scale={scale}
+                  docNo={childDocNo}
+                  breaks={breaks}
+                  inlineFormat={inlineFormat}
+                />
               )}
             />
           )
@@ -134,6 +159,10 @@ export default function MarkdownView({ content, scale = 'default', docNo, breaks
             </HideSection>
           )
         }
+        // 콜아웃 3종(F52) — note=accent·warn=warning·tip=correct(기존 토큰 재사용, 콜아웃 신규 토큰 0).
+        if (directive === 'note' || directive === 'warn' || directive === 'tip') {
+          return <CalloutBlock kind={directive} label={attr(node, 'data-directive-label')}>{children}</CalloutBlock>
+        }
         // 알 수 없는 directive(:::foo)는 스타일 없이 내용만 렌더한다(크래시 금지 — §4.19 ②).
         if (directive) return <div>{children}</div>
         return <div {...props}>{children}</div>
@@ -148,11 +177,36 @@ export default function MarkdownView({ content, scale = 'default', docNo, breaks
             <HeadingAnchorChip heading={attr(node, 'data-ref-target')} alias={attr(node, 'data-ref-alias')} />
           )
         }
-        if (attr(node, 'data-directive')) return <span>{children}</span>
+        // 인라인 스포일러(||…||, F52) — 채점 경계 아님(렌더 계층일 뿐, 불변 규칙 1 참조).
+        if (attr(node, 'data-inline-spoiler')) return <InlineSpoiler>{children}</InlineSpoiler>
+        const directive = attr(node, 'data-directive')
+        if (directive === 't') {
+          // 통합 인라인 directive(:t[…]{c= bg= s=}) — 화이트리스트 밖 값은 이미 파싱 단계에서
+          // data-* 속성 자체가 비어 있으므로 여기서는 있는 것만 클래스로 합성한다.
+          const ink = attr(node, 'data-ink')
+          const mark = attr(node, 'data-mark')
+          const size = attr(node, 'data-size')
+          const classes: string[] = []
+          if (mark && isPaletteColor(mark)) classes.push(MARK_BG_CLASS[mark], 'rounded', 'px-0.5', PRINT_COLOR_EXACT_CLASS)
+          if (ink && isPaletteColor(ink)) classes.push(INK_TEXT_CLASS[ink], PRINT_COLOR_EXACT_CLASS)
+          if (size && isTextSize(size)) classes.push(TEXT_SIZE_CLASS[size])
+          return <span className={classes.length ? classes.join(' ') : undefined}>{children}</span>
+        }
+        if (directive) return <span>{children}</span>
         return <span {...props}>{children}</span>
       },
+      mark({ children }) {
+        // 형광펜(==…==, F52) — 기본 노랑 고정(색 지정은 :t bg=). 전역 검색 스니펫 <mark>(F6)와는
+        // 별개 렌더 경로(react-markdown components 맵은 이 트리 안에서만 적용)이며, 클래스
+        // 셀렉터가 index.css의 타입 셀렉터보다 우선해 배경·글자색이 확실히 적용된다.
+        return (
+          <mark className={`rounded px-0.5 bg-mark-yellow text-primary ${PRINT_COLOR_EXACT_CLASS}`}>
+            {children}
+          </mark>
+        )
+      },
     }),
-    [scale, breaks],
+    [scale, breaks, inlineFormat],
   )
 
   if (!content) {

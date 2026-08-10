@@ -24,6 +24,24 @@
   --heat-3: #93c5fd;
   --heat-4: #60a5fa;
   --heat-5: #2563eb;
+
+  /* F52 표현 팔레트(§6 계약) — 의미 이름 7색. 글자색(ink)은 --bg/--surface 위 가독,
+     형광펜(mark)은 검정 글자(--text) 대비 확보(연한 톤 — 화면 라이트·인쇄 공용). */
+  --ink-red: #b91c1c;
+  --ink-orange: #c2410c;
+  --ink-yellow: #a16207;
+  --ink-green: #15803d;
+  --ink-blue: #1d4ed8;
+  --ink-purple: #7e22ce;
+  --ink-gray: #4b5563;
+
+  --mark-red: #fecaca;
+  --mark-orange: #fed7aa;
+  --mark-yellow: #fef08a;
+  --mark-green: #bbf7d0;
+  --mark-blue: #bfdbfe;
+  --mark-purple: #e9d5ff;
+  --mark-gray: #e5e7eb;
 }
 
 .dark {
@@ -45,6 +63,24 @@
   --heat-3: #1d4e89;
   --heat-4: #1d63b3;
   --heat-5: #3b82f6;
+
+  /* F52 표현 팔레트 다크 세트 — ink는 어두운 배경 위 가독, mark는 밝은(라이트 모드 --text) 글자와
+     대비되는 진한 톤. */
+  --ink-red: #f87171;
+  --ink-orange: #fb923c;
+  --ink-yellow: #fbbf24;
+  --ink-green: #4ade80;
+  --ink-blue: #60a5fa;
+  --ink-purple: #c084fc;
+  --ink-gray: #9ca3af;
+
+  --mark-red: #7f1d1d;
+  --mark-orange: #7c2d12;
+  --mark-yellow: #713f12;
+  --mark-green: #14532d;
+  --mark-blue: #1e3a5f;
+  --mark-purple: #4c1d95;
+  --mark-gray: #374151;
 }
 
 /* 인쇄 뷰는 테마와 무관하게 항상 라이트 (설계 §6) */
@@ -63,5 +99,23 @@
     --correct: #16a34a;
     --wrong: #dc2626;
     --warning: #d97706;
+
+    /* F52 결정 ⑤ — 인쇄 전용 색 토큰 신설 0개, 라이트 세트 값을 그대로 포함(다크 화면에서
+       인쇄해도 라이트 색으로 찍히게). */
+    --ink-red: #b91c1c;
+    --ink-orange: #c2410c;
+    --ink-yellow: #a16207;
+    --ink-green: #15803d;
+    --ink-blue: #1d4ed8;
+    --ink-purple: #7e22ce;
+    --ink-gray: #4b5563;
+
+    --mark-red: #fecaca;
+    --mark-orange: #fed7aa;
+    --mark-yellow: #fef08a;
+    --mark-green: #bbf7d0;
+    --mark-blue: #bfdbfe;
+    --mark-purple: #e9d5ff;
+    --mark-gray: #e5e7eb;
   }
 }

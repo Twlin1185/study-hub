@@ -503,6 +503,82 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     </p>
   </div>
 
+  <h3 id="doc-inline-format">본문 작성 문법 — 밑줄·형광펜·글자색·스포일러·콜아웃 <span class="badge new">v1.x</span></h3>
+  <p>
+    본문을 손으로 쓸 때(자동 반입 결과가 아니라) <strong>밑줄·형광펜(바탕색)·글자색·글자 크기·
+    문장 중간 단어 가리기(스포일러)·강조 상자(콜아웃)</strong>를 문법 몇 글자나
+    아래 <strong>편집 툴바 버튼</strong>으로 넣을 수 있습니다. 문서 상세·학습·퀴즈·시험·플래시카드·
+    오답노트·인쇄까지 <strong>어디서나 같은 모양</strong>으로 보이고, 다크 모드도 자동으로 맞춰집니다.
+  </p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>이렇게 적으면</th><th>이렇게 보입니다</th></tr>
+      <tr>
+        <td><code>++밑줄++</code></td>
+        <td><strong>밑줄</strong>이 그어집니다.</td>
+      </tr>
+      <tr>
+        <td><code>==형광펜==</code></td>
+        <td><strong>형광펜(기본 노랑)</strong>으로 바탕이 칠해집니다. 다른 색은 아래 통합 문법으로.</td>
+      </tr>
+      <tr>
+        <td><code>||스포일러||</code></td>
+        <td><strong>가려진 상태로 시작</strong>하고, 탭(클릭)하거나 키보드로 선택 후 Enter/Space를 누르면 공개됩니다.</td>
+      </tr>
+      <tr>
+        <td><code>:t[글자]{c=red bg=yellow s=large}</code></td>
+        <td><strong>통합 문법</strong> — <code>c</code>(글자색)·<code>bg</code>(형광펜 색)·<code>s</code>(크기)를
+        따로 또는 함께 지정합니다. 셋 다 생략 가능(생략한 속성은 적용하지 않음).</td>
+      </tr>
+      <tr>
+        <td><code>:::note[제목]</code> … <code>:::</code></td>
+        <td><strong>콜아웃(참고)</strong> — 왼쪽에 색 띠가 있는 강조 상자. <code>:::warn</code>(주의)·
+        <code>:::tip</code>(팁)도 같은 방식이고 색만 다릅니다.</td>
+      </tr>
+    </table>
+  </div>
+  <ul>
+    <li><strong>색 이름 7가지</strong> — <code>red·orange·yellow·green·blue·purple·gray</code>만 고를 수 있습니다
+      (자유로운 색상 코드는 지원하지 않습니다 — 이렇게 해야 다크 모드에서도 알아서 잘 보이는 색으로 자동 대응합니다).</li>
+    <li><strong>크기 3단계</strong> — <code>s=small</code>(작게)·<code>s=large</code>(크게)·<code>s=xl</code>(아주 크게).
+      본문 글자 크기 설정과 곱해져서 적용되는 상대 크기입니다.</li>
+    <li><strong>편집 툴바로도 됩니다</strong> — 문서 작성/편집 칸 위 툴바에서 <strong>B·기울임·취소선·밑줄</strong> 버튼,
+      <strong>형광펜·글자색 색상 목록</strong>, <strong>크기 목록</strong>, <strong>스포일러·참고·주의·팁</strong> 버튼을 누르면
+      선택한 글자를 자동으로 감싸 줍니다(선택한 글자가 없으면 자리표시 글자를 넣고 바로 고쳐 쓸 수 있게 해 둡니다).
+      <strong>단축키</strong> — Ctrl+B(굵게)·Ctrl+I(기울임)·Ctrl+U(밑줄)·Ctrl+Shift+H(형광펜, 기본 노랑).</li>
+    <li><strong>바로 옆에서 확인 — 분할 미리보기</strong> — 편집 칸 옆(좁은 화면에서는 [편집]/[미리보기] 탭)에
+      실제 저장될 모양 그대로 실시간으로 보여 줍니다.</li>
+  </ul>
+  <div class="note">
+    <span class="label">글자 그대로 "++"·"=="·"||"를 쓰고 싶을 때</span>
+    <p>
+      이 문법들은 <strong>여는 기호 바로 뒤·닫는 기호 바로 앞에 공백이 있으면 문법으로 보지 않습니다</strong> —
+      그래서 <code>C++ and D++</code>, <code>a == b</code>, <code>a || b</code> 같은 일반 문장은
+      원래 그대로 보입니다(따로 손댈 필요 없음). 그래도 굳이 문법 기호 바로 옆에 글자를 붙여 써야 한다면
+      두 가지 방법이 있습니다 — <strong>① 코드 스팬(백틱)으로 감싸기</strong>: <code>`C++`</code>처럼 쓰면 안의 내용은
+      절대 이 문법으로 바뀌지 않습니다(원래 Markdown 관례). <strong>② 백슬래시로 이스케이프</strong>:
+      <code>\++</code>처럼 기호 앞에 <code>\</code>를 붙이면 그 글자 그대로 "++"가 찍힙니다.
+    </p>
+  </div>
+  <div class="note">
+    <span class="label">스포일러는 "가리개"일 뿐 — 정답 숨김이 아닙니다</span>
+    <p>
+      <code>||…||</code> 인라인 스포일러는 <strong>화면에서 잠깐 가려 두는 표시 기능</strong>입니다.
+      퀴즈·시험의 <strong>정답·채점은 항상 서버가 처리</strong>하고, 화면에는 애초에 정답이 내려오지 않습니다 —
+      스포일러를 쓰든 안 쓰든 채점 방식과는 아무 관계가 없습니다. 인쇄할 때는 <strong>가려진 부분도 전부 공개</strong>되어
+      찍힙니다(접기·가리기와 같은 관례 — 인쇄물은 눌러서 펼칠 수 없으니까요).
+    </p>
+  </div>
+  <div class="tip">
+    <span class="label">인쇄 — 색은 그대로, 흑백 프린터는 예외</span>
+    <p>
+      형광펜·글자색은 인쇄 미리보기에서 브라우저의 "배경 그래픽" 옵션과 상관없이 <strong>색이 그대로 찍힙니다</strong>.
+      다만 <strong>흑백 프린터로 뽑으면 색끼리 회색 톤으로 뭉뚱그려져 구분이 흐려질 수 있습니다</strong> —
+      이건 프린터의 물리적 한계라 색을 아무리 다르게 골라도 완전히 피할 수는 없습니다. 중요한 구분은
+      색만이 아니라 밑줄·볼드 등과 함께 쓰는 것을 권합니다.
+    </p>
+  </div>
+
   <h3>줄바꿈 · 수식 쓰기 <span class="badge new">v1.x</span></h3>
   <p>본문·해설 어디서나 다음이 지원됩니다 (이미 저장된 문서·해설에도 바로 적용됩니다):</p>
   <ul>

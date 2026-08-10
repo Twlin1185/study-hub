@@ -60,6 +60,18 @@
 - **API**: `documents/{id}`, PATCH, tags PUT, relations, bookmark, regenerate(S6, §4.10).
 - **정답 표기 통일(S25 — F51 ①, 계획서 §14 F51 확정 2026-08-04)**: answer 표기는 **공용 포맷터 1곳**(utils — 화면별 복붙 금지)으로 수렴 — 순수 번호("1"~"9") = **"③" 형태만**(종전 "③ (3)" 이중 병기 제거), 그 외 텍스트 answer = 원문 그대로, 빈 값 = 기존 화면별 문구("-"·"미응답") 유지. **적용 지점 전수 7곳** = 문서 상세(`formatAnswer`)·시험 결과(`ExamRun.formatChoiceAnswer`)·플래시카드(`Flashcards`)·오늘의 복습(`Review`) — 이상 이중 표기 4곳 — + 학습 모드 오답 목록(`Study` — 종전 raw 숫자)·퀴즈 결과(`QuizRun` — 종전 raw 숫자) + **AI 풀이 초안 검토(`ExplainJobPanel`, S22 신설 화면 — 최초 열거(6곳) 누락 보완, stage-25 표적 재검토 반영)**. `AnswerKeyImportWizard`의 답지 대사(diff) 뷰는 원본·추출본 원문을 나란히 대조하는 목적이라 raw 표기 유지(공용 포맷터 미적용이 의도). `RegenerateJobPanel`의 `CompareField`("정답" 원본 vs 신규 대조)도 같은 diff 뷰 성격이라 raw 유지가 타당(2026-08-04 검토 관찰 반영). 보기 목록의 ①~④ 마커(`choiceMarker`)는 무변경(이중 표기와 무관).
 - **해설·본문 렌더 개선(S25 — F51 ②, B안 확정)**: 공용 `MarkdownView` 1곳에 **remark-breaks**(단일 개행 = 줄바꿈 — 종전엔 Markdown 규칙상 공백으로 접혀 "줄바꿈 안 됨" 증상) + **remark-math + rehype-katex**(수식 `$…$` 인라인·`$$…$$` 블록 — 종전엔 LaTeX가 원문 문자로 노출) 추가 — 렌더러 1곳 확장이 열람·학습·퀴즈·시험·플래시카드·오답노트·인쇄 전 화면에 자동 파급(F43 구현 앵커 원칙), **기존 저장 해설·본문도 재변환·소급 없이 즉시 개선 렌더**. KaTeX CSS는 katex 배포 CSS(색상은 currentColor 기반 — 토큰 정합 확인, 하드코딩 색 발견 시 토큰으로 재정의: 불변 규칙 5). 신규 프론트 의존 4건(remark-breaks·remark-math·rehype-katex·katex — 계획서 등재 후 추가, F43 전례). **백엔드·API·저장 데이터 무변경**(순수 렌더 계층). remark-breaks의 본문 표시 변화는 표본 확인(stage-25 DoD — 필요 시 해설 한정 스코프 분리 실측). C안(해설 전용 LLM 후처리)은 보류 확정(계획서 §14 F51 ③ — 재검토는 계획서 먼저).
+- **인라인 표현 문법(S26 — F52, 계획서 §14 F52 확정 2026-08-09 · Design v1.30)**: 구현처 = 자체 플러그인 `components/markdown/remarkStudy.ts` 확장 + 공용 `MarkdownView` 1곳(전 화면·인쇄 자동 파급 — F43·F51 앵커 원칙. rehype-raw는 F43 D2 기각 유지 — 화이트리스트 문법만). **문법 5종 계약**:
+
+  | 문법 | 표기 | 렌더 |
+  |---|---|---|
+  | 밑줄 | `++텍스트++` | `<u>` 계열 |
+  | 형광펜 | `==텍스트==` | 배경 `--mark-yellow`(기본 노랑 — 색 지정은 `:t`) |
+  | 인라인 스포일러 | `\|\|텍스트\|\|` | 가림 기본·클릭(키보드 포함) 토글 공개. **채점 경계 아님**(렌더 계층 — quiz/session 정답 부재 계약은 서버가 담당·불변 규칙 1, 매뉴얼 오해 방지 명시) |
+  | 통합 인라인 | `:t[텍스트]{c=red bg=yellow s=large}` | `c`(글자색)·`bg`(형광펜) ∈ 팔레트 7색 이름, `s` ∈ `small·large·xl`(기존 font_scale `small\|default\|large` 명명 + xl — F53 size 통일 결정 연동, 기본 크기 = 속성 생략. 크기는 상대 배율(em) — font_scale·F53과 곱 합성). **화이트리스트 밖 값·미지 속성 = 스타일만 무시·텍스트 그대로**(오류 아님) |
+  | 콜아웃 | `:::note[제목]`·`:::warn[제목]`·`:::tip[제목]` … `:::` | 좌측 보더+제목·아이콘 색 = 기존 토큰(note=`--accent`·warn=`--warning`·tip=`--correct` 계열)·배경 `--surface-raised` — 콜아웃용 신규 토큰 0. F43 `:::fold`/`:::hide` 계열 이름 화이트리스트 확장 |
+
+  **엄격 플랭킹 규칙**(마이크로 3종 공통): 여는 기호 바로 뒤·닫는 기호 바로 앞 공백 금지 + 빈 내용 불가(remark-math `$` 관례와 동일 — `C++ and D++`·`a == b`·`a \|\| b`는 구조적으로 탈락). 코드 스팬·펜스·수식 내부는 선행 파싱이 소비해 원리상 미매칭(표 파싱이 소비하는 것은 `\|`뿐 — **표 셀 안의 인라인 문법은 적용된다**·바람직한 동작, 2026-08-10 구현 실측 정정. 표 행 포함 재실측도 우연 매칭 0건). 백슬래시 이스케이프로 리터럴 표기. **기존 저장 문서 표본 실측이 착수 계약**(R26 ② — stage-26 0절: 충돌 실측 시 기호 변경/스코프 축소, 조용한 전면 적용 금지). **퇴로**: `MarkdownView`에 `inlineFormat?: boolean`(기본 true) prop — 신규 문법 전체를 1줄로 off(F51 `breaks?` 전례). 임베드 카드 안에서도 그대로 적용(내용의 일부 — 재귀 렌더에 prop 전달). 검색(FTS5 trigram)은 recall 무영향·스니펫 문법 문자 노출은 경미·수용. 인쇄는 §6 참조(`print-color-adjust: exact` — 형광펜·글자색 한정)·인라인 스포일러는 인쇄에서 전부 공개(F43 fold/hide 인쇄 공개 관례 연장). **표현 문법은 사용자 손편집 전용**(F52 결정 ⑧ — 변환 프롬프트는 순수 내용만·무변경). 프론트 전용 — DDL 0건·API 0건·LLM 0·신규 의존 0 목표(자체 플러그인 충족 여부는 구현 실측 — 불가피 시 계획서 등재 후 추가).
+- **DocEditor 편집 UX(S26 — F52 ④)**: 공용 DocEditor 1곳 확장(전 사용처 자동 파급 — 사용처별 분기 금지). **툴바** = 선택 영역 래핑 버튼: B(`**`)·기울임(`*`)·취소선(`~~`)·밑줄(`++`)·형광펜(7색 드롭다운·기본 노랑 원클릭)·글자색(7색)·크기·인라인 스포일러·콜아웃 3종 + 기존 참조 삽입(F43) 유지 — 기존 `insertAtCursor`를 선택 영역 래핑(wrapSelection)으로 확장(선택 없으면 자리표시 텍스트 삽입 후 선택). **단축키** = Ctrl+B(`**`)·Ctrl+I(`*`)·Ctrl+U(`++`)·Ctrl+Shift+H(`==`) — 그 이상은 툴바 전용(추가 단축키는 실수요 후). **분할 라이브 미리보기** = textarea 옆 공용 MarkdownView 실시간 렌더(같은 렌더러 재사용 — 미리보기 전용 렌더 경로 금지, <768px는 탭 전환 허용·구현 재량). **저장 소스는 Markdown 텍스트 유지** — F43 "WYSIWYG 기각" 불번복(체감 개선만).
 
 ### 5.4 커리큘럼 — `/curriculum`, `/curriculum/:categoryId`
 - `/curriculum`: 최상위(자격증) 카드 목록 → 시험 선택. 카드 목록에 [+ 시험 추가].
@@ -209,6 +221,8 @@
 
 - Tailwind `darkMode: 'class'` + `styles/tokens.css`의 CSS 변수 이중 구조. 컴포넌트는 **토큰만 참조**(`bg-surface`, `text-primary` 등) — 색상 하드코딩 금지.
 - 토큰(라이트/다크 각 1세트): `--bg`, `--surface`, `--surface-raised`, `--border`, `--text`, `--text-muted`, `--accent`, `--accent-soft`, `--on-accent`(accent 배경 위 텍스트 — `text-white` 대체), `--correct`, `--wrong`, `--warning`, 히트맵 5단계.
+- **F52 표현 팔레트(S26 — 계획서 §14 F52 결정 ③·⑤ 확정 2026-08-09)**: 의미 이름 7색 `red·orange·yellow·green·blue·purple·gray` — 글자색 **`--ink-{색}`** 7개 + 형광펜 배경 **`--mark-{색}`** 7개, **라이트·다크 각 1세트**(사용자는 이름만 고르고 다크 대응은 토큰이 담당 — 자유 hex 기각). 설계 강제 조건(R26 ③): **mark 7색 전부 라이트에서 검정 글자(`--text`) 대비 확보**(흑백 변환 후에도 글자 가독 — 화면 라이트에도 동일 필요라 추가 비용 0), ink 7색은 각 테마 배경 위 가독 확보. `@media print` 블록에도 같은 14개를 **라이트 값으로 포함**(아래 "인쇄 = 항상 라이트" 연장 — **인쇄 전용 색 토큰 0개**). **F53(M27 — 전역 테마·문서별 스타일)이 이 명명 체계를 공유할 예정**(F52에서 F53용 토큰 선제 신설 금지 — YAGNI). 콜아웃(note/warn/tip)은 기존 토큰(`--accent`·`--warning`·`--correct` 계열) 재사용 — F52 신규 토큰은 ink/mark 14개뿐.
+- **인쇄 색 유지(S26 — F52 결정 ⑤)**: `print-color-adjust: exact`(+`-webkit-print-color-adjust` 병기)를 **형광펜(`--mark-*`)·글자색(`--ink-*`) 요소에만** 적용 — 브라우저의 인쇄 배경 기본 생략과 무관하게 색이 찍힌다. 코드블록 배경·임베드 카드 등 나머지 배경은 계속 인쇄 생략(잉크 절약 — F53 문서 전체 배경색도 인쇄 무시 유지). 흑백 프린터의 색 구분 소실은 물리 한계로 수용·매뉴얼 명문화.
 - 테마 스토어: `theme = 'system' | 'light' | 'dark'` (localStorage `theme`). system이면 `prefers-color-scheme` 미디어쿼리 구독. `<html>`에 `class="dark"` 토글.
 - 인쇄 뷰는 테마 무시하고 항상 라이트로 렌더.
 
