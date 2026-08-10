@@ -7,9 +7,11 @@ interface ModalProps {
   children: ReactNode
   footer?: ReactNode
   widthClass?: string
+  // 제목 옆·닫기 버튼 앞에 두는 보조 액션(예: stage-26 9-5 "창으로 열기") — 선택적.
+  headerExtra?: ReactNode
 }
 
-export default function Modal({ title, onClose, children, footer, widthClass = 'max-w-md' }: ModalProps) {
+export default function Modal({ title, onClose, children, footer, widthClass = 'max-w-md', headerExtra }: ModalProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -31,16 +33,19 @@ export default function Modal({ title, onClose, children, footer, widthClass = '
         aria-modal="true"
         aria-label={title}
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-primary">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-muted hover:bg-bg hover:text-primary"
-            aria-label="닫기"
-          >
-            ✕
-          </button>
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h2 className="min-w-0 flex-1 text-lg font-semibold text-primary">{title}</h2>
+          <div className="flex shrink-0 items-center gap-2">
+            {headerExtra}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-muted hover:bg-bg hover:text-primary"
+              aria-label="닫기"
+            >
+              ✕
+            </button>
+          </div>
         </div>
         <div className="text-primary">{children}</div>
         {footer && <div className="mt-5 flex justify-end gap-2">{footer}</div>}
