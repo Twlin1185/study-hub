@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import HomePage from './pages/Home'
 import ExplorePage from './pages/Explore'
 import DocumentDetailPage from './pages/DocumentDetail'
+import DocEditPage from './pages/DocEditPage'
 import SettingsPage from './pages/Settings'
 import ImportPage from './pages/Import'
 import CurriculumPage from './pages/Curriculum'
@@ -36,6 +37,9 @@ function App() {
         <Route path="/review-notes" element={<ReviewNotesPage />} />
         <Route path="/study/:categoryId" element={<StudyPage />} />
         <Route path="/docs/:id" element={<DocumentDetailPage />} />
+        {/* 편집기 "창으로 열기"(stage-26 9-5) — 팝업과 같은 DocEditor를 전용 라우트로. */}
+        <Route path="/docs/new" element={<DocEditPage />} />
+        <Route path="/docs/:id/edit" element={<DocEditPage />} />
         <Route path="/import" element={<ImportPage />} />
         <Route path="/print" element={<PrintPage />} />
         <Route path="/search" element={<SearchPage />} />

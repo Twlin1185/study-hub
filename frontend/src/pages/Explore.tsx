@@ -7,11 +7,7 @@ import {
   useMoveCategory,
   useUpdateCategory,
 } from '../api/categories'
-import {
-  useCreateDocument,
-  useDocuments,
-  useLinkDocument,
-} from '../api/documents'
+import { useDocuments, useLinkDocument } from '../api/documents'
 import { useTags } from '../api/tags'
 import { useSuggestions } from '../api/suggestions'
 import type { DocumentType } from '../api/types'
@@ -20,7 +16,7 @@ import DocCard from '../components/DocCard'
 import CategoryFormModal from '../components/CategoryFormModal'
 import MoveCategoryModal from '../components/MoveCategoryModal'
 import LinkDocumentModal from '../components/LinkDocumentModal'
-import CreateDocumentModal from '../components/CreateDocumentModal'
+import DocEditor from '../components/DocEditor'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { ApiError } from '../api/client'
 import { findCategory } from '../utils/tree'
@@ -52,7 +48,6 @@ export default function ExplorePage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [modal, setModal] = useState<ModalState>({ kind: 'none' })
   const [modalError, setModalError] = useState<string | null>(null)
-  const [pageNotice, setPageNotice] = useState<string | null>(null)
 
   // 문서 상세에서 태그 클릭 → 이동해온 ?tag= 쿼리를 필터에 반영
   useEffect(() => {
@@ -86,7 +81,6 @@ export default function ExplorePage() {
   const moveCategory = useMoveCategory()
   const deleteCategory = useDeleteCategory()
   const linkDocument = useLinkDocument()
-  const createDocument = useCreateDocument()
 
   const treeNodes = useMemo(() => treeQuery.data ?? [], [treeQuery.data])
   const selectedNode = selectedCategoryId != null ? findCategory(treeNodes, selectedCategoryId) : null
@@ -156,20 +150,6 @@ export default function ExplorePage() {
             <span>📮 분류 제안 {suggestionCount}건 대기 중</span>
             <span>제안함 열기 ›</span>
           </Link>
-        )}
-
-        {pageNotice && (
-          <div className="mb-3 flex items-start justify-between gap-2 rounded border border-warning bg-accent-soft px-3 py-2 text-sm text-primary">
-            <span>{pageNotice}</span>
-            <button
-              type="button"
-              onClick={() => setPageNotice(null)}
-              aria-label="알림 닫기"
-              className="shrink-0 text-muted hover:text-primary"
-            >
-              ✕
-            </button>
-          </div>
         )}
 
         <div className="mb-3 flex items-center justify-between gap-2 md:hidden">
@@ -382,29 +362,13 @@ export default function ExplorePage() {
         />
       )}
 
+      {/* 문서 생성 — 공용 DocEditor(stage-26 9-5) — 탐색 화면 전용 폼을 두지 않는다(전 사용처 수렴). */}
       {modal.kind === 'create-document' && (
-        <CreateDocumentModal
-          submitting={createDocument.isPending}
-          errorMessage={modalError}
-          defaultCategoryName={selectedNode?.name ?? null}
+        <DocEditor
+          mode="create"
+          categoryId={selectedCategoryId}
+          categoryName={selectedNode?.name ?? null}
           onClose={closeModal}
-          onSubmit={(values) => {
-            setModalError(null)
-            createDocument.mutate(
-              { ...values, category_id: selectedCategoryId ?? undefined },
-              {
-                onSuccess: (result) => {
-                  if (result.linkError) {
-                    setPageNotice(`문서는 생성됐으나 연결 실패: ${result.linkError}`)
-                  } else {
-                    setPageNotice(null)
-                  }
-                  closeModal()
-                },
-                onError: (e) => setModalError(errMsg(e, '문서 생성에 실패했습니다.')),
-              },
-            )
-          }}
         />
       )}
     </div>

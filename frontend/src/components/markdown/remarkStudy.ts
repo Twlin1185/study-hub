@@ -170,17 +170,90 @@ function isEmbedNode(node: MdNode): boolean {
 }
 
 // 마이크로 문법 3종 — 엄격 플랭킹(여는 기호 바로 뒤·닫는 기호 바로 앞 공백 금지) + 빈 내용 불가
-// (remark-math `$` 관례와 동일). 참조 정규식(REF_SCAN_RE) 뒤에 이어붙여 한 번에 스캔한다 —
-// 그룹 번호는 REF_SCAN_RE의 1~6 다음으로 7(밑줄)·8(형광펜)·9(스포일러).
-const MICRO_ALTERNATION =
-  '\\+\\+(?!\\s)([\\s\\S]+?)(?<!\\s)\\+\\+|==(?!\\s)([\\s\\S]+?)(?<!\\s)==|\\|\\|(?!\\s)([\\s\\S]+?)(?<!\\s)\\|\\|'
-const REF_AND_MICRO_RE = new RegExp(`${REF_SCAN_RE.source}|${MICRO_ALTERNATION}`, 'g')
+// (remark-math `$` 관례와 동일).
+//
+// 9-6ⓒ(stage-26 후속): 원래는 정규식 lookbehind `(?<!\s)`로 "닫는 기호 바로 앞 비공백"을
+// 검사했으나, lookbehind는 Safari 16.4 미만(구형 iOS 포함)에서 **모듈 파싱 자체가 실패**한다
+// (엔진이 정규식 리터럴을 컴파일하는 시점에 터진다 — try/catch로 못 피한다). 그래서 lookbehind를
+// 전혀 쓰지 않고 문자 인덱스를 직접 훑어 같은 규칙을 재현한다: 여는 표식 다음 글자가 공백이 아니고,
+// 그 뒤로 나오는 닫는 표식 후보 중 "바로 앞 글자가 공백이 아닌" **첫 번째**(= lazy 정규식과 동일한
+// 최단 매치 선택) 후보를 고른다. **알려진 동작 차이(의도된 개선, 정본 확정)**: 백슬래시로
+// 이스케이프된 후보를 거부한 뒤 재개하는 위치가 구버전(정규식 lastIndex = 매치 끝)과 달리 여는
+// 표식 바로 다음 글자(+1 전진)다 — 그래서 `\+\+a++b++` 같은 입력에서 거부된 구간 *안에 있는*
+// 정상 쌍(`++b++`)까지 살려서 매칭한다(구버전은 거부된 매치의 끝에서 재개해 이 쌍을 놓쳤다).
+// 기존 저장 문서 우연 매칭 0건(0절 실측)이라 회귀 실질 0 — 이스케이프 뒤에 남은 정상 쌍을
+// 살리는 쪽이 사용자 의도에 더 가깝다는 판단으로 신동작을 정본으로 채택했다.
+const WHITESPACE_RE = /\s/
 
-function parseMicroMatch(m: RegExpExecArray): { kind: MicroKind; content: string } | null {
-  if (m[7] !== undefined) return { kind: 'u', content: m[7] }
-  if (m[8] !== undefined) return { kind: 'mark', content: m[8] }
-  if (m[9] !== undefined) return { kind: 'spoiler', content: m[9] }
+interface MicroMatch {
+  start: number
+  end: number
+  kind: MicroKind
+  content: string
+}
+
+const MICRO_MARKERS: { marker: string; kind: MicroKind }[] = [
+  { marker: '++', kind: 'u' },
+  { marker: '==', kind: 'mark' },
+  { marker: '||', kind: 'spoiler' },
+]
+
+// 주어진 두 글자 표식(marker) 하나에 대해 fromIndex 이후 첫 유효 매치를 찾는다.
+function findMicroMatch(value: string, marker: string, kind: MicroKind, fromIndex: number): MicroMatch | null {
+  let openIdx = value.indexOf(marker, fromIndex)
+  while (openIdx !== -1) {
+    const contentStart = openIdx + marker.length
+    const afterOpen = value[contentStart]
+    if (afterOpen !== undefined && !WHITESPACE_RE.test(afterOpen)) {
+      // 여는 표식 조건 통과 — 닫는 표식 후보를 앞에서부터 찾는다(빈 내용 제외 + 바로 앞 비공백).
+      let searchFrom = contentStart
+      while (true) {
+        const closeIdx = value.indexOf(marker, searchFrom)
+        if (closeIdx === -1) break
+        if (closeIdx <= contentStart) {
+          // 내용이 비어 있음(표식이 곧바로 겹침) — 다음 후보로.
+          searchFrom = closeIdx + 1
+          continue
+        }
+        const beforeClose = value[closeIdx - 1]
+        if (beforeClose !== undefined && !WHITESPACE_RE.test(beforeClose)) {
+          return { start: openIdx, end: closeIdx + marker.length, kind, content: value.slice(contentStart, closeIdx) }
+        }
+        searchFrom = closeIdx + 1
+      }
+    }
+    openIdx = value.indexOf(marker, openIdx + 1)
+  }
   return null
+}
+
+// 세 표식 중 fromIndex 이후 가장 이른 매치를 고른다(서로 다른 문자라 시작 위치가 겹칠 수 없다).
+function nextMicroMatch(value: string, fromIndex: number): MicroMatch | null {
+  let best: MicroMatch | null = null
+  for (const { marker, kind } of MICRO_MARKERS) {
+    const m = findMicroMatch(value, marker, kind, fromIndex)
+    if (m && (!best || m.start < best.start)) best = m
+  }
+  return best
+}
+
+interface RefMatch {
+  start: number
+  end: number
+  kind: string
+  target: string
+  alias: string
+}
+
+// REF_SCAN_RE는 lookbehind를 쓰지 않으므로(참조 문법 자체가 그 규칙과 무관) 그대로 재사용한다 —
+// fromIndex 이후 다음 매치를 sticky처럼 exec+lastIndex로 찾는다.
+function nextRefMatch(value: string, fromIndex: number): RefMatch | null {
+  REF_SCAN_RE.lastIndex = fromIndex
+  const m = REF_SCAN_RE.exec(value)
+  if (!m) return null
+  const ref = parseRefMatch(m)
+  if (!ref) return null
+  return { start: m.index, end: m.index + m[0].length, kind: ref.kind, target: ref.target, alias: ref.alias }
 }
 
 // CommonMark 백슬래시 이스케이프 대상 구두점 전체(스펙 고정 목록). +, =, | 외의 이스케이프도
@@ -218,43 +291,55 @@ function computeEscapeMask(node: MdNode, source: string): boolean[] | null {
 }
 
 // 텍스트 노드 1개 → [텍스트, 참조/마이크로 노드, 텍스트…]. 매치가 없으면 null.
+// 참조(정규식)와 마이크로 문법(수동 스캔) 두 후보 계열 중 매 단계에서 더 이른 것을 채택해
+// 한 번에 훑는다 — 두 계열이 뒤섞인 본문에서도 순서대로 올바르게 갈린다.
 function splitTextNode(node: MdNode, opts: { inlineFormat: boolean; source: string }): MdNode[] | null {
   const value = node.value ?? ''
   if (!value) return null
-  const re = opts.inlineFormat ? REF_AND_MICRO_RE : REF_SCAN_RE
-  re.lastIndex = 0
   // 이스케이프 마스크는 마이크로 문법 후보를 실제로 만났을 때만(지연) 1회 계산한다.
   let mask: boolean[] | null | undefined
   const out: MdNode[] = []
-  let last = 0
-  let m: RegExpExecArray | null
-  while ((m = re.exec(value)) !== null) {
-    const ref = parseRefMatch(m)
-    if (ref) {
-      if (m.index > last) out.push({ type: 'text', value: value.slice(last, m.index) })
+  let emitFrom = 0
+  let scanFrom = 0
+  const n = value.length
+
+  while (scanFrom <= n) {
+    const ref = nextRefMatch(value, scanFrom)
+    const micro = opts.inlineFormat ? nextMicroMatch(value, scanFrom) : null
+
+    let useRef = false
+    if (ref && micro) useRef = ref.start <= micro.start
+    else if (ref) useRef = true
+    else if (!micro) break
+
+    if (useRef && ref) {
+      if (ref.start > emitFrom) out.push({ type: 'text', value: value.slice(emitFrom, ref.start) })
       out.push(makeRefNode(ref.kind, ref.target, ref.alias))
-      last = m.index + m[0].length
+      emitFrom = ref.end
+      scanFrom = ref.end
       continue
     }
-    const micro = opts.inlineFormat ? parseMicroMatch(m) : null
-    if (micro) {
-      if (mask === undefined) mask = computeEscapeMask(node, opts.source)
-      const closeEnd = m.index + m[0].length
-      const openEscaped = mask ? mask[m.index] || mask[m.index + 1] : false
-      const closeEscaped = mask ? mask[closeEnd - 1] || mask[closeEnd - 2] : false
-      if (openEscaped || closeEscaped) {
-        // 백슬래시로 이스케이프됨 — 리터럴로 남기고 다음 매치로(경계는 갱신하지 않는다:
-        // 이 구간은 이후의 value.slice(last, …)에 그대로 포함되어 평문으로 출력된다).
-        continue
-      }
-      if (m.index > last) out.push({ type: 'text', value: value.slice(last, m.index) })
-      out.push(makeMicroNode(micro.kind, micro.content))
-      last = closeEnd
+
+    // micro가 확실히 존재하는 분기(useRef=false는 micro가 있을 때만 여기로 온다).
+    const chosen = micro as MicroMatch
+    if (mask === undefined) mask = computeEscapeMask(node, opts.source)
+    const openEscaped = mask ? mask[chosen.start] || mask[chosen.start + 1] : false
+    const closeEscaped = mask ? mask[chosen.end - 1] || mask[chosen.end - 2] : false
+    if (openEscaped || closeEscaped) {
+      // 백슬래시로 이스케이프됨 — 리터럴로 남기고 여는 표식 다음 글자(+1)부터 다시 찾는다
+      // (무한루프 방지 + 거부 구간 안의 정상 쌍을 살리는 의도된 동작 — 위 파일 상단 주석 참조.
+      // 이 구간은 이후 emitFrom~다음 매치 사이 평문으로 출력된다).
+      scanFrom = chosen.start + 1
       continue
     }
+    if (chosen.start > emitFrom) out.push({ type: 'text', value: value.slice(emitFrom, chosen.start) })
+    out.push(makeMicroNode(chosen.kind, chosen.content))
+    emitFrom = chosen.end
+    scanFrom = chosen.end
   }
+
   if (out.length === 0) return null
-  if (last < value.length) out.push({ type: 'text', value: value.slice(last) })
+  if (emitFrom < n) out.push({ type: 'text', value: value.slice(emitFrom) })
   return out
 }
 
