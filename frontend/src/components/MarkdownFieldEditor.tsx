@@ -13,6 +13,29 @@ import type { PaletteColor, TextSize } from './markdown/palette'
 
 type ViewMode = 'edit' | 'split' | 'preview'
 
+// 10-4 — 마지막으로 고른 뷰 모드를 기억한다(모든 MarkdownFieldEditor 인스턴스가 공유하는 전역
+// 선호값 — 필드별로 따로 두지 않는다. 지시서 예시 키 이름 그대로).
+const VIEW_MODE_STORAGE_KEY = 'docEditor.viewMode'
+const VIEW_MODE_VALUES: ViewMode[] = ['edit', 'split', 'preview']
+
+function isViewMode(value: string | null): value is ViewMode {
+  return value != null && (VIEW_MODE_VALUES as string[]).includes(value)
+}
+
+// 저장된 선택이 있으면 그대로, 없으면 넓은 화면(md, 768px)에서는 분할을 기본으로 한다(10-4 —
+// 서식이 바로 실렌더로 보이게). window가 없는 환경(SSR 등은 이 앱에 없지만 방어적으로)은 'edit'.
+function getInitialViewMode(): ViewMode {
+  if (typeof window === 'undefined') return 'edit'
+  try {
+    const stored = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY)
+    if (isViewMode(stored)) return stored
+  } catch {
+    // localStorage 접근 불가(사생활 보호 모드 등) — 쓰기 경로(setViewMode)와 대칭으로 읽기도
+    // 가드한다. 마운트 자체가 크래시하면 안 되므로 기본값 산정으로 안전하게 진행.
+  }
+  return window.matchMedia('(min-width: 768px)').matches ? 'split' : 'edit'
+}
+
 interface HelpItem {
   code: string
   name: string
@@ -68,6 +91,10 @@ interface MarkdownFieldEditorProps {
   value: string
   onChange: (next: string) => void
   rows?: number
+  // 10-2 — textarea·미리보기 최소 높이(Tailwind 클래스). 기본은 기존 크기 그대로 유지하고,
+  // 본문처럼 넓게 쓸 필드만 호출부에서 크게 넘긴다(필드별 분기가 아니라 파라미터화 — rows prop과
+  // 같은 패턴).
+  minHeightClass?: string
   // 임베드 순환 검출 시작점(F43) — 편집 중인 문서 자신의 doc_no(있으면). 새 문서는 아직 없다.
   docNo?: string | null
   // 참조 삽입 팝업이 열려 있는 동안 바깥(모달) Esc·배경 클릭이 편집기 전체를 닫지 않도록 부모에
@@ -81,11 +108,20 @@ export default function MarkdownFieldEditor({
   value,
   onChange,
   rows = 8,
+  minHeightClass = '',
   docNo,
   onRefModalOpenChange,
 }: MarkdownFieldEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [viewMode, setViewMode] = useState<ViewMode>('edit')
+  const [viewMode, setViewModeState] = useState<ViewMode>(getInitialViewMode)
+  function setViewMode(mode: ViewMode) {
+    setViewModeState(mode)
+    try {
+      window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
+    } catch {
+      // localStorage 접근 불가(사생활 보호 모드 등) — 세션 안에서만 기억, 크래시는 없어야 한다.
+    }
+  }
   // 뷰 모드가 분할일 때만 의미 있는 좁은 화면 보조 탭(9-2 "좁은 화면 탭 전환과 일관").
   const [mobileSubTab, setMobileSubTab] = useState<'edit' | 'preview'>('edit')
   const [helpOpen, setHelpOpen] = useState(false)
@@ -122,18 +158,46 @@ export default function MarkdownFieldEditor({
     wrapNoticeTimer.current = setTimeout(() => setWrapNotice(null), 1800)
   }
 
+  // 경미(§10 잔여) 5 — 툴바 조작이 값을 통째로 교체(onChange(전체 문자열))하면 브라우저 네이티브
+  // undo 스택이 끊긴다(Ctrl+Z 무반응). 실측(headless Chrome, CDP): `textarea.setRangeText()` +
+  // 수동 input 이벤트 dispatch는 React 상태 반영은 정상이지만 **Ctrl+Z가 전혀 먹지 않았다**
+  // (setRangeText는 스펙상 자동으로 신뢰된 input 이벤트를 큐잉하긴 하지만, 그 자동 이벤트조차
+  // React onChange를 제대로 못 태웠고 — 그래서 여기 있던 수동 dispatch가 필요했다 — 브라우저의
+  // 실제 편집 명령/undo 스택에는 애초에 들어가지 않았다). 반면 `document.execCommand('insertText',
+  // false, replacement)`(선택 영역을 먼저 지정한 뒤 호출 — 선택 구간을 지우고 그 자리에 넣는
+  // 실제 "타이핑처럼 보이는" 편집 명령)는 같은 조건에서 Ctrl+Z가 정확히 그 구간만 되돌리는 것과
+  // React 상태 반영(추가 수동 dispatch 없이도) 둘 다 실측으로 확인됐다 — deprecated API지만
+  // 모든 주요 브라우저가 여전히 지원하고(제거 계획 없음), 정확히 이 용도(undo 보존 프로그램적
+  // 편집)로 널리 쓰인다. 모든 툴바 경로(wrapSelection·applyLineTransform·insertAtCursor)가
+  // 이 함수 하나로 수렴한다.
+  //
+  // selection은 대체 후 값 기준 절대 오프셋(없으면 execCommand 기본 동작인 "삽입 뒤 커서 collapse"
+  // 에 맡긴다 — insertAtCursor가 정확히 이 기본 동작을 원한다).
+  function applyRangeEdit(start: number, end: number, replacement: string, selection?: { start: number; end: number }) {
+    const el = textareaRef.current
+    if (!el || typeof document.execCommand !== 'function') {
+      // textarea가 DOM에 없거나(예: 미리보기 전용 모드) execCommand 미지원 환경 — undo 스택은
+      // 못 지키지만 기능 자체는 그대로 동작해야 한다(안전한 폴백).
+      const next = `${value.slice(0, start)}${replacement}${value.slice(end)}`
+      onChange(next)
+      return
+    }
+    el.focus()
+    el.setSelectionRange(start, end)
+    document.execCommand('insertText', false, replacement)
+    if (selection) {
+      requestAnimationFrame(() => {
+        el.setSelectionRange(selection.start, selection.end)
+      })
+    }
+  }
+
   function insertAtCursor(snippet: string) {
     const el = textareaRef.current
     const start = el?.selectionStart ?? value.length
     const end = el?.selectionEnd ?? value.length
-    const next = `${value.slice(0, start)}${snippet}${value.slice(end)}`
-    onChange(next)
-    requestAnimationFrame(() => {
-      if (!el) return
-      el.focus()
-      const caret = start + snippet.length
-      el.setSelectionRange(caret, caret)
-    })
+    const caret = start + snippet.length
+    applyRangeEdit(start, end, snippet, { start: caret, end: caret })
   }
 
   // 선택 영역 래핑(F52 ④, 9-6ⓑ) — 세 갈래:
@@ -163,13 +227,7 @@ export default function MarkdownFieldEditor({
           flashWrapNotice('선택 영역에 같은 기호가 있어 적용할 수 없습니다')
           return
         }
-        const next = `${value.slice(0, start)}${inner}${value.slice(end)}`
-        onChange(next)
-        requestAnimationFrame(() => {
-          if (!el) return
-          el.focus()
-          el.setSelectionRange(start, start + inner.length)
-        })
+        applyRangeEdit(start, end, inner, { start, end: start + inner.length })
         return
       }
 
@@ -183,15 +241,9 @@ export default function MarkdownFieldEditor({
 
     const selected = hasSelection ? value.slice(start, end) : placeholder
     const inserted = `${before}${selected}${after}`
-    const next = `${value.slice(0, start)}${inserted}${value.slice(end)}`
-    onChange(next)
-    requestAnimationFrame(() => {
-      if (!el) return
-      el.focus()
-      const selStart = start + before.length
-      const selEnd = selStart + selected.length
-      el.setSelectionRange(selStart, selEnd)
-    })
+    const selStart = start + before.length
+    const selEnd = selStart + selected.length
+    applyRangeEdit(start, end, inserted, { start: selStart, end: selEnd })
   }
 
   function wrapDirective(attr: string, placeholder: string) {
@@ -200,6 +252,80 @@ export default function MarkdownFieldEditor({
 
   function insertCallout(kind: 'note' | 'warn' | 'tip') {
     wrapSelection(`:::${kind}[제목]\n`, '\n:::', '내용')
+  }
+
+  // 목록·들여쓰기(10-3) — 파싱·렌더 변경 0(GFM이 이미 처리) — 선택된 줄 범위의 각 줄 앞에
+  // prefix를 토글(이미 있으면 제거)하는 삽입 도우미만 추가한다.
+  function applyLineTransform(transform: (lines: string[]) => string[]) {
+    const el = textareaRef.current
+    const start = el?.selectionStart ?? value.length
+    const end = el?.selectionEnd ?? value.length
+    const lineStart = value.lastIndexOf('\n', start - 1) + 1
+    const nextNewline = value.indexOf('\n', end)
+    const lineEnd = nextNewline === -1 ? value.length : nextNewline
+    const segment = value.slice(lineStart, lineEnd)
+    const nextSegment = transform(segment.split('\n')).join('\n')
+    applyRangeEdit(lineStart, lineEnd, nextSegment, { start: lineStart, end: lineStart + nextSegment.length })
+  }
+
+  // 공백만 있는 줄은 건드리지 않는다. "전부 있으면 전부 제거(토글 해제), 아니면 없는 줄만 부여"
+  // 규칙(§10 잔여 경미-3 — 부분 적용 시 이미 접두가 있는 줄에 이중으로 덧붙이지 않는다).
+  function toggleLinePrefix(
+    lines: string[],
+    test: (line: string) => boolean,
+    add: (line: string) => string,
+    remove: (line: string) => string,
+  ) {
+    const meaningful = lines.filter((l) => l.trim() !== '')
+    const allPrefixed = meaningful.length > 0 && meaningful.every(test)
+    if (allPrefixed) return lines.map((l) => (test(l) ? remove(l) : l))
+    // 부분 적용 — 접두가 없는(그리고 공백만이 아닌) 줄에만 추가한다. 이미 있는 줄은 그대로 둬
+    // "- - x" 같은 이중 접두를 만들지 않는다.
+    return lines.map((l) => (l.trim() === '' || test(l) ? l : add(l)))
+  }
+
+  function toggleBulletList() {
+    applyLineTransform((lines) =>
+      toggleLinePrefix(
+        lines,
+        (l) => l.startsWith('- '),
+        (l) => `- ${l}`,
+        (l) => l.slice(2),
+      ),
+    )
+  }
+
+  function toggleNumberedList() {
+    applyLineTransform((lines) => {
+      const meaningful = lines.filter((l) => l.trim() !== '')
+      const allNumbered = meaningful.length > 0 && meaningful.every((l) => /^\d+\.\s/.test(l))
+      if (allNumbered) return lines.map((l) => l.replace(/^\d+\.\s/, ''))
+      // 부분 적용 — 번호가 없는 줄만 새로 매기되, 이미 번호가 있는 줄도 포함해 전체를 순서대로
+      // 다시 매긴다(이중 접두 방지 + 지시서 "없는 줄만 부여 후 전체 번호 재정렬"). 이미 번호가
+      // 있던 줄은 그 번호를 떼고 새 순번으로 교체한다(원문 앞에 또 붙이지 않는다).
+      let n = 1
+      return lines.map((l) => {
+        if (l.trim() === '') return l
+        const stripped = l.replace(/^\d+\.\s/, '')
+        return `${n++}. ${stripped}`
+      })
+    })
+  }
+
+  function indentLines() {
+    // 경미(§10 잔여) 4 — 공백만 있는 줄의 판정 기준을 다른 헬퍼(toggleLinePrefix·
+    // toggleNumberedList)와 같은 trim() === ''로 통일.
+    applyLineTransform((lines) => lines.map((l) => (l.trim() === '' ? l : `  ${l}`)))
+  }
+
+  function outdentLines() {
+    applyLineTransform((lines) =>
+      lines.map((l) => {
+        if (l.startsWith('  ')) return l.slice(2)
+        if (l.startsWith('\t') || l.startsWith(' ')) return l.slice(1)
+        return l
+      }),
+    )
   }
 
   // 단축키 4종만(과설계 금지). textarea 포커스 시 preventDefault.
@@ -368,6 +494,19 @@ export default function MarkdownFieldEditor({
           <button type="button" title="콜아웃 — 팁" onClick={() => insertCallout('tip')} className={`${TOOLBAR_BTN} text-correct`}>
             팁
           </button>
+          {DIVIDER}
+          <button type="button" title="글머리 기호 목록" onClick={toggleBulletList} className={TOOLBAR_BTN}>
+            •목록
+          </button>
+          <button type="button" title="번호 매기기 목록" onClick={toggleNumberedList} className={TOOLBAR_BTN}>
+            1.목록
+          </button>
+          <button type="button" title="들여쓰기" onClick={indentLines} className={TOOLBAR_BTN}>
+            들여쓰기
+          </button>
+          <button type="button" title="내어쓰기" onClick={outdentLines} className={TOOLBAR_BTN}>
+            내어쓰기
+          </button>
         </div>
       </div>
       {wrapNotice && (
@@ -409,16 +548,16 @@ export default function MarkdownFieldEditor({
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={rows}
-            className={`rounded border border-border bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-accent ${
+            className={`rounded border border-border bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-accent ${minHeightClass} ${
               splitting && mobileSubTab === 'preview' ? 'hidden md:block' : ''
             }`}
           />
         )}
         {showPreview && (
           <div
-            className={`max-h-64 overflow-y-auto rounded border border-border bg-surface px-3 py-2 ${
-              splitting && mobileSubTab === 'edit' ? 'hidden md:block' : ''
-            }`}
+            className={`overflow-y-auto rounded border border-border bg-surface px-3 py-2 ${
+              minHeightClass ? `${minHeightClass} max-h-[70vh]` : 'max-h-64'
+            } ${splitting && mobileSubTab === 'edit' ? 'hidden md:block' : ''}`}
           >
             <MarkdownView content={debouncedValue || '_미리볼 내용이 없습니다._'} docNo={docNo} scale={scale} />
           </div>
