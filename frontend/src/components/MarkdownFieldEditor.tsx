@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import MarkdownView from './MarkdownView'
+import EditablePreview from './EditablePreview'
+import type { BlockEditSurface } from './EditablePreview'
 import RefInsertModal from './RefInsertModal'
 import { useFontScale } from '../hooks/useFontScale'
 import { PALETTE_COLORS, PALETTE_LABEL, TEXT_SIZES, TEXT_SIZE_LABEL } from './markdown/palette'
@@ -85,6 +87,14 @@ const SELECT_CLASS =
   'rounded border border-border bg-surface px-1 py-1 text-xs text-primary outline-none focus:border-accent'
 const DIVIDER = <span className="mx-1 h-4 w-px bg-border" aria-hidden />
 
+// 활성 편집 표면(S27 3-2) — 툴바·단축키·참조 삽입이 "지금 편집 중인 textarea"를 모드와 무관하게
+// 같은 방식으로 다루기 위한 최소 인터페이스.
+interface EditSurface {
+  el: HTMLTextAreaElement | null
+  text: string
+  setText: (next: string) => void
+}
+
 interface MarkdownFieldEditorProps {
   id: string
   label: string
@@ -113,8 +123,19 @@ export default function MarkdownFieldEditor({
   onRefModalOpenChange,
 }: MarkdownFieldEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // 편집기 크롬 전체(툴바·뷰 모드·참조 삽입 팝업 포함) — 편집 가능 미리보기(S27)가 "이 밖으로
+  // 나가는 클릭 = 확정 / 안에서의 조작 = 블록 유지"를 판정하는 기준.
+  const rootRef = useRef<HTMLDivElement>(null)
+  // 미리보기 모드의 활성 블록 편집 표면(없으면 null) — 툴바·단축키·참조 삽입의 대상(3-2).
+  const blockSurfaceRef = useRef<BlockEditSurface | null>(null)
+  const registerBlockSurface = useCallback((surface: BlockEditSurface | null) => {
+    blockSurfaceRef.current = surface
+  }, [])
+  const keepEditingRef = useRef(false)
   const [viewMode, setViewModeState] = useState<ViewMode>(getInitialViewMode)
   function setViewMode(mode: ViewMode) {
+    // 미리보기를 떠나기 전에 활성 초안을 확정한다(모드 전환으로 초안이 사라지지 않게).
+    if (viewMode === 'preview' && mode !== 'preview') blockSurfaceRef.current?.commit()
     setViewModeState(mode)
     try {
       window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
@@ -140,6 +161,9 @@ export default function MarkdownFieldEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refInsertOpen])
 
+  // 참조 삽입 팝업이 열려 있는 동안에는 미리보기의 활성 블록이 blur로 확정되지 않게 잠근다(2-4).
+  keepEditingRef.current = refInsertOpen
+
   // 라이브 미리보기 디바운스(9-6ⓐ) — 타이핑마다 MarkdownView를 다시 그려 임베드 API를 즉시 호출하지
   // 않는다.
   const [debouncedValue, setDebouncedValue] = useState(value)
@@ -158,6 +182,32 @@ export default function MarkdownFieldEditor({
     wrapNoticeTimer.current = setTimeout(() => setWrapNotice(null), 1800)
   }
 
+  // 활성 편집 표면(3-2) — (편집·분할) 본문 textarea | (미리보기) 활성 블록 textarea.
+  // 툴바·단축키·참조 삽입은 전부 이 하나를 통해서만 값을 읽고 쓴다(모드별 분기 금지).
+  function getSurface(): EditSurface | null {
+    if (viewMode === 'preview') {
+      const block = blockSurfaceRef.current
+      if (!block) return null
+      return { el: block.getEl(), text: block.getText(), setText: block.setText }
+    }
+    return { el: textareaRef.current, text: value, setText: onChange }
+  }
+
+  function requireSurface(): EditSurface | null {
+    const surface = getSurface()
+    if (!surface) {
+      flashWrapNotice('편집할 블록을 먼저 클릭하세요')
+      return null
+    }
+    return surface
+  }
+
+  // 툴바 버튼은 포커스를 가져가지 않는다 — 미리보기 모드에서 blur 확정으로 블록이 닫히는 것을
+  // 막고(2-4), 편집·분할 모드에서도 본문 textarea의 선택 영역이 그대로 유지된다.
+  function keepFocus(e: ReactMouseEvent) {
+    e.preventDefault()
+  }
+
   // 경미(§10 잔여) 5 — 툴바 조작이 값을 통째로 교체(onChange(전체 문자열))하면 브라우저 네이티브
   // undo 스택이 끊긴다(Ctrl+Z 무반응). 실측(headless Chrome, CDP): `textarea.setRangeText()` +
   // 수동 input 이벤트 dispatch는 React 상태 반영은 정상이지만 **Ctrl+Z가 전혀 먹지 않았다**
@@ -173,13 +223,18 @@ export default function MarkdownFieldEditor({
   //
   // selection은 대체 후 값 기준 절대 오프셋(없으면 execCommand 기본 동작인 "삽입 뒤 커서 collapse"
   // 에 맡긴다 — insertAtCursor가 정확히 이 기본 동작을 원한다).
-  function applyRangeEdit(start: number, end: number, replacement: string, selection?: { start: number; end: number }) {
-    const el = textareaRef.current
+  function applyRangeEdit(
+    surface: EditSurface,
+    start: number,
+    end: number,
+    replacement: string,
+    selection?: { start: number; end: number },
+  ) {
+    const el = surface.el
     if (!el || typeof document.execCommand !== 'function') {
-      // textarea가 DOM에 없거나(예: 미리보기 전용 모드) execCommand 미지원 환경 — undo 스택은
-      // 못 지키지만 기능 자체는 그대로 동작해야 한다(안전한 폴백).
-      const next = `${value.slice(0, start)}${replacement}${value.slice(end)}`
-      onChange(next)
+      // textarea가 DOM에 없거나 execCommand 미지원 환경 — undo 스택은 못 지키지만 기능 자체는
+      // 그대로 동작해야 한다(안전한 폴백).
+      surface.setText(`${surface.text.slice(0, start)}${replacement}${surface.text.slice(end)}`)
       return
     }
     el.focus()
@@ -193,11 +248,13 @@ export default function MarkdownFieldEditor({
   }
 
   function insertAtCursor(snippet: string) {
-    const el = textareaRef.current
-    const start = el?.selectionStart ?? value.length
-    const end = el?.selectionEnd ?? value.length
+    const surface = requireSurface()
+    if (!surface) return
+    const el = surface.el
+    const start = el?.selectionStart ?? surface.text.length
+    const end = el?.selectionEnd ?? surface.text.length
     const caret = start + snippet.length
-    applyRangeEdit(start, end, snippet, { start: caret, end: caret })
+    applyRangeEdit(surface, start, end, snippet, { start: caret, end: caret })
   }
 
   // 선택 영역 래핑(F52 ④, 9-6ⓑ) — 세 갈래:
@@ -206,13 +263,16 @@ export default function MarkdownFieldEditor({
   //    막는 안전 처리(무시).
   // ③ 그 외에는 기존처럼 감싼다(선택이 없으면 자리표시자를 넣고 선택 상태로 남긴다).
   function wrapSelection(before: string, after: string, placeholder: string) {
-    const el = textareaRef.current
-    const start = el?.selectionStart ?? value.length
-    const end = el?.selectionEnd ?? value.length
+    const surface = requireSurface()
+    if (!surface) return
+    const el = surface.el
+    const text = surface.text
+    const start = el?.selectionStart ?? text.length
+    const end = el?.selectionEnd ?? text.length
     const hasSelection = end > start
 
     if (hasSelection) {
-      const selected = value.slice(start, end)
+      const selected = text.slice(start, end)
       const exactlyWrapped =
         before.length > 0 &&
         selected.length >= before.length + after.length &&
@@ -227,7 +287,7 @@ export default function MarkdownFieldEditor({
           flashWrapNotice('선택 영역에 같은 기호가 있어 적용할 수 없습니다')
           return
         }
-        applyRangeEdit(start, end, inner, { start, end: start + inner.length })
+        applyRangeEdit(surface, start, end, inner, { start, end: start + inner.length })
         return
       }
 
@@ -239,11 +299,11 @@ export default function MarkdownFieldEditor({
       }
     }
 
-    const selected = hasSelection ? value.slice(start, end) : placeholder
+    const selected = hasSelection ? text.slice(start, end) : placeholder
     const inserted = `${before}${selected}${after}`
     const selStart = start + before.length
     const selEnd = selStart + selected.length
-    applyRangeEdit(start, end, inserted, { start: selStart, end: selEnd })
+    applyRangeEdit(surface, start, end, inserted, { start: selStart, end: selEnd })
   }
 
   function wrapDirective(attr: string, placeholder: string) {
@@ -257,15 +317,18 @@ export default function MarkdownFieldEditor({
   // 목록·들여쓰기(10-3) — 파싱·렌더 변경 0(GFM이 이미 처리) — 선택된 줄 범위의 각 줄 앞에
   // prefix를 토글(이미 있으면 제거)하는 삽입 도우미만 추가한다.
   function applyLineTransform(transform: (lines: string[]) => string[]) {
-    const el = textareaRef.current
-    const start = el?.selectionStart ?? value.length
-    const end = el?.selectionEnd ?? value.length
-    const lineStart = value.lastIndexOf('\n', start - 1) + 1
-    const nextNewline = value.indexOf('\n', end)
-    const lineEnd = nextNewline === -1 ? value.length : nextNewline
-    const segment = value.slice(lineStart, lineEnd)
+    const surface = requireSurface()
+    if (!surface) return
+    const el = surface.el
+    const text = surface.text
+    const start = el?.selectionStart ?? text.length
+    const end = el?.selectionEnd ?? text.length
+    const lineStart = text.lastIndexOf('\n', start - 1) + 1
+    const nextNewline = text.indexOf('\n', end)
+    const lineEnd = nextNewline === -1 ? text.length : nextNewline
+    const segment = text.slice(lineStart, lineEnd)
     const nextSegment = transform(segment.split('\n')).join('\n')
-    applyRangeEdit(lineStart, lineEnd, nextSegment, { start: lineStart, end: lineStart + nextSegment.length })
+    applyRangeEdit(surface, lineStart, lineEnd, nextSegment, { start: lineStart, end: lineStart + nextSegment.length })
   }
 
   // 공백만 있는 줄은 건드리지 않는다. "전부 있으면 전부 제거(토글 해제), 아니면 없는 줄만 부여"
@@ -352,7 +415,7 @@ export default function MarkdownFieldEditor({
   const splitting = viewMode === 'split'
 
   return (
-    <div className="flex flex-col gap-1 text-sm">
+    <div ref={rootRef} className="flex flex-col gap-1 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <label htmlFor={id} className="text-sm text-primary">
           {label}
@@ -370,6 +433,7 @@ export default function MarkdownFieldEditor({
               <button
                 key={opt.value}
                 type="button"
+                onMouseDown={keepFocus}
                 onClick={() => setViewMode(opt.value)}
                 className={`rounded px-2 py-0.5 text-xs ${
                   viewMode === opt.value ? 'bg-accent-soft text-accent' : 'text-primary hover:bg-bg'
@@ -381,6 +445,7 @@ export default function MarkdownFieldEditor({
           </div>
           <button
             type="button"
+            onMouseDown={keepFocus}
             onClick={() => setRefInsertOpen(true)}
             className="rounded border border-border px-2 py-1 text-xs text-primary hover:bg-bg"
           >
@@ -392,16 +457,16 @@ export default function MarkdownFieldEditor({
       {/* 툴바 — 서식 / 색·크기 / 삽입 3그룹(9-3) + 툴팁(title). 선택 영역 래핑(F52 ④). */}
       <div className="flex flex-wrap items-center gap-1 rounded border border-border bg-bg p-1">
         <div className="flex items-center gap-0.5" role="group" aria-label="서식">
-          <button type="button" title="굵게 (Ctrl+B)" onClick={() => wrapSelection('**', '**', '굵게')} className={`${TOOLBAR_BTN} font-bold`}>
+          <button type="button" onMouseDown={keepFocus} title="굵게 (Ctrl+B)" onClick={() => wrapSelection('**', '**', '굵게')} className={`${TOOLBAR_BTN} font-bold`}>
             B
           </button>
-          <button type="button" title="기울임 (Ctrl+I)" onClick={() => wrapSelection('*', '*', '기울임')} className={`${TOOLBAR_BTN} italic`}>
+          <button type="button" onMouseDown={keepFocus} title="기울임 (Ctrl+I)" onClick={() => wrapSelection('*', '*', '기울임')} className={`${TOOLBAR_BTN} italic`}>
             I
           </button>
-          <button type="button" title="취소선" onClick={() => wrapSelection('~~', '~~', '취소선')} className={`${TOOLBAR_BTN} line-through`}>
+          <button type="button" onMouseDown={keepFocus} title="취소선" onClick={() => wrapSelection('~~', '~~', '취소선')} className={`${TOOLBAR_BTN} line-through`}>
             S
           </button>
-          <button type="button" title="밑줄 (Ctrl+U)" onClick={() => wrapSelection('++', '++', '밑줄')} className={`${TOOLBAR_BTN} underline`}>
+          <button type="button" onMouseDown={keepFocus} title="밑줄 (Ctrl+U)" onClick={() => wrapSelection('++', '++', '밑줄')} className={`${TOOLBAR_BTN} underline`}>
             U
           </button>
         </div>
@@ -411,6 +476,7 @@ export default function MarkdownFieldEditor({
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label="색·크기">
           <button
             type="button"
+            onMouseDown={keepFocus}
             title="형광펜(기본 노랑, Ctrl+Shift+H)"
             onClick={() => wrapSelection('==', '==', '형광펜')}
             className="rounded bg-mark-yellow px-2 py-1 text-xs text-primary hover:opacity-80"
@@ -482,29 +548,29 @@ export default function MarkdownFieldEditor({
         {DIVIDER}
 
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label="삽입">
-          <button type="button" title="인라인 스포일러" onClick={() => wrapSelection('||', '||', '스포일러')} className={TOOLBAR_BTN}>
+          <button type="button" onMouseDown={keepFocus} title="인라인 스포일러" onClick={() => wrapSelection('||', '||', '스포일러')} className={TOOLBAR_BTN}>
             스포일러
           </button>
-          <button type="button" title="콜아웃 — 참고" onClick={() => insertCallout('note')} className={`${TOOLBAR_BTN} text-accent`}>
+          <button type="button" onMouseDown={keepFocus} title="콜아웃 — 참고" onClick={() => insertCallout('note')} className={`${TOOLBAR_BTN} text-accent`}>
             참고
           </button>
-          <button type="button" title="콜아웃 — 주의" onClick={() => insertCallout('warn')} className={`${TOOLBAR_BTN} text-warning`}>
+          <button type="button" onMouseDown={keepFocus} title="콜아웃 — 주의" onClick={() => insertCallout('warn')} className={`${TOOLBAR_BTN} text-warning`}>
             주의
           </button>
-          <button type="button" title="콜아웃 — 팁" onClick={() => insertCallout('tip')} className={`${TOOLBAR_BTN} text-correct`}>
+          <button type="button" onMouseDown={keepFocus} title="콜아웃 — 팁" onClick={() => insertCallout('tip')} className={`${TOOLBAR_BTN} text-correct`}>
             팁
           </button>
           {DIVIDER}
-          <button type="button" title="글머리 기호 목록" onClick={toggleBulletList} className={TOOLBAR_BTN}>
+          <button type="button" onMouseDown={keepFocus} title="글머리 기호 목록" onClick={toggleBulletList} className={TOOLBAR_BTN}>
             •목록
           </button>
-          <button type="button" title="번호 매기기 목록" onClick={toggleNumberedList} className={TOOLBAR_BTN}>
+          <button type="button" onMouseDown={keepFocus} title="번호 매기기 목록" onClick={toggleNumberedList} className={TOOLBAR_BTN}>
             1.목록
           </button>
-          <button type="button" title="들여쓰기" onClick={indentLines} className={TOOLBAR_BTN}>
+          <button type="button" onMouseDown={keepFocus} title="들여쓰기" onClick={indentLines} className={TOOLBAR_BTN}>
             들여쓰기
           </button>
-          <button type="button" title="내어쓰기" onClick={outdentLines} className={TOOLBAR_BTN}>
+          <button type="button" onMouseDown={keepFocus} title="내어쓰기" onClick={outdentLines} className={TOOLBAR_BTN}>
             내어쓰기
           </button>
         </div>
@@ -553,15 +619,32 @@ export default function MarkdownFieldEditor({
             }`}
           />
         )}
-        {showPreview && (
-          <div
-            className={`overflow-y-auto rounded border border-border bg-surface px-3 py-2 ${
-              minHeightClass ? `${minHeightClass} max-h-[70vh]` : 'max-h-64'
-            } ${splitting && mobileSubTab === 'edit' ? 'hidden md:block' : ''}`}
-          >
-            <MarkdownView content={debouncedValue || '_미리볼 내용이 없습니다._'} docNo={docNo} scale={scale} />
-          </div>
-        )}
+        {showPreview &&
+          (viewMode === 'preview' ? (
+            // 미리보기 모드 = **편집 가능**(S27) — 블록 클릭으로 그 자리에서 소스 편집.
+            // 분할 모드의 미리보기 패널은 아래 읽기 전용 경로 그대로다(편집 표면 2개 금지).
+            <EditablePreview
+              value={value}
+              onChange={onChange}
+              docNo={docNo}
+              scale={scale}
+              containerClassName={`overflow-y-auto rounded border border-border bg-surface px-3 py-2 ${
+                minHeightClass ? `${minHeightClass} max-h-[70vh]` : 'max-h-64'
+              }`}
+              chromeRef={rootRef}
+              keepEditingRef={keepEditingRef}
+              registerSurface={registerBlockSurface}
+              onFormatKeyDown={handleKeyDown}
+            />
+          ) : (
+            <div
+              className={`overflow-y-auto rounded border border-border bg-surface px-3 py-2 ${
+                minHeightClass ? `${minHeightClass} max-h-[70vh]` : 'max-h-64'
+              } ${splitting && mobileSubTab === 'edit' ? 'hidden md:block' : ''}`}
+            >
+              <MarkdownView content={debouncedValue || '_미리볼 내용이 없습니다._'} docNo={docNo} scale={scale} />
+            </div>
+          ))}
       </div>
 
       {/* 문법 도움말(9-1) — 기본 접힘, 카테고리 그룹 + 코드 칩. */}
