@@ -106,6 +106,16 @@ function consumeContainer(lines: SourceLine[], startIdx: number): number {
   return lines.length // 닫히지 않음 → 문서 끝까지
 }
 
+// 원자 블록(펜스·컨테이너)을 소비한 뒤의 블록 끝 오프셋 — 마지막으로 삼킨 줄이 빈 줄이면
+// (닫히지 않은 채 EOF까지 간 경우: 문서 끝 개행 뒤의 빈 줄, 끝에 붙은 빈 줄들) 그 앞의 내용 줄
+// 끝까지만 잡는다. 그래야 다른 블록과 마찬가지로 **끝 개행이 블록에 딸려 들어가지 않고**
+// (무편집 확정 = 원본 1바이트 불변), 경계는 여전히 줄 단위로 남는다.
+function lastContentEnd(lines: SourceLine[], fromIdx: number, toIdx: number): number {
+  let last = toIdx
+  while (last > fromIdx && isBlank(lines[last])) last -= 1
+  return lines[last].end
+}
+
 /**
  * 최상위 블록 목록. 항상 오름차순·비중첩이며, 블록 밖에 남는 문자는 공백·개행뿐이다.
  */
@@ -126,15 +136,16 @@ export function scanBlocks(source: string): BlockRange[] {
     // 빈 줄을 만날 때까지 한 블록. 도중에 펜스·컨테이너가 열리면 그 구조 전체를 통째로 삼킨다
     // (문단 바로 다음 줄에서 펜스가 시작하는 경우에도 구조가 갈라지지 않는다).
     while (i < lines.length && !isBlank(lines[i])) {
+      const openIdx = i
       const fence = matchFenceOpen(lines[i].text)
       if (fence) {
         i = consumeFence(lines, i, fence)
-        end = lines[i - 1].end
+        end = lastContentEnd(lines, openIdx, i - 1)
         continue
       }
       if (matchDirective(lines[i].text) === 'open') {
         i = consumeContainer(lines, i)
-        end = lines[i - 1].end
+        end = lastContentEnd(lines, openIdx, i - 1)
         continue
       }
       end = lines[i].end

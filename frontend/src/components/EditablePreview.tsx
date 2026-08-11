@@ -146,9 +146,16 @@ export default function EditablePreview({
     if (target.kind === 'append') {
       // 빈 초안 확정 = 아무 일도 없음(2-5).
       if (mid === '') return null
-      const head = current.replace(TRAILING_BLANK_RE, '')
-      const headLen = head.length
-      result = { next: head === '' ? mid : `${head}\n\n${mid}`, map: (o) => Math.min(o, headLen) }
+      // 기존 본문 바이트는 **그대로 두고** 뒤에 붙인다(끝 개행도 보존) — 구분 빈 줄이 되도록
+      // 모자란 개행만 계산해 채운다. 내용이 아예 없는(공백뿐인) 문서만 초안으로 대체한다.
+      if (current.trim() === '') {
+        result = { next: mid, map: () => 0 }
+      } else {
+        const tail = TRAILING_BLANK_RE.exec(current)
+        const newlines = tail ? (tail[0].match(/\n/g)?.length ?? 0) : 0
+        const sep = newlines >= 2 ? '' : newlines === 1 ? '\n' : '\n\n'
+        result = { next: `${current}${sep}${mid}`, map: (o) => o }
+      }
     } else if (mid === '') {
       // 블록 전체 삭제 — 앞뒤 구분 빈 줄이 이중으로 남지 않게 정리한다(2-5).
       const before = current.slice(0, target.start).replace(TRAILING_BLANK_RE, '')
@@ -212,6 +219,35 @@ export default function EditablePreview({
     return () => document.removeEventListener('pointerdown', handlePointerDown, true)
   }, [commit, chromeRef, keepEditingRef])
 
+  // 초안 **밖**에서 눌린 Esc(예: 툴바 셀렉트에 포커스가 가 있는 상태) — 그대로 두면 바깥 모달의
+  // window keydown이 편집기를 닫아 미확정 초안이 조용히 사라진다(3-3 위반). 여기서 가로채
+  // ⓐ 전파를 끊고 ⓑ 취소가 아니라 **확정**한다 — 확정된 값이 부모의 dirty 판정에 합류하므로
+  // 이어지는 Esc는 기존 "작성 중인 내용이 있습니다" 확인창을 정상적으로 거친다.
+  // (초안 textarea 안의 Esc = 취소는 기존 onKeyDown 경로 그대로.)
+  useEffect(() => {
+    function handleKeyDownCapture(e: KeyboardEvent) {
+      if (e.key !== 'Escape' || e.ctrlKey || e.altKey || e.metaKey) return
+      if (!editingRef.current) return
+      if (keepEditingRef.current) return // 참조 삽입 팝업이 열려 있으면 그쪽 Esc가 우선
+      const node = e.target as Node | null
+      if (node && draftElRef.current?.contains(node)) return
+      e.stopPropagation()
+      commit()
+    }
+    document.addEventListener('keydown', handleKeyDownCapture, true)
+    return () => document.removeEventListener('keydown', handleKeyDownCapture, true)
+  }, [commit, keepEditingRef])
+
+  // 안전망 이중화 — 어떤 경로로든 이 컴포넌트가 사라질 때 남아 있는 초안은 확정한다.
+  const commitRef = useRef(commit)
+  commitRef.current = commit
+  useEffect(
+    () => () => {
+      commitRef.current()
+    },
+    [],
+  )
+
   // 열릴 때 포커스 + 자동 높이, 타이핑마다 높이 재계산.
   useLayoutEffect(() => {
     if (!editing) return
@@ -249,14 +285,14 @@ export default function EditablePreview({
 
   function handleContainerClick(e: ReactMouseEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement | null
+    const startedInDraft = pointerInDraftRef.current
+    // 두 플래그는 이 클릭에 대한 판정에만 쓰인다 — 다음 클릭(키보드 활성화 포함)까지 끌고 가면
+    // 초안 안을 클릭한 뒤로 컨테이너 클릭이 통째로 막힌다.
     suppressBlurRef.current = false
+    pointerInDraftRef.current = false
     if (!target) return
-    if (pointerInDraftRef.current) return // 초안 안에서 시작한 클릭·드래그
+    if (startedInDraft) return // 초안 안에서 시작한 클릭·드래그
     if (draftElRef.current?.contains(target)) return // 초안 안 클릭(캐럿 이동)은 아무 일도 아니다
-    if (target.closest('[data-preview-append]')) {
-      activate('append')
-      return
-    }
     // 링크·스포일러·fold 토글 등은 원래 동작만 하고 편집으로 진입하지 않는다. 빈 여백 클릭도
     // 마찬가지 — 다만 편집 중이던 초안은 확정한다(어정쩡하게 열린 채 남지 않게).
     if (target.closest(INTERACTIVE_SELECTOR)) {
@@ -275,6 +311,15 @@ export default function EditablePreview({
       return
     }
     activate({ start, end })
+  }
+
+  // 자리표시자는 컨테이너 위임이 아니라 자기 onClick으로 처리한다 — 버튼이라 키보드(Enter·Space)
+  // 활성화도 그대로 통하고, 위임 경로의 포인터 플래그 판정에 걸리지 않는다.
+  function handleAppendClick(e: ReactMouseEvent<HTMLButtonElement>) {
+    e.stopPropagation()
+    suppressBlurRef.current = false
+    pointerInDraftRef.current = false
+    activate('append')
   }
 
   function handleBlockKeyDown(e: ReactKeyboardEvent<HTMLDivElement>, block: BlockRange) {
@@ -353,7 +398,7 @@ export default function EditablePreview({
       {editing?.kind === 'append' ? (
         renderDraft('draft-append')
       ) : (
-        <button type="button" data-preview-append="" className={PLACEHOLDER_CLASS}>
+        <button type="button" onClick={handleAppendClick} className={PLACEHOLDER_CLASS}>
           클릭해서 입력…
         </button>
       )}
