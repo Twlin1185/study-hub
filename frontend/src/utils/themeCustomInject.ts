@@ -11,10 +11,13 @@ const FONT_STACK: Record<string, string> = {
   mono: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
 }
 
+// 문서 스타일 size 4단계(DocSize)와 동일한 이름 체계 — 일관되게 2px 단위 증가(검토 치명-1
+// 수정: xl 추가, 서버 THEME_SIZES가 4단계라 프론트 매핑 누락 시 수용-무동작이 된다).
 const FONT_SIZE_PX: Record<string, string> = {
-  small: '15px',
+  small: '14px',
   default: '16px',
   large: '18px',
+  xl: '20px',
 }
 
 const STYLE_TAG_ID = 'theme-custom-vars'
@@ -32,7 +35,7 @@ export function isSafeThemeMode(): boolean {
   }
 }
 
-// 색 계열(bg·surface·text·accent 파생)과 타이포 계열(font·fontSize)을 분리한다 — §4.26 ④ 경계표:
+// 색 계열(bg·surface·text·accent 파생)과 타이포 계열(font·size)을 분리한다 — §4.26 ④ 경계표:
 // "인쇄는 배경 전부 무시" + "폰트·글자크기는 인쇄 유지"가 서로 다른 매체 스코프를 요구하기
 // 때문이다(색은 화면 전용, 타이포는 화면·인쇄 공통).
 // 글자색·강조색은 팔레트 이름(F52 7색, 백엔드 THEME_PALETTE_NAMES와 동일) — INK_HEX로 실제 hex를
@@ -57,12 +60,18 @@ function colorDeclarationsFor(palette: ThemeCustomPalette | undefined, mode: The
   return decls
 }
 
+// 검토 경미-2 수정: 기준 글자크기는 `--font-size-base` 변수 + index.css의 상시 `html{font-size}`
+// 규칙 조합을 버렸다(그 규칙이 미설정 상태에서도 16px를 강제해 브라우저 접근성 글자크기 상속을
+// 끊었다 — DoD 4 "무지정 렌더 불변" 위반). 대신 `:root`/`.dark` 선택자(둘 다 <html> 자신을
+// 가리킨다 — theme.ts가 dark 클래스를 documentElement에 직접 토글)에 **커스텀이 있을 때만**
+// `font-size` 선언을 직접 얹는다 — 미설정이면 이 함수가 빈 배열을 돌려주므로 규칙 자체가
+// 생성되지 않고, html은 종전처럼 아무 font-size 선언도 갖지 않는다(브라우저 기본값 상속 유지).
 function typographyDeclarationsFor(palette: ThemeCustomPalette | undefined): string[] {
   if (!palette) return []
   const decls: string[] = []
   if (palette.font && FONT_STACK[palette.font]) decls.push(`--font-base: ${FONT_STACK[palette.font]};`)
-  if (palette.fontSize && FONT_SIZE_PX[palette.fontSize]) {
-    decls.push(`--font-size-base: ${FONT_SIZE_PX[palette.fontSize]};`)
+  if (palette.size && FONT_SIZE_PX[palette.size]) {
+    decls.push(`font-size: ${FONT_SIZE_PX[palette.size]};`)
   }
   return decls
 }

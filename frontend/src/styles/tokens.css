@@ -53,10 +53,12 @@
   --doc-bg-purple: #f7f1fb;
   --doc-bg-gray: #f4f5f7;
 
-  /* 전역 앱 테마 커스텀(F53 ①, §4.26 ③) 기본값 — 폰트·기준 글자크기. 색이 아니므로 다크에서도
-     보통 같은 값을 쓰되, 커스텀 저장 시 라이트·다크 각각 오버라이드될 수 있다. */
+  /* 전역 앱 테마 커스텀(F53 ①, §4.26 ③) 기본값 — 폰트. 색이 아니므로 다크에서도 보통 같은
+     값을 쓰되, 커스텀 저장 시 라이트·다크 각각 오버라이드될 수 있다. 기준 글자크기는 여기 토큰이
+     아니라 커스텀이 있을 때만 utils/themeCustomInject.ts가 html에 font-size를 직접 주입한다
+     (검토 경미-2 — 상시 토큰/규칙을 두면 미설정 상태에서도 브라우저 접근성 글자크기 상속이
+     끊긴다). */
   --font-base: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --font-size-base: 16px;
 }
 
 .dark {
@@ -108,7 +110,6 @@
   --doc-bg-gray: #1a1c21;
 
   --font-base: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --font-size-base: 16px;
 }
 
 /* 인쇄 뷰는 테마와 무관하게 항상 라이트 (설계 §6) */

@@ -767,15 +767,17 @@ export type QuizAutoAdvance = 'on' | 'off'
 export type FontScale = 'small' | 'default' | 'large'
 
 // ---- 전역 앱 테마 커스텀 (설계 §4.26 [S28] ③, F53 ①) ----
-// 백엔드 settings_service.py 대조 완료(2026-08-13) — 글자색·강조색은 **F52 팔레트 7색 이름**
-// 재사용(DocBg와 같은 값 집합, 자유 hex 금지)이고, 배경·서피스만 자유 hex + 서버 대비 검증.
-export type ThemeCustomFontSize = 'small' | 'default' | 'large'
+// 백엔드 settings_service.py 대조 완료(2026-08-13, 검토 치명-1 수정) — 서버 허용 키는
+// {font,size,bg,surface,text,accent}뿐이다(_THEME_OVERRIDE_KEYS) — **`fontSize`가 아니라
+// `size`**이며 문서 스타일과 동일한 4단계(THEME_SIZES = DOC_STYLE_SIZES 그대로)라 DocSize를
+// 그대로 재사용한다. 글자색·강조색은 F52 팔레트 7색 이름 재사용(DocBg와 같은 값 집합, 자유 hex
+// 금지)이고, 배경·서피스만 자유 hex + 서버 대비 검증.
 // 팔레트 색 이름(F52 7색) — 문서 bg(DocBg)·전역 테마 text/accent가 공유하는 값 집합.
 export type PaletteColorName = DocBg
 
 export interface ThemeCustomPalette {
   font?: DocFont
-  fontSize?: ThemeCustomFontSize
+  size?: DocSize
   bg?: string
   surface?: string
   text?: PaletteColorName

@@ -45,9 +45,15 @@ export function contrastRatio(hexA: string, hexB: string): number {
   return (lighter + 0.05) / (darker + 0.05)
 }
 
-// WCAG AA 본문 텍스트 기준(4.5:1). 대비 임계값 구체 수치는 구현 재량(설계 §4.26 ③) — 서버가
-// 최종 게이트이므로 이 상수는 프론트 즉시 피드백 기준일 뿐이다.
+// WCAG AA 본문 텍스트 기준(4.5:1) — 백엔드 settings_service.CONTRAST_MIN과 값 동기(2026-08-13
+// 검토 대응). 대비 임계값 구체 수치는 서버가 최종 게이트이므로 이 상수는 프론트 즉시 피드백
+// 기준일 뿐이다.
 export const CONTRAST_MIN = 4.5
+
+// --text-muted(보조 텍스트) 축 — 백엔드가 검토 중요-1로 확장 중인 두 번째 대비 축. 정확한
+// 임계값은 백엔드 보고가 정본(여기 3.0은 WCAG "큰 텍스트/비필수 텍스트" 완화 기준을 잠정
+// 채택 — 백엔드 확정치와 다르면 이 상수만 갱신하면 된다).
+export const CONTRAST_MIN_MUTED = 3.0
 
 export function meetsContrast(hexA: string, hexB: string, min: number = CONTRAST_MIN): boolean {
   return contrastRatio(hexA, hexB) >= min

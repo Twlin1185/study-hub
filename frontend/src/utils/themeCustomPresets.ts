@@ -55,20 +55,20 @@ export const THEME_PRESETS: ThemePreset[] = [
   {
     id: 'sepia',
     label: '세피아',
-    light: { font: 'serif', fontSize: 'default', bg: '#f4ecd8', surface: '#efe4c8', accent: 'orange' },
-    dark: { font: 'serif', fontSize: 'default', bg: '#2b2417', surface: '#35301f', accent: 'orange' },
+    light: { font: 'serif', size: 'default', bg: '#f4ecd8', surface: '#efe4c8', accent: 'orange' },
+    dark: { font: 'serif', size: 'default', bg: '#2b2417', surface: '#35301f', accent: 'orange' },
   },
   {
     id: 'high-contrast',
     label: '고대비',
-    light: { font: 'sans', fontSize: 'large', bg: '#ffffff', surface: '#ffffff', accent: 'blue' },
-    dark: { font: 'sans', fontSize: 'large', bg: '#000000', surface: '#000000', accent: 'yellow' },
+    light: { font: 'sans', size: 'large', bg: '#ffffff', surface: '#ffffff', accent: 'blue' },
+    dark: { font: 'sans', size: 'large', bg: '#000000', surface: '#000000', accent: 'yellow' },
   },
   {
     id: 'soft-gray',
     label: '소프트 그레이',
-    light: { font: 'sans', fontSize: 'default', bg: '#eef0f3', surface: '#f7f8fa', accent: 'blue' },
-    dark: { font: 'sans', fontSize: 'default', bg: '#121317', surface: '#1a1c21', accent: 'blue' },
+    light: { font: 'sans', size: 'default', bg: '#eef0f3', surface: '#f7f8fa', accent: 'blue' },
+    dark: { font: 'sans', size: 'default', bg: '#121317', surface: '#1a1c21', accent: 'blue' },
   },
 ]
 
@@ -80,9 +80,12 @@ export function findPresetId(palette: ThemeCustomPalette | undefined, tab: Theme
 }
 
 // 기본 토큰 값(styles/tokens.css와 동기) — 대비 검증 시 미지정 항목의 기준값으로 쓴다.
-export const DEFAULT_TOKEN_VALUES: Record<ThemeTab, { bg: string; surface: string; text: string }> = {
-  light: { bg: '#f5f6f8', surface: '#ffffff', text: '#14161a' },
-  dark: { bg: '#0f1115', surface: '#17191f', text: '#e7e9ee' },
+// textMuted(검토 중요-1) — 전역 테마 커스텀에는 이 축을 직접 편집하는 UI가 없다(항상 기본
+// 토큰 --text-muted 고정값). 서버가 이 축도 대비 검증에 넣는다고 해서 프론트가 즉시 피드백을
+// 같이 계산할 수 있도록 값만 미러(정확한 hex 대조·임계값은 백엔드 보고가 정본).
+export const DEFAULT_TOKEN_VALUES: Record<ThemeTab, { bg: string; surface: string; text: string; textMuted: string }> = {
+  light: { bg: '#f5f6f8', surface: '#ffffff', text: '#14161a', textMuted: '#6b7280' },
+  dark: { bg: '#0f1115', surface: '#17191f', text: '#e7e9ee', textMuted: '#9aa1ae' },
 }
 
 export function emptyTheme(): ThemeCustom {

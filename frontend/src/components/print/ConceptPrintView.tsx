@@ -81,11 +81,15 @@ export default function ConceptPrintView({ categoryId }: ConceptPrintViewProps) 
               // 폰트·글자크기는 인쇄에도 유지된다. documents/batch가 DocumentDetail 그대로라 style도
               // 함께 온다.
               const { scale, fontClassName, bgClassName } = resolveDocStyle(doc?.style, globalScale)
+              // 검토 경미-1 수정 — style 미지정 문서(bgClassName 빈 문자열)까지 패딩을 추가하면
+              // 무지정 렌더가 1px도 안 변해야 한다는 DoD 4를 어긴다. 배경이 실제로 있을 때만
+              // 여백을 준다(패딩 없이 배경 클래스만 붙이면 시각적으로 의미가 없으므로 함께 조건화).
+              const boxClass = bgClassName ? 'rounded p-2' : ''
               return (
                 <article
                   key={it.document_id}
                   id={`doc-${it.document_id}`}
-                  className={`print-page mb-5 rounded p-2 ${bgClassName} ${fontClassName}`}
+                  className={`print-page mb-5 ${boxClass} ${bgClassName} ${fontClassName}`}
                 >
                   <h3 className="mb-1 text-base font-semibold text-primary">
                     <span className="mr-2 text-xs font-normal text-muted">{it.doc_no}</span>

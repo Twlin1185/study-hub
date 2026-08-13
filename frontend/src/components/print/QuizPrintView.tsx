@@ -67,10 +67,12 @@ export default function QuizPrintView({ categoryId, includeExplanation, answerSp
               const doc = docById.get(it.document_id)
               // S28(F53 ①·⑤, §4.26 ④) — 배경은 미리보기 화면에서만, 폰트·크기는 인쇄에도 유지.
               const { scale, fontClassName, bgClassName } = resolveDocStyle(doc?.style, globalScale)
+              // 검토 경미-1 수정 — style 미지정 문서까지 패딩을 넣지 않는다(DoD 4 무지정 렌더 불변).
+              const boxClass = bgClassName ? 'rounded p-2' : ''
               return (
                 <article
                   key={it.document_id}
-                  className={`print-avoid-break mb-6 rounded p-2 ${bgClassName} ${fontClassName}`}
+                  className={`print-avoid-break mb-6 ${boxClass} ${bgClassName} ${fontClassName}`}
                 >
                   <h3 className="mb-2 text-sm font-semibold text-primary">
                     {seq}. <span className="mr-1 text-xs font-normal text-muted">{it.doc_no}</span>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSettings, useUpdateSettings } from '../../api/settings'
 import { ApiError } from '../../api/client'
-import { CONTRAST_MIN, contrastRatio, isValidHex, pickReadableOnColor } from '../../utils/color'
+import { CONTRAST_MIN, CONTRAST_MIN_MUTED, contrastRatio, isValidHex, pickReadableOnColor } from '../../utils/color'
 import {
   DEFAULT_TOKEN_VALUES,
   INK_HEX,
@@ -12,7 +12,7 @@ import {
   type ThemeTab,
 } from '../../utils/themeCustomPresets'
 import { isSafeThemeMode } from '../../utils/themeCustomInject'
-import type { ThemeCustom, ThemeCustomFontSize, ThemeCustomPalette } from '../../api/types'
+import type { DocSize, ThemeCustom, ThemeCustomPalette } from '../../api/types'
 
 function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -24,11 +24,21 @@ const FONT_TAB_OPTIONS: { value: NonNullable<ThemeCustomPalette['font']>; label:
   { value: 'mono', label: '고정폭(mono)' },
 ]
 
-const FONT_SIZE_OPTIONS: { value: ThemeCustomFontSize; label: string }[] = [
+// 검토 치명-1 수정: 서버 키는 fontSize가 아니라 size, 문서 스타일과 동일한 4단계(DocSize).
+const FONT_SIZE_OPTIONS: { value: DocSize; label: string }[] = [
   { value: 'small', label: '작게' },
   { value: 'default', label: '기본' },
   { value: 'large', label: '크게' },
+  { value: 'xl', label: '아주 크게' },
 ]
+
+// 미리보기 인라인 스타일용 px 매핑 — utils/themeCustomInject.ts의 FONT_SIZE_PX와 값 동기.
+const PREVIEW_FONT_SIZE_PX: Record<DocSize, string> = {
+  small: '14px',
+  default: '16px',
+  large: '18px',
+  xl: '20px',
+}
 
 // 전역 앱 테마 편집(F53 ①, 설계 §4.26 ③ · screens §5.11 S28 · 백엔드 settings_service.py 대조
 // 완료) — 라이트·다크 각각 편집, 프리셋 + 커스텀. 배경·서피스는 자유 색(대비 자동 검증) ·
@@ -54,11 +64,22 @@ export default function ThemeCustomSection() {
   const effectiveBg = isValidHex(draft.bg) ? draft.bg : defaults.bg
   const effectiveSurface = isValidHex(draft.surface) ? draft.surface : defaults.surface
   const effectiveTextHex = draft.text ? INK_HEX[tab][draft.text] : defaults.text
+  // 검토 중요-1 — 서버가 본문 --text(4.5:1) + 보조 --text-muted(3.0:1) 2축으로 검증을 확장 중.
+  // --text-muted는 이 화면에 직접 편집 UI가 없어 항상 기본 토큰 고정값이다(정확한 hex·임계값
+  // 대조는 백엔드 보고가 정본 — 여기는 즉시 피드백용 미러).
+  const mutedTextHex = defaults.textMuted
 
-  const contrastBg = contrastRatio(effectiveBg, effectiveTextHex)
-  const contrastSurface = contrastRatio(effectiveSurface, effectiveTextHex)
-  const minContrast = Math.min(contrastBg, contrastSurface)
-  const contrastOk = minContrast >= CONTRAST_MIN
+  const contrastTextBg = contrastRatio(effectiveBg, effectiveTextHex)
+  const contrastTextSurface = contrastRatio(effectiveSurface, effectiveTextHex)
+  const minTextContrast = Math.min(contrastTextBg, contrastTextSurface)
+  const textOk = minTextContrast >= CONTRAST_MIN
+
+  const contrastMutedBg = contrastRatio(effectiveBg, mutedTextHex)
+  const contrastMutedSurface = contrastRatio(effectiveSurface, mutedTextHex)
+  const minMutedContrast = Math.min(contrastMutedBg, contrastMutedSurface)
+  const mutedOk = minMutedContrast >= CONTRAST_MIN_MUTED
+
+  const contrastOk = textOk && mutedOk
 
   const activePresetId = findPresetId(draft, tab)
   const dirty = JSON.stringify(draft ?? {}) !== JSON.stringify(stored[tab] ?? {})
@@ -188,10 +209,10 @@ export default function ThemeCustomSection() {
             <button
               key={o.value}
               type="button"
-              onClick={() => updateDraft({ fontSize: o.value })}
-              aria-pressed={draft.fontSize === o.value}
+              onClick={() => updateDraft({ size: o.value })}
+              aria-pressed={draft.size === o.value}
               className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                draft.fontSize === o.value
+                draft.size === o.value
                   ? 'border-accent bg-accent-soft text-accent'
                   : 'border-border text-primary hover:bg-bg'
               }`}
@@ -294,13 +315,25 @@ export default function ThemeCustomSection() {
         </div>
       </div>
 
-      {/* 대비 자동 검증 표시(R27 ②) — 서버 422가 최종 게이트, 여기는 즉시 피드백만. */}
+      {/* 대비 자동 검증 표시(R27 ②·검토 중요-1) — 본문·보조 텍스트 2축, 서버 422가 최종 게이트고
+          여기는 즉시 피드백만. 어느 축이 미달인지 문구로 구분한다. */}
       {!contrastOk && (
-        <p className="mb-3 rounded border border-wrong bg-wrong/10 px-3 py-2 text-xs text-wrong">
-          배경·서피스와 글자색의 명도 대비가 너무 낮습니다(최소 {minContrast.toFixed(2)}:1, 기준{' '}
-          {CONTRAST_MIN}:1 이상 필요) — 글자가 잘 안 보일 수 있어 저장을 막았습니다. 배경·서피스나
-          글자색을 바꿔보세요.
-        </p>
+        <div className="mb-3 flex flex-col gap-1 rounded border border-wrong bg-wrong/10 px-3 py-2 text-xs text-wrong">
+          {!textOk && (
+            <p>
+              배경·서피스와 <strong>글자색</strong>의 명도 대비가 너무 낮습니다(최소{' '}
+              {minTextContrast.toFixed(2)}:1, 기준 {CONTRAST_MIN}:1 이상 필요) — 본문 글자가 잘 안
+              보일 수 있어 저장을 막았습니다.
+            </p>
+          )}
+          {!mutedOk && (
+            <p>
+              배경·서피스와 <strong>보조 글자색(설명·안내 문구)</strong>의 명도 대비가 너무
+              낮습니다(최소 {minMutedContrast.toFixed(2)}:1, 기준 {CONTRAST_MIN_MUTED}:1 이상
+              필요) — 배경이나 서피스 색을 더 밝거나 어둡게 바꿔보세요.
+            </p>
+          )}
+        </div>
       )}
 
       {/* 미리보기 — 사용자 입력 색 데이터를 그대로 반영(하드코딩 아님, 불변 규칙 5 예외). */}
@@ -316,7 +349,7 @@ export default function ThemeCustomSection() {
                 : draft.font === 'mono'
                   ? "'SFMono-Regular', Consolas, monospace"
                   : undefined,
-            fontSize: draft.fontSize === 'small' ? '15px' : draft.fontSize === 'large' ? '18px' : '16px',
+            fontSize: draft.size ? PREVIEW_FONT_SIZE_PX[draft.size] : PREVIEW_FONT_SIZE_PX.default,
           }}
         >
           <p className="mb-1 font-semibold">미리보기</p>
