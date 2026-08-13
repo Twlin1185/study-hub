@@ -1,6 +1,6 @@
 # Stage 28 — 디자인 커스터마이즈 2계층: 전역 앱 테마·문서별 스타일 (F53 / M27 / S28)
 
-> 상태: **착수 가능** (착수 전 결정 ①~⑤·②-1~②-3 전건 확정 2026-08-09 — 권고안대로. 작업 지시서 생성 2026-08-13.
+> 상태: **완료 — 자동 DoD 6/6 충족, 3차 검토(opus) 통과 2026-08-13. DoD 7(사용자 실사용 확인)만 대기** (착수 전 결정 ①~⑤·②-1~②-3 전건 확정 2026-08-09 — 권고안대로. 작업 지시서 생성 2026-08-13.
 > 계약 정본 = 계획서 v0.39 §14 F53 + **설계 §4.26 [S28]**(api) + screens §5.3·§5.11·§6·§7(Design v1.32))
 >
 > 배경: 2026-08-09 사용자 요청 원문 — "설정에서도 폰트, 글자크기, 배경색을 설정해서 프로그램 전체의
@@ -42,7 +42,18 @@
 ### 3. 문서·매뉴얼
 
 - [x] **3-1. 매뉴얼 갱신**(`docs/manual/user-manual.html`): 설정 §에 전역 테마 편집(라이트·다크 각각·프리셋+커스텀·대비 검증·[기본값으로 되돌리기]·안전 모드) + 문서 §에 문서별 스타일(우선순위 문서>전역>기본·임베드/인쇄 경계) 반영.
-- [ ] **3-2. stage 문서 체크박스 갱신**(불변 규칙 10) + 완료 기록 작성(대비 임계값 실측·resolve-embeds 회귀 확인 결과 포함).
+- [x] **3-2. stage 문서 체크박스 갱신**(불변 규칙 10) + 완료 기록 작성(대비 임계값 실측·resolve-embeds 회귀 확인 결과 포함).
+
+## 완료 기록 (2026-08-13)
+
+- **구현**: backend-dev·frontend-dev(sonnet) 병렬 2묶음. 백엔드 = Alembic 리비전 `a1c9f3d8e421`(`documents.style` TEXT NULL — M17~M25 무-DDL 행진 이후 첫 DDL, §6.2+Alembic 세트 절차 이행. 사본 DB 224행 왕복 검증·소급 0) · `DocumentStyle` 화이트리스트(`extra="forbid"`) · settings `ui.theme_custom` 키별 검증 훅(다른 키 계약 §4.10 영향 0 — 선검증·후일괄쓰기 유지). 프론트 = 설정 그룹 ⑥ 전역 테마 편집(`ThemeCustomSection`)·`<html>` CSS 변수 주입(`themeCustomInject` — 라이트 `html:not(.dark)`/다크 `html.dark` 상호배타 선택자)·문서 스타일 폼(`DocStyleFields` — DocEditor·문서 상세 공용)·`--doc-bg-{7색}`×라이트·다크 14토큰(형광펜 `--mark-*`와 값 분리)·`resolveDocStyle`(size 지정 시 FontScale 대체).
+- **구현 재량 결정(정본 기록)**: ⓐ 프리셋 3종 = 세피아·고대비·소프트 그레이(라이트·다크 각각) ⓑ 안전 모드 = `?safe_theme=1` 쿼리(주입 전체 스킵) ⓒ `ui.theme_custom` 테마 객체 키 6개 = `font`/`size`/`bg`/`surface`/`text`/`accent`(size 명명은 문서 스타일과 동일 4단계 재사용) ⓓ 전역 기준 글자크기 px = small 14·default 16·large 18·xl 20 ⓔ style 하위 키 명시적 `null` = 422(해제는 키 생략 또는 `style:null` 전체 해제 — §4.26 ① "엄격" 해석) + 저장 전 None 제거·디코딩 시 비문자열 값 드롭 3중 방어.
+- **대비 임계값(1-4·R27 ② 실측 확정)**: 본문 `--text` ≥ **4.5:1**(WCAG AA) + 보조 `--text-muted` ≥ **3.0:1**(WCAG 큰 텍스트/UI 완화 기준) — 서버·프론트 동일 2축, `bg`/`surface` 미지정 시에도 effective 값으로 상시 검사(스킵 경로 0). muted hex = 라이트 `#6b7280`·다크 `#9aa1ae`(tokens.css 미러). 프리셋 3종×2모드 전수 통과(최저 = 세피아 라이트 surface↔muted 3.82:1).
+- **resolve-embeds 회귀(1-3·DoD 5)**: 스키마 부재 + style 지정 문서(DOC-0224) live 호출로 style·answer·explanation 0건 확인 — 계약 수준 봉인 유지.
+- **검토(stage-reviewer opus)**: 1차 **반려**(치명 2 — ① 프리셋·글자크기 저장 `fontSize`/`size` 키 불일치 422 ② style 하위 키 명시적 null → 500+문서 상세 파손 · 중요 1 — muted 대비 미검증 · 경미 7) → 전건 수정 → 2차 **반려**(신규 치명 1 — 주입 `:root`가 tokens.css `.dark`를 캐스케이드로 덮어 "라이트만 저장→다크 전환" 시 1.03:1 붕괴) → 선택자 상호배타화 수정 → 3차 **통과**(3케이스 실측: 라이트만/양쪽/다크만 저장 전건 정상, 자동 DoD 6/6).
+- **검증**: `npm run build` 0 에러 · `run-tests.ps1` **512 passed**(신규 = tokens.css ↔ 백엔드 `_INK_HEX`·기본 토큰 사본 동기 pytest 3건) · `invariant-scan.ps1` PASS(신규 hardcoded-color 3파일은 검토자 파일별 정당 판정 — JS 대비 계산 폴백·프리셋/팔레트 미러 데이터 — 후 기준선 갱신) · 422/200 매트릭스 전건 · 마이그레이션 왕복 · 무지정 렌더 diff 0(주입 CSS 0바이트·`--font-size-base` 토큰 제거로 html font-size 선언 부재 = 브라우저 접근성 기본값 복원).
+- **DoD**: 자동 1~6 전건 충족. **7(사용자 이행 — PC·폰 실사용 확인) 대기.**
+- **잔여 알려진 항목(미수정·기록)**: 전역 커스텀 시 `--surface-raised`가 `--surface`와 동일값(깊이감 평탄화 — 재량 수용) · 플래시카드는 문서 배경 미적용(폰트·크기만) · 보기(choices) 목록에 문서 폰트 미적용(본문 영역 경계가 화면마다 다름) · **스코프 갭**: 시험 응시(ExamRun)·복습(Review)·오답 인쇄(WrongNotePrintView)·학습 문제 단계(QuizStage)는 경량 스키마(style 미포함)라 문서 스타일 미적용 — §4.26이 지정하지 않은 경로로 검토자 "계약상 타당한 수용" 판정, 매뉴얼 명문화 완료 · 토큰 3중 복제(tokens.css·백엔드·프론트) 중 **기계 봉인은 백엔드 1변뿐**(프론트 미러 스테일은 테스트로 안 잡힘) · `{"style":{}}`는 NULL 아닌 빈 객체 저장(렌더 영향 0·UI 미발생 경로) · 전역 size small=14px 시 `text-xs` 10.5px(밀집 UI 가독성은 DoD 7 관찰).
 
 ## DoD (Definition of Done)
 
