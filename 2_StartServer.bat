@@ -15,18 +15,18 @@ if not exist "%PYEXE%" (
     exit /b 1
 )
 
-if not exist "study.db" (
-    echo study.db not found - creating a fresh database ...
-    pushd backend
-    "%PYEXE%" -m alembic upgrade head
-    if errorlevel 1 (
-        popd
-        echo [ERROR] Database creation failed.
-        pause
-        exit /b 1
-    )
+rem Run DB migrations on EVERY start (idempotent - no-op when already at head).
+rem Skipping this when study.db exists caused 500s after schema changes (S28).
+if not exist "study.db" echo study.db not found - creating a fresh database ...
+pushd backend
+"%PYEXE%" -m alembic upgrade head
+if errorlevel 1 (
     popd
+    echo [ERROR] Database migration failed.
+    pause
+    exit /b 1
 )
+popd
 
 if not exist "frontend\dist\index.html" (
     echo [ERROR] frontend\dist\index.html not found - this copy has no built screen files.
