@@ -59,12 +59,20 @@ _INK_HEX = {
         "green": "#4ade80", "blue": "#60a5fa", "purple": "#c084fc", "gray": "#9ca3af",
     },
 }
-# --text 토큰 기본값(styles/tokens.css :root/.dark) — text 미지정 시 대비 검증 기준.
+# --bg/--surface/--text/--text-muted 토큰 기본값(styles/tokens.css :root/.dark) — 오버라이드가
+# 없는 항목의 대비 검증 기준(muted는 오버라이드 키 자체가 없어 항상 기본값을 쓴다).
+_DEFAULT_BG_HEX = {"light": "#f5f6f8", "dark": "#0f1115"}
+_DEFAULT_SURFACE_HEX = {"light": "#ffffff", "dark": "#17191f"}
 _DEFAULT_TEXT_HEX = {"light": "#14161a", "dark": "#e7e9ee"}
+_DEFAULT_MUTED_HEX = {"light": "#6b7280", "dark": "#9aa1ae"}
 
 # WCAG AA 본문 텍스트 기준(4.5:1) — 배경/서피스 위에 일반 크기 본문·UI 텍스트가 얹히므로
 # "큰 텍스트"(3:1) 완화 기준이 아니라 표준 본문 기준을 채택(stage-28 구현 실측 채택).
 CONTRAST_MIN = 4.5
+# --text-muted(보조 텍스트) 기준 — WCAG "큰 텍스트/UI 컴포넌트" 완화 기준(3:1) 준용. 보조
+# 텍스트는 본문보다 읽기 비중이 낮지만 완전히 안 보이면 안 되므로 완화하되 0으로 두지 않는다
+# (실측: 프론트 프리셋 3종의 bg·surface 전부 최저 3.82:1로 여유 통과 — stage-28 완료 기록).
+CONTRAST_MIN_MUTED = 3.0
 
 _FREE_COLOR_KEYS = ("bg", "surface")  # 배경·서피스 계열 — 자유 색 + 대비 검증
 _PALETTE_KEYS = ("text", "accent")  # 글자·강조색 계열 — 팔레트만
@@ -137,22 +145,45 @@ def _validate_theme_override(mode: str, override: Any) -> None:
 
     text_value = override.get("text")
     text_hex = _INK_HEX[mode][text_value] if text_value else _DEFAULT_TEXT_HEX[mode]
-    for key in _FREE_COLOR_KEYS:
-        value = override.get(key)
-        if value is None:
-            continue
-        ratio = _contrast_ratio(value, text_hex)
-        if ratio < CONTRAST_MIN:
+    muted_hex = _DEFAULT_MUTED_HEX[mode]  # text-muted는 오버라이드 키가 없다 — 항상 기본값
+
+    # 배경·서피스는 미지정이어도 "기본 토큰이 적용된 채로 실제 화면에 뜬다" — 그래서
+    # bg/surface를 사용자가 지정하지 않았어도 effective 값(기본 토큰)으로 text/muted
+    # 대비를 검사한다(리뷰 지적: text만 지정 시 검증 스킵을 막는다). 기본 토큰 조합은
+    # 이미 기준을 넉넉히 통과하도록 설계돼 있어(§6) 이 경로가 거부로 이어지지 않는다 —
+    # 오직 사용자가 지정한 bg/surface가 실제 위반일 때만 422가 난다.
+    effective_colors = {
+        "bg": override.get("bg") or _DEFAULT_BG_HEX[mode],
+        "surface": override.get("surface") or _DEFAULT_SURFACE_HEX[mode],
+    }
+    for key, value in effective_colors.items():
+        ratio_text = _contrast_ratio(value, text_hex)
+        if ratio_text < CONTRAST_MIN:
             raise ValidationAppError(
                 f"ui.theme_custom.{mode}.{key} 색상({value})과 글자색의 명도 대비가"
-                f" 기준({CONTRAST_MIN}:1)에 못 미쳐 저장할 수 없습니다(대비 {ratio:.2f}:1)"
+                f" 기준({CONTRAST_MIN}:1)에 못 미쳐 저장할 수 없습니다(대비 {ratio_text:.2f}:1)"
                 " — 다른 색을 선택해 주세요",
                 detail={
                     "mode": mode,
                     key: value,
                     "text": text_hex,
-                    "contrast_ratio": round(ratio, 2),
+                    "contrast_ratio": round(ratio_text, 2),
                     "required": CONTRAST_MIN,
+                },
+            )
+
+        ratio_muted = _contrast_ratio(value, muted_hex)
+        if ratio_muted < CONTRAST_MIN_MUTED:
+            raise ValidationAppError(
+                f"ui.theme_custom.{mode}.{key} 색상({value})과 보조 글자색(--text-muted)의"
+                f" 명도 대비가 기준({CONTRAST_MIN_MUTED}:1)에 못 미쳐 저장할 수 없습니다"
+                f"(대비 {ratio_muted:.2f}:1) — 다른 색을 선택해 주세요",
+                detail={
+                    "mode": mode,
+                    key: value,
+                    "text_muted": muted_hex,
+                    "contrast_ratio": round(ratio_muted, 2),
+                    "required": CONTRAST_MIN_MUTED,
                 },
             )
 

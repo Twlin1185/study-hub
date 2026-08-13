@@ -32,24 +32,30 @@ class DocumentStyle(BaseModel):
     size: Optional[str] = None
     bg: Optional[str] = None
 
+    # 주의: pydantic v2는 필드가 입력에 아예 없을 때는 검증기를 호출하지 않고 기본값
+    # None을 그대로 쓴다(부분 지정·해제 없음 = 전역 상속). 반면 `{"font": null}`처럼
+    # **명시적으로 null을 보내면 검증기가 호출된다** — 이 값도 화이트리스트 밖이므로
+    # 아래에서 그대로 422로 거부한다("해제는 키 생략 또는 style 전체를 null로" — §4.26
+    # ①의 "범위 밖 값 = 422"를 하위 키 단위에도 일관 적용. 이 가드가 없으면 null이
+    # 그대로 저장되어 DocumentDetail.style: Dict[str, str] 응답 검증에서 500이 난다).
     @field_validator("font")
     @classmethod
-    def _check_font(cls, value: Optional[str]) -> Optional[str]:
-        if value is not None and value not in DOC_STYLE_FONTS:
+    def _check_font(cls, value: Optional[str]) -> str:
+        if value not in DOC_STYLE_FONTS:
             raise ValueError(f"font는 {sorted(DOC_STYLE_FONTS)} 중 하나여야 합니다")
         return value
 
     @field_validator("size")
     @classmethod
-    def _check_size(cls, value: Optional[str]) -> Optional[str]:
-        if value is not None and value not in DOC_STYLE_SIZES:
+    def _check_size(cls, value: Optional[str]) -> str:
+        if value not in DOC_STYLE_SIZES:
             raise ValueError(f"size는 {sorted(DOC_STYLE_SIZES)} 중 하나여야 합니다")
         return value
 
     @field_validator("bg")
     @classmethod
-    def _check_bg(cls, value: Optional[str]) -> Optional[str]:
-        if value is not None and value not in DOC_STYLE_BG_NAMES:
+    def _check_bg(cls, value: Optional[str]) -> str:
+        if value not in DOC_STYLE_BG_NAMES:
             raise ValueError(f"bg는 {sorted(DOC_STYLE_BG_NAMES)} 중 하나여야 합니다")
         return value
 

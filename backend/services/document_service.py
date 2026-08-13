@@ -29,6 +29,24 @@ from services.tag_service import get_or_create_tag
 DOC_NO_PREFIX = "DOC-"
 
 
+def _decode_style(raw: str | None) -> Optional[Dict[str, str]]:
+    """`documents.style` TEXT 컬럼 디코딩 — 손상 데이터 방어.
+
+    저장 경로(update_document)가 None 값 키를 걸러내지만, 과거 데이터나 직접 DB
+    조작으로 `{"font": null, ...}` 형태가 남아 있어도 GET이 500을 내지 않도록 None
+    값·비문자열 값 키는 드롭한다(DocumentDetail.style: Dict[str, str] 계약 보호).
+    """
+    if not raw:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    return {k: v for k, v in decoded.items() if isinstance(v, str)}
+
+
 def get_document_or_404(db: Session, document_id: int) -> models.Document:
     document = db.get(models.Document, document_id)
     if document is None:
@@ -233,10 +251,17 @@ def update_document(
         )
     if "style" in data:
         # null = 전체 해제(NULL 저장). dict는 화이트리스트 검증을 이미 통과했다
-        # (schemas/document.py DocumentStyle) — 부분 지정만 JSON으로 직렬화.
+        # (schemas/document.py DocumentStyle — 하위 키의 명시적 None은 422로 걸러진다).
+        # exclude_none은 2차 방어(review 지적) — 정상 경로에서는 이미 None이 없어야
+        # 하지만, None이 그대로 저장되면 GET 시 DocumentDetail.style: Dict[str, str]
+        # 응답 검증이 깨져 500이 나므로 저장 직전에 한 번 더 걸러낸다.
+        style_value = data["style"]
         data["style"] = (
-            json.dumps(data["style"], ensure_ascii=False)
-            if data["style"] is not None
+            json.dumps(
+                {k: v for k, v in style_value.items() if v is not None},
+                ensure_ascii=False,
+            )
+            if style_value is not None
             else None
         )
     for field, value in data.items():
@@ -333,7 +358,7 @@ def get_document_detail(db: Session, document_id: int) -> DocumentDetail:
         answer=document.answer,
         explanation=document.explanation,
         difficulty=document.difficulty,
-        style=json.loads(document.style) if document.style else None,
+        style=_decode_style(document.style),
         source_id=document.source_id,
         source_detail=document.source_detail,
         is_active=bool(document.is_active),
