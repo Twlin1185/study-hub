@@ -6,6 +6,7 @@ import type {
   DocumentDetail,
   DocumentListFilters,
   DocumentListItem,
+  DocumentStyle,
   DocumentType,
   RelationType,
 } from './types'
@@ -97,6 +98,8 @@ export interface UpdateDocumentInput {
   answer?: string | null
   explanation?: string | null
   difficulty?: number | null
+  // S28(F53 ①, 설계 §4.26 ①) — 부분 지정 허용, null = 전체 해제.
+  style?: DocumentStyle | null
 }
 
 export function useUpdateDocument() {

@@ -41,6 +41,17 @@ export default {
           purple: 'var(--mark-purple)',
           gray: 'var(--mark-gray)',
         },
+        // F53 문서 배경 틴트(설계 §6, S28) — bg-docbg-* 유틸. mark와 이름 체계는 공유하되 값은
+        // 분리된 --doc-bg-* 토큰을 가리킨다.
+        docbg: {
+          red: 'var(--doc-bg-red)',
+          orange: 'var(--doc-bg-orange)',
+          yellow: 'var(--doc-bg-yellow)',
+          green: 'var(--doc-bg-green)',
+          blue: 'var(--doc-bg-blue)',
+          purple: 'var(--doc-bg-purple)',
+          gray: 'var(--doc-bg-gray)',
+        },
       },
     },
   },

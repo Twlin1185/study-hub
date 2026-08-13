@@ -42,6 +42,21 @@
   --mark-blue: #bfdbfe;
   --mark-purple: #e9d5ff;
   --mark-gray: #e5e7eb;
+
+  /* F53 문서 배경 틴트(§6 계약, S28) — --mark-*와 이름 체계는 공유하되 값은 분리(훨씬 연한
+     틴트 — 형광펜 강도의 전면 배경은 눈부시다). 7색 전부 --text 대비 확보(R26 ③ 관례 연장). */
+  --doc-bg-red: #fdf2f2;
+  --doc-bg-orange: #fdf4ec;
+  --doc-bg-yellow: #fdfaec;
+  --doc-bg-green: #f1f8f3;
+  --doc-bg-blue: #f0f5fc;
+  --doc-bg-purple: #f7f1fb;
+  --doc-bg-gray: #f4f5f7;
+
+  /* 전역 앱 테마 커스텀(F53 ①, §4.26 ③) 기본값 — 폰트·기준 글자크기. 색이 아니므로 다크에서도
+     보통 같은 값을 쓰되, 커스텀 저장 시 라이트·다크 각각 오버라이드될 수 있다. */
+  --font-base: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-size-base: 16px;
 }
 
 .dark {
@@ -81,6 +96,19 @@
   --mark-blue: #1e3a5f;
   --mark-purple: #4c1d95;
   --mark-gray: #374151;
+
+  /* F53 문서 배경 틴트 다크 세트 — 어두운 배경 위에서 밝은(라이트 모드 --text) 글자와 대비되는
+     짙은 톤(§6 계약). */
+  --doc-bg-red: #241616;
+  --doc-bg-orange: #241c14;
+  --doc-bg-yellow: #211d13;
+  --doc-bg-green: #131f16;
+  --doc-bg-blue: #131b24;
+  --doc-bg-purple: #1c1624;
+  --doc-bg-gray: #1a1c21;
+
+  --font-base: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-size-base: 16px;
 }
 
 /* 인쇄 뷰는 테마와 무관하게 항상 라이트 (설계 §6) */

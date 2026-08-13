@@ -12,6 +12,7 @@ import { useSubmitAttempt, useCreateQuizSession } from '../api/quiz'
 import { useCategoryTree, useCategoryTreePipeline } from '../api/categories'
 import { useQuizSessionStore } from '../stores/quizSession'
 import { useFontScale } from '../hooks/useFontScale'
+import { useDocStyle } from '../hooks/useDocStyle'
 import { findCategory, findNextSiblingId } from '../utils/tree'
 import ReportErrorButton from '../components/ReportErrorButton'
 import { CIRCLED_DIGITS, formatAnswer } from '../utils/answerFormat'
@@ -19,7 +20,6 @@ import type {
   AttemptResponse,
   CategoryStageProgress,
   DocumentType,
-  FontScale,
   QuizQuestion,
   StudyTrackItem,
 } from '../api/types'
@@ -52,7 +52,6 @@ export default function StudyPage() {
   // F37: 개념 트랙은 하위 포함·concept+question(기출 제외) — 설계 §5.5.
   const trackQuery = useStudyTrack(categoryId, { deep: true, types: CONCEPT_TRACK_TYPES })
   const studyEvent = useStudyEvent()
-  const fontScale = useFontScale()
 
   const items = useMemo<StudyTrackItem[]>(() => trackQuery.data?.items ?? [], [trackQuery.data])
 
@@ -251,7 +250,6 @@ export default function StudyPage() {
             key={current.document_id}
             item={current}
             categoryId={categoryId}
-            fontScale={fontScale}
             answered={session[current.document_id]}
             onAnswered={recordSession}
           />
@@ -279,17 +277,20 @@ export default function StudyPage() {
 function StudyCard({
   item,
   categoryId,
-  fontScale,
   answered,
   onAnswered,
 }: {
   item: StudyTrackItem
   categoryId: number
-  fontScale: FontScale
   answered: SessionAnswer | undefined
   onAnswered: (documentId: number, myAnswer: string, result: AttemptResponse) => void
 }) {
   const docQuery = useDocument(item.document_id)
+  // S28(F53 ①·⑤, 설계 §4.26) — 문서 지정값 > 전역 설정(study.font_scale) > 기본 토큰. 로딩 중에도
+  // 훅 순서를 지키기 위해 이른 반환보다 앞에서 호출한다.
+  const { scale: docScale, fontClassName: docFontClass, bgClassName: docBgClass } = useDocStyle(
+    docQuery.data?.style,
+  )
   const submitAttempt = useSubmitAttempt()
   const [cardShownAt, setCardShownAt] = useState(() => Date.now())
   // done 문제를 [다시 풀기]로 재도전하는 중인지 — 문서가 바뀌면 초기화(설계 §5.5).
@@ -345,11 +346,12 @@ function StudyCard({
         <ReportErrorButton documentId={item.document_id} variant="inline" />
       </div>
 
-      {/* 개념: 본문 Markdown. 문제: 지문만 렌더 — 정답·해설은 제출 후에만 노출(서버 채점 원칙). */}
-      <div className="mb-4 rounded-lg border border-border bg-surface p-4">
+      {/* 개념: 본문 Markdown. 문제: 지문만 렌더 — 정답·해설은 제출 후에만 노출(서버 채점 원칙).
+          S28 — 이 문서의 본문 렌더 영역에만 문서 스타일 적용(§4.26 ①·④). */}
+      <div className={`mb-4 rounded-lg border border-border p-4 ${docBgClass || 'bg-surface'} ${docFontClass}`}>
         <h2 className="mb-2 text-base font-semibold text-primary">{doc.title}</h2>
         {/* docNo = 임베드 순환 검출의 시작점(F43) */}
-        <MarkdownView content={doc.content} scale={fontScale} docNo={item.doc_no} />
+        <MarkdownView content={doc.content} scale={docScale} docNo={item.doc_no} />
       </div>
 
       {question && (
@@ -389,9 +391,9 @@ function StudyCard({
             {lastAttempt.is_correct ? '정답입니다' : '오답입니다'}
           </p>
           {doc.explanation != null && (
-            <div className="text-sm text-primary">
+            <div className={`text-sm text-primary ${docFontClass}`}>
               <span className="font-semibold">해설</span>
-              <MarkdownView content={doc.explanation} scale={fontScale} />
+              <MarkdownView content={doc.explanation} scale={docScale} />
             </div>
           )}
           <button
@@ -422,9 +424,9 @@ function StudyCard({
           <p className={`mb-2 text-sm font-semibold ${answered.result.is_correct ? 'text-correct' : 'text-wrong'}`}>
             {answered.result.is_correct ? '정답입니다' : '오답입니다'}
           </p>
-          <div className="text-sm text-primary">
+          <div className={`text-sm text-primary ${docFontClass}`}>
             <span className="font-semibold">해설</span>
-            <MarkdownView content={answered.result.explanation} scale={fontScale} />
+            <MarkdownView content={answered.result.explanation} scale={docScale} />
           </div>
         </div>
       )}

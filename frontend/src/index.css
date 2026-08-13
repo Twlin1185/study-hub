@@ -11,11 +11,17 @@ body,
   height: 100%;
 }
 
+/* 전역 앱 테마 커스텀의 "기준 글자크기"(F53 ①, §4.26 ③) — html 루트에서 rem 기준을 바꾼다.
+   미설정 시 tokens.css 기본값(16px)이라 기존 화면은 1px도 변하지 않는다. */
+html {
+  font-size: var(--font-size-base, 16px);
+}
+
 body {
   margin: 0;
   background-color: var(--bg);
   color: var(--text);
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-base, system-ui, 'Segoe UI', Roboto, sans-serif);
 }
 
 /* 검색 스니펫 하이라이트 (설계 §5, S6) — 토큰만 사용해 다크 모드에서도 자동 대응 */
@@ -24,4 +30,12 @@ mark {
   color: var(--accent);
   border-radius: 2px;
   padding: 0 1px;
+}
+
+/* 문서별 스타일(F53 ②, §4.26 ②) 경계 리셋 — 임베드 카드 내부는 상위 문서의 폰트 오버라이드를
+   물려받지 않고 전역 폰트로 되돌아간다(배경은 background-color가 상속되지 않는 속성이라 EmbedCard
+   자체 bg-surface-raised로 이미 격리되고, 글자 크기는 MarkdownView가 임베드 재귀 렌더에서 항상
+   전역 font_scale로 scale prop을 되돌리는 방식으로 격리한다 — 둘 다 이 클래스가 다루지 않는다). */
+.doc-style-reset {
+  font-family: var(--font-base, system-ui, 'Segoe UI', Roboto, sans-serif);
 }

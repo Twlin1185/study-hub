@@ -100,6 +100,23 @@ export interface DocumentStats {
   srs?: DocumentSrs | null
 }
 
+// ---- 문서별 스타일 (설계 §4.26 [S28] ①, F53) ----
+// documents.style TEXT NULL 컬럼 — JSON 직렬화. 부분 지정 허용(있는 키만) · null = 전체 해제.
+// 화이트리스트 밖 값(임의 hex 등)은 서버가 422로 거부한다(§4.26 ①).
+export type DocFont = 'sans' | 'serif' | 'mono'
+export type DocSize = 'small' | 'default' | 'large' | 'xl'
+export type DocBg = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'gray'
+
+export interface DocumentStyle {
+  font?: DocFont
+  size?: DocSize
+  bg?: DocBg
+}
+
+// 렌더 전용 크기 확장 — 기존 설정 계약 FontScale(3단계)은 불변, MarkdownView의 scale prop만
+// 문서 스타일 size(xl 포함)를 받을 수 있게 넓힌다(설계 §4.26 ①·②-3 ⓑ).
+export type MarkdownScale = FontScale | 'xl'
+
 export interface DocumentDetail {
   id: number
   doc_no: string
@@ -121,6 +138,8 @@ export interface DocumentDetail {
   relations: RelatedDocument[]
   bookmarked: boolean
   stats: DocumentStats
+  // S28(F53 ①) — NULL = 미지정(전역 상속). GET/PATCH 응답 공통(§4.26 ①).
+  style: DocumentStyle | null
 }
 
 export interface Tag {
@@ -733,12 +752,40 @@ export interface SettingsResponse {
   'goal.daily_minutes'?: number
   // ---- D-Day 복습 강도 조절 (설계 §4.14, S11, F16) ---- 기본 'on'.
   'srs.dday_boost'?: 'on' | 'off'
+  // ---- 전역 앱 테마 커스텀 (설계 §4.26 [S28] ③, F53) ----
+  // 라이트·다크 각각 별도 저장, 미설정 테마·항목 = 기본 토큰 상속. 배경·서피스는 자유 색
+  // (서버가 글자색과의 명도 대비 검증 — 미달 422), 글자색·강조색은 팔레트/프리셋 값만(자유 hex
+  // 422). 프리셋도 저장 형태는 이 키의 값과 동일(§4.26 ③). null = 복구 경로([기본값으로
+  // 되돌리기]의 저장 형태 — 백엔드 settings_service._validate_theme_custom이 None을 검증 없이
+  // 통과시킨다).
+  'ui.theme_custom'?: ThemeCustom | null
   [key: string]: unknown
 }
 
 // S9(F36-⑥⑨) settings 값 타입.
 export type QuizAutoAdvance = 'on' | 'off'
 export type FontScale = 'small' | 'default' | 'large'
+
+// ---- 전역 앱 테마 커스텀 (설계 §4.26 [S28] ③, F53 ①) ----
+// 백엔드 settings_service.py 대조 완료(2026-08-13) — 글자색·강조색은 **F52 팔레트 7색 이름**
+// 재사용(DocBg와 같은 값 집합, 자유 hex 금지)이고, 배경·서피스만 자유 hex + 서버 대비 검증.
+export type ThemeCustomFontSize = 'small' | 'default' | 'large'
+// 팔레트 색 이름(F52 7색) — 문서 bg(DocBg)·전역 테마 text/accent가 공유하는 값 집합.
+export type PaletteColorName = DocBg
+
+export interface ThemeCustomPalette {
+  font?: DocFont
+  fontSize?: ThemeCustomFontSize
+  bg?: string
+  surface?: string
+  text?: PaletteColorName
+  accent?: PaletteColorName
+}
+
+export interface ThemeCustom {
+  light?: ThemeCustomPalette
+  dark?: ThemeCustomPalette
+}
 
 export type SettingsPatch = Partial<SettingsResponse>
 

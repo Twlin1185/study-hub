@@ -3,6 +3,8 @@ import { useCategoryTree } from '../../api/categories'
 import { useDocumentsBatch } from '../../api/documents'
 import { findCategory, collectLeafGroups } from '../../utils/tree'
 import MarkdownView from '../MarkdownView'
+import { useFontScale } from '../../hooks/useFontScale'
+import { resolveDocStyle } from '../../utils/docStyle'
 import { useLeafStudyTracks } from './useLeafStudyTracks'
 
 interface ConceptPrintViewProps {
@@ -13,6 +15,7 @@ interface ConceptPrintViewProps {
 // study-track(정렬 순서)을 모아 개념(concept) 문서만 발췌하고, documents/batch로 본문을 채운다.
 export default function ConceptPrintView({ categoryId }: ConceptPrintViewProps) {
   const treeQuery = useCategoryTree()
+  const globalScale = useFontScale()
   const rootNode = treeQuery.data ? findCategory(treeQuery.data, categoryId) : null
   const leaves = useMemo(() => (rootNode ? collectLeafGroups(rootNode) : []), [rootNode])
   const tracks = useLeafStudyTracks(leaves)
@@ -74,15 +77,23 @@ export default function ConceptPrintView({ categoryId }: ConceptPrintViewProps) 
             </h2>
             {g.items.map((it) => {
               const doc = docById.get(it.document_id)
+              // S28(F53 ①·⑤, §4.26 ④) — 배경은 화면 미리보기에서만 보이고(print:bg-transparent),
+              // 폰트·글자크기는 인쇄에도 유지된다. documents/batch가 DocumentDetail 그대로라 style도
+              // 함께 온다.
+              const { scale, fontClassName, bgClassName } = resolveDocStyle(doc?.style, globalScale)
               return (
-                <article key={it.document_id} id={`doc-${it.document_id}`} className="print-page mb-5">
+                <article
+                  key={it.document_id}
+                  id={`doc-${it.document_id}`}
+                  className={`print-page mb-5 rounded p-2 ${bgClassName} ${fontClassName}`}
+                >
                   <h3 className="mb-1 text-base font-semibold text-primary">
                     <span className="mr-2 text-xs font-normal text-muted">{it.doc_no}</span>
                     {it.title}
                   </h3>
                   {/* 인쇄 뷰도 같은 공용 렌더러 — 임베드는 펼쳐서, fold/hide는 전부 공개해 출력된다
                       (설계 §4.19 ⑧). docNo는 순환 검출의 시작점. */}
-                  <MarkdownView content={doc?.content ?? null} docNo={it.doc_no} />
+                  <MarkdownView content={doc?.content ?? null} docNo={it.doc_no} scale={scale} />
                 </article>
               )
             })}
