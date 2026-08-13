@@ -12,15 +12,14 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b
 )
 
-rem Create DB schema if study.db is missing
-if not exist "..\study.db" (
-    echo study.db not found - creating schema...
-    .venv\Scripts\python.exe -m alembic upgrade head
-    if errorlevel 1 (
-        echo [ERROR] schema creation failed. See messages above.
-        pause
-        exit /b 1
-    )
+rem Run DB migrations on EVERY start (idempotent - no-op when already at head).
+rem Skipping this when study.db exists caused 500s after schema changes (S28).
+if not exist "..\study.db" echo study.db not found - creating schema...
+.venv\Scripts\python.exe -m alembic upgrade head
+if errorlevel 1 (
+    echo [ERROR] schema migration failed. See messages above.
+    pause
+    exit /b 1
 )
 
 rem ---------------------------------------------------------------

@@ -62,6 +62,7 @@
 - **신규 관찰(수용)**: 문서 배경 지정 플래시카드는 앞·뒷면 배경이 같아져 뒷면 `bg-surface-raised` 구분이 사라짐(Flashcards 한정) · 라이트 커스텀 surface는 여전히 raised와 동일값(기본 설계 일관).
 - **검증**: `run-tests.ps1` **515 passed**(+3) · `npm run build` 0 에러 · invariant-scan PASS(신규 1건 `mixHex` 흰색 기준점 — 검토자 정당 판정 후 기준선 갱신) · 422/200 매트릭스·resolve-embeds 회귀 0 재확인.
 - **미이월 확정**: 스코프 갭 배선(경량 스키마 화면)·small=14px 가독성은 각각 아키텍처 결정·DoD 7 실사용 관찰 사안으로 이번 정리에서 제외.
+- **배포 갭 발견·조치(2026-08-13 실사용 이행 중)**: 시작 스크립트(`2_StartServer.bat`·`Dev_StartServer.bat`)가 `study.db` **존재 시 마이그레이션을 건너뛰어**(if not exist 조건) M17~M25 무-DDL 기간에는 무해했으나 첫 DDL(S28)에서 전 화면 500(`no such column: documents.style`) 발생. 조치 = ① 실 DB에 `alembic upgrade head` 수동 적용(구동 중 적용 — WAL이라 재시작 불요, 소급 0 확인) ② 두 스크립트를 **매 시작마다 upgrade head 실행**(멱등 — head면 no-op)으로 수정.
 
 ## DoD (Definition of Done)
 
