@@ -10,7 +10,8 @@ import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import 'katex/dist/katex.min.css'
-import type { FontScale } from '../api/types'
+import type { MarkdownScale } from '../api/types'
+import { useFontScale } from '../hooks/useFontScale'
 import { EmbedResolver } from './markdown/embedResolver'
 import { EmbedRenderContext } from './markdown/embedContext'
 import type { EmbedRenderCtx } from './markdown/embedContext'
@@ -31,7 +32,8 @@ import {
 interface MarkdownViewProps {
   content: string | null | undefined
   // 본문 글자 크기(F36-⑨) — 문서 상세·학습 모드 본문에서만 넘긴다. 그 외는 기본(default).
-  scale?: FontScale
+  // S28(F53 ①·②-3 ⓑ)부터 문서 스타일 xl까지 받을 수 있게 넓어졌다(MarkdownScale = FontScale|'xl').
+  scale?: MarkdownScale
   // 이 본문이 속한 문서의 doc_no (F43) — 순환 검출 방문 집합의 시작점.
   // 넘기지 않아도 임베드는 동작하지만 "자기 자신 임베드" 같은 최소 순환은 잡히지 않는다.
   docNo?: string | null
@@ -43,11 +45,12 @@ interface MarkdownViewProps {
   inlineFormat?: boolean
 }
 
-// 토큰 기반 크기 클래스만 사용(색상·크기 하드코딩 금지) — small/default/large 3단계.
-const SCALE_CLASS: Record<FontScale, string> = {
+// 토큰 기반 크기 클래스만 사용(색상·크기 하드코딩 금지) — small/default/large + xl(S28) 4단계.
+const SCALE_CLASS: Record<MarkdownScale, string> = {
   small: 'text-xs',
   default: 'text-sm',
   large: 'text-base',
+  xl: 'text-lg',
 }
 
 type MarkdownOptions = ComponentProps<typeof ReactMarkdown>
@@ -109,6 +112,12 @@ export default function MarkdownView({
     () => buildRemarkPlugins(breaks, inlineFormat),
     [breaks, inlineFormat],
   )
+  // S28(F53 ②, 설계 §4.26 ②·④ ⓐ) — 임베드 카드 안에서는 문서 스타일을 무시한다. resolve-embeds
+  // 응답에 style 필드가 아예 없어(계약 봉인) 배경·폰트는 호출부가 애초에 넘기지 않지만, 크기만은
+  // scale prop이 부모→자식으로 그대로 흘러 내려가는 구조라 별도 방어가 필요하다: 임베드 재귀
+  // 렌더(아래 div 핸들러)는 이 컴포넌트가 받은 ambient `scale`(문서 지정값일 수 있음) 대신 항상
+  // 전역 설정값으로 되돌린다.
+  const globalScale = useFontScale()
   // 임베드 해석 캐시는 "열람 컴포넌트 수명" 동안만 산다(설계 §4.19 ③ — 전역 영속 캐시 금지).
   // 루트 MarkdownView가 인스턴스를 만들고, 임베드 카드 아래의 중첩 렌더는 그것을 공유한다.
   const parent = useContext(EmbedRenderContext)
@@ -135,7 +144,7 @@ export default function MarkdownView({
               renderContent={(childContent, childDocNo) => (
                 <MarkdownView
                   content={childContent}
-                  scale={scale}
+                  scale={globalScale}
                   docNo={childDocNo}
                   breaks={breaks}
                   inlineFormat={inlineFormat}
@@ -206,7 +215,7 @@ export default function MarkdownView({
         )
       },
     }),
-    [scale, breaks, inlineFormat],
+    [scale, breaks, inlineFormat, globalScale],
   )
 
   if (!content) {

@@ -6,7 +6,7 @@ import ProgressBar from '../components/ProgressBar'
 import { useSrsToday } from '../api/srs'
 import { useSrsAnswer } from '../api/srs'
 import { useDocument, useDocuments } from '../api/documents'
-import { useFontScale } from '../hooks/useFontScale'
+import { useDocStyle } from '../hooks/useDocStyle'
 import { ApiError } from '../api/client'
 import {
   FLASHCARD_Q_DONT_KNOW,
@@ -133,7 +133,6 @@ function FlashcardSession() {
   const reset = useFlashcardSessionStore((s) => s.reset)
 
   const srsAnswer = useSrsAnswer()
-  const fontScale = useFontScale()
   const [error, setError] = useState<string | null>(null)
 
   // 전송 지연 확정(설계 §4.12 F36-⑧) — 미전송 판정을 서버로 보낸다.
@@ -149,6 +148,11 @@ function FlashcardSession() {
   const answer = card?.embedded ? card.answer : docQuery.data?.answer
   const explanation = card?.embedded ? card.explanation : docQuery.data?.explanation
   const cardLoading = needsFetch && docQuery.isLoading
+  // S28(F53 ①·⑤, 설계 §4.26) — embedded 큐 항목(SRS 큐가 콘텐츠를 직접 실어줌)은 documents 조회
+  // 자체를 하지 않으므로 style도 알 수 없다(전역 상속). 범위 경로만 문서 지정 스타일을 적용한다.
+  const { scale: docScale, fontClassName: docFontClass } = useDocStyle(
+    card?.embedded ? null : docQuery.data?.style,
+  )
 
   // 전송 지연 방식(F36-⑧): 판정은 즉시 기록·진행하되, 서버 확정은 "다음 카드 진입"에 미룬다.
   // 직전 pending을 먼저 확정 전송한 뒤 새 판정으로 교체 — 새 판정은 undo(미전송 취소) 가능.
@@ -247,11 +251,11 @@ function FlashcardSession() {
         <span className="rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">{card.doc_no}</span>
         <span className="text-xs text-muted">앞면</span>
       </div>
-      <div className="flex flex-1 flex-col justify-center">
+      <div className={`flex flex-1 flex-col justify-center ${docFontClass}`}>
         {cardLoading ? (
           <p className="text-sm text-muted">불러오는 중…</p>
         ) : (
-          <MarkdownView content={content ?? card.title} scale={fontScale} />
+          <MarkdownView content={content ?? card.title} scale={docScale} />
         )}
       </div>
       <p className="mt-3 text-center text-xs text-muted">탭 / 스페이스로 뒤집기</p>
@@ -264,14 +268,14 @@ function FlashcardSession() {
         <span className="rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">{card.doc_no}</span>
         <span className="text-xs text-muted">뒷면</span>
       </div>
-      <div className="flex flex-1 flex-col justify-center gap-2 overflow-y-auto">
+      <div className={`flex flex-1 flex-col justify-center gap-2 overflow-y-auto ${docFontClass}`}>
         {answer && (
           <p className="text-sm text-primary">
             <span className="font-semibold">정답: </span>
             {formatAnswer(answer)}
           </p>
         )}
-        <MarkdownView content={explanation ?? content ?? '내용 없음'} scale={fontScale} />
+        <MarkdownView content={explanation ?? content ?? '내용 없음'} scale={docScale} />
       </div>
       <p className="mt-3 text-center text-xs text-muted">← 모른다 · 안다 →</p>
     </>

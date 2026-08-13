@@ -10,7 +10,7 @@ import { useSubmitAttempt } from '../api/quiz'
 import { useUpdateReviewNote } from '../api/reviewNotes'
 import { useDocument, useToggleBookmark } from '../api/documents'
 import { useSettings } from '../api/settings'
-import { useFontScale } from '../hooks/useFontScale'
+import { useDocStyle } from '../hooks/useDocStyle'
 import ReportErrorButton from '../components/ReportErrorButton'
 import { pickManualRelations } from '../utils/relations'
 import { CIRCLED_DIGITS, formatAnswer } from '../utils/answerFormat'
@@ -98,7 +98,6 @@ export default function QuizRunPage() {
   const updateReviewNote = useUpdateReviewNote()
   const toggleBookmark = useToggleBookmark()
   const settingsQuery = useSettings()
-  const fontScale = useFontScale()
   const autoAdvanceOn = settingsQuery.data?.['quiz.auto_advance'] === 'on'
 
   const [exitConfirm, setExitConfirm] = useState(false)
@@ -134,6 +133,11 @@ export default function QuizRunPage() {
   // 현재 문제의 북마크 상태(B 단축키용) — quiz/session 응답엔 bookmarked가 없어 문서 상세로 조회.
   const currentDocId = status === 'active' ? (questions[currentIndex]?.document_id ?? null) : null
   const currentDocQuery = useDocument(currentDocId)
+  // S28(F53 ①·⑤, 설계 §4.26) — quiz/session 응답(QuizQuestion)엔 style이 없어(서버 채점 원칙과
+  // 무관 — 그냥 좁은 스키마) 위에서 이미 조회 중인 문서 상세의 style을 재사용한다(새 조회 0건).
+  const { scale: docScale, fontClassName: docFontClass, bgClassName: docBgClass } = useDocStyle(
+    currentDocQuery.data?.style,
+  )
 
   function advanceNow() {
     autoActiveRef.current = false
@@ -265,14 +269,14 @@ export default function QuizRunPage() {
         />
       </div>
 
-      <div className="mb-4 rounded-lg border border-border bg-surface p-4">
+      <div className={`mb-4 rounded-lg border border-border p-4 ${docBgClass || 'bg-surface'} ${docFontClass}`}>
         <div className="mb-2 flex items-center justify-between gap-2">
           <span className="inline-block rounded bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
             {question.doc_no}
           </span>
           <QuizCardBookmark documentId={question.document_id} />
         </div>
-        <MarkdownView content={question.content} scale={fontScale} />
+        <MarkdownView content={question.content} scale={docScale} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -314,9 +318,9 @@ export default function QuizRunPage() {
             <WrongReasonButtons reviewNoteId={answered.result.review_note_id} updateReviewNote={updateReviewNote} />
           )}
 
-          <div className="text-sm text-primary">
+          <div className={`text-sm text-primary ${docFontClass}`}>
             <span className="font-semibold">해설</span>
-            <MarkdownView content={answered.result.explanation} scale={fontScale} />
+            <MarkdownView content={answered.result.explanation} scale={docScale} />
           </div>
           <RelatedConceptLinks documentId={question.document_id} />
           <p className="mt-3 text-[11px] text-muted">단축키: 1~4 보기 · Enter 다음 · B 북마크</p>

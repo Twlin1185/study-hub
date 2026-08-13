@@ -3,6 +3,8 @@ import { useCategoryTree } from '../../api/categories'
 import { useDocumentsBatch } from '../../api/documents'
 import { findCategory, collectLeafGroups } from '../../utils/tree'
 import MarkdownView from '../MarkdownView'
+import { useFontScale } from '../../hooks/useFontScale'
+import { resolveDocStyle } from '../../utils/docStyle'
 import { useLeafStudyTracks } from './useLeafStudyTracks'
 import { CIRCLED_DIGITS } from '../../utils/answerFormat'
 
@@ -19,6 +21,7 @@ function isQuestionType(type: string): boolean {
 // 설계 §5.10 — 문제집: 문제(앞) / 정답·해설(뒤) 분리, 해설 제외 옵션, 풀이 여백 옵션.
 export default function QuizPrintView({ categoryId, includeExplanation, answerSpace }: QuizPrintViewProps) {
   const treeQuery = useCategoryTree()
+  const globalScale = useFontScale()
   const rootNode = treeQuery.data ? findCategory(treeQuery.data, categoryId) : null
   const leaves = useMemo(() => (rootNode ? collectLeafGroups(rootNode) : []), [rootNode])
   const tracks = useLeafStudyTracks(leaves)
@@ -62,13 +65,20 @@ export default function QuizPrintView({ categoryId, includeExplanation, answerSp
             {g.items.map((it) => {
               seq += 1
               const doc = docById.get(it.document_id)
+              // S28(F53 ①·⑤, §4.26 ④) — 배경은 미리보기 화면에서만, 폰트·크기는 인쇄에도 유지.
+              const { scale, fontClassName, bgClassName } = resolveDocStyle(doc?.style, globalScale)
+              // 검토 경미-1 수정 — style 미지정 문서까지 패딩을 넣지 않는다(DoD 4 무지정 렌더 불변).
+              const boxClass = bgClassName ? 'rounded p-2' : ''
               return (
-                <article key={it.document_id} className="print-avoid-break mb-6">
+                <article
+                  key={it.document_id}
+                  className={`print-avoid-break mb-6 ${boxClass} ${bgClassName} ${fontClassName}`}
+                >
                   <h3 className="mb-2 text-sm font-semibold text-primary">
                     {seq}. <span className="mr-1 text-xs font-normal text-muted">{it.doc_no}</span>
                     {it.title}
                   </h3>
-                  <MarkdownView content={doc?.content ?? null} docNo={it.doc_no} />
+                  <MarkdownView content={doc?.content ?? null} docNo={it.doc_no} scale={scale} />
                   {(doc?.choices ?? []).length > 0 && (
                     <ul className="mt-2 flex flex-col gap-1 text-sm text-primary">
                       {(doc?.choices ?? []).map((c, i) => (

@@ -4,9 +4,10 @@ import { useNavigate } from 'react-router-dom'
 import Modal from './Modal'
 import ConfirmDialog from './ConfirmDialog'
 import MarkdownFieldEditor from './MarkdownFieldEditor'
+import DocStyleFields from './DocStyleFields'
 import { useCreateDocument, useDocument, useUpdateDocument } from '../api/documents'
 import { ApiError } from '../api/client'
-import type { DocumentDetail, DocumentType } from '../api/types'
+import type { DocumentDetail, DocumentStyle, DocumentType } from '../api/types'
 
 // 문서 3대 공용 모듈 중 DocEditor (설계 §5 도입부·§5.4, F37 · stage-26 9-5 후속) — 작성/수정 폼.
 // 팝업(모달)과 전용 라우트(창) 양쪽에서 이 컴포넌트 그대로를 렌더한다(저장·검증 로직 공용 —
@@ -52,10 +53,22 @@ export interface FormState {
   answer: string
   explanation: string
   difficulty: string
+  // S28(F53 ②) — 편집 모드 전용 폼 필드(screens §5.3 S28). 신규 작성 시에는 항상 null 그대로
+  // 두고 전송하지 않는다(§4.26 ①은 PATCH만 계약 — POST 경로는 이 단계 범위 밖).
+  style: DocumentStyle | null
 }
 
 function emptyForm(defaultType: DocumentType): FormState {
-  return { type: defaultType, title: '', content: '', choices: '', answer: '', explanation: '', difficulty: '' }
+  return {
+    type: defaultType,
+    title: '',
+    content: '',
+    choices: '',
+    answer: '',
+    explanation: '',
+    difficulty: '',
+    style: null,
+  }
 }
 
 // "창으로 열기" 이월 초안 sessionStorage 키(10-1ⓒ 연장) — DocEditPage가 1회성으로 읽고 즉시
@@ -122,6 +135,7 @@ export default function DocEditor({
       answer: doc.answer ?? '',
       explanation: doc.explanation ?? '',
       difficulty: doc.difficulty != null ? String(doc.difficulty) : '',
+      style: doc.style ?? null,
     }
     setForm(loaded)
     initialFormRef.current = loaded
@@ -160,6 +174,7 @@ export default function DocEditor({
           answer: form.answer,
           explanation: form.explanation,
           difficulty,
+          style: form.style,
         },
         {
           // 중요-1 수정: onSaved가 있으면(주로 page variant — 저장 후 문서 상세로 replace 이동)
@@ -328,6 +343,18 @@ export default function DocEditor({
           className="rounded border border-border bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-accent"
         />
       </label>
+
+      {/* 문서별 스타일(S28 — F53 ②, screens §5.3) — 편집 모드 전용(신규 작성 시 폼 없음, §4.26
+          ①은 PATCH 계약이라 생성 직후 별도 저장 왕복이 필요해 이 단계 범위 밖으로 둔다). */}
+      {editing && (
+        <div className="rounded-lg border border-border bg-bg p-3">
+          <p className="mb-2 text-sm font-medium text-primary">문서 스타일 (이 문서만)</p>
+          <p className="mb-2 text-xs text-muted">
+            지정하지 않으면 전역 설정을 따릅니다. 임베드 카드 안·인쇄 배경에는 적용되지 않습니다.
+          </p>
+          <DocStyleFields value={form.style} onChange={(next) => setForm((f) => ({ ...f, style: next }))} />
+        </div>
+      )}
 
       {error && <p className="text-sm text-wrong">{error}</p>}
 

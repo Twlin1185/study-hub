@@ -152,7 +152,10 @@ export default function EmbedCard({ docNo, alias, renderContent }: EmbedCardProp
           원문 열기
         </button>
       </div>
-      <div className="px-3 py-1">
+      {/* doc-style-reset(S28, §4.26 ②·④ ⓐ) — 상위 문서의 폰트 오버라이드가 여기까지 상속되지
+          않도록 전역 폰트로 되돌린다(배경·글자 크기는 background-color 비상속·MarkdownView의
+          globalScale 방어로 각각 이미 격리됨). */}
+      <div className="doc-style-reset px-3 py-1">
         <EmbedRenderContext.Provider value={childCtx}>
           {item.content ? (
             renderContent(item.content, docNo)

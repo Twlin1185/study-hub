@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DOCUMENT_TYPES = {"concept", "question", "past_question", "flashcard"}
 RELATION_TYPES = {"explains", "related", "prerequisite"}
+
+# 문서별 스타일 화이트리스트 (M27/F53, 설계 §4.26 ①). bg는 F52 팔레트 7색 이름 —
+# 값은 문서 배경용 연한 틴트 토큰 --doc-bg-{색}로 프론트가 매핑(이름 체계 공유·값 분리).
+DOC_STYLE_FONTS = {"sans", "serif", "mono"}
+DOC_STYLE_SIZES = {"small", "default", "large", "xl"}
+DOC_STYLE_BG_NAMES = {"red", "orange", "yellow", "green", "blue", "purple", "gray"}
 
 
 def _validate_type(value: str) -> str:
@@ -15,6 +21,43 @@ def _validate_type(value: str) -> str:
             f"type은 {sorted(DOCUMENT_TYPES)} 중 하나여야 합니다"
         )
     return value
+
+
+class DocumentStyle(BaseModel):
+    """문서별 스타일 — 부분 지정 허용, 화이트리스트 밖 값·미지 키는 422(설계 §4.26 ①)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    font: Optional[str] = None
+    size: Optional[str] = None
+    bg: Optional[str] = None
+
+    # 주의: pydantic v2는 필드가 입력에 아예 없을 때는 검증기를 호출하지 않고 기본값
+    # None을 그대로 쓴다(부분 지정·해제 없음 = 전역 상속). 반면 `{"font": null}`처럼
+    # **명시적으로 null을 보내면 검증기가 호출된다** — 이 값도 화이트리스트 밖이므로
+    # 아래에서 그대로 422로 거부한다("해제는 키 생략 또는 style 전체를 null로" — §4.26
+    # ①의 "범위 밖 값 = 422"를 하위 키 단위에도 일관 적용. 이 가드가 없으면 null이
+    # 그대로 저장되어 DocumentDetail.style: Dict[str, str] 응답 검증에서 500이 난다).
+    @field_validator("font")
+    @classmethod
+    def _check_font(cls, value: Optional[str]) -> str:
+        if value not in DOC_STYLE_FONTS:
+            raise ValueError(f"font는 {sorted(DOC_STYLE_FONTS)} 중 하나여야 합니다")
+        return value
+
+    @field_validator("size")
+    @classmethod
+    def _check_size(cls, value: Optional[str]) -> str:
+        if value not in DOC_STYLE_SIZES:
+            raise ValueError(f"size는 {sorted(DOC_STYLE_SIZES)} 중 하나여야 합니다")
+        return value
+
+    @field_validator("bg")
+    @classmethod
+    def _check_bg(cls, value: Optional[str]) -> str:
+        if value not in DOC_STYLE_BG_NAMES:
+            raise ValueError(f"bg는 {sorted(DOC_STYLE_BG_NAMES)} 중 하나여야 합니다")
+        return value
 
 
 class DocumentCreate(BaseModel):
@@ -40,6 +83,9 @@ class DocumentUpdate(BaseModel):
     difficulty: Optional[int] = Field(default=None, ge=1, le=5)
     source_id: Optional[int] = None
     source_detail: Optional[str] = None
+    # {font?, size?, bg?} | null — null은 전체 해제(설계 §4.26 ①). 필드 자체를 생략하면
+    # 기존 값 유지(exclude_unset — 다른 필드와 동일 관례).
+    style: Optional[DocumentStyle] = None
 
 
 class DocumentListItem(BaseModel):
@@ -104,6 +150,9 @@ class DocumentDetail(BaseModel):
     answer: Optional[str]
     explanation: Optional[str]
     difficulty: Optional[int]
+    # NULL = 미지정(전역 상속). resolve-embeds 응답 스키마(schemas/embed.py)에는
+    # 의도적으로 이 필드가 없다 — 임베드 무시가 계약 수준에서 끝난다(설계 §4.26 ②).
+    style: Optional[Dict[str, str]] = None
     source_id: Optional[int]
     source_detail: Optional[str]
     is_active: bool

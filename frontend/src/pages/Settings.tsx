@@ -14,6 +14,7 @@ import TagManager from '../components/TagManager'
 import SettingsSection from '../components/settings/SettingsSection'
 import LlmEngineSection from '../components/settings/LlmEngineSection'
 import QnetKeySection from '../components/settings/QnetKeySection'
+import ThemeCustomSection from '../components/settings/ThemeCustomSection'
 
 const FONT_SCALE_OPTIONS: { value: FontScale; label: string }[] = [
   { value: 'small', label: '작게' },
@@ -400,6 +401,9 @@ export default function SettingsPage() {
                 ))}
               </div>
             </section>
+
+            {/* 전역 테마 편집(S28 — F53 ①, §4.26 ③) — F38 6그룹 수 불변, 그룹 내 카드 추가만. */}
+            <ThemeCustomSection />
           </SettingsSection>
 
           {/* 모바일(<768px, 사이드바 없음) 전용 매뉴얼 진입 경로 — 아코디언 하단(§5.11) */}

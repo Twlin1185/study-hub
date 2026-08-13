@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
+import { useApplyThemeCustom } from './hooks/useApplyThemeCustom'
 import HomePage from './pages/Home'
 import ExplorePage from './pages/Explore'
 import DocumentDetailPage from './pages/DocumentDetail'
@@ -21,6 +22,8 @@ import SearchPage from './pages/Search'
 import SuggestionsPage from './pages/Suggestions'
 
 function App() {
+  // 전역 테마 커스텀 주입(S28 — F53 ①, 설계 §4.26 ③·§7) — 신규 스토어 없음, App 최상단 1회.
+  useApplyThemeCustom()
   return (
     <Layout>
       <Routes>

@@ -9,8 +9,9 @@ import {
   useLinkDocument,
   useSetDocumentTags,
   useUnlinkDocument,
+  useUpdateDocument,
 } from '../api/documents'
-import type { DocumentType, RelationType } from '../api/types'
+import type { DocumentDetail, DocumentStyle, DocumentType, RelationType } from '../api/types'
 import MarkdownView from '../components/MarkdownView'
 import TagChip from '../components/TagChip'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -20,7 +21,8 @@ import AddRelationModal from '../components/AddRelationModal'
 import RegenerateJobPanel from '../components/RegenerateJobPanel'
 import ExplainJobPanel from '../components/ExplainJobPanel'
 import DocEditor from '../components/DocEditor'
-import { useFontScale } from '../hooks/useFontScale'
+import DocStyleFields from '../components/DocStyleFields'
+import { useDocStyle } from '../hooks/useDocStyle'
 import { ApiError } from '../api/client'
 import { pickEmbeddedBy, pickManualRelations } from '../utils/relations'
 import { choiceMarker, formatAnswer } from '../utils/answerFormat'
@@ -81,7 +83,11 @@ export default function DocumentDetailPage() {
   const unlinkDocument = useUnlinkDocument()
   const addRelation = useAddRelation()
   const deleteRelation = useDeleteRelation()
-  const fontScale = useFontScale()
+  // S28(F53 ①·②, 설계 §4.26 ⑤·②-5) — 문서 지정값 > 전역 설정 > 기본 토큰. 문서 로드 전에도
+  // 훅은 고정 순서로 불러야 하므로 docQuery.data가 아직 없어도 style은 undefined로 안전하다.
+  const { scale: docScale, fontClassName: docFontClass, bgClassName: docBgClass } = useDocStyle(
+    docQuery.data?.style,
+  )
 
   // 편집은 공용 DocEditor 모달로(설계 §5 도입부, F37) — 문서 상세 전용 인라인 폼 제거.
   const [editing, setEditing] = useState(false)
@@ -191,9 +197,11 @@ export default function DocumentDetailPage() {
 
       {(
         <div className="flex flex-col gap-4">
-          <div className="rounded-lg border border-border bg-surface p-4">
+          {/* S28(F53 ⑤, §4.26 ①·④) — 이 문서의 본문 렌더 영역에만 문서 스타일 적용(앱 크롬 불변).
+              배경 오버라이드가 있으면 bg-surface 대신 --doc-bg-*를 쓰고 인쇄에서는 무시된다. */}
+          <div className={`rounded-lg border border-border p-4 ${docBgClass || 'bg-surface'} ${docFontClass}`}>
             {hasAnswerSection && <h2 className="mb-2 text-sm font-semibold text-primary">지문</h2>}
-            <MarkdownView content={doc.content} scale={fontScale} docNo={doc.doc_no} />
+            <MarkdownView content={doc.content} scale={docScale} docNo={doc.doc_no} />
           </div>
 
           {hasAnswerSection && (doc.choices ?? []).length > 0 && (
@@ -227,9 +235,9 @@ export default function DocumentDetailPage() {
                     <span className="font-semibold">정답: </span>
                     {formatAnswer(doc.answer)}
                   </p>
-                  <div className="text-sm text-primary">
+                  <div className={`text-sm text-primary ${docFontClass}`}>
                     <span className="font-semibold">해설</span>
-                    <MarkdownView content={doc.explanation} scale={fontScale} docNo={doc.doc_no} />
+                    <MarkdownView content={doc.explanation} scale={docScale} docNo={doc.doc_no} />
                   </div>
                   {/* AI 풀이 생성 (설계 §4.20 ②, F44) — 문제 타입 + 해설 없음 문서에만 노출 */}
                   <ExplainJobPanel doc={doc} />
@@ -239,6 +247,10 @@ export default function DocumentDetailPage() {
           )}
         </div>
       )}
+
+      {/* 문서 스타일 (S28 — F53 ②, screens §5.3) — DocEditor 편집 모드와 별개로 문서 상세에서도
+          바로 지정할 수 있다. 저장은 documents PATCH style 재사용(신규 API 0). */}
+      <DocStyleSection doc={doc} />
 
       {/* 태그 */}
       <div className="mt-4 rounded-lg border border-border bg-surface p-4">
@@ -465,6 +477,55 @@ export default function DocumentDetailPage() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// 문서별 스타일 즉시 편집(S28 — F53 ②) — 전체 DocEditor 모달을 열지 않고도 폰트·크기·배경만
+// 빠르게 조정할 수 있게 문서 상세에 별도 섹션으로 둔다. 저장은 documents PATCH `style` 재사용.
+function DocStyleSection({ doc }: { doc: DocumentDetail }) {
+  const updateDocument = useUpdateDocument()
+  const [draft, setDraft] = useState<DocumentStyle | null>(doc.style)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setDraft(doc.style)
+  }, [doc.id, doc.style])
+
+  const dirty = JSON.stringify(draft) !== JSON.stringify(doc.style)
+
+  return (
+    <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+      <h2 className="mb-1 text-sm font-semibold text-primary">문서 스타일</h2>
+      <p className="mb-3 text-xs text-muted">
+        이 문서의 본문에만 적용됩니다 — 지정하지 않으면 전역 설정을 따르고, 임베드 카드 안·인쇄
+        배경에는 적용되지 않습니다(폰트·글자 크기는 인쇄에도 유지됩니다).
+      </p>
+      <DocStyleFields value={draft} onChange={setDraft} />
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          disabled={!dirty || updateDocument.isPending}
+          onClick={() => {
+            setError(null)
+            updateDocument.mutate(
+              { id: doc.id, style: draft },
+              {
+                onSuccess: () => {
+                  setSaved(true)
+                  window.setTimeout(() => setSaved(false), 1500)
+                },
+                onError: (e) => setError(errMsg(e, '저장에 실패했습니다.')),
+              },
+            )
+          }}
+          className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
+        >
+          {saved ? '저장됨' : '저장'}
+        </button>
+        {error && <p className="text-sm text-wrong">{error}</p>}
+      </div>
     </div>
   )
 }
