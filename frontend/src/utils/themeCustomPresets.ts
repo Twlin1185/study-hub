@@ -81,8 +81,9 @@ export function findPresetId(palette: ThemeCustomPalette | undefined, tab: Theme
 
 // 기본 토큰 값(styles/tokens.css와 동기) — 대비 검증 시 미지정 항목의 기준값으로 쓴다.
 // textMuted(검토 중요-1) — 전역 테마 커스텀에는 이 축을 직접 편집하는 UI가 없다(항상 기본
-// 토큰 --text-muted 고정값). 서버가 이 축도 대비 검증에 넣는다고 해서 프론트가 즉시 피드백을
-// 같이 계산할 수 있도록 값만 미러(정확한 hex 대조·임계값은 백엔드 보고가 정본).
+// 토큰 --text-muted 고정값). 서버도 이 축을 대비 검증에 넣으므로(settings_service
+// CONTRAST_MIN_MUTED) 프론트 즉시 피드백도 같은 값으로 계산한다 — hex·임계값 동기는 백엔드
+// pytest로 봉인됨.
 export const DEFAULT_TOKEN_VALUES: Record<ThemeTab, { bg: string; surface: string; text: string; textMuted: string }> = {
   light: { bg: '#f5f6f8', surface: '#ffffff', text: '#14161a', textMuted: '#6b7280' },
   dark: { bg: '#0f1115', surface: '#17191f', text: '#e7e9ee', textMuted: '#9aa1ae' },

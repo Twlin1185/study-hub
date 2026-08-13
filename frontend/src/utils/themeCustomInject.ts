@@ -62,10 +62,11 @@ function colorDeclarationsFor(palette: ThemeCustomPalette | undefined, mode: The
 
 // 검토 경미-2 수정: 기준 글자크기는 `--font-size-base` 변수 + index.css의 상시 `html{font-size}`
 // 규칙 조합을 버렸다(그 규칙이 미설정 상태에서도 16px를 강제해 브라우저 접근성 글자크기 상속을
-// 끊었다 — DoD 4 "무지정 렌더 불변" 위반). 대신 `:root`/`.dark` 선택자(둘 다 <html> 자신을
-// 가리킨다 — theme.ts가 dark 클래스를 documentElement에 직접 토글)에 **커스텀이 있을 때만**
-// `font-size` 선언을 직접 얹는다 — 미설정이면 이 함수가 빈 배열을 돌려주므로 규칙 자체가
-// 생성되지 않고, html은 종전처럼 아무 font-size 선언도 갖지 않는다(브라우저 기본값 상속 유지).
+// 끊었다 — DoD 4 "무지정 렌더 불변" 위반). 대신 라이트·다크 선택자(아래 LIGHT_SELECTOR·
+// DARK_SELECTOR — 둘 다 <html> 자신을 가리킨다, theme.ts가 dark 클래스를 documentElement에
+// 직접 토글)에 **커스텀이 있을 때만** `font-size` 선언을 직접 얹는다 — 미설정이면 이 함수가 빈
+// 배열을 돌려주므로 규칙 자체가 생성되지 않고, html은 종전처럼 아무 font-size 선언도 갖지 않는다
+// (브라우저 기본값 상속 유지).
 function typographyDeclarationsFor(palette: ThemeCustomPalette | undefined): string[] {
   if (!palette) return []
   const decls: string[] = []
@@ -75,6 +76,18 @@ function typographyDeclarationsFor(palette: ThemeCustomPalette | undefined): str
   }
   return decls
 }
+
+// 라이트·다크 선택자(2차 검토 치명 수정) — dark 클래스는 documentElement(=html) 자신에 붙는다
+// (stores/theme.ts `classList.toggle('dark')`), 즉 `:root`와 `.dark`가 **같은 요소**를 겨눈다.
+// `:root`(0,1,0)와 `.dark`(0,1,0)는 특정도가 같아 소스 순서로만 갈리는데, 주입 태그가
+// `document.head.appendChild`로 번들 CSS보다 항상 뒤에 오므로 라이트 블록의 `:root`가 다크
+// 모드에서도 tokens.css의 `.dark`를 이겨버렸다(실측: 라이트만 세피아 저장 후 다크 전환 →
+// --bg가 세피아로 남고 --text만 다크 값이 되어 대비 1.03:1까지 붕괴). 라이트 오버라이드는
+// **`html:not(.dark)`**(특정도 0,1,1)로 좁혀 다크 클래스가 있으면 아예 매칭되지 않게 하고,
+// 다크 오버라이드는 대칭성을 위해 `html.dark`로 통일한다(특정도 상승은 무해 — 여기 있는
+// 규칙끼리만 경쟁하는 게 아니라 tokens.css `.dark`보다 항상 이겨야 하므로 오히려 안전 마진).
+const LIGHT_SELECTOR = 'html:not(.dark)'
+const DARK_SELECTOR = 'html.dark'
 
 // 색 오버라이드는 @media screen으로 감싼다 — 인라인 스타일이 아니라 스타일시트 규칙으로 주입해야
 // tokens.css의 `@media print { :root, .dark {...} }` 강제 라이트 규칙과 같은 층위에서 안전하게
@@ -88,12 +101,12 @@ export function buildThemeCustomCss(theme: ThemeCustom | null | undefined): stri
   const lightType = typographyDeclarationsFor(theme.light)
   const darkType = typographyDeclarationsFor(theme.dark)
   const parts: string[] = []
-  if (lightType.length > 0) parts.push(`:root { ${lightType.join(' ')} }`)
-  if (darkType.length > 0) parts.push(`.dark { ${darkType.join(' ')} }`)
+  if (lightType.length > 0) parts.push(`${LIGHT_SELECTOR} { ${lightType.join(' ')} }`)
+  if (darkType.length > 0) parts.push(`${DARK_SELECTOR} { ${darkType.join(' ')} }`)
   if (lightColor.length > 0 || darkColor.length > 0) {
     const screenParts: string[] = ['@media screen {']
-    if (lightColor.length > 0) screenParts.push(`  :root { ${lightColor.join(' ')} }`)
-    if (darkColor.length > 0) screenParts.push(`  .dark { ${darkColor.join(' ')} }`)
+    if (lightColor.length > 0) screenParts.push(`  ${LIGHT_SELECTOR} { ${lightColor.join(' ')} }`)
+    if (darkColor.length > 0) screenParts.push(`  ${DARK_SELECTOR} { ${darkColor.join(' ')} }`)
     screenParts.push('}')
     parts.push(screenParts.join('\n'))
   }

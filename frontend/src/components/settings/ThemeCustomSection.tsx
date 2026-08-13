@@ -64,9 +64,10 @@ export default function ThemeCustomSection() {
   const effectiveBg = isValidHex(draft.bg) ? draft.bg : defaults.bg
   const effectiveSurface = isValidHex(draft.surface) ? draft.surface : defaults.surface
   const effectiveTextHex = draft.text ? INK_HEX[tab][draft.text] : defaults.text
-  // 검토 중요-1 — 서버가 본문 --text(4.5:1) + 보조 --text-muted(3.0:1) 2축으로 검증을 확장 중.
-  // --text-muted는 이 화면에 직접 편집 UI가 없어 항상 기본 토큰 고정값이다(정확한 hex·임계값
-  // 대조는 백엔드 보고가 정본 — 여기는 즉시 피드백용 미러).
+  // 검토 중요-1 — 서버 검증은 본문 --text(4.5:1) + 보조 --text-muted(3.0:1) 2축(확정치는
+  // settings_service.CONTRAST_MIN_MUTED). --text-muted는 이 화면에 직접 편집 UI가 없어 항상
+  // 기본 토큰 고정값이다 — 여기는 그 값으로 즉시 피드백만 계산한다(hex·임계값 동기는 백엔드
+  // pytest로 봉인됨).
   const mutedTextHex = defaults.textMuted
 
   const contrastTextBg = contrastRatio(effectiveBg, effectiveTextHex)

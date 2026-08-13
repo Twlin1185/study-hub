@@ -50,9 +50,9 @@ export function contrastRatio(hexA: string, hexB: string): number {
 // 기준일 뿐이다.
 export const CONTRAST_MIN = 4.5
 
-// --text-muted(보조 텍스트) 축 — 백엔드가 검토 중요-1로 확장 중인 두 번째 대비 축. 정확한
-// 임계값은 백엔드 보고가 정본(여기 3.0은 WCAG "큰 텍스트/비필수 텍스트" 완화 기준을 잠정
-// 채택 — 백엔드 확정치와 다르면 이 상수만 갱신하면 된다).
+// --text-muted(보조 텍스트) 축 — 서버 검증의 두 번째 대비 축(검토 중요-1). 백엔드
+// settings_service.CONTRAST_MIN_MUTED 확정치와 값 동기(tokens.css --text-muted 라이트·다크
+// hex 미러는 백엔드 pytest로 봉인됨).
 export const CONTRAST_MIN_MUTED = 3.0
 
 export function meetsContrast(hexA: string, hexB: string, min: number = CONTRAST_MIN): boolean {
