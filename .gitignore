@@ -43,3 +43,6 @@ tools/codex/
 docs/.pdca-snapshots/
 docs/.pdca-status.json
 **/.bkit-memory.json
+
+# Visual Studio artifacts
+.vs/
