@@ -231,6 +231,14 @@ def update_document(
             if data["choices"] is not None
             else None
         )
+    if "style" in data:
+        # null = 전체 해제(NULL 저장). dict는 화이트리스트 검증을 이미 통과했다
+        # (schemas/document.py DocumentStyle) — 부분 지정만 JSON으로 직렬화.
+        data["style"] = (
+            json.dumps(data["style"], ensure_ascii=False)
+            if data["style"] is not None
+            else None
+        )
     for field, value in data.items():
         setattr(document, field, value)
     if "content" in data:
@@ -325,6 +333,7 @@ def get_document_detail(db: Session, document_id: int) -> DocumentDetail:
         answer=document.answer,
         explanation=document.explanation,
         difficulty=document.difficulty,
+        style=json.loads(document.style) if document.style else None,
         source_id=document.source_id,
         source_detail=document.source_detail,
         is_active=bool(document.is_active),

@@ -22,11 +22,11 @@
 
 ### 1. 백엔드 (DDL 1건 + 검증 2곳 — §4.26 계약)
 
-- [ ] **1-1. Alembic 마이그레이션**: `documents.style` TEXT NULL 추가(기본 NULL — 기존 행 소급 0). upgrade/downgrade **왕복 검증**(downgrade가 컬럼을 깨끗이 제거하고 재-upgrade가 성공). `models.py` 반영은 계획서 §6.2 정본(2026-08-13 갱신분) 그대로.
-- [ ] **1-2. documents PATCH `style` 화이트리스트 검증(§4.26 ①)**: `{font?, size?, bg?}` — `font ∈ {sans, serif, mono}` · `size ∈ {small, default, large, xl}`(②-3 ⓑ — 기존 FontScale 3단계 명명 + xl) · `bg ∈ F52 팔레트 7색 이름`(red·orange·yellow·green·blue·purple·gray). **부분 지정 허용**(있는 키만 검증·저장) · **`style: null` = 전체 해제** · 범위 밖 값·미지 키·임의 hex = **422**(임의 JSON 수용 금지 — 불변 규칙 5 재관통 방지). `GET /api/documents/{id}` 응답에 `style` 포함.
-- [ ] **1-3. resolve-embeds 응답에 `style` 부재 유지(§4.26 ②)**: `POST /api/documents/resolve-embeds` 항목 스키마에 `style`을 **추가하지 않는다**(필터링이 아니라 **부재** — F43이 answer·explanation을 봉인한 기법과 동일, 임베드 카드 안 무시가 계약 수준에서 끝남). 회귀 확인을 완료 기록에 남긴다.
-- [ ] **1-4. settings `ui.theme_custom` 서버 검증(§4.26 ③ — R27 ②)**: 기존 settings PUT 재사용(신규 엔드포인트 0) + 이 키에 한해 서버 검증 — 라이트·다크 각각 `{light?, dark?}`, 미설정 항목 = 기본 토큰 상속. **배경·서피스 계열 = 자유 색 허용 + 글자 토큰과의 명도 대비 검증(미달 = 저장 거부 422·서버 완성 문장)** · **글자색·강조색 계열 = 팔레트/프리셋 값만**(자유 hex 422 — 배경보다 실패 비용이 크다). 대비 임계값 구체 수치는 구현 실측으로 정하고 완료 기록에 남긴다(R27 ② 이행 세부 — 새 결정 아님).
-- [ ] **1-5. 트랜잭션·기존 계약 불변 확인**: `style` 저장은 documents PATCH의 기존 UPDATE 경로(불변 규칙 2 무관 — attempts 경로 아님). 반입 규격(§8.2)·변환 프롬프트 무변경(LLM이 style을 만들 경로 0 — ②-1 "반입 경로 격리"가 안 1의 채택 근거).
+- [x] **1-1. Alembic 마이그레이션**: `documents.style` TEXT NULL 추가(기본 NULL — 기존 행 소급 0). upgrade/downgrade **왕복 검증**(downgrade가 컬럼을 깨끗이 제거하고 재-upgrade가 성공). `models.py` 반영은 계획서 §6.2 정본(2026-08-13 갱신분) 그대로.
+- [x] **1-2. documents PATCH `style` 화이트리스트 검증(§4.26 ①)**: `{font?, size?, bg?}` — `font ∈ {sans, serif, mono}` · `size ∈ {small, default, large, xl}`(②-3 ⓑ — 기존 FontScale 3단계 명명 + xl) · `bg ∈ F52 팔레트 7색 이름`(red·orange·yellow·green·blue·purple·gray). **부분 지정 허용**(있는 키만 검증·저장) · **`style: null` = 전체 해제** · 범위 밖 값·미지 키·임의 hex = **422**(임의 JSON 수용 금지 — 불변 규칙 5 재관통 방지). `GET /api/documents/{id}` 응답에 `style` 포함.
+- [x] **1-3. resolve-embeds 응답에 `style` 부재 유지(§4.26 ②)**: `POST /api/documents/resolve-embeds` 항목 스키마에 `style`을 **추가하지 않는다**(필터링이 아니라 **부재** — F43이 answer·explanation을 봉인한 기법과 동일, 임베드 카드 안 무시가 계약 수준에서 끝남). 회귀 확인을 완료 기록에 남긴다.
+- [x] **1-4. settings `ui.theme_custom` 서버 검증(§4.26 ③ — R27 ②)**: 기존 settings PUT 재사용(신규 엔드포인트 0) + 이 키에 한해 서버 검증 — 라이트·다크 각각 `{light?, dark?}`, 미설정 항목 = 기본 토큰 상속. **배경·서피스 계열 = 자유 색 허용 + 글자 토큰과의 명도 대비 검증(미달 = 저장 거부 422·서버 완성 문장)** · **글자색·강조색 계열 = 팔레트/프리셋 값만**(자유 hex 422 — 배경보다 실패 비용이 크다). 대비 임계값 구체 수치는 구현 실측으로 정하고 완료 기록에 남긴다(R27 ② 이행 세부 — 새 결정 아님).
+- [x] **1-5. 트랜잭션·기존 계약 불변 확인**: `style` 저장은 documents PATCH의 기존 UPDATE 경로(불변 규칙 2 무관 — attempts 경로 아님). 반입 규격(§8.2)·변환 프롬프트 무변경(LLM이 style을 만들 경로 0 — ②-1 "반입 경로 격리"가 안 1의 채택 근거).
 
 ### 2. 프론트 (전역 테마 + 문서 스타일 + 토큰)
 

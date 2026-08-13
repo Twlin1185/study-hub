@@ -53,6 +53,11 @@ class Document(Base):
     answer: Mapped[str | None] = mapped_column(Text)
     explanation: Mapped[str | None] = mapped_column(Text)
     difficulty: Mapped[int | None] = mapped_column(Integer)
+    # 문서별 스타일 JSON (M27/F53 — S28 Alembic 마이그레이션으로 추가). {font?, size?, bg?}
+    # 서버 화이트리스트: font in sans|serif|mono, size in small|default|large|xl,
+    # bg in F52 팔레트 7색 이름(§4.26 — 임의 JSON·hex는 422). NULL = 미지정(전역 상속·기존
+    # 행 소급 0). resolve-embeds 응답에는 부재 — 임베드 무시의 계약 봉인.
+    style: Mapped[str | None] = mapped_column(Text)
     source_id: Mapped[int | None] = mapped_column(ForeignKey("sources.id"))
     source_detail: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[int] = mapped_column(Integer, default=1)
