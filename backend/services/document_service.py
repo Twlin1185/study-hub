@@ -44,7 +44,8 @@ def _decode_style(raw: str | None) -> Optional[Dict[str, str]]:
         return None
     if not isinstance(decoded, dict):
         return None
-    return {k: v for k, v in decoded.items() if isinstance(v, str)}
+    cleaned = {k: v for k, v in decoded.items() if isinstance(v, str)}
+    return cleaned or None  # 빈 dict = 미지정과 동치(null 정규화 대칭 — 아래 update_document)
 
 
 def get_document_or_404(db: Session, document_id: int) -> models.Document:
@@ -255,14 +256,16 @@ def update_document(
         # exclude_none은 2차 방어(review 지적) — 정상 경로에서는 이미 None이 없어야
         # 하지만, None이 그대로 저장되면 GET 시 DocumentDetail.style: Dict[str, str]
         # 응답 검증이 깨져 500이 나므로 저장 직전에 한 번 더 걸러낸다.
+        # 빈 dict 정규화(3차 검토 잔여): `{"style":{}}`처럼 화이트리스트 키가 하나도
+        # 남지 않으면 `style:null`과 결과가 같아야 한다 — NULL로 저장한다.
         style_value = data["style"]
-        data["style"] = (
-            json.dumps(
-                {k: v for k, v in style_value.items() if v is not None},
-                ensure_ascii=False,
-            )
+        cleaned_style = (
+            {k: v for k, v in style_value.items() if v is not None}
             if style_value is not None
             else None
+        )
+        data["style"] = (
+            json.dumps(cleaned_style, ensure_ascii=False) if cleaned_style else None
         )
     for field, value in data.items():
         setattr(document, field, value)
