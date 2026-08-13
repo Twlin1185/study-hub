@@ -35,6 +35,14 @@ export function isSafeThemeMode(): boolean {
   }
 }
 
+// --surface-raised 파생 비율(검토 3차 잔여-1) — tokens.css 기본 토큰 쌍에서 역산: 라이트는
+// --surface(#ffffff)와 --surface-raised(#ffffff)가 완전히 같아 방향성 0(밝히지도 어둡히지도
+// 않음). 다크는 --surface(#17191f) -> --surface-raised(#1e2129)로, 흰색 쪽으로 채널당 평균
+// (7,8,10)/(232,230,224) ≈ 3.65% 혼합돼 있다 — 4%로 근사해 같은 mixHex 공식(라이트는 ratio 0이라
+// mixHex가 원래 값을 그대로 돌려준다 — 분기 없이 통일)으로 적용한다. surface-raised는 서버 대비
+// 검증 축이 아니므로(대비 검증은 --text만) 이 파생이 저장을 막을 일은 없다.
+const SURFACE_RAISED_LIGHTEN_RATIO: Record<ThemeTab, number> = { light: 0, dark: 0.04 }
+
 // 색 계열(bg·surface·text·accent 파생)과 타이포 계열(font·size)을 분리한다 — §4.26 ④ 경계표:
 // "인쇄는 배경 전부 무시" + "폰트·글자크기는 인쇄 유지"가 서로 다른 매체 스코프를 요구하기
 // 때문이다(색은 화면 전용, 타이포는 화면·인쇄 공통).
@@ -45,7 +53,8 @@ function colorDeclarationsFor(palette: ThemeCustomPalette | undefined, mode: The
   const decls: string[] = []
   if (isValidHex(palette.bg)) decls.push(`--bg: ${palette.bg};`)
   if (isValidHex(palette.surface)) {
-    decls.push(`--surface: ${palette.surface};`, `--surface-raised: ${palette.surface};`)
+    const raisedHex = mixHex(palette.surface, '#ffffff', 1 - SURFACE_RAISED_LIGHTEN_RATIO[mode])
+    decls.push(`--surface: ${palette.surface};`, `--surface-raised: ${raisedHex};`)
   }
   if (palette.text && INK_HEX[mode][palette.text]) decls.push(`--text: ${INK_HEX[mode][palette.text]};`)
   if (palette.accent && INK_HEX[mode][palette.accent]) {

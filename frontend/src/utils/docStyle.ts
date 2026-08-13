@@ -49,6 +49,17 @@ export const DOC_BG_CLASS: Record<DocBg, string> = {
 // 를 걸지 않는다는 결정의 프론트 짝). 배경을 쓰는 곳은 전부 이 클래스를 함께 붙인다.
 export const DOC_BG_PRINT_RESET_CLASS = 'print:bg-transparent'
 
+// MarkdownView의 SCALE_CLASS와 같은 값 — 단일 출처로 여기 두고 MarkdownView·문서 스타일이 적용된
+// 화면의 "본문 렌더 영역"에 속하지만 MarkdownView를 거치지 않는 요소(문제 보기 목록 등, 검토
+// 3차 잔여-3)가 같은 크기 단계를 재사용하게 한다. 토큰 기반 크기 클래스만 사용(색상·크기
+// 하드코딩 금지) — small/default/large/xl 4단계.
+export const MARKDOWN_SCALE_CLASS: Record<MarkdownScale, string> = {
+  small: 'text-xs',
+  default: 'text-sm',
+  large: 'text-base',
+  xl: 'text-lg',
+}
+
 export interface ResolvedDocStyle {
   // 문서 style.size가 있으면 그 값이 study.font_scale을 대체(§4.26 ④ — 곱연산 기각).
   scale: MarkdownScale

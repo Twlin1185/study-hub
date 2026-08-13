@@ -9,6 +9,11 @@ interface FlipCardProps {
   onSwipeLeft: () => void // 모른다 (q=1)
   onSwipeRight: () => void // 안다 (q=4)
   disabled?: boolean
+  // S28(F53 ⑤, 검토 3차 잔여-2) — 문서 배경 오버라이드(선택, 예: `bg-docbg-yellow
+  // print:bg-transparent`). 미지정 시 기존 bg-surface/bg-surface-raised 그대로 — Review.tsx 등
+  // 다른 사용처는 이 prop을 넘기지 않으므로 렌더가 1px도 바뀌지 않는다.
+  frontBgClassName?: string
+  backBgClassName?: string
 }
 
 // 스와이프 판정 임계값(px)과 탭(=뒤집기) 판정 임계값(px).
@@ -25,6 +30,8 @@ export default function FlipCard({
   onSwipeLeft,
   onSwipeRight,
   disabled,
+  frontBgClassName,
+  backBgClassName,
 }: FlipCardProps) {
   const [dragX, setDragX] = useState(0)
   const [dragging, setDragging] = useState(false)
@@ -103,11 +110,13 @@ export default function FlipCard({
           className="relative min-h-[16rem] transition-transform duration-500 [transform-style:preserve-3d]"
           style={{ transform: flipped ? 'rotateY(180deg)' : 'none' }}
         >
-          <div className="flex min-h-[16rem] flex-col rounded-xl border border-border bg-surface p-5 [backface-visibility:hidden]">
+          <div
+            className={`flex min-h-[16rem] flex-col rounded-xl border border-border p-5 [backface-visibility:hidden] ${frontBgClassName || 'bg-surface'}`}
+          >
             {front}
           </div>
           <div
-            className="absolute inset-0 flex min-h-[16rem] flex-col rounded-xl border border-border bg-surface-raised p-5 [backface-visibility:hidden]"
+            className={`absolute inset-0 flex min-h-[16rem] flex-col rounded-xl border border-border p-5 [backface-visibility:hidden] ${backBgClassName || 'bg-surface-raised'}`}
             style={{ transform: 'rotateY(180deg)' }}
           >
             {back}

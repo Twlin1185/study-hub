@@ -150,7 +150,7 @@ function FlashcardSession() {
   const cardLoading = needsFetch && docQuery.isLoading
   // S28(F53 ①·⑤, 설계 §4.26) — embedded 큐 항목(SRS 큐가 콘텐츠를 직접 실어줌)은 documents 조회
   // 자체를 하지 않으므로 style도 알 수 없다(전역 상속). 범위 경로만 문서 지정 스타일을 적용한다.
-  const { scale: docScale, fontClassName: docFontClass } = useDocStyle(
+  const { scale: docScale, fontClassName: docFontClass, bgClassName: docBgClass } = useDocStyle(
     card?.embedded ? null : docQuery.data?.style,
   )
 
@@ -310,6 +310,8 @@ function FlashcardSession() {
         onFlip={flip}
         onSwipeLeft={() => handleGrade(FLASHCARD_Q_DONT_KNOW)}
         onSwipeRight={() => handleGrade(FLASHCARD_Q_KNOW)}
+        frontBgClassName={docBgClass}
+        backBgClassName={docBgClass}
       />
 
       {error && <p className="mt-3 text-center text-sm text-wrong">{error}</p>}

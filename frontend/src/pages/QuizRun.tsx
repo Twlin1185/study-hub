@@ -11,6 +11,7 @@ import { useUpdateReviewNote } from '../api/reviewNotes'
 import { useDocument, useToggleBookmark } from '../api/documents'
 import { useSettings } from '../api/settings'
 import { useDocStyle } from '../hooks/useDocStyle'
+import { MARKDOWN_SCALE_CLASS } from '../utils/docStyle'
 import ReportErrorButton from '../components/ReportErrorButton'
 import { pickManualRelations } from '../utils/relations'
 import { CIRCLED_DIGITS, formatAnswer } from '../utils/answerFormat'
@@ -289,13 +290,16 @@ export default function QuizRunPage() {
             if (isCorrectChoice) stateClass = 'border-correct bg-correct/10 text-correct'
             else if (isMine) stateClass = 'border-wrong bg-wrong/10 text-wrong'
           }
+          // S28(검토 3차 잔여-3) — 보기 버튼도 "본문 렌더 영역"에 포함해 폰트·글자크기만 확장
+          // 적용한다. 배경·테두리·글자색(stateClass — 정오 상태 표시)은 그대로 둔다(선택 상태
+          // 시각이 우선 — 문서 배경으로 덮지 않는다).
           return (
             <button
               key={i}
               type="button"
               disabled={Boolean(answered) || submitAttempt.isPending}
               onClick={() => handleSelect(i)}
-              className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-default ${stateClass}`}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-default ${MARKDOWN_SCALE_CLASS[docScale]} ${docFontClass} ${stateClass}`}
             >
               <span className="font-medium">{CIRCLED_DIGITS[i] ?? `${i + 1}.`}</span>
               <span>{choice}</span>

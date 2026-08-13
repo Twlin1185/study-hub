@@ -3,7 +3,7 @@
                             "frontend/src/utils/color.ts":  7,
                             "frontend/src/utils/themeCustomPresets.ts":  22,
                             "frontend/src/styles/print.css":  1,
-                            "frontend/src/utils/themeCustomInject.ts":  1
+                            "frontend/src/utils/themeCustomInject.ts":  2
                         },
     "physical-delete":  {
                             "backend/services/category_service.py":  1,

@@ -28,6 +28,7 @@ import {
   isPaletteColor,
   isTextSize,
 } from './markdown/palette'
+import { MARKDOWN_SCALE_CLASS } from '../utils/docStyle'
 
 interface MarkdownViewProps {
   content: string | null | undefined
@@ -46,12 +47,9 @@ interface MarkdownViewProps {
 }
 
 // 토큰 기반 크기 클래스만 사용(색상·크기 하드코딩 금지) — small/default/large + xl(S28) 4단계.
-const SCALE_CLASS: Record<MarkdownScale, string> = {
-  small: 'text-xs',
-  default: 'text-sm',
-  large: 'text-base',
-  xl: 'text-lg',
-}
+// 단일 출처는 utils/docStyle.ts(검토 3차 잔여-3) — MarkdownView를 거치지 않는 요소(문제 보기
+// 목록 등)도 같은 매핑을 재사용해 화면 간 크기 단계가 어긋나지 않게 한다.
+const SCALE_CLASS = MARKDOWN_SCALE_CLASS
 
 type MarkdownOptions = ComponentProps<typeof ReactMarkdown>
 
