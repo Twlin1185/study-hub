@@ -23,6 +23,7 @@ import ExplainJobPanel from '../components/ExplainJobPanel'
 import DocEditor from '../components/DocEditor'
 import DocStyleFields from '../components/DocStyleFields'
 import { useDocStyle } from '../hooks/useDocStyle'
+import { MARKDOWN_SCALE_CLASS } from '../utils/docStyle'
 import { ApiError } from '../api/client'
 import { pickEmbeddedBy, pickManualRelations } from '../utils/relations'
 import { choiceMarker, formatAnswer } from '../utils/answerFormat'
@@ -207,7 +208,9 @@ export default function DocumentDetailPage() {
           {hasAnswerSection && (doc.choices ?? []).length > 0 && (
             <div className="rounded-lg border border-border bg-surface p-4">
               <h2 className="mb-2 text-sm font-semibold text-primary">보기</h2>
-              <ul className="flex flex-col gap-1.5 text-sm text-primary">
+              {/* S28(검토 3차 잔여-3) — 보기 목록도 "본문 렌더 영역"에 포함해 폰트·글자크기만
+                  확장 적용(배경은 지문 래퍼 기준 유지 — 여기 bg-surface는 그대로 둔다). */}
+              <ul className={`flex flex-col gap-1.5 text-primary ${MARKDOWN_SCALE_CLASS[docScale]} ${docFontClass}`}>
                 {(doc.choices ?? []).map((c, i) => (
                   <li key={i} className="flex gap-2">
                     <span className="shrink-0 font-medium text-muted">{choiceMarker(i)}</span>
