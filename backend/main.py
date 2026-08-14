@@ -40,6 +40,7 @@ from routers import (
     suggestions,
     tag_rules,
     tags,
+    uploads,
 )
 from services import backup_service, settings_service
 
@@ -66,6 +67,7 @@ app.include_router(exam.router)
 app.include_router(applied_exam.router)
 app.include_router(improve.router)
 app.include_router(split.router)
+app.include_router(uploads.router)
 
 
 @app.on_event("startup")

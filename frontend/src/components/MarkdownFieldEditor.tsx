@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
+import type {
+  ClipboardEvent as ReactClipboardEvent,
+  DragEvent as ReactDragEvent,
+  KeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+} from 'react'
 import MarkdownView from './MarkdownView'
 import EditablePreview from './EditablePreview'
 import type { BlockEditSurface } from './EditablePreview'
@@ -7,6 +12,8 @@ import RefInsertModal from './RefInsertModal'
 import { useFontScale } from '../hooks/useFontScale'
 import { PALETTE_COLORS, PALETTE_LABEL, TEXT_SIZES, TEXT_SIZE_LABEL } from './markdown/palette'
 import type { PaletteColor, TextSize } from './markdown/palette'
+import { useUploadImage } from '../api/uploads'
+import { ApiError } from '../api/client'
 
 // 공용 Markdown 편집 서브컴포넌트 (stage-26 9절 후속 보완, F52 ④) — 문서 본문·해설 양쪽에서
 // 필드별 분기 없이 그대로 쓴다(9-4). 툴바(그룹화+툴팁, 9-3) · 뷰 모드 3종(9-2) · 접이식 문법
@@ -22,6 +29,10 @@ const VIEW_MODE_VALUES: ViewMode[] = ['edit', 'split', 'preview']
 
 function isViewMode(value: string | null): value is ViewMode {
   return value != null && (VIEW_MODE_VALUES as string[]).includes(value)
+}
+
+function errMsg(e: unknown, fallback: string) {
+  return e instanceof ApiError ? e.message : fallback
 }
 
 // 저장된 선택이 있으면 그대로, 없으면 넓은 화면(md, 768px)에서는 분할을 기본으로 한다(10-4 —
@@ -173,13 +184,24 @@ export default function MarkdownFieldEditor({
   }, [value])
 
   // 경미-2 수정: 래핑 가드(중첩·부분 겹침)가 조용히 무시하던 것을 짧은 안내 문구로 알린다.
+  // S29(2-5) — 이미지 업로드 진행·실패 안내도 이 자리(role="status" 1줄)를 그대로 재사용한다
+  // (신규 컴포넌트·신규 색 0). 업로드 중에는 완료할 때까지 자동으로 사라지지 않아야 하므로
+  // 타이머 없이 세우는 showNotice/clearNotice를 함께 둔다.
   const [wrapNotice, setWrapNotice] = useState<string | null>(null)
   const wrapNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => clearTimeout(wrapNoticeTimer.current), [])
-  function flashWrapNotice(message: string) {
-    setWrapNotice(message)
+  function flashWrapNotice(message: string, ms = 1800) {
     clearTimeout(wrapNoticeTimer.current)
-    wrapNoticeTimer.current = setTimeout(() => setWrapNotice(null), 1800)
+    setWrapNotice(message)
+    wrapNoticeTimer.current = setTimeout(() => setWrapNotice(null), ms)
+  }
+  function showNotice(message: string) {
+    clearTimeout(wrapNoticeTimer.current)
+    setWrapNotice(message)
+  }
+  function clearNotice() {
+    clearTimeout(wrapNoticeTimer.current)
+    setWrapNotice(null)
   }
 
   // 활성 편집 표면(3-2) — (편집·분할) 본문 textarea | (미리보기) 활성 블록 textarea.
@@ -255,6 +277,78 @@ export default function MarkdownFieldEditor({
     const end = el?.selectionEnd ?? surface.text.length
     const caret = start + snippet.length
     applyRangeEdit(surface, start, end, snippet, { start: caret, end: caret })
+  }
+
+  // 이미지 첨부(S29, F54, §4.27) — 붙여넣기(ⓐ)·드래그앤드롭(ⓑ) 공용 업로드 파이프라인.
+  // 삽입은 반드시 insertAtCursor 경유(ⓒ) — 표면 3종에 대한 분기를 여기서 새로 만들지 않는다.
+  const uploadImage = useUploadImage()
+
+  // 여러 장은 순차 업로드(ⓕ — 서버 계약이 요청당 파일 1개, 동시 다발 금지로 삽입 순서를 보장).
+  // 한 장 실패해도 나머지는 계속하고, 성공한 것들 사이에만 개행을 끼워 넣는다(단일 삽입 결과에는
+  // 불필요한 개행을 덧붙이지 않는다).
+  async function uploadFilesSequentially(files: File[]) {
+    // ⓓ 업로드 전 표면 확인 — 미리보기 모드에 활성 블록이 없으면 기존 안내만 띄우고 요청 0.
+    const surface = requireSurface()
+    if (!surface) return
+
+    const failures: string[] = []
+    let insertedAny = false
+    for (const file of files) {
+      showNotice(`이미지 올리는 중… (${file.name})`)
+      try {
+        const { url } = await uploadImage.mutateAsync(file)
+        insertAtCursor(`${insertedAny ? '\n' : ''}![](${url})`)
+        insertedAny = true
+      } catch (err) {
+        failures.push(`${file.name}: ${errMsg(err, '이미지 업로드에 실패했습니다')}`)
+      }
+    }
+
+    if (failures.length > 0) {
+      flashWrapNotice(failures.join(' / '), 4000)
+    } else {
+      clearNotice()
+    }
+  }
+
+  function isImageFile(file: File): boolean {
+    return file.type.startsWith('image/')
+  }
+
+  // ⓐ 붙여넣기 — 클립보드에 이미지 파일이 있을 때만 가로챈다. 텍스트·HTML 붙여넣기는 files가
+  // 비어 있으므로 이 핸들러가 아무 것도 하지 않고 브라우저 기본 동작(onChange로 이어짐) 그대로다.
+  function handlePaste(e: ReactClipboardEvent<HTMLDivElement>) {
+    const files = Array.from(e.clipboardData?.files ?? [])
+    const imageFiles = files.filter(isImageFile)
+    if (imageFiles.length === 0) return
+    e.preventDefault()
+    void uploadFilesSequentially(imageFiles)
+  }
+
+  // ⓑ 드래그앤드롭 — dragover 기본 동작은 항상 차단한다(브라우저가 파일을 열어 앱을 이탈하는
+  // 것을 막기 위함 — 파일 종류와 무관하게 편집기 영역 전체에서 필요). 드래그 중 시각 피드백은
+  // 기존 토큰만 사용(border-accent·bg-accent-soft) — 신규 색 0.
+  const [dragActive, setDragActive] = useState(false)
+  function handleDragOver(e: ReactDragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    if (!dragActive) setDragActive(true)
+  }
+  function handleDragLeave(e: ReactDragEvent<HTMLDivElement>) {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+    setDragActive(false)
+  }
+  function handleDrop(e: ReactDragEvent<HTMLDivElement>) {
+    setDragActive(false)
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    if (files.length === 0) return // 파일이 아닌 드래그(예: 텍스트 드래그)는 기존 동작 그대로.
+    e.preventDefault()
+    const imageFiles = files.filter(isImageFile)
+    if (imageFiles.length === 0) {
+      // ⓖ 비이미지 드롭 = 업로드 요청 0 + 짧은 안내(조용한 무시 금지).
+      flashWrapNotice('이미지 파일만 첨부할 수 있습니다(PNG·JPG·GIF·WebP)')
+      return
+    }
+    void uploadFilesSequentially(imageFiles)
   }
 
   // 선택 영역 래핑(F52 ④, 9-6ⓑ) — 세 갈래:
@@ -605,7 +699,18 @@ export default function MarkdownFieldEditor({
         </div>
       )}
 
-      <div className={splitting ? 'grid gap-2 md:grid-cols-2' : ''}>
+      {/* 이미지 첨부(S29) — 붙여넣기·드래그앤드롭 진입 영역. paste·drop은 안쪽(본문 textarea 또는
+          미리보기 활성 블록의 textarea)에서 발생해 이 컨테이너까지 버블링한다 — 표면별로 핸들러를
+          따로 달지 않는다(EditablePreview.tsx 무변경). 드래그 중 시각 피드백은 기존 토큰만. */}
+      <div
+        className={`${splitting ? 'grid gap-2 md:grid-cols-2' : ''} ${
+          dragActive ? 'rounded border-2 border-dashed border-accent bg-accent-soft' : ''
+        }`}
+        onPaste={handlePaste}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {showTextarea && (
           <textarea
             id={id}
