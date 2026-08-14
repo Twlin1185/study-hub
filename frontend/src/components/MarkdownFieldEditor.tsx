@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
+  ChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
   DragEvent as ReactDragEvent,
   KeyboardEvent,
@@ -313,6 +314,22 @@ export default function MarkdownFieldEditor({
 
   function isImageFile(file: File): boolean {
     return file.type.startsWith('image/')
+  }
+
+  // ⓗ 툴바 이미지 삽입 버튼(2-7, 2026-08-14 사용자 제안 채택) — 숨긴 file input을 여는 것뿐,
+  // 선택된 파일은 위 uploadFilesSequentially(ⓒ~ⓖ 기존 경로)를 그대로 탄다. 표면 확인은
+  // uploadFilesSequentially 안의 requireSurface()가 이미 하므로 여기서 다시 검사하지 않는다
+  // (미리보기에 활성 블록이 없으면 안내만 뜨고 요청 0).
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  function openImagePicker() {
+    imageInputRef.current?.click()
+  }
+  function handleImageFilesSelected(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    // 같은 파일을 다시 고를 수 있도록 값 초기화(지시서 — 구현 재량).
+    e.target.value = ''
+    if (files.length === 0) return
+    void uploadFilesSequentially(files)
   }
 
   // ⓐ 붙여넣기 — 클립보드에 이미지 파일이 있을 때만 가로챈다. 텍스트·HTML 붙여넣기는 files가
@@ -642,6 +659,17 @@ export default function MarkdownFieldEditor({
         {DIVIDER}
 
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label="삽입">
+          <button type="button" onMouseDown={keepFocus} title="이미지 삽입" onClick={openImagePicker} className={TOOLBAR_BTN}>
+            이미지
+          </button>
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            className="hidden"
+            onChange={handleImageFilesSelected}
+          />
           <button type="button" onMouseDown={keepFocus} title="인라인 스포일러" onClick={() => wrapSelection('||', '||', '스포일러')} className={TOOLBAR_BTN}>
             스포일러
           </button>

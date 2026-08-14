@@ -1227,9 +1227,10 @@ backend/services/fetchers/
 
 **⑦ 프론트 계약 요약 (④ 편집 UX — 상세는 screens §5.3 S29)**
 
-- 진입점은 **공용 `MarkdownFieldEditor` 1곳**(DocEditor 본문·해설 전 사용처 자동 파급 — 사용처별 분기 금지).
+- 진입점은 **공용 `MarkdownFieldEditor` 1곳**(DocEditor 본문·해설 전 사용처 자동 파급 — 사용처별 분기 금지). 그 안의 사용자 조작은 **붙여넣기 · 드래그앤드롭 · 툴바 이미지 삽입 버튼 3종**이며(툴바 버튼은 2026-08-14 추가 — screens §5.3 S29 ⓗ), **셋 다 같은 순차 업로드 루프를 공유한다**(요청당 파일 1개 = ① 계약 유지 · 서버 계약 ①~⑥ 무변경 · 신규 엔드포인트 0).
+- 툴바 버튼은 숨긴 `<input type="file" accept=(③의 4종) multiple>` **1개를 여는 진입점일 뿐**이다 — 업로드·삽입·실패 표시 코드는 붙여넣기·드롭과 동일 경로(신규 업로드 경로 0).
 - 삽입 문자열 = **`![](/images/…)`**(alt 비움). 삽입은 반드시 기존 **`insertAtCursor`** 경유 — 활성 편집 표면 추상화(`getSurface()`: 편집·분할 모드 = 본문 textarea / 미리보기 모드 = **활성 블록 textarea**, S27 자산)를 그대로 재사용하며 표면별 분기 코드를 새로 만들지 않는다.
-- **업로드 전에 표면 존재를 먼저 확인**한다(미리보기 모드에서 활성 블록이 없으면 안내만 하고 **요청하지 않는다** — 삽입하지 못할 파일을 디스크에 쌓지 않기 위한 계약).
+- **업로드 전에 표면 존재를 먼저 확인**한다(진입점 3종 공통 — 미리보기 모드에서 활성 블록이 없으면 안내만 하고 **요청하지 않는다** — 삽입하지 못할 파일을 디스크에 쌓지 않기 위한 계약).
 - 이미지가 없는 붙여넣기(텍스트·HTML)와 비이미지 드롭은 **업로드 요청 0**이며 기존 동작을 가로채지 않는다.
 
 **DDL 0건·신규 엔드포인트 1개 — 재확인 근거 (2026-08-14, 착수 문서화 · 코드 실측)**
@@ -1241,5 +1242,5 @@ backend/services/fetchers/
 **구현 앵커 (2026-08-14 — 파일 수준. 행 번호는 구현 시 실측)**
 
 - 백엔드: `backend/routers/uploads.py`(신규) · `backend/main.py`(라우터 등록만 — 이미지 서빙·SPA 폴백 구간 diff 0이 정상) · `backend/services/convert_service.py`(`_detect_image_magic`·`SOURCES_IMAGES_DIR` 재사용 지점 — 공용 이동 시 호출부·테스트 동기).
-- 프론트: `frontend/src/api/client.ts`의 `postForm` 재사용(FormData 처리 기존 구현) · `frontend/src/components/MarkdownFieldEditor.tsx`(paste·drop 핸들러·진행/실패 `role="status"`·`insertAtCursor` 경유) — `EditablePreview.tsx`는 **무변경**(활성 블록 표면은 이미 `registerSurface`로 부모에 노출돼 있다).
+- 프론트: `frontend/src/api/client.ts`의 `postForm` 재사용(FormData 처리 기존 구현) · `frontend/src/components/MarkdownFieldEditor.tsx`(paste·drop 핸들러·진행/실패 `role="status"`·`insertAtCursor` 경유) — 1차 구현분에서 `EditablePreview.tsx`는 **무변경**이었다(활성 블록 표면은 이미 `registerSurface`로 부모에 노출돼 있다). **후속 정밀화(2026-08-14)로 `EditablePreview.tsx` `handleDraftBlur` 1곳만 변경**된다 — 창 포커스 상실(`document.hasFocus() === false`)은 확정 사유가 아니라는 S27 계약 정밀화(screens §5.3 S27 ⓒ · stage-29 2-6). 툴바 이미지 삽입 버튼(⑦·screens S29 ⓗ)은 `MarkdownFieldEditor.tsx` 안에서 끝난다.
 

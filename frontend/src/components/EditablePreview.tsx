@@ -348,6 +348,12 @@ export default function EditablePreview({
   function handleDraftBlur(e: ReactFocusEvent<HTMLTextAreaElement>) {
     if (keepEditingRef.current) return
     if (suppressBlurRef.current) return
+    // 창 포커스 상실 예외(2-6, screens §5.3 S27 ⓒ — S27 계약의 정밀화이지 번복이 아니다):
+    // 파일 탐색기·다른 앱 클릭·알트탭으로 브라우저 창 전체가 포커스를 잃으면 `relatedTarget`이
+    // null인 focusout이 뜬다. 이건 "페이지 안에서 편집을 떠난" 것이 아니므로 확정하지 않는다 —
+    // 블록·캐럿·초안을 그대로 두고 창으로 돌아오면 이어서 편집한다. 아래의 기존 확정 경로들은
+    // 전부 document.hasFocus() === true인 상태에서만 도달하므로 이 분기의 영향을 받지 않는다.
+    if (!document.hasFocus()) return
     const next = e.relatedTarget as Node | null
     // 편집기 크롬(툴바·셀렉트 등)으로 포커스가 옮겨간 것은 편집 이탈이 아니다 — 단, 미리보기 상자
     // 안(다른 블록)으로 옮겨간 경우는 확정한다.
