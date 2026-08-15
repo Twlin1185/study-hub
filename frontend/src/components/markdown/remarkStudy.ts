@@ -11,9 +11,15 @@
 // unist-util-visit 등 추가 의존 없이 최소 워커를 직접 돌린다(승인 의존 = remark-directive·
 // rehype-slug·github-slugger 3종뿐 — F52 마이크로 3종도 신규 의존 0으로 이 파일 안에서 충족).
 import { REF_SCAN_RE, parseRefMatch } from './refSyntax'
-import { isPaletteColor, isTextSize } from './palette'
+import { HEX_INK_VAR, HEX_MARK_VAR, isHexColor, isPaletteColor, isTextSize } from './palette'
 
 // mdast 노드 최소 형태 — 플러그인 내부 전용(외부 타입 의존을 만들지 않는다).
+interface MdPoint {
+  line?: number
+  column?: number
+  offset?: number
+}
+
 interface MdNode {
   type: string
   name?: string
@@ -21,7 +27,7 @@ interface MdNode {
   children?: MdNode[]
   data?: Record<string, unknown>
   attributes?: Record<string, string>
-  position?: { start?: { offset?: number }; end?: { offset?: number } }
+  position?: { start?: MdPoint; end?: MdPoint }
 }
 
 // 플러그인 옵션 — inlineFormat=false면 F52 신규 문법(마이크로 3종·:t·note/warn/tip)을 전부
@@ -62,6 +68,43 @@ function sliceSource(source: string, node: MdNode): string | null {
   return source.slice(start, end)
 }
 
+// 플러그인 1회 실행분의 문맥 — 옵션 + 원본 소스 + (지연 계산되는) 줄 시작 오프셋 표.
+interface StudyCtx {
+  inlineFormat: boolean
+  source: string
+  lineStarts?: number[]
+}
+
+// ---- A-0(S30): 합성 노드 position 전파 유틸 ----
+// 마이크로 3종·참조는 text 노드를 문자열 인덱스로 쪼개 만들기 때문에 파서가 준 position이 없다.
+// 인라인 편집 모델(S30 ⓑ 2층 계약)은 "편집하지 않은 노드는 원본 슬라이스를 그대로 재출력"해야
+// 하므로 모든 합성 노드에 소스 오프셋이 필요하다. **위치 정보만 덧붙이며 문법·렌더는 무변경**이다
+// (hast 변환은 position을 그대로 복사할 뿐이고 react-markdown은 렌더에 쓰지 않는다 — 렌더 diff 0).
+
+function lineStartsOf(ctx: StudyCtx): number[] {
+  if (!ctx.lineStarts) {
+    const starts = [0]
+    for (let i = 0; i < ctx.source.length; i += 1) {
+      if (ctx.source[i] === '\n') starts.push(i + 1)
+    }
+    ctx.lineStarts = starts
+  }
+  return ctx.lineStarts
+}
+
+// 소스 오프셋 → unist Point(1-based line/column + offset). 줄 시작 표를 이진 탐색한다.
+function pointAt(ctx: StudyCtx, offset: number): MdPoint {
+  const starts = lineStartsOf(ctx)
+  let lo = 0
+  let hi = starts.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (starts[mid] <= offset) lo = mid
+    else hi = mid - 1
+  }
+  return { line: lo + 1, column: offset - starts[lo] + 1, offset }
+}
+
 // ---- 1) directive ----
 
 function hoistDirectiveLabel(node: MdNode): string {
@@ -75,7 +118,7 @@ function hoistDirectiveLabel(node: MdNode): string {
   return ''
 }
 
-function applyDirectives(node: MdNode, opts: { inlineFormat: boolean; source: string }): void {
+function applyDirectives(node: MdNode, opts: StudyCtx): void {
   for (const child of node.children ?? []) {
     if (DIRECTIVE_TYPES.has(child.type)) {
       const name = child.name ?? ''
@@ -103,16 +146,38 @@ function applyDirectives(node: MdNode, opts: { inlineFormat: boolean; source: st
       }
 
       const label = child.type === 'containerDirective' ? hoistDirectiveLabel(child) : ''
-      const hProperties: Record<string, string> = {
+      const hProperties: Record<string, string | string[]> = {
         'data-directive': name,
         'data-directive-label': label,
       }
       if (opts.inlineFormat && name === 't') {
         // 통합 인라인 directive 속성 화이트리스트 — 밖의 값·미지 속성은 조용히 무시(오류 아님).
+        // S30 ⓓ(C-3ⓐ)에서 색 값 화이트리스트가 **팔레트 7색 이름 ∪ `#rrggbb`**로 넓어졌다.
+        // 팔레트 이름은 종전대로 data-ink/data-mark(토큰 클래스 매핑)로, 자유 hex는 커스텀
+        // 프로퍼티 1개(`--u-ink`/`--u-bg`)와 클래스 u-ink/u-mark로만 방출한다 — 실제 color·
+        // background-color 계산은 tokens.css가 하고(다크 모드 자동 보정), 임의 CSS 문자열이
+        // 속성값으로 사는 경로는 없다(3자리 축약·rgb()·색 이름은 여전히 불허 = 스타일만 무시).
         const attrs = child.attributes ?? {}
-        if (attrs.c && isPaletteColor(attrs.c)) hProperties['data-ink'] = attrs.c
-        if (attrs.bg && isPaletteColor(attrs.bg)) hProperties['data-mark'] = attrs.bg
+        const styleDecls: string[] = []
+        const classNames: string[] = []
+        if (attrs.c) {
+          if (isPaletteColor(attrs.c)) hProperties['data-ink'] = attrs.c
+          else if (isHexColor(attrs.c)) {
+            styleDecls.push(`${HEX_INK_VAR}:${attrs.c}`)
+            classNames.push('u-ink')
+          }
+        }
+        if (attrs.bg) {
+          if (isPaletteColor(attrs.bg)) hProperties['data-mark'] = attrs.bg
+          else if (isHexColor(attrs.bg)) {
+            styleDecls.push(`${HEX_MARK_VAR}:${attrs.bg}`)
+            classNames.push('u-mark')
+          }
+        }
         if (attrs.s && isTextSize(attrs.s)) hProperties['data-size'] = attrs.s
+        // 기존(팔레트 전용) 본문은 이 두 속성이 붙지 않으므로 렌더 diff 0이다.
+        if (styleDecls.length) hProperties.style = styleDecls.join(';')
+        if (classNames.length) hProperties.className = classNames
       }
       child.data = {
         ...(child.data ?? {}),
@@ -130,6 +195,32 @@ export function remarkStudyDirectives(options?: StudyPluginOptions) {
   return (tree: MdNode, file?: { value?: unknown }) => {
     const source = typeof file?.value === 'string' ? file.value : ''
     applyDirectives(tree, { inlineFormat, source })
+  }
+}
+
+// 값 인덱스 → 소스 오프셋 변환기. 백슬래시 이스케이프(`\*` = 소스 2자 → 값 1자)를 보정한다.
+// 보정이 불확실하면 null을 돌려주고, 호출부는 position을 붙이지 않는다(종전 동작으로 안전 저하).
+function makeOffsetMapper(node: MdNode, source: string, mask: boolean[] | null): ((i: number) => number) | null {
+  const base = node.position?.start?.offset
+  if (typeof base !== 'number') return null
+  const value = node.value ?? ''
+  if (!mask) {
+    // 이스케이프 마스크 복원 실패(엔티티 등 우리가 다루지 않는 디코딩) — 길이가 같을 때만
+    // 값 인덱스와 소스 오프셋이 1:1임을 확신할 수 있다.
+    const raw = sliceSource(source, node)
+    if (raw === null || raw.length !== value.length) return null
+    return (i) => base + i
+  }
+  const extra: number[] = new Array(value.length + 1)
+  let acc = 0
+  extra[0] = 0
+  for (let i = 0; i < value.length; i += 1) {
+    if (mask[i]) acc += 1
+    extra[i + 1] = acc
+  }
+  return (i) => {
+    const clamped = i < 0 ? 0 : i > value.length ? value.length : i
+    return base + clamped + extra[clamped]
   }
 }
 
@@ -293,12 +384,28 @@ function computeEscapeMask(node: MdNode, source: string): boolean[] | null {
 // 텍스트 노드 1개 → [텍스트, 참조/마이크로 노드, 텍스트…]. 매치가 없으면 null.
 // 참조(정규식)와 마이크로 문법(수동 스캔) 두 후보 계열 중 매 단계에서 더 이른 것을 채택해
 // 한 번에 훑는다 — 두 계열이 뒤섞인 본문에서도 순서대로 올바르게 갈린다.
-function splitTextNode(node: MdNode, opts: { inlineFormat: boolean; source: string }): MdNode[] | null {
+function splitTextNode(node: MdNode, opts: StudyCtx): MdNode[] | null {
   const value = node.value ?? ''
   if (!value) return null
+  const out: MdNode[] = []
   // 이스케이프 마스크는 마이크로 문법 후보를 실제로 만났을 때만(지연) 1회 계산한다.
   let mask: boolean[] | null | undefined
-  const out: MdNode[] = []
+  const ensureMask = (): boolean[] | null => {
+    if (mask === undefined) mask = computeEscapeMask(node, opts.source)
+    return mask
+  }
+  // A-0: 분할 결과 노드에 부모 text 노드 오프셋 + 값 인덱스로 계산한 position을 부여한다.
+  let mapper: ((i: number) => number) | null | undefined
+  const setPos = (target: MdNode, from: number, to: number): void => {
+    if (mapper === undefined) mapper = makeOffsetMapper(node, opts.source, ensureMask())
+    if (!mapper) return
+    target.position = { start: pointAt(opts, mapper(from)), end: pointAt(opts, mapper(to)) }
+  }
+  const pushText = (from: number, to: number): void => {
+    const textNode: MdNode = { type: 'text', value: value.slice(from, to) }
+    setPos(textNode, from, to)
+    out.push(textNode)
+  }
   let emitFrom = 0
   let scanFrom = 0
   const n = value.length
@@ -313,8 +420,10 @@ function splitTextNode(node: MdNode, opts: { inlineFormat: boolean; source: stri
     else if (!micro) break
 
     if (useRef && ref) {
-      if (ref.start > emitFrom) out.push({ type: 'text', value: value.slice(emitFrom, ref.start) })
-      out.push(makeRefNode(ref.kind, ref.target, ref.alias))
+      if (ref.start > emitFrom) pushText(emitFrom, ref.start)
+      const refNode = makeRefNode(ref.kind, ref.target, ref.alias)
+      setPos(refNode, ref.start, ref.end)
+      out.push(refNode)
       emitFrom = ref.end
       scanFrom = ref.end
       continue
@@ -322,7 +431,7 @@ function splitTextNode(node: MdNode, opts: { inlineFormat: boolean; source: stri
 
     // micro가 확실히 존재하는 분기(useRef=false는 micro가 있을 때만 여기로 온다).
     const chosen = micro as MicroMatch
-    if (mask === undefined) mask = computeEscapeMask(node, opts.source)
+    ensureMask()
     const openEscaped = mask ? mask[chosen.start] || mask[chosen.start + 1] : false
     const closeEscaped = mask ? mask[chosen.end - 1] || mask[chosen.end - 2] : false
     if (openEscaped || closeEscaped) {
@@ -332,18 +441,23 @@ function splitTextNode(node: MdNode, opts: { inlineFormat: boolean; source: stri
       scanFrom = chosen.start + 1
       continue
     }
-    if (chosen.start > emitFrom) out.push({ type: 'text', value: value.slice(emitFrom, chosen.start) })
-    out.push(makeMicroNode(chosen.kind, chosen.content))
+    if (chosen.start > emitFrom) pushText(emitFrom, chosen.start)
+    const microNode = makeMicroNode(chosen.kind, chosen.content)
+    setPos(microNode, chosen.start, chosen.end)
+    // 내용 text 자식은 표식 2자 안쪽 구간(`++`·`==`·`||` 전부 길이 2).
+    const inner = microNode.children?.[0]
+    if (inner) setPos(inner, chosen.start + 2, chosen.end - 2)
+    out.push(microNode)
     emitFrom = chosen.end
     scanFrom = chosen.end
   }
 
   if (out.length === 0) return null
-  if (emitFrom < n) out.push({ type: 'text', value: value.slice(emitFrom) })
+  if (emitFrom < n) pushText(emitFrom, n)
   return out
 }
 
-function replaceRefs(node: MdNode, opts: { inlineFormat: boolean; source: string }): void {
+function replaceRefs(node: MdNode, opts: StudyCtx): void {
   if (!node.children || SKIP_TYPES.has(node.type)) return
   const next: MdNode[] = []
   for (const child of node.children) {

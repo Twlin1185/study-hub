@@ -1,12 +1,32 @@
 // F52 표현 팔레트 — 의미 이름 7색 + 크기 3단계 (설계 §6 계약, plan §14 F52 결정 ③).
 // remarkStudy(파싱 화이트리스트)·MarkdownView(렌더 클래스)·DocEditor(툴바 드롭다운)가 공유하는
-// 단일 출처 — 자유 hex 입력은 기각(다크 모드는 토큰이 담당).
+// 단일 출처.
+//
+// S30 ⓓ(F52 결정 ③ "팔레트 7색 고정"의 공식 개정) — 색 값 화이트리스트는 이제
+// **팔레트 7색 이름 ∪ `#rrggbb`**다. 3자리 축약·`rgb()`·CSS 색 이름은 여전히 불허(종전대로
+// 스타일만 무시하고 텍스트는 그대로 — 임의 CSS 문자열이 속성값으로 사는 경로 0).
+// 다크 모드 보정은 코드가 아니라 tokens.css의 `color-mix` 규칙이 담당한다.
 export const PALETTE_COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'] as const
 export type PaletteColor = (typeof PALETTE_COLORS)[number]
 
 export function isPaletteColor(value: string): value is PaletteColor {
   return (PALETTE_COLORS as readonly string[]).includes(value)
 }
+
+// 자유 색은 6자리 hex만 — 이 정규식이 본문 데이터가 스타일에 닿는 유일한 관문이다.
+export const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
+
+export function isHexColor(value: string): boolean {
+  return HEX_COLOR_RE.test(value)
+}
+
+// hex 값이 실려 나가는 커스텀 프로퍼티 이름 — remarkStudy(방출)·MarkdownView(통과)·
+// tokens.css(색 계산)가 공유하는 단일 출처. 이름이 어긋나면 색이 조용히 사라진다.
+export const HEX_INK_VAR = '--u-ink'
+export const HEX_MARK_VAR = '--u-bg'
+// 위 변수를 실제 color/background-color로 바꾸는 tokens.css 규칙의 클래스.
+export const HEX_INK_CLASS = 'u-ink'
+export const HEX_MARK_CLASS = 'u-mark'
 
 // 기존 font_scale 명명(small|default|large) + xl — F53 size 통일 결정 연동(stage-26 지시서 리스크 절).
 // 기본 크기는 속성 생략으로 표현하므로 여기엔 'default'가 없다.
