@@ -17,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -326,4 +327,8 @@ class Note(Base):
         onupdate=func.current_timestamp(),
     )
 
-    __table_args__ = (Index("ix_notes_active_updated", "is_active", "updated_at"),)
+    # updated_at DESC — 계획서 §6.2·Alembic(630a4c2531e8) DDL과 일치시키기 위해
+    # text()로 정렬 방향을 명시(단순 컬럼명 문자열은 ASC로만 방출된다).
+    __table_args__ = (
+        Index("ix_notes_active_updated", "is_active", text("updated_at DESC")),
+    )
