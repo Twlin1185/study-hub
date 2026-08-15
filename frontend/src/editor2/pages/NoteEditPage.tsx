@@ -10,6 +10,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BlockNoteView } from '@blocknote/mantine'
 import { useCreateBlockNote } from '@blocknote/react'
 import '@blocknote/mantine/style.css'
+// 편집 표면 스타일(BlockNote 색을 tokens.css 변수로 결선 — 불변 규칙 5). 스키마 모듈이 아니라
+// 화면이 들고 있어야 스키마 모듈이 DOM 없이 로드된다(검증 스크립트 계열 ⑤ 재사용).
+import '../blocknote/notes.css'
 import MarkdownView from '../../components/MarkdownView'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { blocksToMarkdown } from '../transform'

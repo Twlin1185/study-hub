@@ -114,7 +114,9 @@ export function useUpdateNote() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, ...body }: { id: number } & NotePatch) => api.patch<Note>(`/notes/${id}`, body),
-    // 낙관적 업데이트는 하지 않는다(불변 규칙 4) — 서버 응답을 받은 뒤 목록만 무효화한다.
+    // 낙관적 업데이트·낙관적 잠금 없이 서버 응답을 받은 뒤 목록만 무효화한다
+    // (stage-33 확정 규약 C "낙관적 잠금 없음" · `editor-v2.plan.md` §7.2 단일 사용자 전제 —
+    //  마지막 저장이 이긴다. §4.28 ⑥ "동시 편집" 행과 동일).
     // 단건은 편집 중인 표면이므로 재요청하지 않는다(자동 저장이 1.5초마다 돌 수 있다).
     onSuccess: () => qc.invalidateQueries({ queryKey: noteKeys.lists() }),
   })

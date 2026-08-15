@@ -32,7 +32,10 @@ import {
 import { ko } from '@blocknote/core/locales'
 import type { BnBlock } from '../adapter'
 import { useThemeStore } from '../../stores/theme'
-import './notes.css'
+// 스타일(`notes.css`)은 **편집 표면을 그리는 화면**이 import한다(NoteEditPage) — 이 모듈은
+// 스펙 구성만 담아 DOM·번들러 없이도 로드될 수 있어야 한다. 검증 스크립트
+// (`scripts/s33-adapter-roundtrip.mjs` 계열 ⑤)가 **바로 이 스펙 구성 그대로** 실제 BlockNote
+// 스키마를 만들어 왕복시키기 때문이다(별도 선언을 두면 캐스트 회귀를 못 잡는다).
 
 /** 코드 블록 언어 목록 — **드롭다운 선택만**(규약 E: 펜스 정보 문자열 자유 입력 UI 없음). */
 const CODE_LANGUAGES = {

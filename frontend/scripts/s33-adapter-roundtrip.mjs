@@ -4,7 +4,7 @@
 //   (s30·s32 관례 계승 — TS 모듈은 jiti로 불러온다. 신규 설치 0. 어댑터는 규약 B에 따라
 //    **에디터 인스턴스 없이** 동작하는 순수 JSON 변환이라 DOM 없이 이 검증이 성립한다.)
 //
-// 검사 4계열:
+// 검사 5계열:
 //   ① 코어 왕복   : M32 공용 코퍼스(roundtrip-corpus.mjs)의 **코어 범위 표본**을
 //                   md → 앱 블록 → BN 블록 → 앱 블록으로 돌려 **id 제외 동등**.
 //   ② 정규형 동등 : 그 블록을 `blocksToMarkdown`으로 다시 투영해 M32 정규형(N)이 원본 md와 동등.
@@ -14,9 +14,18 @@
 //                   (표본이 조용히 방언 쪽으로 흘러가면 이 검사가 알려 준다) + 사유 코드 고정.
 //   ④ BN 출발 왕복: **실제 저장 경로**(편집기 문서 → 앱 블록 → 편집기 문서)의 안정성 +
 //                   규약 D(말미 빈 문단 트림).
+//   ⑤ 실제 스키마 적재: ①~④는 어댑터가 **스스로 선언한 구조 타입**(`adapter/types.ts`)끼리의
+//                   왕복이라, `blocknote/schema.ts`의 경계 캐스트(`as unknown as`) 2곳이 실제
+//                   스키마와 어긋나도 잡지 못한다. 그래서 **화면이 쓰는 바로 그 `noteSchema`**로
+//                   ProseMirror 문서를 만들었다가 되읽어(`@blocknote/server-util` —
+//                   **이미 devDependency**, 신규 설치 0) 어댑터 산출 JSON이 진짜 편집기 스키마에
+//                   실리는지 검증한다. stage-34에서 커스텀 스펙을 얹다 캐스트가 깨지면 여기서 깨진다.
+//                   (서버 유틸은 **스크립트 전용**이다 — `src/**` 어디에서도 import하지 않으므로
+//                    런타임 번들에 들어가지 않는다.)
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { ServerBlockNoteEditor } from '@blocknote/server-util'
 import { SAMPLES, BLOCK_SAMPLES } from './roundtrip-corpus.mjs'
 import { stable, stripIds, makeNormalize } from './s32-normalize.mjs'
 
@@ -36,6 +45,11 @@ const transform = jiti(path.join(SRC, 'editor2/transform/index.ts'))
 const { markdownToBlocks, blocksToMarkdown, parseToMdast } = transform
 const adapter = jiti(path.join(SRC, 'editor2/adapter/index.ts'))
 const { toBlockNoteBlocks, fromBlockNoteBlocks } = adapter
+// 계열 ⑤ — 화면(NoteEditPage)이 쓰는 **그 스키마 모듈 그대로**를 불러온다(스펙 자체 선언 금지:
+// 별도 구성이면 캐스트·스펙 회귀를 못 잡는다). 스타일 import는 화면 쪽으로 옮겨 두어 이 모듈이
+// DOM·번들러 없이 로드된다(`blocknote/schema.ts` 머리말 주석 참조).
+const schemaModule = jiti(path.join(SRC, 'editor2/blocknote/schema.ts'))
+const { noteSchema, asEditorBlocks, asAdapterBlocks } = schemaModule
 
 const normalize = makeNormalize(parseToMdast)
 
@@ -49,6 +63,15 @@ function check(label, ok, detail) {
     fail += 1
     failures.push(`${label}${detail ? ` — ${detail}` : ''}`)
   }
+}
+
+// 계열별 검사 수 집계(보고용) — 각 계열이 끝날 때 mark()를 부른다.
+const sections = []
+let marked = 0
+function mark(label) {
+  const total = pass + fail
+  sections.push({ label, count: total - marked })
+  marked = total
 }
 
 // ---------------------------------------------------------------- 분류 고정(계열 ③의 뼈대)
@@ -214,6 +237,7 @@ for (const [label, src] of CORPUS) {
 console.log(`  코어 표본 ${coreCount}종 · 방언/표현 불가 표본 ${dialectCount}종 (전체 ${CORPUS.length}종)`)
 console.log(`  코어 블록 왕복: ${coreBlockPass}/${coreCount} · 정규형 동등: ${corePassNorm}/${coreCount}`)
 console.log(`  미지원 사유 분포: ${[...dialectKinds].map(([k, v]) => `${k}=${v}`).join(' · ')}`)
+mark('①·② 코퍼스 코어 왕복·정규형·고정점 + ③ 분류/사유 고정')
 
 // ---------------------------------------------------------------- ③-d 사유별 최소 표본(손실 0 계약)
 
@@ -288,6 +312,8 @@ for (const [label, block, kind] of UNSUPPORTED_CASES) {
     `기대 사유=${kind} 실제=${JSON.stringify(unsupported)}`,
   )
 }
+
+mark('③ 손실 0 — 사유별 최소 표본')
 
 // ---------------------------------------------------------------- ④ BN 출발 왕복(실제 저장 경로)
 
@@ -460,9 +486,100 @@ console.log(`  BN 출발 왕복: ${bnPass}/${BN_ORIGIN.length}`)
   check('[id보존] 역방향', back[0].id === 'bn-abc' && back[1].children?.[0]?.id === 'bn-ghi')
 }
 
+mark('④ BN 출발 왕복 + 규약 D + id 보존')
+
+// ---------------------------------------------------------------- ⑤ 실제 BlockNote 스키마 적재 왕복
+//
+// 어댑터 산출 JSON을 **화면이 쓰는 그 스키마**(`noteSchema`)로 ProseMirror 문서에 적재했다가
+// 되읽는다. 여기까지 통과하면 다음 셋이 동시에 보증된다:
+//   ⓐ 어댑터가 만든 블록 타입·prop·content 형태가 실제 스키마에 **그대로 실린다**
+//      (`blocknote/schema.ts`의 경계 캐스트 2곳이 거짓말을 하고 있지 않다)
+//   ⓑ 편집기가 정규화해 돌려주는 형태(표 셀 객체화·줄바꿈 접힘 등)를 `fromBlockNote`가 읽어낸다
+//   ⓒ 앱 전용 확장 prop(codeBlock `info` — 규약 E)이 스키마를 통과해 살아남는다
+// DOM은 필요 없다(`_blocksToProsemirrorNode`/`_prosemirrorNodeToBlocks`는 jsdom 없이 동작한다 —
+// HTML 직렬화 경로만 jsdom을 쓴다).
+console.log('== ⑤ 실제 BlockNote 스키마 적재: 어댑터 JSON → ProseMirror 문서 → 어댑터 JSON ==')
+const server = ServerBlockNoteEditor.create({ schema: noteSchema })
+
+/** 경계 캐스트(asEditorBlocks/asAdapterBlocks)를 **실제로 통과시켜** 왕복시킨다. */
+function throughSchema(blocks) {
+  const pmNode = server._blocksToProsemirrorNode(asEditorBlocks(blocks))
+  return asAdapterBlocks(server._prosemirrorNodeToBlocks(pmNode))
+}
+
+let schemaCore = 0
+let schemaPass = 0
+for (const [label, src] of CORPUS) {
+  const doc1 = markdownToBlocks(src)
+  const { blocks: bn, unsupported } = toBlockNoteBlocks(doc1)
+  if (unsupported.length > 0) continue
+  schemaCore += 1
+  let doc2
+  try {
+    doc2 = fromBlockNoteBlocks(throughSchema(bn))
+  } catch (error) {
+    check(`[스키마적재] ${label}`, false, `적재 실패: ${error?.message ?? error}`)
+    continue
+  }
+  const want = stable(stripIds(doc1.blocks))
+  const got = stable(stripIds(doc2.blocks))
+  const ok = want === got
+  if (ok) schemaPass += 1
+  check(`[스키마적재] ${label}`, ok, ok ? '' : `원본=${want.slice(0, 400)} 적재후=${got.slice(0, 400)}`)
+  check(
+    `[스키마적재-투영] ${label}`,
+    blocksToMarkdown(doc1) === blocksToMarkdown(doc2),
+    `원본투영=${JSON.stringify(blocksToMarkdown(doc1))} 적재후=${JSON.stringify(blocksToMarkdown(doc2))}`,
+  )
+}
+console.log(`  코어 표본 실제 스키마 왕복: ${schemaPass}/${schemaCore}`)
+
+// ⑤-b BN 출발 표본도 실제 스키마를 통과시킨다(props·표·중첩·확장 prop이 스키마에 살아남는가).
+let schemaBnPass = 0
+for (const [label, blocks] of BN_ORIGIN) {
+  const doc = fromBlockNoteBlocks(blocks)
+  let doc2
+  try {
+    doc2 = fromBlockNoteBlocks(throughSchema(toBlockNoteBlocks(doc).blocks))
+  } catch (error) {
+    check(`[스키마적재-BN] ${label}`, false, `적재 실패: ${error?.message ?? error}`)
+    continue
+  }
+  const ok = stable(stripIds(doc.blocks)) === stable(stripIds(doc2.blocks))
+  if (ok) schemaBnPass += 1
+  check(
+    `[스키마적재-BN] ${label}`,
+    ok,
+    `1차=${stable(stripIds(doc.blocks)).slice(0, 300)} 적재후=${stable(stripIds(doc2.blocks)).slice(0, 300)}`,
+  )
+}
+console.log(`  BN 출발 표본 실제 스키마 왕복: ${schemaBnPass}/${BN_ORIGIN.length}`)
+
+// ⑤-c 스키마 팔레트 고정 — 채택한 블록·스타일·인라인 집합이 조용히 넓어지거나 좁아지지 않게 한다
+// (BlockNote 기본 색 스타일 2종이 되돌아오면 불변 규칙 5가 깨진다).
+{
+  const blockTypes = Object.keys(noteSchema.blockSchema).sort().join(',')
+  const styleTypes = Object.keys(noteSchema.styleSchema).sort().join(',')
+  const inlineTypes = Object.keys(noteSchema.inlineContentSchema).sort().join(',')
+  check(
+    '[스키마팔레트] 블록 10종 고정',
+    blockTypes ===
+      'bulletListItem,checkListItem,codeBlock,divider,heading,image,numberedListItem,paragraph,quote,table',
+    `실제=${blockTypes}`,
+  )
+  check('[스키마팔레트] 스타일 5종 고정(색 스타일 0)', styleTypes === 'bold,code,italic,strike,underline', `실제=${styleTypes}`)
+  check('[스키마팔레트] 인라인 2종 고정', inlineTypes === 'link,text', `실제=${inlineTypes}`)
+  const props = (type) => Object.keys(noteSchema.blockSchema[type].propSchema).sort().join(',')
+  check('[스키마팔레트] 문단 표현 prop 0', props('paragraph') === '', `실제=${props('paragraph')}`)
+  check('[스키마팔레트] 헤딩 prop = level만', props('heading') === 'level', `실제=${props('heading')}`)
+  check('[스키마팔레트] 코드블록 prop = info,language', props('codeBlock') === 'info,language', `실제=${props('codeBlock')}`)
+}
+mark('⑤ 실제 BlockNote 스키마 적재 왕복 + 팔레트 고정')
+
 // ---------------------------------------------------------------- 결과
 
 console.log('')
+for (const section of sections) console.log(`계열 ${section.label}: ${section.count}건`)
 console.log(`총 ${pass + fail}건 · 통과 ${pass} · 실패 ${fail}`)
 if (fail) {
   console.log('실패 목록:')
