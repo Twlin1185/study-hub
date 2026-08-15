@@ -1,0 +1,43 @@
+/* 노트(베타) 편집 표면 — BlockNote 테마를 앱 토큰(tokens.css)으로 결선한다.
+   불변 규칙 5: 색상 하드코딩 금지 — 전부 var() 경유. 다크 모드는 토큰 전환으로 공짜.
+   (결선 방식은 stage-31 스파이크 `editor2/poc/poc.css`에서 검증된 것을 그대로 계승한다 —
+    PoC 파일은 D9 격리 계약상 수정하지 않으므로 여기 별도 사본을 둔다.) */
+
+.bn-root,
+.bn-container {
+  --bn-colors-editor-text: var(--text);
+  --bn-colors-editor-background: var(--surface);
+  --bn-colors-menu-text: var(--text);
+  --bn-colors-menu-background: var(--surface-raised);
+  --bn-colors-tooltip-text: var(--text-muted);
+  --bn-colors-tooltip-background: var(--surface-raised);
+  --bn-colors-hovered-text: var(--text);
+  --bn-colors-hovered-background: var(--accent-soft);
+  --bn-colors-selected-text: var(--on-accent);
+  --bn-colors-selected-background: var(--accent);
+  --bn-colors-disabled-text: var(--text-muted);
+  --bn-colors-disabled-background: var(--surface);
+  --bn-colors-shadow: var(--border);
+  --bn-colors-border: var(--border);
+  --bn-colors-side-menu: var(--text-muted);
+  --bn-font-family: var(--font-base);
+  --bn-border-radius: 8px;
+}
+
+/* 편집 표면 틀 — 목록·편집 화면 공용 골격은 Tailwind 유틸(토큰 색)로 두고,
+   BlockNote 내부에 닿는 것만 여기서 처리한다. */
+.note-editor-frame {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 8px 0;
+  min-height: 320px;
+}
+
+/* 모바일(<768px): 편집기 좌우 여백을 줄여 좁은 화면에서도 본문 폭을 확보한다.
+   터치 선택·툴바 밀도 마감은 M36 범위 — 여기서는 폭만 정리한다(§5.16 모바일). */
+@media (max-width: 767px) {
+  .note-editor-frame .bn-editor {
+    padding-inline: 12px;
+  }
+}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useThemeStore } from '../stores/theme'
 import type { ThemeMode } from '../stores/theme'
@@ -404,6 +405,21 @@ export default function SettingsPage() {
 
             {/* 전역 테마 편집(S28 — F53 ①, §4.26 ③) — F38 6그룹 수 불변, 그룹 내 카드 추가만. */}
             <ThemeCustomSection />
+
+            {/* 실험실(베타) 카드(S33 — 에디터 v2 노트 표면 진입점, §5.16). **링크 1개뿐**이다 —
+                토글·설정 키·로직·신규 색 0. F38 6그룹 수 불변(그룹 ⑥ 안의 카드 추가). */}
+            <section className="rounded-lg border border-border bg-surface p-4">
+              <h3 className="mb-1 text-sm font-semibold text-primary">실험실(베타)</h3>
+              <p className="mb-3 text-xs text-muted">
+                새 편집기를 노트에서 시험 중입니다 — 기존 문서 편집에는 영향이 없습니다.
+              </p>
+              <Link
+                to="/notes"
+                className="inline-block rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
+              >
+                노트(베타) 열기
+              </Link>
+            </section>
           </SettingsSection>
 
           {/* 모바일(<768px, 사이드바 없음) 전용 매뉴얼 진입 경로 — 아코디언 하단(§5.11) */}

@@ -25,6 +25,11 @@ import SuggestionsPage from './pages/Suggestions'
 // stage-31(M31) 판정용 스파이크 — 지연 로드 청크로 분리(초기 번들 무영향, R32-c), URL 직접 진입 전용
 const Editor2PocPage = lazy(() => import('./editor2/poc/PocPage'))
 
+// 노트(베타) — 에디터 v2 착지 표면(S33, §5.16). 편집기·Mantine 번들이 초기 청크에 섞이지 않도록
+// **지연 청크**로만 둔다(R37 — 초기 청크 증가 ≤ 5KB). 진입은 설정 실험실 카드 + 직접 URL뿐.
+const NoteListPage = lazy(() => import('./editor2/pages/NoteListPage'))
+const NoteEditPage = lazy(() => import('./editor2/pages/NoteEditPage'))
+
 function App() {
   // 전역 테마 커스텀 주입(S28 — F53 ①, 설계 §4.26 ③·§7) — 신규 스토어 없음, App 최상단 1회.
   useApplyThemeCustom()
@@ -52,6 +57,22 @@ function App() {
         <Route path="/search" element={<SearchPage />} />
         <Route path="/suggestions" element={<SuggestionsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route
+          path="/notes"
+          element={
+            <Suspense fallback={null}>
+              <NoteListPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/notes/:id"
+          element={
+            <Suspense fallback={null}>
+              <NoteEditPage />
+            </Suspense>
+          }
+        />
         <Route
           path="/editor2-poc"
           element={
