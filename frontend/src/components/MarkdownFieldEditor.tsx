@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type {
+  ChangeEvent,
+  ClipboardEvent as ReactClipboardEvent,
+  DragEvent as ReactDragEvent,
+  KeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+} from 'react'
 import MarkdownView from './MarkdownView'
 import EditablePreview from './EditablePreview'
 import type { BlockEditSurface } from './EditablePreview'
@@ -7,6 +13,8 @@ import RefInsertModal from './RefInsertModal'
 import { useFontScale } from '../hooks/useFontScale'
 import { PALETTE_COLORS, PALETTE_LABEL, TEXT_SIZES, TEXT_SIZE_LABEL } from './markdown/palette'
 import type { PaletteColor, TextSize } from './markdown/palette'
+import { useUploadImage } from '../api/uploads'
+import { ApiError } from '../api/client'
 
 // 공용 Markdown 편집 서브컴포넌트 (stage-26 9절 후속 보완, F52 ④) — 문서 본문·해설 양쪽에서
 // 필드별 분기 없이 그대로 쓴다(9-4). 툴바(그룹화+툴팁, 9-3) · 뷰 모드 3종(9-2) · 접이식 문법
@@ -22,6 +30,10 @@ const VIEW_MODE_VALUES: ViewMode[] = ['edit', 'split', 'preview']
 
 function isViewMode(value: string | null): value is ViewMode {
   return value != null && (VIEW_MODE_VALUES as string[]).includes(value)
+}
+
+function errMsg(e: unknown, fallback: string) {
+  return e instanceof ApiError ? e.message : fallback
 }
 
 // 저장된 선택이 있으면 그대로, 없으면 넓은 화면(md, 768px)에서는 분할을 기본으로 한다(10-4 —
@@ -93,6 +105,12 @@ interface EditSurface {
   el: HTMLTextAreaElement | null
   text: string
   setText: (next: string) => void
+  // 결함 3 수정 — 서식 적용 후 "이 범위를 선택 상태로 두라"는 요청을 큐잉한다. rAF 등 시간에
+  // 기대는 방식은 제어 컴포넌트의 리렌더 순서(React가 커밋 시 textarea.value를 다시 써 캐럿을
+  // 문자열 끝으로 되돌리는 것)와 경합해 신뢰할 수 없다 — 값이 실제로 바뀌어 커밋된 "그 다음"에
+  // 정확히 한 번 적용되도록, 값을 소유한 컴포넌트의 useLayoutEffect(DOM 커밋 직후·페인트 전에
+  // 동기 실행 보장)에서 소비한다.
+  requestSelection: (start: number, end: number) => void
 }
 
 interface MarkdownFieldEditorProps {
@@ -123,6 +141,9 @@ export default function MarkdownFieldEditor({
   onRefModalOpenChange,
 }: MarkdownFieldEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // 결함 3 — 본문 textarea(편집·분할 표면)용 대기 중 선택 요청. value가 실제로 커밋된 직후에만
+  // 소비한다(아래 useLayoutEffect).
+  const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null)
   // 편집기 크롬 전체(툴바·뷰 모드·참조 삽입 팝업 포함) — 편집 가능 미리보기(S27)가 "이 밖으로
   // 나가는 클릭 = 확정 / 안에서의 조작 = 블록 유지"를 판정하는 기준.
   const rootRef = useRef<HTMLDivElement>(null)
@@ -172,14 +193,37 @@ export default function MarkdownFieldEditor({
     return () => clearTimeout(timer)
   }, [value])
 
+  // 결함 3 — 본문 textarea 선택 복원. useLayoutEffect는 React가 이 렌더의 DOM 변경(여기서는
+  // 제어 컴포넌트의 value 재적용 포함)을 커밋한 "직후·브라우저 페인트 전"에 동기 실행되는 것이
+  // 보장된다 — rAF와 달리 React 스케줄러의 실제 커밋 타이밍과 경합하지 않는다. value가 바뀔 때만
+  // 돌고, 대기 중인 요청이 없으면(일반 타이핑 등) 아무 것도 하지 않는다.
+  useLayoutEffect(() => {
+    const pending = pendingSelectionRef.current
+    pendingSelectionRef.current = null
+    if (pending && textareaRef.current) {
+      textareaRef.current.setSelectionRange(pending.start, pending.end)
+    }
+  }, [value])
+
   // 경미-2 수정: 래핑 가드(중첩·부분 겹침)가 조용히 무시하던 것을 짧은 안내 문구로 알린다.
+  // S29(2-5) — 이미지 업로드 진행·실패 안내도 이 자리(role="status" 1줄)를 그대로 재사용한다
+  // (신규 컴포넌트·신규 색 0). 업로드 중에는 완료할 때까지 자동으로 사라지지 않아야 하므로
+  // 타이머 없이 세우는 showNotice/clearNotice를 함께 둔다.
   const [wrapNotice, setWrapNotice] = useState<string | null>(null)
   const wrapNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => clearTimeout(wrapNoticeTimer.current), [])
-  function flashWrapNotice(message: string) {
-    setWrapNotice(message)
+  function flashWrapNotice(message: string, ms = 1800) {
     clearTimeout(wrapNoticeTimer.current)
-    wrapNoticeTimer.current = setTimeout(() => setWrapNotice(null), 1800)
+    setWrapNotice(message)
+    wrapNoticeTimer.current = setTimeout(() => setWrapNotice(null), ms)
+  }
+  function showNotice(message: string) {
+    clearTimeout(wrapNoticeTimer.current)
+    setWrapNotice(message)
+  }
+  function clearNotice() {
+    clearTimeout(wrapNoticeTimer.current)
+    setWrapNotice(null)
   }
 
   // 활성 편집 표면(3-2) — (편집·분할) 본문 textarea | (미리보기) 활성 블록 textarea.
@@ -188,9 +232,23 @@ export default function MarkdownFieldEditor({
     if (viewMode === 'preview') {
       const block = blockSurfaceRef.current
       if (!block) return null
-      return { el: block.getEl(), text: block.getText(), setText: block.setText }
+      return {
+        el: block.getEl(),
+        text: block.getText(),
+        setText: block.setText,
+        // 블록 초안(draft)은 EditablePreview 내부 상태라 여기서 값 커밋 시점을 알 수 없다 —
+        // 그 컴포넌트 자신의 useLayoutEffect(마찬가지로 draft 커밋 직후)에 위임한다.
+        requestSelection: block.requestSelection,
+      }
     }
-    return { el: textareaRef.current, text: value, setText: onChange }
+    return {
+      el: textareaRef.current,
+      text: value,
+      setText: onChange,
+      requestSelection: (start, end) => {
+        pendingSelectionRef.current = { start, end }
+      },
+    }
   }
 
   function requireSurface(): EditSurface | null {
@@ -223,6 +281,15 @@ export default function MarkdownFieldEditor({
   //
   // selection은 대체 후 값 기준 절대 오프셋(없으면 execCommand 기본 동작인 "삽입 뒤 커서 collapse"
   // 에 맡긴다 — insertAtCursor가 정확히 이 기본 동작을 원한다).
+  //
+  // 결함 3 수정 — execCommand가 동기적으로 native input 이벤트를 큐잉하면 textarea의 onChange가
+  // 돌아 React state가 갱신되고, 그 렌더가 제어 컴포넌트의 value를 다시 DOM에 쓰면서 캐럿이
+  // 문자열 끝으로 리셋된다. requestAnimationFrame으로 되돌리는 시도는 "그 렌더가 rAF보다 먼저
+  // 커밋되는가"에 기대는 경합이라 신뢰할 수 없었다(React 스케줄러의 커밋 타이밍과 rAF 사이에
+  // 순서 보장이 없다). 대신 값을 소유한 컴포넌트가 자신의 useLayoutEffect(그 값이 실제로 커밋된
+  // 직후·페인트 전에 동기 실행)에서 복원하도록 요청만 큐잉한다(surface.requestSelection) — 표면이
+  // 본문 textarea든 미리보기 활성 블록이든 각자 자신의 렌더 사이클 안에서 소비하므로 타이밍 경합이
+  // 구조적으로 없어진다.
   function applyRangeEdit(
     surface: EditSurface,
     start: number,
@@ -235,15 +302,14 @@ export default function MarkdownFieldEditor({
       // textarea가 DOM에 없거나 execCommand 미지원 환경 — undo 스택은 못 지키지만 기능 자체는
       // 그대로 동작해야 한다(안전한 폴백).
       surface.setText(`${surface.text.slice(0, start)}${replacement}${surface.text.slice(end)}`)
+      if (selection) surface.requestSelection(selection.start, selection.end)
       return
     }
     el.focus()
     el.setSelectionRange(start, end)
     document.execCommand('insertText', false, replacement)
     if (selection) {
-      requestAnimationFrame(() => {
-        el.setSelectionRange(selection.start, selection.end)
-      })
+      surface.requestSelection(selection.start, selection.end)
     }
   }
 
@@ -255,6 +321,94 @@ export default function MarkdownFieldEditor({
     const end = el?.selectionEnd ?? surface.text.length
     const caret = start + snippet.length
     applyRangeEdit(surface, start, end, snippet, { start: caret, end: caret })
+  }
+
+  // 이미지 첨부(S29, F54, §4.27) — 붙여넣기(ⓐ)·드래그앤드롭(ⓑ) 공용 업로드 파이프라인.
+  // 삽입은 반드시 insertAtCursor 경유(ⓒ) — 표면 3종에 대한 분기를 여기서 새로 만들지 않는다.
+  const uploadImage = useUploadImage()
+
+  // 여러 장은 순차 업로드(ⓕ — 서버 계약이 요청당 파일 1개, 동시 다발 금지로 삽입 순서를 보장).
+  // 한 장 실패해도 나머지는 계속하고, 성공한 것들 사이에만 개행을 끼워 넣는다(단일 삽입 결과에는
+  // 불필요한 개행을 덧붙이지 않는다).
+  async function uploadFilesSequentially(files: File[]) {
+    // ⓓ 업로드 전 표면 확인 — 미리보기 모드에 활성 블록이 없으면 기존 안내만 띄우고 요청 0.
+    const surface = requireSurface()
+    if (!surface) return
+
+    const failures: string[] = []
+    let insertedAny = false
+    for (const file of files) {
+      showNotice(`이미지 올리는 중… (${file.name})`)
+      try {
+        const { url } = await uploadImage.mutateAsync(file)
+        insertAtCursor(`${insertedAny ? '\n' : ''}![](${url})`)
+        insertedAny = true
+      } catch (err) {
+        failures.push(`${file.name}: ${errMsg(err, '이미지 업로드에 실패했습니다')}`)
+      }
+    }
+
+    if (failures.length > 0) {
+      flashWrapNotice(failures.join(' / '), 4000)
+    } else {
+      clearNotice()
+    }
+  }
+
+  function isImageFile(file: File): boolean {
+    return file.type.startsWith('image/')
+  }
+
+  // ⓗ 툴바 이미지 삽입 버튼(2-7, 2026-08-14 사용자 제안 채택) — 숨긴 file input을 여는 것뿐,
+  // 선택된 파일은 위 uploadFilesSequentially(ⓒ~ⓖ 기존 경로)를 그대로 탄다. 표면 확인은
+  // uploadFilesSequentially 안의 requireSurface()가 이미 하므로 여기서 다시 검사하지 않는다
+  // (미리보기에 활성 블록이 없으면 안내만 뜨고 요청 0).
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  function openImagePicker() {
+    imageInputRef.current?.click()
+  }
+  function handleImageFilesSelected(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    // 같은 파일을 다시 고를 수 있도록 값 초기화(지시서 — 구현 재량).
+    e.target.value = ''
+    if (files.length === 0) return
+    void uploadFilesSequentially(files)
+  }
+
+  // ⓐ 붙여넣기 — 클립보드에 이미지 파일이 있을 때만 가로챈다. 텍스트·HTML 붙여넣기는 files가
+  // 비어 있으므로 이 핸들러가 아무 것도 하지 않고 브라우저 기본 동작(onChange로 이어짐) 그대로다.
+  function handlePaste(e: ReactClipboardEvent<HTMLDivElement>) {
+    const files = Array.from(e.clipboardData?.files ?? [])
+    const imageFiles = files.filter(isImageFile)
+    if (imageFiles.length === 0) return
+    e.preventDefault()
+    void uploadFilesSequentially(imageFiles)
+  }
+
+  // ⓑ 드래그앤드롭 — dragover 기본 동작은 항상 차단한다(브라우저가 파일을 열어 앱을 이탈하는
+  // 것을 막기 위함 — 파일 종류와 무관하게 편집기 영역 전체에서 필요). 드래그 중 시각 피드백은
+  // 기존 토큰만 사용(border-accent·bg-accent-soft) — 신규 색 0.
+  const [dragActive, setDragActive] = useState(false)
+  function handleDragOver(e: ReactDragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    if (!dragActive) setDragActive(true)
+  }
+  function handleDragLeave(e: ReactDragEvent<HTMLDivElement>) {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+    setDragActive(false)
+  }
+  function handleDrop(e: ReactDragEvent<HTMLDivElement>) {
+    setDragActive(false)
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    if (files.length === 0) return // 파일이 아닌 드래그(예: 텍스트 드래그)는 기존 동작 그대로.
+    e.preventDefault()
+    const imageFiles = files.filter(isImageFile)
+    if (imageFiles.length === 0) {
+      // ⓖ 비이미지 드롭 = 업로드 요청 0 + 짧은 안내(조용한 무시 금지).
+      flashWrapNotice('이미지 파일만 첨부할 수 있습니다(PNG·JPG·GIF·WebP)')
+      return
+    }
+    void uploadFilesSequentially(imageFiles)
   }
 
   // 선택 영역 래핑(F52 ④, 9-6ⓑ) — 세 갈래:
@@ -306,7 +460,86 @@ export default function MarkdownFieldEditor({
     applyRangeEdit(surface, start, end, inserted, { start: selStart, end: selEnd })
   }
 
+  // `:t[…]{키=값 …}` 속성 문자열을 순서를 보존한 [키, 값] 목록으로 판다(공백 구분, 첫 '='만
+  // 키/값 경계로 본다 — 값 자체에 '='가 올 일은 없다).
+  function parseAttrPairs(str: string): [string, string][] {
+    return str
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((pair): [string, string] => {
+        const eq = pair.indexOf('=')
+        return eq === -1 ? [pair, ''] : [pair.slice(0, eq), pair.slice(eq + 1)]
+      })
+  }
+
+  // 형광펜·글자색·크기 병합(Word·Notion 방식) — 선택 영역이 바로 바깥에서 기존 `:t[…]{…}`
+  // 하나로 정확히 감싸져 있으면 새로 감싸는 대신 그 속성을 병합한다(같은 키는 새 값으로 교체,
+  // 같은 값 재적용은 그 키를 제거, 다른 키는 순서 보존). 병합 대상이 아니면 null(호출부가 기존
+  // wrapSelection 경로로 폴백).
+  function tryMergeDirectiveAttr(
+    text: string,
+    start: number,
+    end: number,
+    attr: string,
+  ): { start: number; end: number; replacement: string; selection: { start: number; end: number } } | null {
+    const markerStart = start - 3
+    if (markerStart < 0 || text.slice(markerStart, start) !== ':t[') return null
+    if (text.slice(end, end + 2) !== ']{') return null
+    const closeIdx = text.indexOf('}', end + 2)
+    if (closeIdx === -1) return null
+
+    const eqIdx = attr.indexOf('=')
+    const newKey = eqIdx === -1 ? attr : attr.slice(0, eqIdx)
+    const newVal = eqIdx === -1 ? '' : attr.slice(eqIdx + 1)
+
+    const pairs = parseAttrPairs(text.slice(end + 2, closeIdx))
+    const existingIdx = pairs.findIndex(([k]) => k === newKey)
+    if (existingIdx === -1) {
+      pairs.push([newKey, newVal])
+    } else if (pairs[existingIdx][1] === newVal) {
+      pairs.splice(existingIdx, 1) // 같은 값 재적용 = 토글 해제
+    } else {
+      pairs[existingIdx] = [newKey, newVal]
+    }
+
+    const inner = text.slice(start, end)
+    const newAttrStr = pairs.map(([k, v]) => `${k}=${v}`).join(' ')
+    if (newAttrStr === '') {
+      // 남은 속성이 없으면 래퍼 자체를 제거(빈 `:t[…]{}` 방지) — 안쪽 텍스트만 남긴다.
+      return {
+        start: markerStart,
+        end: closeIdx + 1,
+        replacement: inner,
+        selection: { start: markerStart, end: markerStart + inner.length },
+      }
+    }
+    const replacement = `:t[${inner}]{${newAttrStr}}`
+    const selStart = markerStart + 3
+    return {
+      start: markerStart,
+      end: closeIdx + 1,
+      replacement,
+      selection: { start: selStart, end: selStart + inner.length },
+    }
+  }
+
   function wrapDirective(attr: string, placeholder: string) {
+    const surface = requireSurface()
+    if (!surface) return
+    const el = surface.el
+    const text = surface.text
+    const start = el?.selectionStart ?? text.length
+    const end = el?.selectionEnd ?? text.length
+
+    if (end > start) {
+      const merged = tryMergeDirectiveAttr(text, start, end, attr)
+      if (merged) {
+        applyRangeEdit(surface, merged.start, merged.end, merged.replacement, merged.selection)
+        return
+      }
+    }
+
     wrapSelection(':t[', `]{${attr}}`, placeholder)
   }
 
@@ -548,6 +781,17 @@ export default function MarkdownFieldEditor({
         {DIVIDER}
 
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label="삽입">
+          <button type="button" onMouseDown={keepFocus} title="이미지 삽입" onClick={openImagePicker} className={TOOLBAR_BTN}>
+            이미지
+          </button>
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            className="hidden"
+            onChange={handleImageFilesSelected}
+          />
           <button type="button" onMouseDown={keepFocus} title="인라인 스포일러" onClick={() => wrapSelection('||', '||', '스포일러')} className={TOOLBAR_BTN}>
             스포일러
           </button>
@@ -605,7 +849,20 @@ export default function MarkdownFieldEditor({
         </div>
       )}
 
-      <div className={splitting ? 'grid gap-2 md:grid-cols-2' : ''}>
+      {/* 이미지 첨부(S29) — 붙여넣기·드래그앤드롭 진입 영역. paste·drop은 안쪽(본문 textarea 또는
+          미리보기 활성 블록의 textarea)에서 발생해 이 컨테이너까지 버블링한다 — 표면별로 핸들러를
+          따로 달지 않는다(이 파일 자체는 EditablePreview.tsx를 수정하지 않고도 붙여넣기·드롭을
+          처리한다는 뜻 — 결함 3(선택 복원)은 별개 사유로 EditablePreview.tsx를 최소 변경했다).
+          드래그 중 시각 피드백은 기존 토큰만. */}
+      <div
+        className={`grid gap-2 ${splitting ? 'md:grid-cols-2' : ''} ${
+          dragActive ? 'rounded border-2 border-dashed border-accent bg-accent-soft' : ''
+        }`}
+        onPaste={handlePaste}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {showTextarea && (
           <textarea
             id={id}

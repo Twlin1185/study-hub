@@ -1690,3 +1690,9 @@ export interface SplitEnqueueJobItem {
 export interface SplitEnqueueResponse {
   jobs: SplitEnqueueJobItem[]
 }
+
+// ---- 이미지 첨부 (설계 §4.27, S29, F54) ----
+// POST /api/uploads 성공 응답 — 필드는 url 하나뿐(신규 저장·중복 재사용 응답 동일).
+export interface UploadImageResponse {
+  url: string
+}

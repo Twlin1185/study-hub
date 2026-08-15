@@ -20,6 +20,7 @@
                             },
     "fs-mutate":  {
                       "backend/services/split_service.py":  1,
+                      "backend/services/upload_service.py":  1,
                       "backend/services/convert_service.py":  2,
                       "backend/services/improve_service.py":  5,
                       "backend/services/codex_adapter.py":  1,

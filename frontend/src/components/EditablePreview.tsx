@@ -45,6 +45,10 @@ export interface BlockEditSurface {
   getEl: () => HTMLTextAreaElement | null
   getText: () => string
   setText: (next: string) => void
+  // 결함 3 수정 — 서식 적용 후 이 범위를 선택 상태로 두라는 요청을 큐잉한다. draft는 이
+  // 컴포넌트가 소유한 로컬 state라 부모(MarkdownFieldEditor)는 커밋 시점을 알 수 없으므로,
+  // 이 컴포넌트 자신의 draft 커밋 직후 useLayoutEffect에서 소비한다(아래).
+  requestSelection: (start: number, end: number) => void
   commit: () => void
 }
 
@@ -113,6 +117,8 @@ export default function EditablePreview({
   onChangeRef.current = onChange
   const draftRef = useRef('')
   const editingRef = useRef<EditTarget | null>(null)
+  // 결함 3 — draft(초안) 커밋 직후에만 소비하는 대기 중 선택 요청(아래 [draft] useLayoutEffect).
+  const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null)
   // 미리보기 상자 안에서 시작한 클릭은 blur가 아니라 click 핸들러가 "확정 + 다른 블록 열기"를
   // 한 번에 처리한다(그래야 확정 직후 밀린 오프셋을 정확히 다시 계산할 수 있다).
   const suppressBlurRef = useRef(false)
@@ -193,6 +199,9 @@ export default function EditablePreview({
         draftRef.current = next
         setDraft(next)
       },
+      requestSelection: (start, end) => {
+        pendingSelectionRef.current = { start, end }
+      },
       commit: () => {
         commit()
       },
@@ -259,9 +268,16 @@ export default function EditablePreview({
     el.setSelectionRange(caret, caret)
   }, [editing])
 
+  // 결함 3 — draft가 실제로 DOM에 커밋된 직후(페인트 전) 대기 중 선택 요청을 소비한다. 요청이
+  // 없으면(일반 타이핑 등) 아무 것도 하지 않는다.
   useLayoutEffect(() => {
     const el = draftElRef.current
     if (el) autoSize(el)
+    const pending = pendingSelectionRef.current
+    pendingSelectionRef.current = null
+    if (pending && el) {
+      el.setSelectionRange(pending.start, pending.end)
+    }
   }, [draft])
 
   function activate(target: { start: number; end: number } | 'append') {
@@ -348,6 +364,12 @@ export default function EditablePreview({
   function handleDraftBlur(e: ReactFocusEvent<HTMLTextAreaElement>) {
     if (keepEditingRef.current) return
     if (suppressBlurRef.current) return
+    // 창 포커스 상실 예외(2-6, screens §5.3 S27 ⓒ — S27 계약의 정밀화이지 번복이 아니다):
+    // 파일 탐색기·다른 앱 클릭·알트탭으로 브라우저 창 전체가 포커스를 잃으면 `relatedTarget`이
+    // null인 focusout이 뜬다. 이건 "페이지 안에서 편집을 떠난" 것이 아니므로 확정하지 않는다 —
+    // 블록·캐럿·초안을 그대로 두고 창으로 돌아오면 이어서 편집한다. 아래의 기존 확정 경로들은
+    // 전부 document.hasFocus() === true인 상태에서만 도달하므로 이 분기의 영향을 받지 않는다.
+    if (!document.hasFocus()) return
     const next = e.relatedTarget as Node | null
     // 편집기 크롬(툴바·셀렉트 등)으로 포커스가 옮겨간 것은 편집 이탈이 아니다 — 단, 미리보기 상자
     // 안(다른 블록)으로 옮겨간 경우는 확정한다.
