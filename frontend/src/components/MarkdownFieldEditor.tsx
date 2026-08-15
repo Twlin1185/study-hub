@@ -11,7 +11,7 @@ import EditablePreview from './EditablePreview'
 import type { BlockEditSurface } from './EditablePreview'
 import RefInsertModal from './RefInsertModal'
 import { useFontScale } from '../hooks/useFontScale'
-import { PALETTE_COLORS, PALETTE_LABEL, TEXT_SIZES, TEXT_SIZE_LABEL } from './markdown/palette'
+import { PALETTE_COLORS, PALETTE_LABEL, TEXT_SIZES, TEXT_SIZE_LABEL, isHexColor } from './markdown/palette'
 import type { PaletteColor, TextSize } from './markdown/palette'
 import { useUploadImage } from '../api/uploads'
 import { ApiError } from '../api/client'
@@ -98,6 +98,8 @@ const TOOLBAR_BTN = 'rounded px-2 py-1 text-xs text-primary hover:bg-surface'
 const SELECT_CLASS =
   'rounded border border-border bg-surface px-1 py-1 text-xs text-primary outline-none focus:border-accent'
 const DIVIDER = <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+// 색 드롭다운의 [사용자 지정] 항목 값(팔레트 이름과 겹치지 않는 표식 — 본문에 나가지 않는다).
+const CUSTOM_COLOR = '__custom'
 
 // 활성 편집 표면(S27 3-2) — 툴바·단축키·참조 삽입이 "지금 편집 중인 textarea"를 모드와 무관하게
 // 같은 방식으로 다루기 위한 최소 인터페이스.
@@ -105,6 +107,10 @@ interface EditSurface {
   el: HTMLTextAreaElement | null
   text: string
   setText: (next: string) => void
+  // S30 ⓖ — 4번째 표면(리치 블록)은 textarea가 아니어서 el.selectionStart를 쓸 수 없다.
+  // 선택 구간 조회를 표면이 스스로 답하게 해 **툴바 각 경로에 모드 분기를 만들지 않는다**
+  // (기존 3표면은 el 기준 계산 그대로 — 동작 무변경).
+  getSelection: () => { start: number; end: number }
   // 결함 3 수정 — 서식 적용 후 "이 범위를 선택 상태로 두라"는 요청을 큐잉한다. rAF 등 시간에
   // 기대는 방식은 제어 컴포넌트의 리렌더 순서(React가 커밋 시 textarea.value를 다시 써 캐럿을
   // 문자열 끝으로 되돌리는 것)와 경합해 신뢰할 수 없다 — 값이 실제로 바뀌어 커밋된 "그 다음"에
@@ -128,6 +134,9 @@ interface MarkdownFieldEditorProps {
   // 참조 삽입 팝업이 열려 있는 동안 바깥(모달) Esc·배경 클릭이 편집기 전체를 닫지 않도록 부모에
   // 알린다(여러 필드 인스턴스가 동시에 있을 수 있어 부모가 종합 판단).
   onRefModalOpenChange?: (open: boolean) => void
+  // S30 ⓘ ② 퇴로 플래그(F51 breaks?·F52 inlineFormat? 전례) — false면 미리보기 편집이
+  // S30 이전(S27 = 블록 소스 textarea) 동작으로 **완전 복귀**한다.
+  wysiwyg?: boolean
 }
 
 export default function MarkdownFieldEditor({
@@ -139,6 +148,7 @@ export default function MarkdownFieldEditor({
   minHeightClass = '',
   docNo,
   onRefModalOpenChange,
+  wysiwyg = true,
 }: MarkdownFieldEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   // 결함 3 — 본문 textarea(편집·분할 표면)용 대기 중 선택 요청. value가 실제로 커밋된 직후에만
@@ -168,6 +178,8 @@ export default function MarkdownFieldEditor({
   const [mobileSubTab, setMobileSubTab] = useState<'edit' | 'preview'>('edit')
   const [helpOpen, setHelpOpen] = useState(false)
   const [refInsertOpen, setRefInsertOpen] = useState(false)
+  // 지금 활성 표면이 리치 블록인가(S30) — [소스로 편집] 퇴로 버튼 노출 판단에만 쓴다.
+  const [richActive, setRichActive] = useState(false)
   const scale = useFontScale()
 
   // 치명-1 수정: 부모(DocEditor)가 매 렌더 새 identity의 콜백을 넘겨도(메모 없이) 이 이펙트가
@@ -226,12 +238,16 @@ export default function MarkdownFieldEditor({
     setWrapNotice(null)
   }
 
-  // 활성 편집 표면(3-2) — (편집·분할) 본문 textarea | (미리보기) 활성 블록 textarea.
-  // 툴바·단축키·참조 삽입은 전부 이 하나를 통해서만 값을 읽고 쓴다(모드별 분기 금지).
+  // 활성 편집 표면(3-2 · S30 ⓖ) — (편집·분할) 본문 textarea | (미리보기) 활성 블록 textarea |
+  // (미리보기) **리치 블록**. 툴바·단축키·참조 삽입·이미지 3진입점은 전부 이 하나를 통해서만
+  // 값을 읽고 쓴다(모드별 분기 금지 — 4번째 표면도 같은 인터페이스로 흡수된다).
   function getSurface(): EditSurface | null {
     if (viewMode === 'preview') {
       const block = blockSurfaceRef.current
       if (!block) return null
+      // 리치 표면은 조작 직전에 DOM → 소스 스냅샷을 굳힌다. 실패(조합 중·3층 폴백)면 이번
+      // 조작은 진행하지 않는다 — 안내는 표면 쪽이 이미 처리했다.
+      if (block.sync && !block.sync()) return null
       return {
         el: block.getEl(),
         text: block.getText(),
@@ -239,6 +255,7 @@ export default function MarkdownFieldEditor({
         // 블록 초안(draft)은 EditablePreview 내부 상태라 여기서 값 커밋 시점을 알 수 없다 —
         // 그 컴포넌트 자신의 useLayoutEffect(마찬가지로 draft 커밋 직후)에 위임한다.
         requestSelection: block.requestSelection,
+        getSelection: block.getSelection,
       }
     }
     return {
@@ -248,13 +265,20 @@ export default function MarkdownFieldEditor({
       requestSelection: (start, end) => {
         pendingSelectionRef.current = { start, end }
       },
+      getSelection: () => {
+        const el = textareaRef.current
+        return { start: el?.selectionStart ?? value.length, end: el?.selectionEnd ?? value.length }
+      },
     }
   }
 
   function requireSurface(): EditSurface | null {
     const surface = getSurface()
     if (!surface) {
-      flashWrapNotice('편집할 블록을 먼저 클릭하세요')
+      // 표면 자체가 없을 때만 기존 안내를 띄운다(리치 표면의 스냅샷 실패는 그쪽이 안내한다).
+      if (viewMode !== 'preview' || !blockSurfaceRef.current) {
+        flashWrapNotice('편집할 블록을 먼저 클릭하세요')
+      }
       return null
     }
     return surface
@@ -316,9 +340,7 @@ export default function MarkdownFieldEditor({
   function insertAtCursor(snippet: string) {
     const surface = requireSurface()
     if (!surface) return
-    const el = surface.el
-    const start = el?.selectionStart ?? surface.text.length
-    const end = el?.selectionEnd ?? surface.text.length
+    const { start, end } = surface.getSelection()
     const caret = start + snippet.length
     applyRangeEdit(surface, start, end, snippet, { start: caret, end: caret })
   }
@@ -419,10 +441,8 @@ export default function MarkdownFieldEditor({
   function wrapSelection(before: string, after: string, placeholder: string) {
     const surface = requireSurface()
     if (!surface) return
-    const el = surface.el
     const text = surface.text
-    const start = el?.selectionStart ?? text.length
-    const end = el?.selectionEnd ?? text.length
+    const { start, end } = surface.getSelection()
     const hasSelection = end > start
 
     if (hasSelection) {
@@ -527,10 +547,8 @@ export default function MarkdownFieldEditor({
   function wrapDirective(attr: string, placeholder: string) {
     const surface = requireSurface()
     if (!surface) return
-    const el = surface.el
     const text = surface.text
-    const start = el?.selectionStart ?? text.length
-    const end = el?.selectionEnd ?? text.length
+    const { start, end } = surface.getSelection()
 
     if (end > start) {
       const merged = tryMergeDirectiveAttr(text, start, end, attr)
@@ -543,6 +561,32 @@ export default function MarkdownFieldEditor({
     wrapSelection(':t[', `]{${attr}}`, placeholder)
   }
 
+  // C-3ⓔ — 팔레트 7색(1차 경로) 옆의 [사용자 지정] 피커. 값은 브라우저 네이티브 색 선택기가
+  // 주는 `#rrggbb`(런타임 사용자 데이터)이고, 코드·CSS에는 색 리터럴이 하나도 없다(불변 규칙 5 —
+  // 기본값도 지정하지 않는다). 적용 문법은 팔레트와 같은 `:t{c=…}`·`:t{bg=…}`이며 병합 관례도 동일.
+  const colorInputRef = useRef<HTMLInputElement>(null)
+  const colorTargetRef = useRef<'c' | 'bg'>('c')
+  const applyCustomColorRef = useRef<(hex: string) => void>(() => {})
+  applyCustomColorRef.current = (hex: string) => {
+    if (!isHexColor(hex)) return
+    const key = colorTargetRef.current
+    wrapDirective(`${key}=${hex}`, key === 'bg' ? '형광펜' : '글자색')
+  }
+  useEffect(() => {
+    const el = colorInputRef.current
+    if (!el) return
+    // 네이티브 'change'만 듣는다 — React의 onChange는 input 이벤트라 색을 끄는 동안 수십 번
+    // 발화해 본문에 반복 적용된다(대화상자를 닫을 때 한 번만 적용되어야 한다).
+    const handler = () => applyCustomColorRef.current(el.value)
+    el.addEventListener('change', handler)
+    return () => el.removeEventListener('change', handler)
+  }, [])
+
+  function pickCustomColor(target: 'c' | 'bg') {
+    colorTargetRef.current = target
+    colorInputRef.current?.click()
+  }
+
   function insertCallout(kind: 'note' | 'warn' | 'tip') {
     wrapSelection(`:::${kind}[제목]\n`, '\n:::', '내용')
   }
@@ -552,10 +596,8 @@ export default function MarkdownFieldEditor({
   function applyLineTransform(transform: (lines: string[]) => string[]) {
     const surface = requireSurface()
     if (!surface) return
-    const el = surface.el
     const text = surface.text
-    const start = el?.selectionStart ?? text.length
-    const end = el?.selectionEnd ?? text.length
+    const { start, end } = surface.getSelection()
     const lineStart = text.lastIndexOf('\n', start - 1) + 1
     const nextNewline = text.indexOf('\n', end)
     const lineEnd = nextNewline === -1 ? text.length : nextNewline
@@ -624,8 +666,9 @@ export default function MarkdownFieldEditor({
     )
   }
 
-  // 단축키 4종만(과설계 금지). textarea 포커스 시 preventDefault.
-  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+  // 단축키 4종만(과설계 금지). textarea·리치 표면 어느 쪽에서 와도 같은 경로다(S30 ⓖ) —
+  // 표면 종류를 몰라도 되도록 이벤트 타입만 HTMLElement로 넓힌다(호출부 동작 무변경).
+  function handleKeyDown(e: KeyboardEvent<HTMLElement>) {
     if (!e.ctrlKey) return
     const key = e.key.toLowerCase()
     if (!e.shiftKey && key === 'b') {
@@ -721,9 +764,10 @@ export default function MarkdownFieldEditor({
             title="형광펜 색상 선택"
             defaultValue=""
             onChange={(e) => {
-              const color = e.target.value as PaletteColor | ''
-              if (color) wrapDirective(`bg=${color}`, '형광펜')
+              const color = e.target.value as PaletteColor | '' | typeof CUSTOM_COLOR
               e.target.value = ''
+              if (color === CUSTOM_COLOR) pickCustomColor('bg')
+              else if (color) wrapDirective(`bg=${color}`, '형광펜')
             }}
             className={SELECT_CLASS}
           >
@@ -735,15 +779,17 @@ export default function MarkdownFieldEditor({
                 {PALETTE_LABEL[c]}
               </option>
             ))}
+            <option value={CUSTOM_COLOR}>사용자 지정…</option>
           </select>
           <select
             aria-label="글자색"
             title="글자색 선택"
             defaultValue=""
             onChange={(e) => {
-              const color = e.target.value as PaletteColor | ''
-              if (color) wrapDirective(`c=${color}`, '글자색')
+              const color = e.target.value as PaletteColor | '' | typeof CUSTOM_COLOR
               e.target.value = ''
+              if (color === CUSTOM_COLOR) pickCustomColor('c')
+              else if (color) wrapDirective(`c=${color}`, '글자색')
             }}
             className={SELECT_CLASS}
           >
@@ -755,7 +801,10 @@ export default function MarkdownFieldEditor({
                 {PALETTE_LABEL[c]}
               </option>
             ))}
+            <option value={CUSTOM_COLOR}>사용자 지정…</option>
           </select>
+          {/* 네이티브 색 선택기 — 값(#rrggbb)은 전적으로 사용자 데이터다(코드에 색 리터럴 0). */}
+          <input ref={colorInputRef} type="color" aria-hidden tabIndex={-1} className="hidden" />
           <select
             aria-label="글자 크기"
             title="글자 크기 선택"
@@ -817,6 +866,22 @@ export default function MarkdownFieldEditor({
           <button type="button" onMouseDown={keepFocus} title="내어쓰기" onClick={outdentLines} className={TOOLBAR_BTN}>
             내어쓰기
           </button>
+          {/* S30 ⓘ ① 퇴로 — 리치 표면이 활성일 때만 보인다(문법을 직접 손보는 경로이자
+              3층 폴백·미지원 조작의 착지점). 다시 리치로 돌아가려면 확정 후 블록을 다시 누른다. */}
+          {richActive && (
+            <>
+              {DIVIDER}
+              <button
+                type="button"
+                onMouseDown={keepFocus}
+                title="이 블록을 Markdown 원본으로 편집"
+                onClick={() => blockSurfaceRef.current?.toSource?.()}
+                className={TOOLBAR_BTN}
+              >
+                소스로 편집
+              </button>
+            </>
+          )}
         </div>
       </div>
       {wrapNotice && (
@@ -892,6 +957,9 @@ export default function MarkdownFieldEditor({
               keepEditingRef={keepEditingRef}
               registerSurface={registerBlockSurface}
               onFormatKeyDown={handleKeyDown}
+              wysiwyg={wysiwyg}
+              onNotice={flashWrapNotice}
+              onRichActiveChange={setRichActive}
             />
           ) : (
             <div

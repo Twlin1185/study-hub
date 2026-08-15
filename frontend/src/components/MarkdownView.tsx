@@ -16,6 +16,7 @@ import { EmbedResolver } from './markdown/embedResolver'
 import { EmbedRenderContext } from './markdown/embedContext'
 import type { EmbedRenderCtx } from './markdown/embedContext'
 import { remarkStudyDirectives, remarkStudyRefs } from './markdown/remarkStudy'
+import rehypeSourcePos from './markdown/rehypeSourcePos'
 import { FOLD_DEFAULT_LABEL, HIDE_DEFAULT_LABEL } from './markdown/refSyntax'
 import EmbedCard from './markdown/EmbedCard'
 import { DocLinkChip, HeadingAnchorChip } from './markdown/RefChips'
@@ -49,6 +50,10 @@ interface MarkdownViewProps {
   // F52 인라인 표현 문법(밑줄·형광펜·글자색/크기·인라인 스포일러·콜아웃) 전체를 끄는 퇴로.
   // 기본 true — 기존 참조(F43)·fold/hide는 이 prop과 무관하게 항상 동작한다.
   inlineFormat?: boolean
+  // S30 ⓙ(F56) — 렌더 결과 element에 `data-sp-start`/`data-sp-end`(소스 오프셋)를 주입한다.
+  // **기본 false**이며 켜는 곳은 리치 편집 표면 1곳뿐이다 — 읽기 전용 화면·인쇄·임베드의 렌더
+  // diff는 0이어야 한다(react-markdown 10의 sourcePos prop은 제거돼 쓸 수 없어 자체 플러그인).
+  sourcePos?: boolean
 }
 
 // 토큰 기반 크기 클래스만 사용(색상·크기 하드코딩 금지) — small/default/large + xl(S28) 4단계.
@@ -137,10 +142,16 @@ export default function MarkdownView({
   docNo,
   breaks = true,
   inlineFormat = true,
+  sourcePos = false,
 }: MarkdownViewProps) {
   const remarkPlugins = useMemo<MarkdownOptions['remarkPlugins']>(
     () => buildRemarkPlugins(breaks, inlineFormat),
     [breaks, inlineFormat],
+  )
+  // sourcePos가 꺼져 있으면 **기존 배열 그대로**(참조까지 동일) 넘긴다 — 기존 사용처 diff 0.
+  const rehypePlugins = useMemo<MarkdownOptions['rehypePlugins']>(
+    () => (sourcePos ? [...(REHYPE_PLUGINS ?? []), rehypeSourcePos] : REHYPE_PLUGINS),
+    [sourcePos],
   )
   // S28(F53 ②, 설계 §4.26 ②·④ ⓐ) — 임베드 카드 안에서는 문서 스타일을 무시한다. resolve-embeds
   // 응답에 style 필드가 아예 없어(계약 봉인) 배경·폰트는 호출부가 애초에 넘기지 않지만, 크기만은
@@ -266,7 +277,7 @@ export default function MarkdownView({
       className={`markdown-body max-w-none ${SCALE_CLASS[scale]} leading-relaxed text-primary [&_a]:text-accent [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted [&_code]:rounded [&_code]:bg-bg [&_code]:px-1 [&_code]:py-0.5 [&_h1]:mt-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:mt-4 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:text-base [&_h3]:font-semibold [&_img]:max-w-full [&_img]:rounded [&_li]:ml-4 [&_ol]:list-decimal [&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border [&_pre]:bg-bg [&_pre]:p-3 [&_table]:w-full [&_ul]:list-disc [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden`}
     >
       <EmbedRenderContext.Provider value={ctx}>
-        <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={REHYPE_PLUGINS} components={components}>
+        <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
           {content}
         </ReactMarkdown>
       </EmbedRenderContext.Provider>
