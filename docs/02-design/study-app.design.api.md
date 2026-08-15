@@ -5,7 +5,7 @@
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S29] = stage 1~29에서 구현. (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만. S26·S27은 프론트 전용 — §4 무변경. S28은 신규 엔드포인트 0개 — documents PATCH `style` 필드 + settings 키 추가, §4.26. **S29는 신규 엔드포인트 1개** — 이미지 업로드, §4.27.)
+구현 단계 표기: [S1]~[S33] = stage 1~33에서 구현(태그 번호 = stage 번호). (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만. S26·S27은 프론트 전용 — §4 무변경. S28은 신규 엔드포인트 0개 — documents PATCH `style` 필드 + settings 키 추가, §4.26. **S29는 신규 엔드포인트 1개** — 이미지 업로드, §4.27. **S30~S32는 §4 무변경** — S30(WYSIWYG)은 프론트 전용이라 screens §5.3 S30 절이 단독 계약 정본, S31(BlockNote 집중 분석)·S32(에디터 v2 변환 계층)는 API·DDL 0건. **S33은 신규 엔드포인트 5개** — 노트(베타) CRUD, §4.28. **S34는 §4 무변경**(노트 방언 이식 — 프론트 전용, 이미지·검색·임베드 해석은 §4.27·§4.2·§4.19 재사용).)
 
 ### 4.1 분류 Categories
 
@@ -1243,4 +1243,95 @@ backend/services/fetchers/
 
 - 백엔드: `backend/routers/uploads.py`(신규) · `backend/main.py`(라우터 등록만 — 이미지 서빙·SPA 폴백 구간 diff 0이 정상) · `backend/services/convert_service.py`(`_detect_image_magic`·`SOURCES_IMAGES_DIR` 재사용 지점 — 공용 이동 시 호출부·테스트 동기).
 - 프론트: `frontend/src/api/client.ts`의 `postForm` 재사용(FormData 처리 기존 구현) · `frontend/src/components/MarkdownFieldEditor.tsx`(paste·drop 핸들러·진행/실패 `role="status"`·`insertAtCursor` 경유) — 1차 구현분에서 `EditablePreview.tsx`는 **무변경**이었다(활성 블록 표면은 이미 `registerSurface`로 부모에 노출돼 있다). **후속 정밀화(2026-08-14)로 `EditablePreview.tsx` `handleDraftBlur` 1곳만 변경**된다 — 창 포커스 상실(`document.hasFocus() === false`)은 확정 사유가 아니라는 S27 계약 정밀화(screens §5.3 S27 ⓒ · stage-29 2-6). 툴바 이미지 삽입 버튼(⑦·screens S29 ⓗ)은 `MarkdownFieldEditor.tsx` 안에서 끝난다.
+
+### 4.28 노트(베타) — 블록 문서 저장·CRUD (S33 — 에디터 v2 M33. **계약 확정 2026-08-16, 지시서 `stage-33-notes-surface.plan.md`**)
+
+> 근거: 별지 `editor-v2.plan.md` §5.2(저장 모델)·§6(데이터 모델)·§12(D9 드래프트 격리) + 계획서 §6.2 `notes`(스키마 단일 출처). 이 절은 **에디터 v2가 `documents`를 건드리지 않고 착지할 신규 저장소**의 계약이다 — **기존 문서 API(§4.2)·FTS(§4.12)·백업(F27)·리더 경로는 1바이트도 변하지 않는다.**
+> 원칙 3줄: ① **소스 오브 트루스 = 블록 JSON**(`content_blocks`) ② **Markdown(`content`)은 파생 프로젝션이며 서버가 만들지 않는다** — 클라이언트 변환기(M32 `editor2/transform/blocksToMarkdown`)의 산출물을 **함께 저장**할 뿐이다(앱의 Markdown 파서는 여전히 프론트의 remark 1개 — F42/R19·D4) ③ 서버는 블록 내부 구조를 **검증하지 않는다**(검증하는 순간 스키마 정본이 둘이 된다 — 정본은 `frontend/src/editor2/schema/blocks.ts`).
+> 에러 규약 §3(코드 4종 불증 · 구분자는 `detail.reason`) · 페이지네이션 §3 · 소프트 삭제 §3·불변 규칙 3.
+
+**① 엔드포인트 — 신규 5개(전부 [S33])**
+
+| 메서드/경로 | 설명 | 단계 |
+|---|---|---|
+| `GET /api/notes` | 목록 — 페이지네이션·검색·소프트 삭제 필터(② 참조). 항목에 본문 필드 **미포함** | S33 |
+| `POST /api/notes` | 생성 — `200 OK` + 노트 표현(**201을 쓰지 않는다** — §4.27 ②의 "구분을 만들지 않는다" 관례 계승) | S33 |
+| `GET /api/notes/{id}` | 단건 — 본문 전체. 삭제분도 `200` + `is_active:false`(목록에서만 기본 제외 — §3) | S33 |
+| `PATCH /api/notes/{id}` | 부분 수정 — `title` · (`content_blocks` + `content`) 쌍. **`is_active`는 받지 않는다**(복구 경로는 베타 범위 밖) | S33 |
+| `DELETE /api/notes/{id}` | **소프트 삭제**(`is_active=0` UPDATE만 — 물리 삭제 코드 0) · **재삭제 멱등** · 응답 = 삭제된 노트 표현 | S33 |
+
+- **LLM 0 · 잡 0 · 파일 쓰기 0 · settings 키 0** — 이 기능은 DB 테이블 1개만 쓴다.
+- 인증 없음(홈 네트워크 전용 — R12, 기존 전 엔드포인트와 동일).
+
+**② 노트 표현(단건·생성·수정·삭제 응답 공통)**
+
+```json
+{
+  "id": 12,
+  "title": "정규화 정리",
+  "content_blocks": { "version": 1, "blocks": [ { "id": "b1", "type": "paragraph", "content": [] } ] },
+  "content": "## 정규화\n\n제1정규형은 …",
+  "blocks_version": 1,
+  "is_active": true,
+  "created_at": "2026-08-16T21:03:11",
+  "updated_at": "2026-08-16T21:07:52"
+}
+```
+
+- `content_blocks`는 **JSON 객체로 주고받고 DB에는 TEXT로 직렬화 저장**한다(`json.dumps(ensure_ascii=False)`). 응답 시 역직렬화.
+- `blocks_version` = `content_blocks.version`의 **컬럼 사본**(서버가 채운다). 사유: M34 지연 마이그레이션이 "버전 n 이하 전부"를 **SQL로** 찾아야 하는데, 서버가 JSON을 해석하지 않는 계약과 양립하려면 컬럼이어야 한다(§6.2 주석 동일).
+- 목록 항목은 본문 대신 **`excerpt`**: `{ "id", "title", "excerpt", "blocks_version", "is_active", "created_at", "updated_at" }`.
+  `excerpt` = 저장된 `content`의 **앞 200자 슬라이스 + 개행·연속 공백을 1칸으로 축약**. **Markdown 기호를 제거하지 않는다** — 서버는 Markdown을 해석하지 않는다는 원칙 ②의 귀결이며, 표시 품질은 베타에서 수용한다.
+
+**③ 요청 스키마와 검증 (얕은 검증만 — 딥 검증 금지)**
+
+| 필드 | 규칙 |
+|---|---|
+| `title` | 문자열, **빈 문자열 허용**(목록의 "제목 없음" 표시는 프론트 몫 — 첫 헤딩 자동 추출 같은 추론 금지). 200자 초과 = 422 `title_too_long` |
+| `content_blocks` | **객체**이고 `version`이 **1 이상 정수**, `blocks`가 **배열**인지까지만 확인. 블록 내부 타입·필드는 검사하지 않는다. 위반 = 422 `blocks_invalid`. **버전 상한을 두지 않는다**(서버는 스키마 진화의 게이트가 아니다) |
+| `content` | 문자열(Markdown 프로젝션). 서버는 **생성·정규화·검증 어느 것도 하지 않는다** |
+| 동반 규칙 | `content_blocks`와 `content`는 **항상 함께** 온다. 한쪽만 = 422 `projection_required`(생성·수정 공통 — 이원화 드리프트의 원천 차단) |
+| 크기 상한 | `content_blocks` 직렬화 **1,000,000자** · `content` **200,000자**(기존 텍스트 상한 관례 §4.18 ⑤ 계승) · 초과 = 422 `too_large` |
+
+- `POST`는 `title`·`content_blocks`·`content` 필수(빈 노트는 `{"version":1,"blocks":[]}` + `""`로 생성).
+- `PATCH`는 **부분 지정**(주지 않은 필드 무변경). 단 동반 규칙은 그대로 적용된다.
+
+**④ 목록 계약**
+
+| 파라미터 | 계약 |
+|---|---|
+| `page`·`size` | §3 페이지네이션(`{items,total,page,size}`), 기본 `size=50` |
+| `q` | `title`·`content` **LIKE 부분 일치**(공백 트림·비면 무시). **FTS5를 쓰지 않는다** — notes는 FTS 색인 대상이 아니다(⑥) |
+| `include_inactive` | `1`이면 삭제분 포함(§3 소프트 삭제 규약). 기본은 `is_active=1`만 |
+| 정렬 | `updated_at DESC` 고정(정렬 옵션 없음 — YAGNI) |
+
+**⑤ 에러 표 (§3 규약 — 코드 집합 4종 불증)**
+
+| 조건 | 상태 | code | detail.reason | message 형태(한국어 사람 말 + 다음 행동) |
+|---|---|---|---|---|
+| 노트 없음 | 404 | `NOT_FOUND` | — | "노트를 찾을 수 없습니다" |
+| `content_blocks` 형태 위반 | 422 | `VALIDATION_ERROR` | `blocks_invalid` | "노트 내용을 저장할 수 없습니다(형식 오류) — 새로고침 후 다시 시도해 주세요" |
+| 블록/프로젝션 한쪽만 전송 | 422 | `VALIDATION_ERROR` | `projection_required` | "노트 내용과 미리보기 텍스트는 함께 저장해야 합니다" |
+| 크기 상한 초과 | 422 | `VALIDATION_ERROR` | `too_large` | "노트가 너무 큽니다 — 내용을 나눠 주세요" |
+| 제목 200자 초과 | 422 | `VALIDATION_ERROR` | `title_too_long` | "제목이 너무 깁니다(200자 이하)" |
+| 서버 사정 | 500 | `INTERNAL` | — | 기존 공통 핸들러 |
+
+- 프론트는 `code`로 분기하지 않고 **서버 `message`를 그대로 렌더**한다(§3 관례).
+
+**⑥ 경계·무접촉 확인 (재사용 자산 전수 — 2026-08-16 계약 시점)**
+
+| 항목 | 계약 |
+|---|---|
+| DDL | **신규 테이블 1개(`notes`)만** — 계획서 §6.2가 단일 출처, **Alembic 세트 필수**(불변 규칙 6). `documents`·기타 테이블 diff 0 |
+| FTS(§4.12) | **notes 미색인** — 가상 테이블·트리거 추가 0. 노트 검색은 ④의 LIKE(개인 노트는 건수가 작다. 필요 실측 시 계획서 먼저) |
+| 백업(F27) | **개정 0건** — 백업은 `study.db` VACUUM INTO라 새 테이블이 자동 포함된다 |
+| 이미지(§4.27) | **재사용** — 노트 표면의 붙여넣기·드롭·삽입 3진입점이 기존 `POST /api/uploads`를 그대로 호출한다(요청당 1장·순차 루프). 신규 업로드 경로 0 |
+| 참조 칩 피커(S34) | **재사용** — 대상 검색 = **`GET /api/search?q=`**(FTS 검색 · item에 `doc_no`·`title`이 이미 있다 — 칩이 필요한 것 전부) · 최근/목록 보조 = `GET /api/documents`(§4.2 필터·페이지네이션) · 제목 조회 = `POST /api/documents/resolve-embeds`(§4.19) 배치. **전부 읽기 전용 사용**이라 `documents` 무접촉 계약과 정합. 신규 API 0 |
+| 소프트 삭제 복구 | **엔드포인트 없음**(베타 범위 밖) — 삭제분 확인은 `include_inactive=1`로만. 휴지통 UI는 실수요 확인 후 계획서 먼저 |
+| 동시 편집 | 낙관적 잠금·버전 충돌 처리 **없음**(단일 사용자 전제 — 별지 §7.2). 마지막 저장이 이긴다 |
+
+**구현 앵커 (2026-08-16 — 파일 수준. 행 번호는 구현 시 실측)**
+
+- 백엔드: `backend/routers/notes.py`(신규) · `backend/schemas/note.py`(신규) · `backend/models.py`(`Note` 모델 추가만) · `backend/main.py`(라우터 등록 1줄) · `backend/alembic/versions/*`(신규 리비전 1개). **서비스 계층 신설 없음**(CRUD뿐 — 비즈니스 로직 0).
+- 프론트: `frontend/src/editor2/api/notes.ts`(React Query 훅 — 기존 `api/client.ts` 재사용) · 화면은 screens §5.16.
 
