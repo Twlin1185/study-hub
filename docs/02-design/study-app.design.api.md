@@ -1281,7 +1281,7 @@ backend/services/fetchers/
 - `content_blocks`는 **JSON 객체로 주고받고 DB에는 TEXT로 직렬화 저장**한다(`json.dumps(ensure_ascii=False)`). 응답 시 역직렬화.
 - `blocks_version` = `content_blocks.version`의 **컬럼 사본**(서버가 채운다). 사유: M34 지연 마이그레이션이 "버전 n 이하 전부"를 **SQL로** 찾아야 하는데, 서버가 JSON을 해석하지 않는 계약과 양립하려면 컬럼이어야 한다(§6.2 주석 동일).
 - 목록 항목은 본문 대신 **`excerpt`**: `{ "id", "title", "excerpt", "blocks_version", "is_active", "created_at", "updated_at" }`.
-  `excerpt` = 저장된 `content`의 **앞 200자 슬라이스 + 개행·연속 공백을 1칸으로 축약**. **Markdown 기호를 제거하지 않는다** — 서버는 Markdown을 해석하지 않는다는 원칙 ②의 귀결이며, 표시 품질은 베타에서 수용한다.
+  `excerpt` = 저장된 `content`의 **개행·연속 공백을 1칸으로 축약한 뒤 앞 200자 슬라이스**(*2026-08-16 구현에 맞춰 순서 정정 — 초판은 "슬라이스 후 축약"이었으나, 그 순서면 개행이 많은 노트에서 표시 가능한 글자가 200자에 크게 못 미친다. 결과 품질이 나은 쪽을 계약으로 삼는다*). **Markdown 기호를 제거하지 않는다** — 서버는 Markdown을 해석하지 않는다는 원칙 ②의 귀결이며, 표시 품질은 베타에서 수용한다.
 
 **③ 요청 스키마와 검증 (얕은 검증만 — 딥 검증 금지)**
 
