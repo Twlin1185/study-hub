@@ -1,5 +1,5 @@
 import { useContext, useMemo, useRef } from 'react'
-import type { ComponentProps } from 'react'
+import type { ComponentProps, CSSProperties } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -16,15 +16,21 @@ import { EmbedResolver } from './markdown/embedResolver'
 import { EmbedRenderContext } from './markdown/embedContext'
 import type { EmbedRenderCtx } from './markdown/embedContext'
 import { remarkStudyDirectives, remarkStudyRefs } from './markdown/remarkStudy'
+import rehypeSourcePos from './markdown/rehypeSourcePos'
 import { FOLD_DEFAULT_LABEL, HIDE_DEFAULT_LABEL } from './markdown/refSyntax'
 import EmbedCard from './markdown/EmbedCard'
 import { DocLinkChip, HeadingAnchorChip } from './markdown/RefChips'
 import { CalloutBlock, FoldSection, HideSection, InlineSpoiler } from './markdown/DirectiveBlocks'
 import {
+  HEX_INK_CLASS,
+  HEX_INK_VAR,
+  HEX_MARK_CLASS,
+  HEX_MARK_VAR,
   INK_TEXT_CLASS,
   MARK_BG_CLASS,
   PRINT_COLOR_EXACT_CLASS,
   TEXT_SIZE_CLASS,
+  isHexColor,
   isPaletteColor,
   isTextSize,
 } from './markdown/palette'
@@ -44,6 +50,10 @@ interface MarkdownViewProps {
   // F52 인라인 표현 문법(밑줄·형광펜·글자색/크기·인라인 스포일러·콜아웃) 전체를 끄는 퇴로.
   // 기본 true — 기존 참조(F43)·fold/hide는 이 prop과 무관하게 항상 동작한다.
   inlineFormat?: boolean
+  // S30 ⓙ(F56) — 렌더 결과 element에 `data-sp-start`/`data-sp-end`(소스 오프셋)를 주입한다.
+  // **기본 false**이며 켜는 곳은 리치 편집 표면 1곳뿐이다 — 읽기 전용 화면·인쇄·임베드의 렌더
+  // diff는 0이어야 한다(react-markdown 10의 sourcePos prop은 제거돼 쓸 수 없어 자체 플러그인).
+  sourcePos?: boolean
 }
 
 // 토큰 기반 크기 클래스만 사용(색상·크기 하드코딩 금지) — small/default/large + xl(S28) 4단계.
@@ -97,6 +107,33 @@ function attr(node: unknown, key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
+// hast 노드의 className(배열 또는 공백 구분 문자열)에 특정 클래스가 있는지.
+function hasClass(node: unknown, name: string): boolean {
+  const value = (node as { properties?: Record<string, unknown> } | undefined)?.properties?.className
+  if (Array.isArray(value)) return value.includes(name)
+  return typeof value === 'string' && value.split(/\s+/).includes(name)
+}
+
+// S30 ⓓ — 자유 hex 색은 **커스텀 프로퍼티 2종만** 통과시킨다. 플러그인이 이미 `#rrggbb`
+// 정규식을 통과한 값만 방출하지만, 여기서 한 번 더 이름·형식을 검사해 임의 CSS 선언이 style
+// 속성으로 흘러드는 경로를 구조로 막는다(실제 색 계산은 tokens.css의 color-mix 규칙 몫).
+const HEX_STYLE_VARS = [HEX_INK_VAR, HEX_MARK_VAR] as const
+
+function hexStyle(node: unknown): CSSProperties | undefined {
+  const raw = attr(node, 'style')
+  if (!raw) return undefined
+  const out: Record<string, string> = {}
+  for (const decl of raw.split(';')) {
+    const idx = decl.indexOf(':')
+    if (idx === -1) continue
+    const key = decl.slice(0, idx).trim()
+    const value = decl.slice(idx + 1).trim()
+    if ((HEX_STYLE_VARS as readonly string[]).includes(key) && isHexColor(value)) out[key] = value
+  }
+  // CSS 커스텀 프로퍼티는 React 타입(CSSProperties)에 색인이 없어 캐스팅이 필요하다(런타임은 정상).
+  return Object.keys(out).length ? (out as CSSProperties) : undefined
+}
+
 // 코드 하이라이트는 rehype-highlight의 클래스만 붙이고 색은 토큰(prose 스타일)으로 제어한다.
 // (규칙 #1: 색상 하드코딩 금지 — hljs 테마 CSS 대신 토큰 기반 최소 스타일만 사용)
 export default function MarkdownView({
@@ -105,10 +142,16 @@ export default function MarkdownView({
   docNo,
   breaks = true,
   inlineFormat = true,
+  sourcePos = false,
 }: MarkdownViewProps) {
   const remarkPlugins = useMemo<MarkdownOptions['remarkPlugins']>(
     () => buildRemarkPlugins(breaks, inlineFormat),
     [breaks, inlineFormat],
+  )
+  // sourcePos가 꺼져 있으면 **기존 배열 그대로**(참조까지 동일) 넘긴다 — 기존 사용처 diff 0.
+  const rehypePlugins = useMemo<MarkdownOptions['rehypePlugins']>(
+    () => (sourcePos ? [...(REHYPE_PLUGINS ?? []), rehypeSourcePos] : REHYPE_PLUGINS),
+    [sourcePos],
   )
   // S28(F53 ②, 설계 §4.26 ②·④ ⓐ) — 임베드 카드 안에서는 문서 스타일을 무시한다. resolve-embeds
   // 응답에 style 필드가 아예 없어(계약 봉인) 배경·폰트는 호출부가 애초에 넘기지 않지만, 크기만은
@@ -196,8 +239,16 @@ export default function MarkdownView({
           const classes: string[] = []
           if (mark && isPaletteColor(mark)) classes.push(MARK_BG_CLASS[mark], 'rounded', 'px-0.5', PRINT_COLOR_EXACT_CLASS)
           if (ink && isPaletteColor(ink)) classes.push(INK_TEXT_CLASS[ink], PRINT_COLOR_EXACT_CLASS)
+          // S30 ⓓ — 자유 hex 색. 팔레트와 같은 자리·같은 부가 클래스를 쓰고 색만 커스텀
+          // 프로퍼티로 넘긴다(팔레트 색·기존 본문은 이 두 클래스가 없어 렌더 diff 0).
+          if (hasClass(node, HEX_MARK_CLASS)) classes.push(HEX_MARK_CLASS, 'rounded', 'px-0.5', PRINT_COLOR_EXACT_CLASS)
+          if (hasClass(node, HEX_INK_CLASS)) classes.push(HEX_INK_CLASS, PRINT_COLOR_EXACT_CLASS)
           if (size && isTextSize(size)) classes.push(TEXT_SIZE_CLASS[size])
-          return <span className={classes.length ? classes.join(' ') : undefined}>{children}</span>
+          return (
+            <span className={classes.length ? classes.join(' ') : undefined} style={hexStyle(node)}>
+              {children}
+            </span>
+          )
         }
         if (directive) return <span>{children}</span>
         return <span {...props}>{children}</span>
@@ -226,7 +277,7 @@ export default function MarkdownView({
       className={`markdown-body max-w-none ${SCALE_CLASS[scale]} leading-relaxed text-primary [&_a]:text-accent [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted [&_code]:rounded [&_code]:bg-bg [&_code]:px-1 [&_code]:py-0.5 [&_h1]:mt-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:mt-4 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:text-base [&_h3]:font-semibold [&_img]:max-w-full [&_img]:rounded [&_li]:ml-4 [&_ol]:list-decimal [&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border [&_pre]:bg-bg [&_pre]:p-3 [&_table]:w-full [&_ul]:list-disc [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden`}
     >
       <EmbedRenderContext.Provider value={ctx}>
-        <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={REHYPE_PLUGINS} components={components}>
+        <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
           {content}
         </ReactMarkdown>
       </EmbedRenderContext.Provider>

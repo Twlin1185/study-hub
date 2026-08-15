@@ -59,6 +59,12 @@
      (검토 경미-2 — 상시 토큰/규칙을 두면 미설정 상태에서도 브라우저 접근성 글자크기 상속이
      끊긴다). */
   --font-base: system-ui, 'Segoe UI', Roboto, sans-serif;
+
+  /* S30 자유 hex 색 보정 토큰(F56 결정 ④-2, §6 계약 — 계약 상세는 design.screens.md §5.3 S30 ⓓ).
+     사용자 hex(--u-ink/--u-bg)는 color-mix()로 이 보정량만큼 --text/--surface와 섞인다.
+     라이트 = 0%(원색 그대로). */
+  --hex-ink-adjust: 0%;
+  --hex-mark-adjust: 0%;
 }
 
 .dark {
@@ -110,6 +116,12 @@
   --doc-bg-gray: #1a1c21;
 
   --font-base: system-ui, 'Segoe UI', Roboto, sans-serif;
+
+  /* S30 자유 hex 색 보정 토큰 다크 세트 — 글자색(ink)은 --text(밝은 색) 쪽으로 섞여 자동으로
+     밝아지고, 형광펜 배경(mark)은 --surface 쪽으로 더 크게 섞여 채도가 눌린다(어두운 배경 위
+     원색 형광펜은 과도하게 튀어 가독을 해친다 — 실측 조정). */
+  --hex-ink-adjust: 30%;
+  --hex-mark-adjust: 45%;
 }
 
 /* 인쇄 뷰는 테마와 무관하게 항상 라이트 (설계 §6) */
@@ -146,5 +158,30 @@
     --mark-blue: #bfdbfe;
     --mark-purple: #e9d5ff;
     --mark-gray: #e5e7eb;
+
+    /* S30 — 인쇄는 항상 라이트이므로 보정 0%(원색 그대로 찍힌다). 신규 인쇄 토큰 0 원칙 유지
+       (기존 --ink-*, --mark-* 라이트 값 포함 관례를 그대로 따름). */
+    --hex-ink-adjust: 0%;
+    --hex-mark-adjust: 0%;
+  }
+}
+
+/* S30 자유 hex 색 렌더(F56 결정 ④-2) — remarkStudy가 방출하는 style="--u-ink:#rrggbb"/
+   style="--u-bg:#rrggbb" + 클래스 u-ink/u-mark를 여기서 실제 색으로 계산한다(§5.3 S30 ⓓ). */
+.u-ink {
+  color: color-mix(in oklab, var(--u-ink), var(--text) var(--hex-ink-adjust));
+}
+
+.u-mark {
+  background-color: color-mix(in oklab, var(--u-bg), var(--surface) var(--hex-mark-adjust));
+}
+
+@supports not (color: color-mix(in oklab, red, blue)) {
+  .u-ink {
+    color: var(--u-ink);
+  }
+
+  .u-mark {
+    background-color: var(--u-bg);
   }
 }
