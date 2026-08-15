@@ -6,12 +6,21 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { emptyDocument } from '../schema/blocks'
-import { useCreateNote, useDeleteNote, useNotes, type NoteListItem } from '../api/notes'
+import {
+  parseServerDate,
+  useCreateNote,
+  useDeleteNote,
+  useNotes,
+  type NoteListItem,
+} from '../api/notes'
 
 const PAGE_SIZE = 50
 
+// 서버 시각은 타임존 표기 없는 UTC naive ISO다 — 반드시 `parseServerDate`로 해석한다
+// (`new Date(iso)`는 로컬 시각으로 읽어 KST에서 9시간 어긋난다).
 function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime()
+  const parsed = parseServerDate(iso)
+  const then = parsed.getTime()
   if (Number.isNaN(then)) return ''
   const diff = Date.now() - then
   const minute = 60_000
@@ -21,7 +30,7 @@ function relativeTime(iso: string): string {
   if (diff < hour) return `${Math.floor(diff / minute)}분 전`
   if (diff < day) return `${Math.floor(diff / hour)}시간 전`
   if (diff < 7 * day) return `${Math.floor(diff / day)}일 전`
-  return new Date(iso).toLocaleDateString()
+  return parsed.toLocaleDateString()
 }
 
 export default function NoteListPage() {
