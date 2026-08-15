@@ -1,0 +1,110 @@
+/* stage-31(M31) 스파이크 — BlockNote 테마를 앱 토큰(tokens.css)으로 결선.
+   불변 규칙 5: 색상 하드코딩 금지 — 전부 var() 경유. 다크 모드는 토큰 전환으로 공짜. */
+
+.bn-root,
+.bn-container {
+  --bn-colors-editor-text: var(--text);
+  --bn-colors-editor-background: var(--surface);
+  --bn-colors-menu-text: var(--text);
+  --bn-colors-menu-background: var(--surface-raised);
+  --bn-colors-tooltip-text: var(--text-muted);
+  --bn-colors-tooltip-background: var(--surface-raised);
+  --bn-colors-hovered-text: var(--text);
+  --bn-colors-hovered-background: var(--accent-soft);
+  --bn-colors-selected-text: var(--on-accent);
+  --bn-colors-selected-background: var(--accent);
+  --bn-colors-disabled-text: var(--text-muted);
+  --bn-colors-disabled-background: var(--surface);
+  --bn-colors-shadow: var(--border);
+  --bn-colors-border: var(--border);
+  --bn-colors-side-menu: var(--text-muted);
+  --bn-font-family: var(--font-base);
+  --bn-border-radius: 8px;
+}
+
+/* ---- 방언 커스텀 스펙 표시 (F52·F43 — MarkdownView 렌더와 같은 토큰 사용) ---- */
+
+.poc-mark {
+  border-radius: 2px;
+  padding: 0 1px;
+  color: inherit;
+}
+.poc-mark-yellow { background: var(--mark-yellow); }
+.poc-mark-red    { background: var(--mark-red); }
+.poc-mark-green  { background: var(--mark-green); }
+.poc-mark-blue   { background: var(--mark-blue); }
+
+.poc-spoiler {
+  background: var(--text);
+  color: transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.poc-spoiler-open {
+  background: var(--mark-gray);
+  color: inherit;
+}
+
+.poc-refchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  font-size: 0.85em;
+  line-height: 1.5;
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* ---- PoC 페이지 골격 ---- */
+
+.poc-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+.poc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.poc-controls button {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+}
+.poc-controls button:hover { background: var(--accent-soft); }
+.poc-stats {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.poc-editor-frame {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 8px 0;
+}
+.poc-ime-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  line-height: 1.7;
+}
