@@ -22,6 +22,23 @@
 // 색은 hex(3·6자리) 또는 rgb(r,g,b)로 읽히면 소문자 6자리 #rrggbb로 정규화해
 // :t[…]{c=#rrggbb}·:t[…]{bg=#rrggbb}(둘 다 있으면 :t[…]{c=… bg=…} 1회 병합)로 감싼다.
 // #000000·#ffffff처럼 사실상 무의미한 색은 버린다(웹 본문 전체가 :t로 도배되는 것 방지).
+//
+// **텍스트 노드 이스케이프(검토 경미-2 대응)**: DOM 텍스트 노드에서 뽑은 리터럴 문자열은 태그
+// 변환으로 만든 마커(`**`·`==`·목록 기호·`:t[...]{...}` 등)와 섞이기 전에 `inlineSerialize.ts`의
+// `escapeInlineText`(WYSIWYG 인라인 모델이 쓰는 것과 동일한 이스케이프 표)를 거친다 — 그래야
+// 웹 본문의 리터럴 `**강조**`·`<b>` 같은 문자열이 붙여넣기 후 서식으로 재해석되거나(CommonMark
+// 코어 파서가 굵게·원시 HTML로 삼킴) rehype-raw 기각으로 렌더에서 사라지는 것을 막는다. 이스케이프는
+// 리프(텍스트 노드) 단계에서만 적용하고, 그 위에서 태그가 붙이는 마커는 이스케이프 대상이 아니다.
+//
+// **알려진 한계(수정 불가 — 이 파일 밖 구조 문제)**: `[[DOC-0001]]`처럼 이 앱의 참조 문법과 모양이
+// 같은 리터럴 텍스트는 이스케이프해도 여전히 참조 칩으로 바뀐다. `remarkStudy.ts`의 참조 매칭
+// (`nextRefMatch`)은 파싱이 끝난 텍스트 노드 `value`를 정규식으로 재스캔할 뿐 이스케이프 마스크를
+// 보지 않는다(마이크로 3종 `++`·`==`·`||`만 마스크를 확인한다) — 게다가 `\[`·`\]`는 CommonMark
+// 코어 단계에서 이스케이프가 소비되어 값 자체가 "[[DOC-0001]]"로 동일해지므로 소스에 백슬래시를
+// 남겨도 이 재스캔 단계에는 정보가 전달되지 않는다. 이는 **일반 타이핑에서도 동일한 기존 동작**
+// (`[[DOC-0001]]`를 그냥 입력해도 칩이 된다)이라 붙여넣기만의 회귀는 아니다 — 완전한 수정은
+// `remarkStudy.ts`(현재 병렬 작업 중이라 이 파일에서는 손대지 않는다) 쪽 변경이 필요하다.
+import { escapeInlineText } from '../components/markdown/inlineSerialize'
 
 const REMOVE_TAGS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'svg'])
 
@@ -127,6 +144,24 @@ function isSafeHref(href: string): boolean {
   return scheme === 'http' || scheme === 'https'
 }
 
+// href 속성값은 HTML 안에서 임의의 텍스트일 수 있다(따옴표로만 구분되고 마크다운 문법을 전혀
+// 모른다) — `href="https://x) ![](https://evil/..."` 같은 값이 그대로 `[텍스트](URL)`에 꽂히면
+// `)`로 링크를 조기에 닫고 그 뒤 문자열이 새 마크다운 구문(`![...](...)` 등)으로 살아난다
+// (검토 경미-1). `(`·`)`·공백·`<`·`>`는 마크다운 링크 목적지 구문을 열고 닫을 수 있는 문자라
+// 반드시 퍼센트 인코딩한다. encodeURI가 대부분(공백·`[`·`]`·`<`·`>` 등)을 이미 인코딩하지만
+// `(`·`)`는 URI 상 유효 문자라 encodeURI가 보존하므로 별도로 인코딩한다(링크 구문 탈출 원천 차단
+// — 사용자가 URL에 실제로 괄호를 썼더라도 안전 쪽으로 퍼센트 인코딩한다. 대다수 서버는 %28/%29를
+// 정상 디코딩하므로 링크 자체는 대개 계속 동작한다).
+function sanitizeHref(href: string): string {
+  let out: string
+  try {
+    out = encodeURI(href)
+  } catch {
+    out = href
+  }
+  return out.replace(/[()<> ]/g, (ch) => `%${ch.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase()}`)
+}
+
 function wrapCodeBackticks(text: string): string {
   const runs = text.match(/`+/g) ?? []
   const maxRun = runs.reduce((max, run) => Math.max(max, run.length), 0)
@@ -221,7 +256,9 @@ function convertList(listEl: HTMLElement, depth: number): string {
 
 function nodeToMarkdown(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
-    return collapseWhitespace(node.textContent ?? '')
+    // 리프에서만 이스케이프한다 — 태그가 위에서 붙이는 마커(`**`·`==`·`:t[...]{...}` 등)는
+    // 이 시점 이후에 조립되므로 이스케이프 대상이 아니다.
+    return escapeInlineText(collapseWhitespace(node.textContent ?? ''))
   }
 
   if (node.nodeType !== Node.ELEMENT_NODE) return ''
@@ -315,7 +352,7 @@ function nodeToMarkdown(node: Node): string {
       const inner = normalizeInline(wrapColor(el, childrenToMarkdown(el)))
       if (!inner) return ''
       const href = el.getAttribute('href')
-      if (href && isSafeHref(href)) return `[${inner}](${href.trim()})`
+      if (href && isSafeHref(href)) return `[${inner}](${sanitizeHref(href.trim())})`
       return inner
     }
 

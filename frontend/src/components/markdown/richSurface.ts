@@ -20,6 +20,7 @@ import type {
   BlockInlineModel,
   InlineContainer,
   InlineNode,
+  InlineParentNode,
   InlineRange,
   InlineTextNode,
 } from './inlineModel'
@@ -119,6 +120,9 @@ function findContainerEl(spEls: SpEl[], range: InlineRange): HTMLElement | null 
   let best: SpEl | null = null
   for (const cand of spEls) {
     if (cand.start > range.start || cand.end < range.end) continue
+    // **블록 요소만** 후보다 — 문단·헤딩 전체가 하나의 인라인 서식(`## __제목__`)이면 그 인라인
+    // 요소의 범위가 더 좁아 그쪽이 뽑히고, 그러면 정합이 깨져 소스 편집으로 떨어진다(실측).
+    if (!isBlockish(cand.el)) continue
     if (!best) {
       best = cand
       continue
@@ -620,8 +624,132 @@ export type RichSnapshot =
   | { ok: false; source: string }
 
 /**
+ * 편집된 평문(text)의 인덱스를 **원본 슬라이스(raw)** 의 인덱스로 옮긴다.
+ * 이스케이프(`\*`)·문자 참조(`&amp;`)는 raw에서 여러 글자, text에서 한 글자라 단순 인덱스가
+ * 어긋난다. 캐럿 위치 계산 전용이므로 정확도가 조금 떨어져도 **본문은 영향받지 않는다**
+ * (표식은 출력 문자열에만 끼워 넣고 모델의 편집 상태는 건드리지 않는다).
+ */
+function textIndexToRawIndex(raw: string, index: number): number {
+  let ri = 0
+  let ti = 0
+  while (ti < index && ri < raw.length) {
+    if (raw[ri] === '\\' && ri + 1 < raw.length) {
+      ri += 2
+      ti += 1
+      continue
+    }
+    if (raw[ri] === '&') {
+      const entity = /^&(#\d{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});/.exec(raw.slice(ri))
+      if (entity) {
+        ri += entity[0].length
+        ti += 1
+        continue
+      }
+    }
+    ri += 1
+    ti += 1
+  }
+  return Math.min(ri, raw.length)
+}
+
+/**
+ * 캐럿·선택 위치를 직렬화 결과에서 되찾기 위한 표식을 심는다(되돌리는 함수를 반환).
+ *
+ * **2층 계약(중요)**: 편집하지 않은 노드는 `dirty`로 세우지 않는다 — 세우면 그 노드가 정규 표기로
+ * 다시 쓰여(`__굵게__`→`**굵게**`, `&lt;`→`<`, NBSP→공백) **무편집 진입만으로 본문이 바뀐다**.
+ * 그래서 미편집 노드에는 **원본 슬라이스(raw) 안에 표식만** 끼워 넣는다 — 직렬화가 그 슬라이스를
+ * 그대로 뱉으므로 결과는 "깨끗한 직렬화 + 표식 1글자"와 정확히 같고, 표식을 빼면 원본으로 돌아온다.
+ * 이미 편집된(dirty) 노드에만 종전처럼 text에 넣는다(그 노드는 어차피 다시 쓰인다).
+ */
+function findMarkPath(container: InlineContainer, target: InlineNode): InlineParentNode[] | null {
+  const walk = (nodes: InlineNode[], acc: InlineParentNode[]): InlineParentNode[] | null => {
+    for (const node of nodes) {
+      if (node === target) return acc
+      if (isParentNode(node)) {
+        const found = walk(node.children, [...acc, node])
+        if (found) return found
+      }
+    }
+    return null
+  }
+  return walk(container.children, [])
+}
+
+/**
+ * 표식을 실제로 **출력하는 노드**와 그 안에서의 위치를 찾는다.
+ * 직렬화는 미편집 노드를 만나면 그 자리에서 원본 슬라이스를 통째로 뱉고 자식으로 내려가지 않는다 —
+ * 그래서 `__굵게__` 안쪽 텍스트에 표식을 넣어 봐야 출력에 나타나지 않는다(실측). **바깥쪽부터
+ * 훑어 가장 먼저 만나는 미편집 노드**가 표식을 실을 주인이다.
+ */
+function resolveMarkTarget(
+  containers: InlineContainer[],
+  node: InlineTextNode,
+  char: number,
+): { node: InlineNode; index: number } | null {
+  if (node.dirty || node.raw === null || !node.range) return null
+  const local = textIndexToRawIndex(node.raw, char)
+  const abs = node.range.start + local
+  for (const container of containers) {
+    const path = findMarkPath(container, node)
+    if (!path) continue
+    for (const ancestor of path) {
+      if (!isDirty(ancestor) && ancestor.raw !== null && ancestor.range) {
+        const index = Math.min(Math.max(0, abs - ancestor.range.start), ancestor.raw.length)
+        return { node: ancestor, index }
+      }
+    }
+    break
+  }
+  return { node, index: local }
+}
+
+function applyCaretMarks(
+  marks: { node: InlineTextNode; char: number }[],
+  containers: InlineContainer[],
+): () => void {
+  const edits = marks.map((mark) => {
+    const char = Math.min(Math.max(0, mark.char), mark.node.text.length)
+    const target = resolveMarkTarget(containers, mark.node, char)
+    return target
+      ? { kind: 'raw' as const, node: target.node, index: target.index }
+      : { kind: 'text' as const, node: mark.node, index: char }
+  })
+  // 같은 문자열 안에서는 뒤에서부터 넣어야 앞 위치가 밀리지 않는다(대상이 다르면 서로 무관).
+  edits.sort((a, b) => b.index - a.index)
+
+  const undo: (() => void)[] = []
+  for (const edit of edits) {
+    if (edit.kind === 'raw') {
+      const node = edit.node
+      const savedRaw = node.raw ?? ''
+      node.raw = `${savedRaw.slice(0, edit.index)}${SENTINEL}${savedRaw.slice(edit.index)}`
+      undo.push(() => {
+        node.raw = savedRaw
+      })
+      continue
+    }
+    const node = edit.node
+    const savedText = node.text
+    const savedDirty = node.dirty
+    node.text = `${savedText.slice(0, edit.index)}${SENTINEL}${savedText.slice(edit.index)}`
+    node.dirty = true
+    undo.push(() => {
+      node.text = savedText
+      node.dirty = savedDirty
+    })
+  }
+  return () => {
+    for (let i = undo.length - 1; i >= 0; i -= 1) undo[i]()
+  }
+}
+
+/**
  * 지금 DOM 상태를 블록 소스로 직렬화하고(2층) 재파싱 동형성을 검사한다(3층).
- * `points`(DOM 캐럿/선택 경계)는 센티넬을 태워 **소스 오프셋**으로 함께 돌려준다.
+ * `points`(DOM 캐럿/선택 경계)는 표식을 태워 **소스 오프셋**으로 함께 돌려준다.
+ *
+ * 직렬화는 **두 번**이다 — ⓐ 오프셋용(표식 포함, 모델의 편집 상태 불변) ⓑ **본문용**(실제 편집으로
+ * dirty가 된 노드만 반영). 본문 커밋에 쓰이는 것은 언제나 ⓑ이고, 무편집이면 ⓑ는 원본과 1바이트도
+ * 다르지 않다(그래서 확정 시 onChange 자체가 발화하지 않는다).
  */
 export function snapshotSource(session: RichSession, points: DomPoint[]): RichSnapshot {
   syncSession(session)
@@ -634,38 +762,38 @@ export function snapshotSource(session: RichSession, points: DomPoint[]): RichSn
     .map((point) => domPointToModel(session, point))
     .filter((mark): mark is { node: InlineTextNode; char: number } => mark !== null)
 
-  // 표면이 만든 빈 항목 컨테이너는 **내용이 생겼거나 캐럿이 들어 있을 때만** 직렬화에 참여한다
-  // (그냥 두면 원본에 없던 문단이 생겨 3층 검사가 어긋난다).
-  const active = session.containers
+  // 3층 동형성 검사는 컨테이너를 **배열 순서대로** 비교한다 — 표면이 나중에 덧붙인 컨테이너가
+  // 섞여도 항상 문서 순서(소스 오프셋 순)여야 한다.
+  const byOffset = (a: RichContainer, b: RichContainer) => a.container.range.start - b.container.range.start
+  // 표면이 만든 빈 항목 컨테이너는 **내용이 생겼을 때만** 본문 직렬화·검사에 참여한다(그냥 두면
+  // 원본에 없던 문단이 생겨 3층 검사가 어긋난다). 오프셋 계산에는 캐럿이 든 것도 넣는다.
+  const body = session.containers
+    .filter((entry) => !entry.synthetic || hasContent(entry.container.children))
+    .sort(byOffset)
+  const withMarks = session.containers
     .filter(
       (entry) =>
         !entry.synthetic ||
         hasContent(entry.container.children) ||
         marks.some((mark) => containerHas(entry.container, mark.node)),
     )
-    // 3층 동형성 검사는 컨테이너를 **배열 순서대로** 비교한다 — 표면이 나중에 덧붙인 컨테이너가
-    // 섞여도 항상 문서 순서(소스 오프셋 순)여야 한다.
-    .sort((a, b) => a.container.range.start - b.container.range.start)
-  session.model.containers = active.map((entry) => entry.container)
-  const empty = active.every((entry) => !hasContent(entry.container.children))
+    .sort(byOffset)
 
-  // 같은 노드 안에서는 뒤에서부터 넣어야 앞 오프셋이 밀리지 않는다.
-  const sorted = [...marks].sort((a, b) => b.char - a.char)
-  const touched = new Set<InlineTextNode>()
-  for (const mark of sorted) {
-    const char = Math.min(Math.max(0, mark.char), mark.node.text.length)
-    mark.node.text = `${mark.node.text.slice(0, char)}${SENTINEL}${mark.node.text.slice(char)}`
-    // 센티넬이 출력되려면 그 리프가 dirty여야 한다(2층: 미변경 노드는 원본 슬라이스를 낸다).
-    mark.node.dirty = true
-    touched.add(mark.node)
-  }
-
+  // ⓐ 오프셋용 직렬화 — 표식은 출력에만 들어가고 모델의 편집 상태(dirty)는 그대로다.
+  session.model.containers = withMarks.map((entry) => entry.container)
+  const restoreMarks = applyCaretMarks(
+    marks,
+    withMarks.map((entry) => entry.container),
+  )
   const withSentinel = serializeBlock(session.model)
-  // 3층 검사는 **센티넬이 붙은 그대로** 한다 — 모델도 같은 상태이므로 동형성 비교가 정확하고,
-  // 센티넬을 뺀 문자열은 그 결과에서 표식 문자만 사라진 것이라 구조가 달라질 여지가 없다.
-  const safe = isRoundTripSafe(session.model, withSentinel)
+  restoreMarks()
 
-  for (const node of touched) node.text = node.text.split(SENTINEL).join('')
+  // ⓑ 본문용 직렬화 + 3층 검사 — 실제 편집으로 dirty가 된 노드만 반영된다.
+  session.model.containers = body.map((entry) => entry.container)
+  const source = serializeBlock(session.model)
+  // 컨테이너가 하나도 없는 경우(빈 항목만 있는 목록 등)는 "다 지웠다"가 아니다 — 원본을 지킨다.
+  const empty = body.length > 0 && body.every((entry) => !hasContent(entry.container.children))
+  const safe = isRoundTripSafe(session.model, source)
 
   const positions: number[] = []
   let idx = withSentinel.indexOf(SENTINEL)
@@ -673,8 +801,14 @@ export function snapshotSource(session: RichSession, points: DomPoint[]): RichSn
     positions.push(idx)
     idx = withSentinel.indexOf(SENTINEL, idx + 1)
   }
-  const source = withSentinel.split(SENTINEL).join('')
-  const offsets = positions.map((pos, order) => pos - order)
+  const stripped = withSentinel.split(SENTINEL).join('')
+  // 미편집 노드는 슬라이스에 표식만 끼워 넣으므로 두 문자열은 정확히 표식 개수만큼만 다르다.
+  // 이미 편집된 노드는 이스케이프가 표식을 사이에 두고 갈릴 수 있어(드묾) 그때는 오프셋만 보정한다.
+  const aligned = stripped === source
+  const offsets = positions.map((pos, order) => {
+    const raw = pos - order
+    return aligned ? raw : Math.min(raw, source.length)
+  })
 
   // 내용이 전부 지워졌으면 빈 블록 — S27 ⓔ(블록 제거)와 같은 결과로 넘긴다.
   if (empty) return { ok: true, source: '', offsets: offsets.map(() => 0) }

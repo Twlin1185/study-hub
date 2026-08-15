@@ -60,6 +60,8 @@ const SAMPLES = [
   // 링크·코드스팬·수식
   ['링크', '앞 [링크 텍스트](https://example.com/a_b) 뒤'],
   ['링크 제목', '[제목 달린](https://example.com "타이틀") 링크'],
+  ['자동 링크(언더스코어 URL)', '참고 http://a.com/b_c 끝'],
+  ['단어 내부 언더스코어', 'snake_case_name 와 foo__bar__baz'],
   ['코드스팬 혼재', '문장 안 `코드 스팬` 과 **굵게** 혼재'],
   ['코드스팬 안 문법', '`**굵지 않음**` 과 `[[DOC-0001]]`'],
   ['인라인 수식', '수식 $a^2 + b^2$ 이 있는 문단'],
@@ -210,6 +212,50 @@ for (const [label, src, typed] of HAZARDS) {
 }
 console.log(`  조용한 변형 0: ${hazardPass}/${HAZARDS.length}  (${hazardMode.join(' · ')})`)
 
+// ---------------------------------------------------------------- ②-4 이스케이프 과잉 방지
+
+// 검토 지적(중요-2): `_`를 무조건 이스케이프하면 URL·식별자가 `b\_c`로 더럽혀지고, 3층 검사가
+// 거짓을 내 소스 편집으로 폴백할 때 **그 더럽혀진 초안이 사용자에게 남는다**. CommonMark에서
+// 단어 내부 `_`는 강조가 될 수 없으므로 이스케이프하지 않는 것이 옳다.
+console.log('== ②-4 이스케이프 과잉 방지(`_` 문맥 감응) ==')
+const ESCAPE_CASES = [
+  // [라벨, 입력 텍스트, 기대 직렬화]
+  ['URL 안 언더스코어', 'http://a.com/b_c', 'http://a.com/b_c'],
+  ['식별자', 'snake_case_name 와 A_1', 'snake_case_name 와 A_1'],
+  ['한글 사이', '가_나', '가_나'],
+  ['이중 언더스코어 단어 내부', 'foo__bar__baz', 'foo__bar__baz'],
+  ['강조가 될 수 있는 형태', '_강조_ 시도', '\\_강조\\_ 시도'],
+  ['앞이 공백', 'a _b', 'a \\_b'],
+  ['문자열 경계', '_시작과 끝_', '\\_시작과 끝\\_'],
+  ['구두점 옆', '(_a_)', '(\\_a\\_)'],
+  // 회귀 확인 — 기존 이스케이프는 그대로여야 한다.
+  ['별표 회귀', 'a * b * c', 'a \\* b \\* c'],
+  ['참조 회귀', '[[DOC-0001]] 처럼', '\\[\\[DOC-0001\\]\\] 처럼'],
+  ['백틱 회귀', '`코드`', '\\`코드\\`'],
+  ['마이크로 회귀', 'a==b==c', 'a\\==b\\==c'],
+]
+let escPass = 0
+for (const [label, typed, expected] of ESCAPE_CASES) {
+  const model = buildInlineModel('평문 문장')
+  const leaf = model.containers[0].children[0]
+  leaf.text = typed
+  leaf.dirty = true
+  const out = serializeBlock(model)
+  const ok = out === expected
+  if (ok) escPass += 1
+  check(`[이스케이프] ${label}`, ok, ok ? '' : `기대=${JSON.stringify(expected)} 실제=${JSON.stringify(out)}`)
+}
+// 지적된 케이스는 "백슬래시 0"이 계약이다.
+{
+  const model = buildInlineModel('평문 문장')
+  const leaf = model.containers[0].children[0]
+  leaf.text = 'http://a.com/b_c'
+  leaf.dirty = true
+  const out = serializeBlock(model)
+  check(`[이스케이프] URL 백슬래시 0`, !out.includes('\\'), `직렬화=${JSON.stringify(out)}`)
+}
+console.log(`  이스케이프 문맥 정확: ${escPass}/${ESCAPE_CASES.length}`)
+
 // ---------------------------------------------------------------- ②-3 2층 계약(부분 dirty)
 
 console.log('== ②-3 2층 계약: dirty 노드만 정규 표기, 나머지는 원본 슬라이스 그대로 ==')
@@ -320,13 +366,19 @@ function stripPosition(node) {
   return node
 }
 
+// A-0 기준선 ref — **S30 착수 전 커밋**이어야 한다. `HEAD`로 두면 구현을 커밋한 뒤에는
+// "자기 자신과의 비교"가 되어 ③ 렌더 diff 검사가 공허해지고 A-0 전파 검사(변경 전 결손 > 0)가
+// 거짓 실패로 뒤집힌다. 기본값 `main` · 필요하면 첫 인자로 다른 ref를 준다.
+const BASELINE_REF = process.argv[2] || 'main'
+
 try {
   const baselineSource = execFileSync(
     'git',
-    ['show', 'HEAD:frontend/src/components/markdown/remarkStudy.ts'],
+    ['show', `${BASELINE_REF}:frontend/src/components/markdown/remarkStudy.ts`],
     { cwd: ROOT, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
   )
   fs.writeFileSync(BASELINE_PATH, baselineSource, 'utf8')
+  console.log(`  (A-0 기준선 ref = ${BASELINE_REF})`)
 
   const { unified } = jiti('unified')
   const remarkParse = jiti('remark-parse')

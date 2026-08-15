@@ -36,7 +36,26 @@ const WRAP_MARKER: Record<WrapMark, string> = {
 // ---- 이스케이프 ----
 
 // 어디에 있든 인라인 구문을 열 수 있는 문자.
-const ALWAYS_ESCAPE = new Set(['\\', '*', '_', '`', '[', ']', '~', '$'])
+// `_`는 여기 없다 — CommonMark에서 **단어 내부**(양옆이 단어 문자)의 `_`는 강조를 열지도 닫지도
+// 못하므로(좌우 플랭킹이 모두 참인데 앞 글자가 구두점이 아니면 열림·닫힘 둘 다 불가) 이스케이프가
+// 불필요하고, 무조건 막으면 `http://a.com/b_c` 같은 URL·식별자가 `b\_c`로 더럽혀진다.
+// 아래 `isIntrawordUnderscore()`로 그 경우만 통과시키고 나머지는 종전대로 이스케이프한다.
+const ALWAYS_ESCAPE = new Set(['\\', '*', '`', '[', ']', '~', '$'])
+
+// 단어 문자 = 유니코드 글자·숫자·언더스코어(한글 포함). 구두점·공백·문자열 경계는 해당 없음.
+const WORD_CHAR_RE = /[\p{L}\p{N}_]/u
+
+/**
+ * 양옆이 모두 단어 문자인 `_`인가. 참이면 강조가 될 수 없으므로 이스케이프하지 않는다.
+ * 문자열 경계·공백·구두점이 한쪽이라도 닿으면 거짓 = **이스케이프**(보수 원칙 — 애매하면 막고,
+ * 최후 방어선은 3층 동형성 검사).
+ */
+function isIntrawordUnderscore(text: string, i: number): boolean {
+  const prev = text[i - 1]
+  const next = text[i + 1]
+  if (prev === undefined || next === undefined) return false
+  return WORD_CHAR_RE.test(prev) && WORD_CHAR_RE.test(next)
+}
 
 function isLineStart(text: string, i: number): boolean {
   return i === 0 || text[i - 1] === '\n'
@@ -64,6 +83,11 @@ export function escapeInlineText(text: string): string {
     const next = text[i + 1] ?? ''
     if (ALWAYS_ESCAPE.has(ch)) {
       out += `\\${ch}`
+      continue
+    }
+    // `_` — 단어 내부(`b_c`)만 그대로 두고, 그 밖(`_강조_`·`a _b`·경계)은 이스케이프한다.
+    if (ch === '_') {
+      out += isIntrawordUnderscore(text, i) ? '_' : '\\_'
       continue
     }
     // 마이크로 3종(`++`·`==`·`||`)은 두 글자 표식일 때만 문법이다 — 앞 글자만 막으면 충분하다.
