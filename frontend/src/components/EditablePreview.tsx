@@ -45,6 +45,10 @@ export interface BlockEditSurface {
   getEl: () => HTMLTextAreaElement | null
   getText: () => string
   setText: (next: string) => void
+  // 결함 3 수정 — 서식 적용 후 이 범위를 선택 상태로 두라는 요청을 큐잉한다. draft는 이
+  // 컴포넌트가 소유한 로컬 state라 부모(MarkdownFieldEditor)는 커밋 시점을 알 수 없으므로,
+  // 이 컴포넌트 자신의 draft 커밋 직후 useLayoutEffect에서 소비한다(아래).
+  requestSelection: (start: number, end: number) => void
   commit: () => void
 }
 
@@ -113,6 +117,8 @@ export default function EditablePreview({
   onChangeRef.current = onChange
   const draftRef = useRef('')
   const editingRef = useRef<EditTarget | null>(null)
+  // 결함 3 — draft(초안) 커밋 직후에만 소비하는 대기 중 선택 요청(아래 [draft] useLayoutEffect).
+  const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null)
   // 미리보기 상자 안에서 시작한 클릭은 blur가 아니라 click 핸들러가 "확정 + 다른 블록 열기"를
   // 한 번에 처리한다(그래야 확정 직후 밀린 오프셋을 정확히 다시 계산할 수 있다).
   const suppressBlurRef = useRef(false)
@@ -193,6 +199,9 @@ export default function EditablePreview({
         draftRef.current = next
         setDraft(next)
       },
+      requestSelection: (start, end) => {
+        pendingSelectionRef.current = { start, end }
+      },
       commit: () => {
         commit()
       },
@@ -259,9 +268,16 @@ export default function EditablePreview({
     el.setSelectionRange(caret, caret)
   }, [editing])
 
+  // 결함 3 — draft가 실제로 DOM에 커밋된 직후(페인트 전) 대기 중 선택 요청을 소비한다. 요청이
+  // 없으면(일반 타이핑 등) 아무 것도 하지 않는다.
   useLayoutEffect(() => {
     const el = draftElRef.current
     if (el) autoSize(el)
+    const pending = pendingSelectionRef.current
+    pendingSelectionRef.current = null
+    if (pending && el) {
+      el.setSelectionRange(pending.start, pending.end)
+    }
   }, [draft])
 
   function activate(target: { start: number; end: number } | 'append') {
