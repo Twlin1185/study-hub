@@ -4,9 +4,19 @@ import {
   BlockNoteSchema,
   defaultInlineContentSpecs,
   defaultStyleSpecs,
+  type BlockNoteEditor,
   type PartialBlock,
 } from '@blocknote/core'
-import { useCreateBlockNote } from '@blocknote/react'
+import { ko } from '@blocknote/core/locales'
+import {
+  FormattingToolbar,
+  FormattingToolbarController,
+  getFormattingToolbarItems,
+  useActiveStyles,
+  useBlockNoteEditor,
+  useComponentsContext,
+  useCreateBlockNote,
+} from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/mantine/style.css'
 import './poc.css'
@@ -24,6 +34,54 @@ type PocBlock = PartialBlock<
   typeof schema.inlineContentSchema,
   typeof schema.styleSchema
 >
+type PocEditor = BlockNoteEditor<
+  typeof schema.blockSchema,
+  typeof schema.inlineContentSchema,
+  typeof schema.styleSchema
+>
+
+// 드래그 선택 시 뜨는 서식 툴바에 방언 버튼 3종 추가(2026-08-15 사용자 실측 피드백).
+// 기본 항목(getFormattingToolbarItems) 뒤에 붙인다 — 커스텀 스타일의 툴바 통합 성립 증거.
+function DialectToolbarButtons() {
+  const editor = useBlockNoteEditor() as unknown as PocEditor
+  const Components = useComponentsContext()!
+  const active = useActiveStyles(editor)
+  return (
+    <>
+      <Components.FormattingToolbar.Button
+        key="highlight"
+        label="형광펜"
+        mainTooltip="형광펜 (F52 ==)"
+        isSelected={!!active.highlight}
+        onClick={() => editor.toggleStyles({ highlight: 'yellow' })}
+      >
+        형광
+      </Components.FormattingToolbar.Button>
+      <Components.FormattingToolbar.Button
+        key="spoiler"
+        label="스포일러"
+        mainTooltip="스포일러 (F52 ||)"
+        isSelected={!!active.spoiler}
+        onClick={() => editor.toggleStyles({ spoiler: true })}
+      >
+        숨김
+      </Components.FormattingToolbar.Button>
+      <Components.FormattingToolbar.Button
+        key="refchip"
+        label="참조 칩"
+        mainTooltip="참조 칩 삽입 (F43)"
+        onClick={() =>
+          editor.insertInlineContent([
+            { type: 'refChip', props: { refType: 'doc', targetId: '7', label: '참조 문서 7' } },
+            ' ',
+          ])
+        }
+      >
+        칩
+      </Components.FormattingToolbar.Button>
+    </>
+  )
+}
 
 // 장문 하네스 — 실사용 문서를 흉내 낸 혼합 블록(헤딩·중첩 목록·서식 문단·한글 장문)
 function makeBlocks(n: number): PocBlock[] {
@@ -75,7 +133,7 @@ const initialContent: PocBlock[] = [
       { type: 'text', text: '방언 커스텀 스펙 3종: ', styles: {} },
       { type: 'text', text: '형광펜(==)', styles: { highlight: 'yellow' } },
       { type: 'text', text: ' · ', styles: {} },
-      { type: 'text', text: '스포일러(||) — 클릭해 공개', styles: { spoiler: true } },
+      { type: 'text', text: '스포일러(||) — 클릭 공개·재클릭 비공개', styles: { spoiler: true } },
       { type: 'text', text: ' · ', styles: {} },
       { type: 'refChip', props: { refType: 'doc', targetId: '42', label: '참조 문서 42' } },
     ],
@@ -105,7 +163,9 @@ export default function PocPage() {
     mode === 'dark' ||
     (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 
-  const editor = useCreateBlockNote({ schema, initialContent })
+  // ko 사전: 슬래시 메뉴 항목명이 한국어가 되어 "/이미지" 같은 한글 필터가 성립한다
+  // (2026-08-15 사용자 실측: 영어 사전에서는 /image만 매칭 → 사전 주입으로 해소)
+  const editor = useCreateBlockNote({ schema, initialContent, dictionary: ko })
 
   const [loadMs, setLoadMs] = useState<number | null>(null)
   const [blockCount, setBlockCount] = useState(initialContent.length)
@@ -179,12 +239,22 @@ export default function PocPage() {
         )}
       </div>
       <div className="poc-editor-frame" onKeyDownCapture={onKeyDownCapture}>
-        <BlockNoteView editor={editor} theme={isDark ? 'dark' : 'light'} />
+        <BlockNoteView editor={editor} theme={isDark ? 'dark' : 'light'} formattingToolbar={false}>
+          <FormattingToolbarController
+            formattingToolbar={() => (
+              <FormattingToolbar>
+                {...getFormattingToolbarItems()}
+                <DialectToolbarButtons key="dialect" />
+              </FormattingToolbar>
+            )}
+          />
+        </BlockNoteView>
       </div>
       <div className="poc-ime-note">
         <b>한글 IME 실측 체크리스트 (R35·R31 — 실기기에서 확인)</b>
         <br />① 한글 연속 타이핑 후 <b>Enter</b> — 직전 음절이 사라지지 않는가 (알려진 이슈 1679)
         <br />② 새 줄에서 <b>/이미지</b> 처럼 한글로 슬래시 메뉴 필터 — 메뉴가 닫히지 않고 필터되는가
+        (ko 사전 적용됨 — /image·/이미지 둘 다 매칭되어야 정상)
         <br />③ 조합 중(밑줄 상태) 형광펜 버튼 클릭 — 조합이 깨지지 않는가
         <br />④ 조합 중 blur(다른 곳 클릭) — 마지막 음절이 확정되는가
         <br />⑤ 폰(안드로이드 크롬): 백스페이스로 목록 항목 삭제, 음절 단위 삭제 동작
