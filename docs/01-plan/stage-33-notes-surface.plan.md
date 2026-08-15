@@ -132,60 +132,60 @@ M33 원문 범위는 "신규 저장 + 새 편집기 1차 + 방언 이식 + 이�
 
 ### 백엔드 묶음 — 담당 `backend-dev`(Sonnet). 계약 정본 = 설계 §4.28
 
-- [ ] B-1. **Alembic 마이그레이션 세트 1개** — 계획서 §6.2의 `notes` DDL + 인덱스 `ix_notes_active_updated`를
+- [x] B-1. **Alembic 마이그레이션 세트 1개** — 계획서 §6.2의 `notes` DDL + 인덱스 `ix_notes_active_updated`를
       그대로 생성. `upgrade`/`downgrade` **왕복 실행 확인**(downgrade = DROP TABLE). 기존 리비전 체인 말미에 연결.
-- [ ] B-2. `backend/models.py`에 `Note` 모델 추가(§6.2와 컬럼·기본값 1:1 · `updated_at`은 SQLAlchemy `onupdate`
+- [x] B-2. `backend/models.py`에 `Note` 모델 추가(§6.2와 컬럼·기본값 1:1 · `updated_at`은 SQLAlchemy `onupdate`
       — §6.2 추가 구현 노트의 기존 관례). **다른 모델 diff 0.**
-- [ ] B-3. `backend/routers/notes.py` 신설 + `main.py` 등록 — 엔드포인트 5개(§4.28 ①): 목록·생성·단건·수정·소프트 삭제.
+- [x] B-3. `backend/routers/notes.py` 신설 + `main.py` 등록 — 엔드포인트 5개(§4.28 ①): 목록·생성·단건·수정·소프트 삭제.
       Pydantic 스키마는 `backend/schemas/note.py`(리소스별 파일 관례).
-- [ ] B-4. **저장 계약 검증**(§4.28 ②③) — `content_blocks`는 객체이고 `version`(≥1 정수)·`blocks`(배열) 존재만
+- [x] B-4. **저장 계약 검증**(§4.28 ②③) — `content_blocks`는 객체이고 `version`(≥1 정수)·`blocks`(배열) 존재만
       확인(딥 검증 금지), `content_blocks`↔`content` **동반 필수**(한쪽만 = 422 `projection_required`),
       크기 상한(`content_blocks` 직렬화 1,000,000자 · `content` 200,000자 · `title` 200자) 초과 = 422.
       DB 저장은 `json.dumps(ensure_ascii=False)` 문자열, 응답은 객체로 역직렬화. `blocks_version` 컬럼 동기화.
-- [ ] B-5. **목록 계약**(§4.28 ④) — 페이지네이션 §3(`page`·`size`, 기본 50) · 기본 `is_active=1`만 ·
+- [x] B-5. **목록 계약**(§4.28 ④) — 페이지네이션 §3(`page`·`size`, 기본 50) · 기본 `is_active=1`만 ·
       `include_inactive=1` 노출 · `q` = `title`·`content` LIKE(**FTS 미사용**) · 정렬 `updated_at DESC` ·
       항목에 `content_blocks`·`content` **미포함**, 대신 `excerpt`(서버가 `content` 앞 200자 슬라이스 + 개행·연속
       공백 1칸 축약. Markdown 기호 제거 없음 — 서버는 Markdown을 해석하지 않는다).
-- [ ] B-6. **소프트 삭제**(불변 규칙 3) — `DELETE`는 `is_active=0` UPDATE만(물리 삭제 코드 0), **재삭제 멱등**,
+- [x] B-6. **소프트 삭제**(불변 규칙 3) — `DELETE`는 `is_active=0` UPDATE만(물리 삭제 코드 0), **재삭제 멱등**,
       응답 = 삭제된 노트 표현(`is_active:false`). 단건 GET은 삭제분도 200 + `is_active:false`.
       `PATCH`로 `is_active`를 바꾸는 경로는 **만들지 않는다**(복구 UI는 이 단계 범위 밖 — "하지 않는 것").
-- [ ] B-7. **회귀·무접촉 확인** — `documents`·FTS 트리거·백업(F27)·기존 라우터 **diff 0**, notes는 FTS 색인 대상이
+- [x] B-7. **회귀·무접촉 확인** — `documents`·FTS 트리거·백업(F27)·기존 라우터 **diff 0**, notes는 FTS 색인 대상이
       아님을 코드로 확인(트리거·인덱스 추가 0). `scripts/run-tests.ps1` 통과(sm2 필수 테스트 무영향).
-- [ ] B-8. **스모크 실행 보고** — 생성 → 목록(검색·페이지) → 단건 → 수정 → 삭제 → 목록 제외 확인 → 재삭제 멱등,
+- [x] B-8. **스모크 실행 보고** — 생성 → 목록(검색·페이지) → 단건 → 수정 → 삭제 → 목록 제외 확인 → 재삭제 멱등,
       그리고 422 4종(`projection_required`·`blocks_invalid`·`too_large`·`title_too_long`)·404 각 1회.
 
 ### 프론트 묶음 — 담당 `frontend-dev`(Sonnet · **F-3/F-4 어댑터는 opus 승격 권장**)
 
-- [ ] F-1. `editor2/api/notes.ts` — 기존 `api/client.ts` 재사용한 React Query 훅 5종(목록·단건·생성·수정·삭제).
+- [x] F-1. `editor2/api/notes.ts` — 기존 `api/client.ts` 재사용한 React Query 훅 5종(목록·단건·생성·수정·삭제).
       쿼리 키 관례는 기존 리소스 훅을 따른다. **기존 `api/` 파일 수정 0**(신규 파일만).
-- [ ] F-2. `editor2/blocknote/schema.ts` — 코어 블록 스키마 정의(내장 블록 세트 + `divider` 커스텀 블록 1종) +
+- [x] F-2. `editor2/blocknote/schema.ts` — 코어 블록 스키마 정의(내장 블록 세트 + `divider` 커스텀 블록 1종) +
       `dictionary: ko`(`@blocknote/core/locales`) + **테마 결선**(`useThemeStore` 연동 · 색은 `tokens.css` 변수만 —
       불변 규칙 5. PoC `poc.css`의 결선 방식을 **복제**하되 PoC 파일은 수정하지 않는다).
-- [ ] F-3. `editor2/adapter/toBlockNote.ts` — 앱 블록 → BlockNote 블록(**순수 JSON**, 규약 B).
+- [x] F-3. `editor2/adapter/toBlockNote.ts` — 앱 블록 → BlockNote 블록(**순수 JSON**, 규약 B).
       코어 범위: paragraph·heading·listItem(bullet/numbered/check + children 중첩)·quote·codeBlock·table·
       image(width→`previewWidth`)·divider + 인라인(bold·italic·strike·underline·inlineCode·link·hardBreak/softBreak).
       **팔레트 밖(방언) 노드를 만나면 손실 없이 보류**: 이 단계에서는 해당 노트를 편집 표면에 올리지 않고
       "이 노트에는 아직 지원하지 않는 서식이 있습니다" 안내 + 읽기 전용(미리보기) 폴백(하단 F-8).
-- [ ] F-4. `editor2/adapter/fromBlockNote.ts` + `index.ts` — 역방향. **id는 새로 부여하지 않고 왕복 보존**
+- [x] F-4. `editor2/adapter/fromBlockNote.ts` + `index.ts` — 역방향. **id는 새로 부여하지 않고 왕복 보존**
       (BlockNote가 부여한 id를 앱 블록 `id`로 그대로 쓴다 — 동형성 비교에서는 제외되는 필드다).
       규약 D의 **말미 빈 문단 트림**을 여기서 적용(저장 직전 1곳 — 화면 코드에 흩뿌리지 않는다).
-- [ ] F-5. **어댑터 왕복 검증 스크립트** `frontend/scripts/s33-adapter-roundtrip.mjs`(jiti 로더 관례 계승) —
+- [x] F-5. **어댑터 왕복 검증 스크립트** `frontend/scripts/s33-adapter-roundtrip.mjs`(jiti 로더 관례 계승) —
       계열 3종: ① `roundtrip-corpus.mjs`(M32 공용 코퍼스)의 **코어 범위 표본**을 md→블록→BN→블록으로 돌려
       **id 제외 동등** ② 그 블록을 다시 `blocksToMarkdown`으로 투영해 M32 정규형 동등(`s32-normalize.mjs` 재사용)
       ③ 방언 표본 입력 시 **어댑터가 조용히 버리지 않고 명시적으로 미지원을 보고**하는지(손실 0 계약).
       **총 검사 수·실패 수를 보고**한다(실패 0이 DoD).
-- [ ] F-6. `editor2/pages/NoteListPage.tsx` — 목록·검색·[새 노트]·삭제(확인 후)·빈 상태·페이지네이션(screens §5.16).
-- [ ] F-7. `editor2/pages/NoteEditPage.tsx` — 제목 입력 + BlockNote 뷰(`BlockNoteView` · `@blocknote/mantine`) +
+- [x] F-6. `editor2/pages/NoteListPage.tsx` — 목록·검색·[새 노트]·삭제(확인 후)·빈 상태·페이지네이션(screens §5.16).
+- [x] F-7. `editor2/pages/NoteEditPage.tsx` — 제목 입력 + BlockNote 뷰(`BlockNoteView` · `@blocknote/mantine`) +
       저장 상태 표시(규약 C) + [삭제] + **[Markdown 미리보기] 토글**(프로젝션 문자열을 공용 `MarkdownView`로
       렌더 — **import만·무수정**. D5 이행 + 왕복 육안 검증 도구를 공짜로 얻는다).
-- [ ] F-8. **저장·로드 파이프라인** — 로드: `content_blocks` → 어댑터 → BlockNote 초기 콘텐츠. 저장: BlockNote →
+- [x] F-8. **저장·로드 파이프라인** — 로드: `content_blocks` → 어댑터 → BlockNote 초기 콘텐츠. 저장: BlockNote →
       어댑터 → 앱 블록 → `blocksToMarkdown` 프로젝션 → `PATCH {content_blocks, content}`(둘 항상 동반 — 규약 A).
       미지원 서식 포함 노트는 F-3의 읽기 전용 폴백(편집 표면에 올리지 않으므로 **덮어쓰기 사고 0**).
-- [ ] F-9. **라우트·진입점** — `App.tsx` lazy 라우트 2개 + 설정 화면 **실험실(베타) 카드 1개**(링크뿐 · 신규 색 0 ·
+- [x] F-9. **라우트·진입점** — `App.tsx` lazy 라우트 2개 + 설정 화면 **실험실(베타) 카드 1개**(링크뿐 · 신규 색 0 ·
       screens §5.11 반영분). 사이드바·탭바 **무변경**.
-- [ ] F-10. **번들·코드 스플리팅**(R37) — `npm run build`에서 **초기 청크 증가 ≤ 5KB(min)** 확인(편집기·Mantine은
+- [x] F-10. **번들·코드 스플리팅**(R37) — `npm run build`에서 **초기 청크 증가 ≤ 5KB(min)** 확인(편집기·Mantine은
       전부 지연 청크). 초과 시 원인(정적 import 누출) 제거 후 재측정 — 수치를 완료 기록에 남긴다.
-- [ ] F-11. **검증 일괄** — `tsc -b` + `npm run build` 성공 · `invariant-scan.ps1` PASS ·
+- [x] F-11. **검증 일괄** — `tsc -b` + `npm run build` 성공 · `invariant-scan.ps1` PASS ·
       **s32 왕복 723건 회귀 무변**(`node frontend/scripts/s32-roundtrip-blocks.mjs`) · s30 회귀 365
       (`node frontend/scripts/s30-roundtrip.mjs 86d171d^` — 인자 주의, stage-32 기록 참조).
 
