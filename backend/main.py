@@ -29,6 +29,7 @@ from routers import (
     imports,
     improve,
     llm,
+    notes,
     quiz,
     review_notes,
     search,
@@ -68,6 +69,7 @@ app.include_router(applied_exam.router)
 app.include_router(improve.router)
 app.include_router(split.router)
 app.include_router(uploads.router)
+app.include_router(notes.router)
 
 
 @app.on_event("startup")

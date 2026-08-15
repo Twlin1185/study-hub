@@ -297,3 +297,33 @@ class Bookmark(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, server_default=func.current_timestamp()
     )
+
+
+class Note(Base):
+    """노트(베타) — 에디터 v2의 드래프트 격리 저장소 (M33/stage-33, F57, 설계 §4.28).
+
+    documents와 완전히 분리된 신규 테이블. content_blocks(블록 JSON 문자열)가 소스
+    오브 트루스, content(Markdown)는 클라이언트 변환기 산출물을 그대로 저장하는
+    파생 프로젝션 — 서버는 만들지도 해석하지도 않는다. FTS 미색인(설계 §4.28 ⑥).
+    """
+
+    __tablename__ = "notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    content_blocks: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # content_blocks.version의 컬럼 사본 — M34 지연 마이그레이션이 SQL로 조회해야
+    # 하므로 컬럼이어야 한다(계획서 §6.2 주석).
+    blocks_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    is_active: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+
+    __table_args__ = (Index("ix_notes_active_updated", "is_active", "updated_at"),)
