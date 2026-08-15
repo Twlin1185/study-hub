@@ -13,13 +13,13 @@ export const highlightSpec = createReactStyleSpec(
   },
 )
 
-// F52 스포일러(`||…||`) — boolean 스타일 스펙 + 클릭 공개(리더 뷰 동작의 에디터 내 재현 확인용)
+// F52 스포일러(`||…||`) — boolean 스타일 스펙 + 클릭 공개/재클릭 비공개 토글(2026-08-15 사용자 실측 피드백)
 function SpoilerRender({ contentRef }: { contentRef: (el: HTMLElement | null) => void }) {
   const [revealed, setRevealed] = useState(false)
   return (
     <span
       className={revealed ? 'poc-spoiler poc-spoiler-open' : 'poc-spoiler'}
-      onClick={() => setRevealed(true)}
+      onClick={() => setRevealed((v) => !v)}
       ref={contentRef}
     />
   )
