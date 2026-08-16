@@ -126,7 +126,13 @@ function MicroMarkButton({ mark, blocked }: { mark: MicroMark; blocked: boolean 
 /**
  * 형광펜은 **boolean 스타일**이고 색은 `:t{bg=}`가 담는다(앱 스키마가 그렇게 갈린다).
  * 그래서 이 메뉴 하나가 두 값을 함께 움직인다 — 색을 고르면 `highlight` 켜기 + `bg` 갱신,
- * "기본 노랑"이면 `bg` 제거, "형광펜 끄기"면 `highlight`와 `bg`를 함께 걷는다.
+ * "기본 노랑"이면 `bg` 제거, **"형광펜 끄기"면 `highlight`와 `bg`를 함께 걷는다.**
+ *
+ * **왜 끄기가 `bg`까지 지우는가**(2026-08-16 확정): F52에서 **형광펜과 바탕색은 같은 시각 채널의 두
+ * 표기**다. `components/markdown/inlineSerialize.ts:32`가 `highlight: '=='`를 "기본 노랑(색 지정은 `:t{bg=…}`)"으로
+ * 명시하고, 리더(`MarkdownView`)는 `==`를 `bg-mark-yellow`로 · `:t{bg=색}`을 `MARK_BG_CLASS[색]`으로
+ * 렌더한다 — 둘 다 같은 `--mark-*` 토큰 경로다. 사용자에게 "형광"과 "바탕색"이 서로 다른 것이라고
+ * 가르칠 이유가 없으므로, 형광을 끄면 그 색도 함께 걷히는 것이 기대에 맞다.
  * (`bg`는 아래 **바탕색** 메뉴와 같은 키다 — 하나의 `:t` 속성을 두 입구가 공유한다.)
  */
 function HighlightMenu({ blocked }: { blocked: boolean }) {

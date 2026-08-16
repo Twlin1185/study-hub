@@ -254,7 +254,7 @@ export default function RefPickerPanel({
                 <p className="text-wrong">
                   선택한 텍스트는 라벨로 쓸 수 없습니다 —{' '}
                   {selection.hasAtom
-                    ? '선택에 참조 칩·이미지 같은 요소가 들어 있습니다'
+                    ? '선택에 참조 칩·이미지·수식 같은 요소가 들어 있습니다'
                     : (selection.rejection ?? '쓸 수 없는 문자가 들어 있습니다')}
                 </p>
                 <p className="text-muted">선택한 글자는 그대로 둡니다. 라벨을 직접 입력하거나 라벨 없이 넣으세요.</p>
