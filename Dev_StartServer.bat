@@ -74,18 +74,23 @@ cd /d "%~dp0backend"
 
 echo.
 echo  ---------------------------------------------
-echo   PC      :  http://localhost:8000
+echo   MAIN  (existing app)  :  http://localhost:8000/
+echo   NOTES (beta, dev)     :  http://localhost:8000/notes
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4"') do (
-    for /f "tokens=1" %%b in ("%%a") do echo   Phone   :  http://%%b:8000   [same Wi-Fi]
+    for /f "tokens=1" %%b in ("%%a") do echo   Phone                 :  http://%%b:8000   [same Wi-Fi]
 )
 echo  ---------------------------------------------
 echo   Manual   :  http://localhost:8000/manual
 echo   Close this window or press Ctrl+C to stop the server.
-echo   Browser will open automatically when the server is ready.
+echo   TWO browser windows open when the server is ready:
+echo     window 1 = MAIN (tab says "Study Hub")
+echo     window 2 = NOTES beta (tab says "notes (beta)")
 echo.
 
-rem Open browser when the server starts responding (waits up to 60s)
-start "" /min powershell -NoProfile -Command "for($i=0;$i -lt 60;$i++){try{$t=New-Object Net.Sockets.TcpClient('localhost',8000);$t.Close();Start-Process 'http://localhost:8000';break}catch{Start-Sleep -Seconds 1}}"
+rem Open BOTH dev surfaces in separate windows once the server answers (waits up
+rem to 60s). Kept in a .ps1 because default-browser detection does not fit on one
+rem readable bat line -- see scripts\dev-open-browsers.ps1 for the why.
+start "" /min powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\dev-open-browsers.ps1" -Port 8000
 
 .venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000
 echo.
