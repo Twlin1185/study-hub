@@ -30,8 +30,25 @@ import {
   defaultStyleSpecs,
 } from '@blocknote/core'
 import { ko } from '@blocknote/core/locales'
+// 수식(규약 F) — `@blocknote/math-block` 0.54.0 채택(MPL-2.0 · 전이 의존 GPL 0건 실측).
+// GPL-3.0인 `@blocknote/xl-*`는 이 패키지의 **optional peerDependencies에만** 있고 메인 엔트리의
+// 정적 import 목록에 0건이라 설치·번들 어느 쪽에도 들어오지 않는다(서브패스 `./pdf-exporter` 등으로만
+// 노출 — 우리는 import하지 않는다). 저장소 public = 배포 간주(D10)라 이 확인이 도입의 전제였다.
+import { createReactInlineMathSpec, createReactMathBlockSpec } from '@blocknote/math-block'
 import type { BnBlock } from '../adapter'
 import { useThemeStore } from '../../stores/theme'
+import {
+  createCalloutBlockSpec,
+  createDocEmbedBlockSpec,
+  createSourceFallbackBlockSpec,
+} from './specs/blocks'
+import {
+  inlineFallbackSpec,
+  inlineImageSpec,
+  lineBreakSpec,
+  refChipInlineSpec,
+} from './specs/inline'
+import { highlightStyleSpec, spoilerStyleSpec, textStyleSpec } from './specs/styles'
 // 스타일(`notes.css`)은 **편집 표면을 그리는 화면**이 import한다(NoteEditPage) — 이 모듈은
 // 스펙 구성만 담아 DOM·번들러 없이도 로드될 수 있어야 한다. 검증 스크립트
 // (`scripts/s33-adapter-roundtrip.mjs` 계열 ⑤)가 **바로 이 스펙 구성 그대로** 실제 BlockNote
@@ -85,6 +102,24 @@ function codeBlockSpecWithInfo() {
   }
 }
 
+// 규약 I 흡수 ③ — 내장 image 스펙에 `title`·`height` prop을 **더한다**(`codeBlockSpecWithInfo`와
+// 같은 전례). 편집 UI는 만들지 않고 **왕복 보존만** 한다: `title:''` ⇔ undefined · `height:0` ⇔ undefined.
+// 이것으로 `image:title`·`image:height` 미지원 보고가 사라진다.
+function imageSpecWithTitleAndHeight() {
+  const base = withoutPresentationProps(createImageBlockSpec())
+  return {
+    ...base,
+    config: {
+      ...base.config,
+      propSchema: {
+        ...base.config.propSchema,
+        title: { default: '' as string },
+        height: { default: 0 },
+      },
+    },
+  }
+}
+
 export const noteSchema = BlockNoteSchema.create({
   blockSpecs: {
     paragraph: withoutPresentationProps(createParagraphBlockSpec()),
@@ -96,17 +131,35 @@ export const noteSchema = BlockNoteSchema.create({
     quote: withoutPresentationProps(createQuoteBlockSpec()),
     codeBlock: codeBlockSpecWithInfo(),
     table: withoutPresentationProps(createTableBlockSpec()),
-    image: withoutPresentationProps(createImageBlockSpec()),
+    image: imageSpecWithTitleAndHeight(),
     divider: createDividerBlockSpec(),
+    // ---- 방언(stage-34 G-3 · G-7)
+    mathBlock: createReactMathBlockSpec(),
+    callout: createCalloutBlockSpec(),
+    docEmbed: createDocEmbedBlockSpec(),
+    sourceFallback: createSourceFallbackBlockSpec(),
   },
-  inlineContentSpecs: defaultInlineContentSpecs,
+  inlineContentSpecs: {
+    // 내장 2종(text·link)만 가져온다 — 기본 인라인 팔레트를 넓히지 않는다.
+    ...defaultInlineContentSpecs,
+    // ---- 방언(stage-34 G-4 스펙 부분 · G-6 · 규약 I 흡수 ①)
+    refChip: refChipInlineSpec,
+    inlineImage: inlineImageSpec,
+    inlineFallback: inlineFallbackSpec,
+    lineBreak: lineBreakSpec,
+    math: createReactInlineMathSpec(),
+  },
   styleSpecs: {
-    // 코어 인라인 서식 5종만 — 색 스타일 2종은 위 ② 사유로 제외한다.
+    // 코어 인라인 서식 5종 — BlockNote **기본 색 스타일 2종**은 위 ② 사유로 계속 제외한다.
     bold: defaultStyleSpecs.bold,
     italic: defaultStyleSpecs.italic,
     underline: defaultStyleSpecs.underline,
     strike: defaultStyleSpecs.strike,
     code: defaultStyleSpecs.code,
+    // ---- 방언 3종(stage-34 G-1) — 색은 전부 `tokens.css` 토큰 경유(불변 규칙 5).
+    highlight: highlightStyleSpec,
+    spoiler: spoilerStyleSpec,
+    t: textStyleSpec,
   },
 })
 

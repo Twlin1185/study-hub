@@ -16,7 +16,13 @@ import '../blocknote/notes.css'
 import MarkdownView from '../../components/MarkdownView'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { blocksToMarkdown } from '../transform'
-import { describeUnsupported, fromBlockNoteBlocks, toBlockNoteBlocks, type BnBlock } from '../adapter'
+import {
+  describeUnsupported,
+  fromBlockNoteBlocks,
+  toBlockNoteBlocks,
+  type AdapterSidecar,
+  type BnBlock,
+} from '../adapter'
 import {
   asAdapterBlocks,
   asEditorBlocks,
@@ -24,6 +30,14 @@ import {
   noteSchema,
   useEditorTheme,
 } from '../blocknote/schema'
+import { createPasteHandler } from '../blocknote/paste'
+import { NoteEditorDialectUI, RefUiProvider } from '../blocknote/ui'
+import {
+  describeSkippedNonImageFiles,
+  insertUploadedImages,
+  isImageFile,
+  useImageUploadQueue,
+} from '../blocknote/uploads'
 import { useDeleteNote, useNote, useUpdateNote, type Note } from '../api/notes'
 
 /** 규약 C — 유휴 1.5초 · 최대 대기 10초. */
@@ -72,7 +86,16 @@ function NoteEditor({ note }: { note: Note }) {
   if (readOnly) {
     return <UnsupportedFallback note={note} reason={describeUnsupported(loaded.unsupported)} />
   }
-  return <EditableNote note={note} initialBlocks={loaded.blocks} {...{ navigate, updateNote, deleteNote, theme }} />
+  // 사이드카(규약 I 흡수분 — 링크 제목·블록 메타·표 정렬)는 편집 세션 동안 그대로 들고 있다가
+  // 저장할 때 역변환에 돌려준다. 편집 표면에 자리가 없는 값이라 여기 말고는 살아남을 곳이 없다.
+  return (
+    <EditableNote
+      note={note}
+      initialBlocks={loaded.blocks}
+      sidecar={loaded.sidecar}
+      {...{ navigate, updateNote, deleteNote, theme }}
+    />
+  )
 }
 
 function UnsupportedFallback({ note, reason }: { note: Note; reason: string }) {
@@ -104,17 +127,40 @@ function TopBarShell({ title }: { title: string }) {
 interface EditableNoteProps {
   note: Note
   initialBlocks: BnBlock[]
+  sidecar: AdapterSidecar
   navigate: ReturnType<typeof useNavigate>
   updateNote: ReturnType<typeof useUpdateNote>
   deleteNote: ReturnType<typeof useDeleteNote>
   theme: 'light' | 'dark'
 }
 
-function EditableNote({ note, initialBlocks, navigate, updateNote, deleteNote, theme }: EditableNoteProps) {
+function EditableNote({
+  note,
+  initialBlocks,
+  sidecar,
+  navigate,
+  updateNote,
+  deleteNote,
+  theme,
+}: EditableNoteProps) {
+  // 이미지 3진입점(규약 H) 공유 업로드 지점 — 드롭·붙여넣기·툴바가 전부 이 하나만 거친다.
+  // `useCreateBlockNote`는 최초 렌더의 옵션만 영구히 캡처한다(deps=[] 고정 — 아래 훅 실측:
+  // node_modules/@blocknote/react useCreateBlockNote.tsx `useMemo(..., deps)`)므로, 여기서
+  // 넘기는 `uploadFile`·`pasteHandler` 클로저는 setState·상태 없는 API 호출만 참조해
+  // "최초 렌더 이후로도 계속 정확히 동작"하도록 만든다(리렌더마다 새로 만들 필요가 없다).
+  const uploadQueue = useImageUploadQueue()
+  const [pasteNotice, setPasteNotice] = useState<string | null>(null)
+
   const editor = useCreateBlockNote({
     schema: noteSchema,
     dictionary: noteDictionary,
     initialContent: initialBlocks.length > 0 ? asEditorBlocks(initialBlocks) : undefined,
+    uploadFile: uploadQueue.uploadFile,
+    pasteHandler: createPasteHandler({
+      runUpload: uploadQueue.uploadFile,
+      beginUploadBatch: uploadQueue.beginBatch,
+      onNotice: setPasteNotice,
+    }),
   })
 
   const [title, setTitle] = useState(note.title)
@@ -142,9 +188,9 @@ function EditableNote({ note, initialBlocks, navigate, updateNote, deleteNote, t
 
   /** 편집기 문서 → 앱 블록 → Markdown 프로젝션(규약 A: 저장 요청에 함께 싣는다). */
   const buildBody = useCallback(() => {
-    const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document))
+    const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecar)
     return { content_blocks: doc, content: blocksToMarkdown(doc) }
-  }, [editor])
+  }, [editor, sidecar])
 
   const saveNow = useCallback(() => {
     clearTimers()
@@ -220,7 +266,7 @@ function EditableNote({ note, initialBlocks, navigate, updateNote, deleteNote, t
     () => () => {
       clearTimers()
       if (dirtyRef.current) {
-        const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document))
+        const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecar)
         updateNote.mutate({
           id: note.id,
           title: titleRef.current,
@@ -235,7 +281,7 @@ function EditableNote({ note, initialBlocks, navigate, updateNote, deleteNote, t
   )
 
   const openPreview = () => {
-    setProjection(blocksToMarkdown(fromBlockNoteBlocks(asAdapterBlocks(editor.document))))
+    setProjection(blocksToMarkdown(fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecar)))
     setPreview(true)
   }
 
@@ -314,6 +360,43 @@ function EditableNote({ note, initialBlocks, navigate, updateNote, deleteNote, t
         )}
       </div>
 
+      {(uploadQueue.status.active || uploadQueue.status.failures.length > 0) && (
+        <div
+          role="status"
+          className="flex flex-col gap-1 rounded border border-border bg-surface px-3 py-2 text-xs"
+        >
+          {uploadQueue.status.active && (
+            <span className="text-muted">
+              이미지 올리는 중 ({Math.min(uploadQueue.status.completed + 1, uploadQueue.status.total)}/
+              {uploadQueue.status.total})…
+            </span>
+          )}
+          {uploadQueue.status.failures.map((failure, idx) => (
+            <span key={`${failure.name}-${idx}`} className="text-wrong">
+              {failure.name}: {failure.message}
+            </span>
+          ))}
+          {uploadQueue.status.failures.length > 0 && (
+            <button
+              type="button"
+              onClick={uploadQueue.dismissFailures}
+              className="self-start text-muted underline"
+            >
+              닫기
+            </button>
+          )}
+        </div>
+      )}
+
+      {pasteNotice && (
+        <div className="flex items-center justify-between gap-2 rounded border border-border bg-surface px-3 py-2 text-xs text-muted">
+          <span>{pasteNotice}</span>
+          <button type="button" onClick={() => setPasteNotice(null)} className="shrink-0 underline">
+            닫기
+          </button>
+        </div>
+      )}
+
       <div
         className="note-editor-frame"
         onCompositionStartCapture={() => {
@@ -323,8 +406,41 @@ function EditableNote({ note, initialBlocks, navigate, updateNote, deleteNote, t
           composingRef.current = false
           if (dirtyRef.current) scheduleSave()
         }}
+        onDropCapture={(e) => {
+          // 드래그앤드롭(규약 H 3진입점 중 하나) — 실제 OS 파일이 있을 때만 가로챈다. 내부
+          // 블록 재배열 드래그는 File 객체를 싣지 않으므로 그대로 BlockNote 기본 동작에 맡긴다
+          // (files.length === 0이면 preventDefault를 호출하지 않고 그냥 돌아간다).
+          const files = Array.from(e.dataTransfer?.files ?? [])
+          if (files.length === 0) return
+          e.preventDefault()
+          e.stopPropagation()
+          const imageFiles = files.filter(isImageFile)
+          if (imageFiles.length > 0) {
+            uploadQueue.beginBatch(imageFiles.length)
+            void insertUploadedImages(editor, imageFiles, uploadQueue.uploadFile)
+          }
+          // 비이미지 파일이 섞여 있으면 조용히 버리지 않는다 — 붙여넣기(paste.ts)와 같은 문구·
+          // 같은 배너 경로(pasteNotice)를 공유한다(DoD 4·6).
+          const skipped = files.length - imageFiles.length
+          if (skipped > 0) setPasteNotice(describeSkippedNonImageFiles(skipped))
+        }}
       >
-        <BlockNoteView editor={editor} theme={theme} onChange={scheduleSave} />
+        {/* 방언 툴바·참조 칩 피커(G-2 강제 지점 ① · G-4). `RefUiProvider`는 **BlockNoteView
+            바깥**이어야 한다 — 칩 노드 뷰가 이 컨텍스트를 구독하고, 툴바가 닫혀도 피커는 살아
+            있어야 하기 때문이다. 끄는 기본 UI는 서식 툴바·슬래시 메뉴 2개뿐이며(둘 다 방언
+            항목을 얹어 다시 제공한다), 사이드 메뉴·드래그 핸들·링크 툴바·표 핸들 등 나머지
+            기본 UI는 그대로 켜 둔다(슬래시·드래그 정비는 M35 범위 — 이 단계는 끄지 않는다). */}
+        <RefUiProvider editor={editor}>
+          <BlockNoteView
+            editor={editor}
+            theme={theme}
+            onChange={scheduleSave}
+            formattingToolbar={false}
+            slashMenu={false}
+          >
+            <NoteEditorDialectUI />
+          </BlockNoteView>
+        </RefUiProvider>
       </div>
 
       {preview && (
