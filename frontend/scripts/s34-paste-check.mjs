@@ -189,12 +189,14 @@ runSample('웹 표본', WEB_SAMPLE, [
 
 // ---------------------------------------------------------------- B. createPasteHandler 분기 목 검증
 
-/** 화면 없이 `createPasteHandler`를 호출하기 위한 최소 가짜 편집기 — 호출만 기록한다. */
-function makeFakeEditor() {
-  const calls = { replaceBlocks: [], insertBlocks: [], updateBlock: [], pasteText: [] }
-  const blocks = new Map([['anchor', { id: 'anchor', type: 'paragraph', content: [] }]])
+/** 화면 없이 `createPasteHandler`를 호출하기 위한 최소 가짜 편집기 — 호출만 기록한다.
+ * `anchor`를 지정하지 않으면 기본값(빈 문단)이다 — 중요-3(단일 문단→인라인 삽입) 검사는
+ * "커서가 이미 텍스트가 있는 문단 한가운데"를 재현하려고 비어 있지 않은 anchor를 넘긴다. */
+function makeFakeEditor({ anchor = { id: 'anchor', type: 'paragraph', content: [] } } = {}) {
+  const calls = { replaceBlocks: [], insertBlocks: [], updateBlock: [], pasteText: [], insertInlineContent: [] }
+  const blocks = new Map([[anchor.id, anchor]])
   const editor = {
-    getTextCursorPosition: () => ({ block: blocks.get('anchor') }),
+    getTextCursorPosition: () => ({ block: blocks.get(anchor.id) }),
     replaceBlocks: (ids, newBlocks) => {
       calls.replaceBlocks.push({ ids, newBlocks })
       const inserted = newBlocks.map((b, i) => ({ id: `inserted-${i}`, ...b }))
@@ -215,6 +217,9 @@ function makeFakeEditor() {
     pasteText: (text) => {
       calls.pasteText.push(text)
       return true
+    },
+    insertInlineContent: (content) => {
+      calls.insertInlineContent.push(content)
     },
   }
   return { editor, calls }
@@ -336,6 +341,74 @@ console.log('== B. createPasteHandler 분기 회귀(검토 경미-1) ==')
     '대조군(파일 없는 평문): plainTextAsMarkdown:false로 위임한다(서식 오인 방지)',
     capturedOpts?.plainTextAsMarkdown === false,
   )
+}
+
+// ---------------------------------------------------------------- C. insertAtCursor 인라인/블록 분기
+
+console.log('== C. insertAtCursor 인라인/블록 분기 회귀(검토 중요-3) ==')
+
+// "커서가 이미 텍스트가 있는 문단 한가운데" 재현 — 빈 문단이 아니므로 ①(빈 문단 대체) 경로를
+// 타지 않는다.
+const nonEmptyAnchor = () => ({
+  id: 'anchor',
+  type: 'paragraph',
+  content: [{ type: 'text', text: '기존 문장 ', styles: {} }],
+})
+
+// 단일 문단 HTML(서식 조각) — 수정 전에는 이 경우도 항상 새 블록(아랫줄)으로 떨어졌다(중요-3).
+// 이제는 커서 위치에 인라인으로 들어가야 한다.
+{
+  const { editor, calls } = makeFakeEditor({ anchor: nonEmptyAnchor() })
+  const { deps } = makeDeps()
+  const handler = createPasteHandler(deps)
+  const clipboardData = makeClipboardData({ html: '<b>굵게</b>' })
+  const result = handler({ event: { clipboardData }, editor, defaultPasteHandler: () => true })
+
+  check('중요-3: 단일 문단 HTML은 insertInlineContent로 들어간다', calls.insertInlineContent.length === 1)
+  check('중요-3: 단일 문단 HTML은 insertBlocks를 타지 않는다', calls.insertBlocks.length === 0)
+  check('중요-3: 단일 문단 HTML은 replaceBlocks도 타지 않는다(빈 문단 대체 경로가 아니다)', calls.replaceBlocks.length === 0)
+  check(
+    '중요-3: 인라인으로 들어간 내용에 서식 있는 텍스트("굵게")가 담긴다',
+    JSON.stringify(calls.insertInlineContent[0] ?? []).includes('굵게'),
+  )
+  check('중요-3: 핸들러가 이벤트를 스스로 처리했다고 보고한다', result === true)
+}
+
+// 다중 블록 HTML(제목 + 문단) — 문단 경계를 넘으므로 여전히 블록 삽입이어야 한다.
+{
+  const { editor, calls } = makeFakeEditor({ anchor: nonEmptyAnchor() })
+  const { deps } = makeDeps()
+  const handler = createPasteHandler(deps)
+  const clipboardData = makeClipboardData({ html: '<h2>제목</h2><p>문단</p>' })
+  handler({ event: { clipboardData }, editor, defaultPasteHandler: () => true })
+
+  check('중요-3: 다중 블록 HTML은 기존 insertBlocks 경로 그대로다', calls.insertBlocks.length === 1)
+  check('중요-3: 다중 블록 HTML은 insertInlineContent를 타지 않는다', calls.insertInlineContent.length === 0)
+}
+
+// 단일 블록이지만 비문단(목록) — 문단이 아니므로 여전히 블록 삽입이어야 한다.
+{
+  const { editor, calls } = makeFakeEditor({ anchor: nonEmptyAnchor() })
+  const { deps } = makeDeps()
+  const handler = createPasteHandler(deps)
+  const clipboardData = makeClipboardData({ html: '<ul><li>항목</li></ul>' })
+  handler({ event: { clipboardData }, editor, defaultPasteHandler: () => true })
+
+  check('중요-3: 단일 블록이라도 비문단(목록) HTML은 insertBlocks 경로 그대로다', calls.insertBlocks.length === 1)
+  check('중요-3: 목록(비문단) HTML은 insertInlineContent를 타지 않는다', calls.insertInlineContent.length === 0)
+}
+
+// 빈 문단 앵커 — 기존 replaceBlocks 경로가 이번 수정으로 바뀌지 않았는지 회귀 고정.
+{
+  const { editor, calls } = makeFakeEditor() // 기본값 = 빈 문단 앵커
+  const { deps } = makeDeps()
+  const handler = createPasteHandler(deps)
+  const clipboardData = makeClipboardData({ html: '<p>단어</p>' })
+  handler({ event: { clipboardData }, editor, defaultPasteHandler: () => true })
+
+  check('중요-3: 빈 문단 앵커는 여전히 replaceBlocks로 대체된다(무변)', calls.replaceBlocks.length === 1)
+  check('중요-3: 빈 문단 앵커에서는 insertInlineContent를 타지 않는다', calls.insertInlineContent.length === 0)
+  check('중요-3: 빈 문단 앵커에서는 insertBlocks를 타지 않는다', calls.insertBlocks.length === 0)
 }
 
 console.log(`\n총 ${pass + fail}건 · 통과 ${pass} · 실패 ${fail}`)

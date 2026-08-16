@@ -140,21 +140,61 @@ export function collapseBlocks(blocks: BnBlock[]): { blocks: BnBlock[]; collapse
   return { blocks: out, collapsed }
 }
 
-// ---------------------------------------------------------------- 커서 삽입(빈 문단이면 대체)
+// ---------------------------------------------------------------- 커서 삽입(빈 문단 대체 · 인라인)
 
 function isEmptyParagraphAnchor(block: { type: string; content?: unknown }): boolean {
   return block.type === 'paragraph' && Array.isArray(block.content) && block.content.length === 0
 }
 
+/**
+ * 커서가 놓인 블록이 **인라인 삽입을 받아도 구조가 깨지지 않는 자리**인지(검토 중요-3).
+ * 코드 블록·수식 블록은 `content`가 배열이어도 **평문 전용**이라 서식 있는 인라인(굵게·링크·
+ * 참조 칩 등)이 섞이면 그 제약이 깨진다 — 후보에서 뺀다. 표 셀 안에서는 `getTextCursorPosition()`
+ * 이 셀이 아니라 **표 블록 자체**를 돌려주고, 표 블록의 `content`는 배열이 아닌 `tableContent`
+ * 객체이므로 아래 `Array.isArray` 검사에서 자연히 걸러진다(별도 표 셀 판정 불필요).
+ */
+function supportsInlineInsertion(block: { type: string; content?: unknown }): boolean {
+  return Array.isArray(block.content) && block.type !== 'codeBlock' && block.type !== 'mathBlock'
+}
+
+/** 변환 결과가 **문단 1개뿐**(children 없음)인지 — 이때만 인라인 삽입 후보다. 다중 블록이거나
+ * 비문단 블록(제목·목록·표…)이 하나라도 섞이면 문단 경계를 넘으므로 블록 삽입 그대로 둔다. */
+function isSingleInlineParagraph(
+  blocks: BnBlock[],
+): blocks is [Extract<BnBlock, { type: 'paragraph' }>] {
+  if (blocks.length !== 1) return false
+  const [only] = blocks
+  return only.type === 'paragraph' && (!only.children || only.children.length === 0)
+}
+
+function asInlineContent(content: BnInline[]): Parameters<NoteBlockNoteEditor['insertInlineContent']>[0] {
+  return content as unknown as Parameters<NoteBlockNoteEditor['insertInlineContent']>[0]
+}
+
 function insertAtCursor(editor: NoteBlockNoteEditor, blocks: BnBlock[]): void {
   if (blocks.length === 0) return
   const current = editor.getTextCursorPosition().block
-  const editorBlocks = asEditorBlocks(blocks)
+
+  // 빈 문단에 붙여넣을 때는(커서가 놓인 빈 줄) 그 문단을 통째로 대체한다 — 빈 문단이 남지
+  // 않는 기존 동작이 옳다(이 경로는 이번 수정 대상이 아니다).
   if (isEmptyParagraphAnchor(current)) {
-    editor.replaceBlocks([current.id], editorBlocks)
-  } else {
-    editor.insertBlocks(editorBlocks, current, 'after')
+    editor.replaceBlocks([current.id], asEditorBlocks(blocks))
+    return
   }
+
+  // 중요-3(2라운드 검토, 34ef43f부터 있던 결함) — 문장 한가운데 붙여넣기가 커서 위치를 무시한 채
+  // 항상 "아랫줄에 새 문단"으로 떨어지던 문제. 변환 결과가 **단일 문단**이고 커서 자리가 인라인
+  // 삽입을 받을 수 있으면 `insertInlineContent`로 커서 위치에 밀어 넣는다 — 선택이 있으면
+  // ProseMirror가 그 선택 범위를 그대로 대체한다(`StyleManager.insertInlineContent`가
+  // `tr.selection.from/to`를 삽입 범위로 쓴다 — 붙여넣기 표준 동작). 다중 블록·비문단 블록·
+  // 코드 블록/표 안 같은 자리는 문단 경계를 넘으므로 여전히 블록 삽입으로 떨어뜨린다(구조가
+  // 깨지는 쪽보다 "새 줄에 삽입"이 안전하다).
+  if (isSingleInlineParagraph(blocks) && supportsInlineInsertion(current)) {
+    editor.insertInlineContent(asInlineContent(blocks[0].content))
+    return
+  }
+
+  editor.insertBlocks(asEditorBlocks(blocks), current, 'after')
 }
 
 // ---------------------------------------------------------------- pasteHandler 본체
