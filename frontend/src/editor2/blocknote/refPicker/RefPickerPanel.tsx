@@ -128,21 +128,26 @@ export default function RefPickerPanel({
   }, [mode, debounced, query])
 
   const currentLabelError = labelError(label)
+  const finalLabel = normalizeRefText(label)
   // 규약 A ② — 선택이 도메인을 통과하지 못했으면 사용자가 길을 정할 때까지 삽입을 막는다.
   // (유효한 라벨을 직접 입력해도 풀린다.)
   const blocked =
-    !edit &&
-    selection.hasSelection &&
-    !selection.safe &&
-    !rejectionDismissed &&
-    normalizeRefText(label) === ''
+    !edit && selection.hasSelection && !selection.safe && !rejectionDismissed && finalLabel === ''
 
-  const replaceSelection = !edit && selection.safe && useSelectionLabel && mode !== 'embed'
+  /**
+   * 선택을 **칩으로 대체**해도 되는 조건 (DoD 4 — "조용한 삭제 0").
+   *
+   * `finalLabel !== ''`가 **핵심 조건**이다: 라벨이 비면 추종형 칩이 되고, 그때 선택을 대체하면
+   * 사용자의 글자가 아무 데도 남지 않는다(= 조용한 삭제). 승계 체크박스만 보고 판단하면
+   * "체크는 켠 채 라벨란을 백스페이스로 비우는" 자연스러운 조작에서 정확히 그 사고가 난다.
+   * 라벨이 비었으면 대체하지 않고 **선택을 접어 커서 위치에** 넣는다(`insert.ts:collapseSelection`).
+   */
+  const replaceSelection =
+    !edit && selection.safe && useSelectionLabel && mode !== 'embed' && finalLabel !== ''
 
   const commitDoc = useCallback(
     (doc: DocOption) => {
       if (blocked || currentLabelError) return
-      const finalLabel = normalizeRefText(label)
       rememberRecentDoc({ doc_no: doc.doc_no, title: doc.title, id: doc.id })
       if (edit) {
         edit.apply(doc.doc_no, finalLabel)
@@ -152,13 +157,12 @@ export default function RefPickerPanel({
       onPickDoc(mode, doc, finalLabel, replaceSelection)
       onClose()
     },
-    [blocked, currentLabelError, edit, label, mode, onClose, onPickDoc, replaceSelection],
+    [blocked, currentLabelError, edit, finalLabel, mode, onClose, onPickDoc, replaceSelection],
   )
 
   const commitAnchor = useCallback(
     (candidate: AnchorCandidate) => {
       if (!candidate.usable || blocked || currentLabelError) return
-      const finalLabel = normalizeRefText(label)
       if (edit) {
         edit.apply(candidate.text, finalLabel)
         onClose()
@@ -167,7 +171,7 @@ export default function RefPickerPanel({
       onPickAnchor(candidate.text, finalLabel, replaceSelection)
       onClose()
     },
-    [blocked, currentLabelError, edit, label, onClose, onPickAnchor, replaceSelection],
+    [blocked, currentLabelError, edit, finalLabel, onClose, onPickAnchor, replaceSelection],
   )
 
   const commitActive = useCallback(() => {
@@ -242,10 +246,12 @@ export default function RefPickerPanel({
                 />
                 <span>
                   선택한 텍스트를 라벨로 사용 — <b className="text-accent">{selection.text}</b>
+                  {/* 안내는 **실제로 일어날 일**과 정확히 일치해야 한다(`replaceSelection`과 같은 판정을 쓴다).
+                      라벨을 비우면 대체가 성립하지 않으므로 "선택한 글자가 라벨이 된다"고 말하면 거짓말이 된다. */}
                   <span className="mt-0.5 block text-muted">
-                    {useSelectionLabel && mode !== 'embed'
+                    {replaceSelection
                       ? '선택한 글자가 칩의 라벨이 됩니다(사라지지 않습니다).'
-                      : '선택은 그대로 두고 커서 위치에 넣습니다.'}
+                      : '선택한 글자는 그대로 남고, 커서 위치에 칩이 들어갑니다.'}
                   </span>
                 </span>
               </label>
@@ -300,10 +306,10 @@ export default function RefPickerPanel({
               <span className="text-[11px] text-wrong">{currentLabelError}</span>
             ) : (
               <span className="text-[11px] text-muted">
-                {normalizeRefText(label) === '' ? '제목 추종형으로 넣습니다' : '지정 라벨로 넣습니다'}
+                {finalLabel === '' ? '제목 추종형으로 넣습니다' : '지정 라벨로 넣습니다'}
               </span>
             )}
-            {normalizeRefText(label) !== '' && (
+            {finalLabel !== '' && (
               <button
                 type="button"
                 onClick={() => {

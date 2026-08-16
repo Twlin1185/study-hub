@@ -1,7 +1,9 @@
 // 방언 서식 툴바 (stage-34 G-2 · 규약 C·E, 규약 A ① 진입점 하나).
 //
 // **기본 버튼은 그대로 둔다** — `getFormattingToolbarItems()`를 먼저 깔고 방언 컨트롤을 **덧붙인다**
-// (툴바 전면 재구성은 이 단계 범위가 아니다). 방언 컨트롤은 다음 4묶음이다:
+// (툴바 전면 재구성은 이 단계 범위가 아니다). **예외 1건 = 기본 밑줄 버튼 제거**(아래
+// `DEFAULT_UNDERLINE_ITEM_KEY` 주석 참조 — 규약 C 이행이지 전면 커스터마이즈가 아니다).
+// 방언 컨트롤은 다음 4묶음이다:
 //   ① 마이크로 3종(밑줄·형광펜·스포일러) — **상호 배타 래퍼 1곳**(`microMarks.ts`) 경유 · active 표시.
 //   ② `:t` 색·크기(글자색 `c` · 바탕색 `bg` · 크기 `s`) — 값 도메인은 `palette.ts` 단일 출처.
 //   ③ [참조] — 피커를 연다(규약 A ①).
@@ -41,6 +43,23 @@ import { MICRO_MARK_LABEL, applyMicroMark, clearMicroMark, toggleMicroMark } fro
 import type { MicroMark } from './microMarks'
 import { readTextStyleView, setTextStyleKey } from './textStyle'
 import { useNoteEditor } from './useNoteEditor'
+
+/**
+ * 기본 툴바의 **밑줄 버튼 키**(`@blocknote/react`의 `getFormattingToolbarItems()`가 박아 넣는 값).
+ *
+ * **왜 걷어내는가 — 규약 C 이행**: 그 버튼은 `BasicTextStyleButton basicTextStyle="underline"`이고,
+ * 클릭 시 `editor.toggleStyles({ underline: true })`를 **직접** 부른다. 즉 마이크로 마크 상호 배타
+ * 래퍼(`microMarks.ts`)를 타지 않으므로 `==형광==` 위에서 누르면 `underline`+`highlight`가 공존하고
+ * (규약 C 위반 → 방언 Markdown 왕복 붕괴), 덤으로 밑줄 버튼이 두 개 뜬다.
+ * 우리가 **같은 기능의 대체 버튼**(`MicroMarkButton mark="underline"`)을 바로 옆에 제공하므로
+ * 기능이 줄지 않는다 — 이것은 "슬래시/툴바 전면 커스터마이즈"(M35)가 아니라 규약 C의 이행이다.
+ */
+const DEFAULT_UNDERLINE_ITEM_KEY = 'underlineStyleButton'
+
+/** 기본 항목 목록에서 밑줄 하나만 뺀다(나머지는 순서까지 그대로). */
+function defaultToolbarItemsWithoutUnderline() {
+  return getFormattingToolbarItems().filter((item) => item.key !== DEFAULT_UNDERLINE_ITEM_KEY)
+}
 
 const CALLOUT_LABEL: Record<string, string> = {
   note: '참고',
@@ -162,16 +181,26 @@ function HighlightMenu({ blocked }: { blocked: boolean }) {
       </Components.Generic.Menu.Trigger>
       <Components.Generic.Menu.Dropdown className="bn-menu-dropdown">
         <Components.Generic.Menu.Label>형광펜</Components.Generic.Menu.Label>
-        <Components.Generic.Menu.Item
-          checked={!active}
-          onClick={() => {
-            clearMicroMark(editor, 'highlight')
-            setTextStyleKey(editor, 'bg', null)
-            refocus(() => editor.focus())
-          }}
-        >
-          형광펜 끄기
-        </Components.Generic.Menu.Item>
+        {/*
+          "끄기"는 **상태가 아니라 동작**이다 — 형광이 켜져 있을 때만 노출한다.
+          꺼진 상태에서 `checked`로 보이면 ⓐ 현재 상태를 잘못 알리고, ⓑ 그걸 누르면 **바탕색 메뉴로
+          넣은 `:t{bg=}`만** 파괴된다(형광과 무관한 색인데 형광 메뉴가 지운다). 항목 자체를 감추면
+          그 경로가 닫힌다.
+          남는 엣지(의도된 것): 형광이 켜진 채 바탕색 메뉴로 색을 넣었다면 "끄기"가 그 색도 함께
+          걷는다 — 위 주석대로 `==`와 `:t{bg=}`는 **같은 시각 채널의 두 표기**라서 그게 기대에 맞다.
+        */}
+        {active && (
+          <Components.Generic.Menu.Item
+            checked={false}
+            onClick={() => {
+              clearMicroMark(editor, 'highlight')
+              setTextStyleKey(editor, 'bg', null)
+              refocus(() => editor.focus())
+            }}
+          >
+            형광펜 끄기
+          </Components.Generic.Menu.Item>
+        )}
         <Components.Generic.Menu.Item checked={active && !view.bg} onClick={() => pick(null)}>
           기본 노랑
         </Components.Generic.Menu.Item>
@@ -348,7 +377,7 @@ export default function NoteFormattingToolbar() {
 
   return (
     <FormattingToolbar>
-      {getFormattingToolbarItems()}
+      {defaultToolbarItemsWithoutUnderline()}
       <MicroMarkButton key="microUnderline" mark="underline" blocked={blocked} />
       <HighlightMenu key="microHighlight" blocked={blocked} />
       <MicroMarkButton key="microSpoiler" mark="spoiler" blocked={blocked} />

@@ -3,18 +3,20 @@
 // 실행: node frontend/scripts/s34-paste-check.mjs
 //   (s33 관례 계승 — TS 모듈은 jiti로 불러온다. 신규 설치 0.)
 //
-// 검사 대상은 **순수 함수 3단** 뿐이다(에디터 인스턴스 불필요 — `paste.ts`의 실제 삽입 로직은
-// BlockNote 편집기가 있어야 하므로 이 스크립트로는 검증하지 않는다. `collapseMicroMarks` 자체의
-// 정확성은 이미 s33이 961건으로 검증한다):
-//
-//   htmlToDialectMarkdown(html) → markdownToBlocks(md) → toBlockNoteBlocks(doc)
-//
-// Word 표본·웹 표본 2종으로 돌려 3가지를 확인한다:
-//   ⓐ 서식이 방언 Markdown으로 보존되는가(굵게/기울임/밑줄/형광펜/코드/링크/목록/인용/표/색)
-//   ⓑ 매핑 밖 태그(span·font·head·style·o:p 등)는 텍스트로만 남고 태그 자체는 사라지는가
-//   ⓒ 원시 HTML 문자열이 결과 어디에도(방언 Markdown 문자열 · 어댑터 블록 JSON · 그 블록을 다시
-//     투영한 Markdown) 들어가지 않는가 — script 태그 내용물까지 포함해서.
-import { createRequire } from 'node:module'
+// 검사 두 갈래:
+//   A. **순수 함수 3단**(에디터 인스턴스 불필요) — `collapseMicroMarks` 자체의 정확성은 이미
+//      s33이 961건으로 검증하므로 여기서는 변환 파이프라인만 본다:
+//        htmlToDialectMarkdown(html) → markdownToBlocks(md) → toBlockNoteBlocks(doc)
+//      Word 표본·웹 표본 2종으로 돌려 3가지를 확인한다:
+//        ⓐ 서식이 방언 Markdown으로 보존되는가(굵게/기울임/밑줄/형광펜/코드/링크/목록/인용/표/색)
+//        ⓑ 매핑 밖 태그(span·font·head·style·o:p 등)는 텍스트로만 남고 태그 자체는 사라지는가
+//        ⓒ 원시 HTML 문자열이 결과 어디에도(방언 Markdown 문자열 · 어댑터 블록 JSON · 그 블록을
+//          다시 투영한 Markdown) 들어가지 않는가 — script 태그 내용물까지 포함해서.
+//   B. **`createPasteHandler` 자체의 분기 회귀 고정**(검토 경미-1) — 가짜 `editor`·`clipboardData`
+//      로 실제 핸들러 함수를 호출해, 비이미지 파일이 섞여도 같은 클립보드의 HTML/평문 본문이
+//      조용히 버려지지 않는지를 확인한다(에디터 인스턴스 없이도 `createPasteHandler`가 순수하게
+//      호출 가능한 함수이므로 실제 BlockNoteEditor를 띄우지 않고 duck-typing 목으로 검증한다).
+import Module, { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { JSDOM } from 'jsdom'
@@ -32,17 +34,42 @@ global.DOMParser = jsdomWindow.DOMParser
 // `nodeToMarkdown`은 `Node.TEXT_NODE`/`Node.ELEMENT_NODE` 상수도 참조한다 — 같은 창의 `Node`를 얹는다.
 global.Node = jsdomWindow.Node
 
+// `paste.ts`는 `./schema`(BlockNote 스키마 배선)를 실행 시점에 import한다 — 그 모듈이 커스텀
+// 스펙(`.tsx`)·`@blocknote/math-block`(katex CSS)을 끌고 온다. s33 스크립트와 같은 이유로 같은
+// 스텁·트랜스파일 배선이 필요하다(신규 설치 0 — 전부 이미 있는 devDependency).
+Module._extensions['.css'] = (mod) => {
+  mod.exports = {}
+}
+
 const require = createRequire(path.join(FRONT, 'package.json'))
+const jitiBabelTransform = require('jiti/dist/babel')
+const ts = require('typescript')
+
 const jiti = require('jiti')(path.join(FRONT, 'scripts/_loader.cjs'), {
   interopDefault: true,
   esmResolve: true,
   cache: false,
   requireCache: false,
+  extensions: ['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.tsx', '.jsx', '.json'],
+  transform(topts) {
+    if (!/\.[cm]?tsx$/.test(topts.filename ?? '')) return jitiBabelTransform(topts)
+    const out = ts.transpileModule(topts.source, {
+      fileName: topts.filename,
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2020,
+        module: ts.ModuleKind.CommonJS,
+        jsx: ts.JsxEmit.ReactJSX,
+        esModuleInterop: true,
+      },
+    })
+    return { code: out.outputText }
+  },
 })
 
 const { htmlToDialectMarkdown } = jiti(path.join(SRC, 'utils/htmlPasteMarkdown.ts'))
 const { markdownToBlocks, blocksToMarkdown } = jiti(path.join(SRC, 'editor2/transform/index.ts'))
 const { toBlockNoteBlocks } = jiti(path.join(SRC, 'editor2/adapter/index.ts'))
+const { createPasteHandler } = jiti(path.join(SRC, 'editor2/blocknote/paste.ts'))
 
 let pass = 0
 let fail = 0
@@ -159,6 +186,157 @@ runSample('웹 표본', WEB_SAMPLE, [
   ['중첩 목록(들여쓰기)', /^ {2}- 중첩 항목$/m],
   ['인용(>)', /^> 인용문입니다\.$/m],
 ])
+
+// ---------------------------------------------------------------- B. createPasteHandler 분기 목 검증
+
+/** 화면 없이 `createPasteHandler`를 호출하기 위한 최소 가짜 편집기 — 호출만 기록한다. */
+function makeFakeEditor() {
+  const calls = { replaceBlocks: [], insertBlocks: [], updateBlock: [], pasteText: [] }
+  const blocks = new Map([['anchor', { id: 'anchor', type: 'paragraph', content: [] }]])
+  const editor = {
+    getTextCursorPosition: () => ({ block: blocks.get('anchor') }),
+    replaceBlocks: (ids, newBlocks) => {
+      calls.replaceBlocks.push({ ids, newBlocks })
+      const inserted = newBlocks.map((b, i) => ({ id: `inserted-${i}`, ...b }))
+      inserted.forEach((b) => blocks.set(b.id, b))
+      return { insertedBlocks: inserted, removedBlocks: [] }
+    },
+    insertBlocks: (newBlocks, _ref, placement) => {
+      calls.insertBlocks.push({ newBlocks, placement })
+      const inserted = newBlocks.map((b, i) => ({ id: `inserted-${i}`, ...b }))
+      inserted.forEach((b) => blocks.set(b.id, b))
+      return inserted
+    },
+    updateBlock: (id, update) => {
+      calls.updateBlock.push({ id, update })
+      return { id, ...update }
+    },
+    getBlock: (id) => blocks.get(id),
+    pasteText: (text) => {
+      calls.pasteText.push(text)
+      return true
+    },
+  }
+  return { editor, calls }
+}
+
+function makeClipboardData({ files = [], html = '', plain = '' }) {
+  return {
+    files,
+    getData: (type) => (type === 'text/html' ? html : type === 'text/plain' ? plain : ''),
+  }
+}
+
+function makeDeps() {
+  const notices = []
+  const uploadCalls = []
+  return {
+    notices,
+    uploadCalls,
+    deps: {
+      runUpload: async (file) => {
+        uploadCalls.push(file)
+        return '/images/fake0123456789ab.png'
+      },
+      beginUploadBatch: () => {},
+      onNotice: (message) => notices.push(message),
+    },
+  }
+}
+
+function insertedBlocksOf(calls) {
+  return calls.replaceBlocks[0]?.newBlocks ?? calls.insertBlocks[0]?.newBlocks ?? []
+}
+
+console.log('== B. createPasteHandler 분기 회귀(검토 경미-1) ==')
+
+// 경미-1 재현 표본: PDF 하나 + text/html 본문이 같은 클립보드에 실려 온 경우(일부 앱의
+// "첨부+본문" 붙여넣기 모사) — 수정 전에는 이미지 분기가 무조건 `return true`로 이벤트를
+// 끝내 HTML 본문이 통째로 사라졌다.
+{
+  const { editor, calls } = makeFakeEditor()
+  const { deps, notices, uploadCalls } = makeDeps()
+  const handler = createPasteHandler(deps)
+  const pdfFile = new File(['pdf-bytes'], 'document.pdf', { type: 'application/pdf' })
+  const clipboardData = makeClipboardData({
+    files: [pdfFile],
+    html: '<p><b>본문이 살아있어야 한다</b></p>',
+  })
+  let defaultCalled = false
+  const result = handler({
+    event: { clipboardData },
+    editor,
+    defaultPasteHandler: () => {
+      defaultCalled = true
+      return true
+    },
+  })
+
+  check(
+    '경미-1: 비이미지 파일이 섞여도 HTML 본문이 삽입된다',
+    calls.replaceBlocks.length === 1 || calls.insertBlocks.length === 1,
+  )
+  check(
+    '경미-1: 삽입된 블록에 본문 텍스트가 담긴다("본문이 살아있어야 한다")',
+    JSON.stringify(insertedBlocksOf(calls)).includes('본문이 살아있어야 한다'),
+  )
+  check('경미-1: 이미지가 아니므로 업로드는 시도되지 않는다', uploadCalls.length === 0)
+  check('경미-1: 건너뛴 파일 안내가 함께 뜬다', notices.some((n) => n.includes('건너뛰었습니다')))
+  check('경미-1: 안내가 배너 1개로만 합쳐져 뜬다(여러 번 덮어쓰지 않는다)', notices.length === 1)
+  check('경미-1: BlockNote 기본 처리(defaultPasteHandler)로 위임하지 않는다', !defaultCalled)
+  check('경미-1: 핸들러가 이벤트를 스스로 처리했다고 보고한다', result === true)
+}
+
+// 같은 결함의 변형: HTML도 없이 비이미지 파일만 있는 경우 — 평문(text/plain)만은 직접 살리고,
+// BlockNote 기본 Files 처리(스키마 밖 file 블록 시도 위험)로는 위임하지 않는다.
+{
+  const { editor, calls } = makeFakeEditor()
+  const { deps, notices, uploadCalls } = makeDeps()
+  const handler = createPasteHandler(deps)
+  const pdfFile = new File(['pdf-bytes'], 'document.pdf', { type: 'application/pdf' })
+  const clipboardData = makeClipboardData({ files: [pdfFile], plain: '파일명.pdf' })
+  let defaultCalled = false
+  const result = handler({
+    event: { clipboardData },
+    editor,
+    defaultPasteHandler: () => {
+      defaultCalled = true
+      return true
+    },
+  })
+
+  check('비이미지 단독(HTML 없음): text/plain을 직접 살린다', calls.pasteText[0] === '파일명.pdf')
+  check('비이미지 단독(HTML 없음): 이미지가 아니므로 업로드는 시도되지 않는다', uploadCalls.length === 0)
+  check(
+    '비이미지 단독(HTML 없음): BlockNote 기본 Files 처리로 위임하지 않는다(스키마 밖 file 블록 회귀 방지)',
+    !defaultCalled,
+  )
+  check('비이미지 단독(HTML 없음): 건너뜀 안내가 뜬다', notices.some((n) => n.includes('건너뛰었습니다')))
+  check('비이미지 단독(HTML 없음): 핸들러가 이벤트를 스스로 처리했다고 보고한다', result === true)
+}
+
+// 대조군: 파일이 아예 없는 "진짜 평문 붙여넣기"는 여전히 기본 동작에 위임한다(Markdown 해석은 끈다).
+{
+  const { editor } = makeFakeEditor()
+  const { deps } = makeDeps()
+  const handler = createPasteHandler(deps)
+  const clipboardData = makeClipboardData({ files: [], plain: '그냥 텍스트' })
+  let capturedOpts
+  const result = handler({
+    event: { clipboardData },
+    editor,
+    defaultPasteHandler: (opts) => {
+      capturedOpts = opts
+      return true
+    },
+  })
+
+  check('대조군(파일 없는 평문): 기본 동작에 위임한다', result === true && capturedOpts !== undefined)
+  check(
+    '대조군(파일 없는 평문): plainTextAsMarkdown:false로 위임한다(서식 오인 방지)',
+    capturedOpts?.plainTextAsMarkdown === false,
+  )
+}
 
 console.log(`\n총 ${pass + fail}건 · 통과 ${pass} · 실패 ${fail}`)
 if (fail > 0) {
