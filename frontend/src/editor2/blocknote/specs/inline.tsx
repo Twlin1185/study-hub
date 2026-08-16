@@ -8,7 +8,10 @@
 // 실측). 그래서 `**굵게 [[DOC-0012]] 안쪽**`·`:t[색 있는 [[DOC-0003]] 칩]{c=blue}` 같은 표본의 서식은
 // 어댑터가 prop(JSON)으로 실어 보내고, 여기서 그 값을 읽어 칠한다(어댑터 `types.ts` 주석 참조).
 import { createReactInlineContentSpec } from '@blocknote/react'
-import type { CSSProperties, ReactNode } from 'react'
+import { useEffect } from 'react'
+import type { CSSProperties, MouseEvent, ReactNode } from 'react'
+import { describeRef, useRefUi } from '../refPicker/RefTitleContext'
+import type { RefKind } from '../refPicker/RefTitleContext'
 import { decodeTextStylePairs, textStyleClasses } from './styles'
 import { interpretTextStyle } from '../../schema/blocks'
 import {
@@ -66,11 +69,13 @@ function Atom({
   styles,
   className,
   title,
+  onClick,
   children,
 }: {
   styles: string | undefined
   className: string
   title?: string
+  onClick?: (event: MouseEvent<HTMLElement>) => void
   children: ReactNode
 }) {
   const attrs = atomStyleAttrs(styles)
@@ -79,6 +84,7 @@ function Atom({
       className={`${className} ${attrs.className}`.trim()}
       style={attrs.style}
       title={title}
+      onClick={onClick}
       data-editor2-atom
     >
       {children}
@@ -95,10 +101,15 @@ const REF_MARK: Record<string, string> = {
   embed: '⧉',
 }
 
-// ---------------------------------------------------------------- 참조 칩(F43 · 규약 C)
+// ---------------------------------------------------------------- 참조 칩(F43 · 규약 A ③)
 //
-// `label: ''` ⇔ 앱 `label === undefined`(라벨 추종형 — 대상 문서 제목을 따라간다). 편집 표면에서는
-// 대상 제목을 조회하지 않고 **자리표시자**로 대상 식별자를 보여 준다(조회·피커는 Phase 2).
+// `label: ''` ⇔ 앱 `label === undefined`(**추종형** — 대상 문서 제목을 따라간다). 제목은 칩이 직접
+// 조회하지 않고 `RefUiContext`에 **등록만** 한다 — 공급자가 `resolve-embeds` 배치 1회로 해석한다
+// (N+1 금지 · §4.19). 해석 전에는 대상 식별자를 그대로 보여 주고(깜빡임 방지), 미해결·삭제 문서는
+// 자리표시자 문구로 바뀐다(문구의 단일 출처 = `describeRef`).
+//
+// 클릭은 **라우팅이 아니라 팝오버**다(규약 A ③) — 편집 중 클릭이 곧바로 문서로 튀면 편집 흐름이
+// 끊긴다. 팝오버가 필요로 하는 "이 칩을 갱신·삭제하는 법"은 칩만 알기 때문에 여기서 콜백으로 싣는다.
 export const refChipInlineSpec = createReactInlineContentSpec(
   {
     type: 'refChip',
@@ -111,14 +122,55 @@ export const refChipInlineSpec = createReactInlineContentSpec(
     content: 'none',
   },
   {
-    render: ({ inlineContent }) => {
+    render: function RefChipRender({ inlineContent, updateInlineContent, editor, node, getPos }) {
       const { refType, target, label, styles } = inlineContent.props
+      const kind: RefKind = refType === 'anchor' || refType === 'embed' ? refType : 'doc'
+      const refUi = useRefUi()
+
+      useEffect(() => {
+        // 추종형(라벨 없음) 문서 참조만 제목이 필요하다 — 앵커는 대상이 곧 제목이다.
+        if (!label && kind !== 'anchor') refUi.requestTitle(target)
+      }, [kind, label, refUi, target])
+
+      const display = describeRef(kind, target, label, refUi.getTitle(target))
+
+      const openMenu = (event: MouseEvent<HTMLElement>) => {
+        if (!refUi.enabled) return
+        event.preventDefault()
+        event.stopPropagation()
+        refUi.openChipMenu({
+          rect: event.currentTarget.getBoundingClientRect(),
+          refType: kind,
+          target,
+          label,
+          update: (next) =>
+            updateInlineContent({
+              type: 'refChip',
+              props: {
+                refType: kind,
+                target: next.target ?? target,
+                label: next.label ?? label,
+                styles,
+              },
+            }),
+          remove: () => {
+            const pos = getPos()
+            if (typeof pos === 'number') editor.transact((tr) => tr.delete(pos, pos + node.nodeSize))
+          },
+        })
+      }
+
       return (
-        <Atom styles={styles} className={`${CHIP_BASE} text-accent`} title={`참조 — ${target}`}>
+        <Atom
+          styles={styles}
+          className={`${CHIP_BASE} cursor-pointer ${display.placeholder ? 'border-dashed text-muted' : 'text-accent'}`}
+          title={display.title}
+          onClick={openMenu}
+        >
           <span aria-hidden className="shrink-0 text-muted">
-            {REF_MARK[refType] ?? REF_MARK.doc}
+            {REF_MARK[kind] ?? REF_MARK.doc}
           </span>
-          <span className="truncate">{label || target}</span>
+          <span className="truncate">{display.text}</span>
         </Atom>
       )
     },

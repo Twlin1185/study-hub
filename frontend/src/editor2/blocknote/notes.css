@@ -70,3 +70,24 @@
 .note-editor-frame [data-content-type='sourceFallback'] pre {
   max-width: 100%;
 }
+
+/* ---------------------------------------------------------------- stage-34 Phase 2-B 방언 툴바·참조 UI
+   여기에도 **색 선언이 없다** — 배치·쌓임 순서만 다룬다(색은 전부 Tailwind 토큰 유틸). */
+
+/* 방언 툴바는 한글 라벨 버튼이 많다. 라벨이 줄바꿈되지 않게만 하고, 가로 넘침은 BlockNote 기본
+   (`.bn-toolbar { overflow-x: auto }`)이 그대로 처리한다 — 모바일에서 툴바가 옆으로 스크롤된다. */
+.bn-toolbar .mantine-Button-root {
+  white-space: nowrap;
+}
+
+/* 참조 칩·문서 임베드 카드는 클릭 = 팝오버(규약 A ③)이므로 손가락 모양을 준다. */
+.note-editor-frame [data-inline-content-type='refChip'],
+.note-editor-frame [data-content-type='docEmbed'] {
+  cursor: pointer;
+}
+
+/* 참조 피커·칩 팝오버는 `document.body` 포털이다(툴바가 닫혀도 살아 있어야 하므로).
+   BlockNote 부유 UI는 z-index 40대를 쓰므로 그 위에 둔다. */
+.editor2-ref-panel {
+  z-index: 60;
+}

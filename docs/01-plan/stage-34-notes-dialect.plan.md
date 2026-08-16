@@ -193,16 +193,24 @@
       → Phase 1에서 **상수·순수 함수·역방향 정규화까지** 완료(`adapter/marks.ts` — `MICRO_MARKS` ·
       `activeMicroMarks` · `collapseMicroMarks` / `fromBlockNoteResult().microMarkCollapses`로 집계 보고).
       **툴바 커맨드 래퍼(강제 지점 ①)·붙여넣기 접기(③)는 Phase 2** — 그 둘이 붙어야 이 항목이 닫힌다.
+      → Phase 2-B에서 **강제 지점 ① 완료**(`blocknote/toolbar/microMarks.ts` — `toggleMicroMark`/`applyMicroMark`가
+      `MICRO_MARKS`만 보고 라디오 대체 · 툴바 버튼 3종과 `useMicroMarkShortcuts.ts`(Mod+U 가로채기)가 그 한 곳만
+      호출한다. 기본 `underline` 단축키를 가로채지 않으면 툴바만 규약을 지키고 단축키는 우회한다). **남은 것 = ③ 붙여넣기 접기.**
 - [x] G-3. **커스텀 블록 3종** — callout(variant 고정 목록 + title 검증 — 규약 E) · docEmbed(원자·읽기 전용 카드) ·
       sourceFallback(원문 Markdown을 **그대로 보존**하는 읽기 전용 블록 — 편집 불가·삭제만 가능).
       → Phase 1 완료(`editor2/blocknote/specs/blocks.tsx`). variant 고정 목록은 `CALLOUT_VARIANTS`
       (note·warn·tip·fold·hide)로 두되 **propSchema에 values 화이트리스트를 걸지 않았다** — 목록 밖
       variant를 가진 기존 데이터(`:::노트[…]`)를 그대로 보존해야 하기 때문이다(값을 바꾸지 않는 것이 계약).
       입력 UI만 고정 목록으로 좁힌다(Phase 2·M35). `attrs`는 `t`와 같은 이유로 통짜 JSON 보존.
-- [ ] G-4. **참조 칩 인라인 스펙 + 피커 UX(규약 A ①~④ 전건)** — 3종 진입·검색·최근 문서·앵커는 heading 선택·
+- [x] G-4. **참조 칩 인라인 스펙 + 피커 UX(규약 A ①~④ 전건)** — 3종 진입·검색·최근 문서·앵커는 heading 선택·
       추종형/지정 라벨·자리표시자·칩 팝오버(문서 열기/라벨 편집/대상 변경/삭제). 제목 조회 = `resolve-embeds` 배치.
       → Phase 1에서 **인라인 스펙·렌더(자리표시자)까지** 완료(`specs/inline.tsx` `refChipInlineSpec`).
-      **피커·팝오버 UX는 Phase 2**.
+      → Phase 2-B에서 **피커·팝오버 UX 완료**(`blocknote/refPicker/**`): 3종 공용 팝오버 1개(`RefPickerPanel`) ·
+      툴바 [참조] + 슬래시 `/참조`·`/임베드`·`/앵커`(기본 항목에 **덧붙이기만**) · `GET /api/search` 250ms 디바운스 ·
+      최근 문서 = `editor2/lib/recentDocs.ts`(localStorage, 신규 API 0 — **"노트에서 최근 참조한 문서"**라는 한계 명시) ·
+      앵커는 `editor.document`의 heading에서 선택하고 도메인 밖 제목은 **비활성 + 사유**로 노출 ·
+      선택 텍스트는 통과 시 라벨 승계, 미통과 시 **선택을 그대로 둔 채** 사유 + 라벨 입력란 + [라벨 없이 삽입]/[취소]
+      (조용한 삭제 0 — DoD 4) · 제목 추종은 `RefUiProvider`가 30ms 배치로 `resolveEmbeds` **1회**(N+1 0, 세션 메모리 캐시).
 - [x] G-5. **`editor2/schema/refDomain.ts`(규약 B)** — `isSafeRefText` 신설 + **`s32-roundtrip-blocks.mjs` 계열 ⑥이
       이 함수를 import하도록 전환**(도메인 단일 출처) + s32 **723건 전건 재통과 확인**.
       → 계열 ⑥-b 신설(기존 표는 그대로 두고 함수 판정 일치 + "통과시킨 라벨은 반드시 왕복" 계약을
@@ -243,8 +251,8 @@
 
 ### 3. 입력 파이프라인
 
-- [ ] G-10. **붙여넣기(규약 G)** — HTML 화이트리스트 경로 결선(기존 변환기 import만) · plain은 평문 · 이미지 분기.
-- [ ] G-11. **이미지 3진입점(규약 H)** — `uploadFile` 훅 1곳 + 순차 루프 + 진행/실패 표시(`role="status"`) +
+- [x] G-10. **붙여넣기(규약 G)** — HTML 화이트리스트 경로 결선(기존 변환기 import만) · plain은 평문 · 이미지 분기.
+- [x] G-11. **이미지 3진입점(규약 H)** — `uploadFile` 훅 1곳 + 순차 루프 + 진행/실패 표시(`role="status"`) +
       크기 조절 왕복(`previewWidth` ↔ `{w=}`).
 
 ### 4. 패리티·게이트

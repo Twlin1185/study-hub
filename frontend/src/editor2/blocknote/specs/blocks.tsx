@@ -5,7 +5,10 @@
 // 여기 render는 머리(라벨)와 테두리만 그리고, 자식 블록은 편집기가 중첩 그룹으로 렌더한다
 // (`notes.css`가 그 그룹에 콜아웃 여백을 준다).
 import { createReactBlockSpec } from '@blocknote/react'
+import { useEffect } from 'react'
+import type { MouseEvent } from 'react'
 import { CALLOUT_VARIANTS } from '../../adapter'
+import { describeRef, useRefUi } from '../refPicker/RefTitleContext'
 
 /** 콜아웃 **고정 목록**(규약 E — 자유 입력 UI 금지). 목록 밖 값은 **보존만** 하고 기본 스타일로 표시한다. */
 const CALLOUT_STYLE: Record<string, { border: string; text: string; icon: string; label: string }> = {
@@ -52,8 +55,8 @@ export const createCalloutBlockSpec = createReactBlockSpec(
 
 // ---------------------------------------------------------------- 문서 임베드(`![[DOC-0007]]`)
 //
-// 원자·읽기 전용 카드. 편집 표면에서는 대상 문서를 조회하지 않고 식별자만 보여 준다(조회·피커는
-// Phase 2·M35 범위). `label: ''` ⇔ 앱 `label === undefined`(라벨 추종형 — 규약 C).
+// 원자·읽기 전용 카드. `label: ''` ⇔ 앱 `label === undefined`(**추종형** — 규약 A ③).
+// 제목 추종·자리표시자·클릭 팝오버는 참조 칩과 **같은 규칙**을 쓴다(`describeRef`·`RefUiContext` 공유).
 export const createDocEmbedBlockSpec = createReactBlockSpec(
   {
     type: 'docEmbed',
@@ -64,16 +67,51 @@ export const createDocEmbedBlockSpec = createReactBlockSpec(
     content: 'none',
   },
   {
-    render: ({ block }) => (
-      <div className="my-1 flex w-full items-center gap-2 rounded-lg border border-dashed border-border bg-surface-raised px-3 py-2 text-sm">
-        <span aria-hidden className="text-muted">
-          ⧉
-        </span>
-        <span className="font-medium text-accent">{block.props.target}</span>
-        {block.props.label ? <span className="truncate text-primary">{block.props.label}</span> : null}
-        <span className="ml-auto shrink-0 text-xs text-muted">문서 임베드</span>
-      </div>
-    ),
+    render: function DocEmbedRender({ block, editor }) {
+      const { target, label } = block.props
+      const refUi = useRefUi()
+
+      useEffect(() => {
+        if (!label) refUi.requestTitle(target)
+      }, [label, refUi, target])
+
+      const display = describeRef('embed', target, label, refUi.getTitle(target))
+
+      const openMenu = (event: MouseEvent<HTMLElement>) => {
+        if (!refUi.enabled) return
+        event.preventDefault()
+        event.stopPropagation()
+        refUi.openChipMenu({
+          rect: event.currentTarget.getBoundingClientRect(),
+          refType: 'embed',
+          target,
+          label,
+          update: (next) =>
+            editor.updateBlock(block, {
+              type: 'docEmbed',
+              props: { target: next.target ?? target, label: next.label ?? label },
+            }),
+          remove: () => editor.removeBlocks([block]),
+        })
+      }
+
+      return (
+        <div
+          onClick={openMenu}
+          className="my-1 flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border bg-surface-raised px-3 py-2 text-sm"
+          title={display.title}
+        >
+          <span aria-hidden className="text-muted">
+            ⧉
+          </span>
+          <span className="shrink-0 font-medium text-accent">{target}</span>
+          <span className={`truncate ${display.placeholder ? 'text-muted' : 'text-primary'}`}>
+            {display.text === target ? '' : display.text}
+          </span>
+          <span className="ml-auto shrink-0 text-xs text-muted">문서 임베드</span>
+        </div>
+      )
+    },
   },
 )
 
