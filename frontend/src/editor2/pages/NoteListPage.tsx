@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { emptyDocument } from '../schema/blocks'
+import { useNoteDocumentTitle } from '../lib/useNoteDocumentTitle'
 import {
   parseServerDate,
   useCreateNote,
@@ -34,6 +35,8 @@ function relativeTime(iso: string): string {
 }
 
 export default function NoteListPage() {
+  // 탭 제목을 기존 화면과 구분되게 — 개발 중 두 창을 나란히 열어 두기 위함.
+  useNoteDocumentTitle()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [q, setQ] = useState('')
