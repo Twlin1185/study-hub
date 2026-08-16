@@ -41,3 +41,32 @@
     padding-inline: 12px;
   }
 }
+
+/* ---------------------------------------------------------------- stage-34 방언 스펙 마감
+   색은 전부 Tailwind 토큰 유틸(스펙 컴포넌트)이 담당한다 — 여기에는 **색 선언이 없다**
+   (불변 규칙 5). 이 절은 편집 표면에서만 필요한 배치·상호작용만 다룬다. */
+
+/* 원자 인라인(참조 칩·문단 안 이미지·원문 보존·줄바꿈) — 한 단위로 선택·삭제되게 한다. */
+.note-editor-frame [data-editor2-atom] {
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* 콜아웃 본문은 BlockNote **자식 블록**으로 담긴다(앱 `CalloutBlock.children`과 1:1).
+   자식 그룹을 콜아웃 머리 아래로 붙여 하나의 상자처럼 보이게 한다. */
+.note-editor-frame [data-content-type='callout'] + .bn-block-group {
+  margin-top: -4px;
+  padding-left: 14px;
+  border-left: 3px solid var(--border);
+  margin-left: 6px;
+}
+
+/* 수식(@blocknote/math-block) — KaTeX 출력이 편집 표면 글자색을 따르게 한다. */
+.note-editor-frame .katex {
+  color: var(--text);
+}
+
+/* 원문 보존 블록의 코드 표기는 가로 스크롤로 흘려보낸다(줄바꿈 강제 금지 — 원문 유지). */
+.note-editor-frame [data-content-type='sourceFallback'] pre {
+  max-width: 100%;
+}

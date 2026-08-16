@@ -22,7 +22,7 @@
 //                   실리는지 검증한다. stage-34에서 커스텀 스펙을 얹다 캐스트가 깨지면 여기서 깨진다.
 //                   (서버 유틸은 **스크립트 전용**이다 — `src/**` 어디에서도 import하지 않으므로
 //                    런타임 번들에 들어가지 않는다.)
-import { createRequire } from 'node:module'
+import Module, { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { ServerBlockNoteEditor } from '@blocknote/server-util'
@@ -33,18 +33,47 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const FRONT = path.resolve(HERE, '..')
 const SRC = path.join(FRONT, 'src')
 
+// `@blocknote/math-block`(stage-34 G-7 채택)은 CJS 엔트리에서 `katex/dist/katex.min.css`를
+// require한다 — 번들러(Vite)는 처리하지만 Node/jiti는 CSS를 JS로 파싱하려다 깨진다.
+// **이 스크립트 전용** 스텁을 등록한다(런타임 번들에는 영향이 0이다).
+Module._extensions['.css'] = (mod) => {
+  mod.exports = {}
+}
+
 const require = createRequire(path.join(FRONT, 'package.json'))
+
+// stage-34 커스텀 스펙은 `.tsx`다(React 렌더 컴포넌트). jiti 1.x는 `.ts/.mts/.cts`만 TypeScript로
+// 보고 JSX 변환 플러그인도 갖고 있지 않아 `.tsx`를 파싱하지 못한다(실측). 그래서 `.tsx`만
+// **이미 있는 devDependency인 typescript**로 직접 트랜스파일하고 나머지는 jiti 기본 변환에 맡긴다.
+// (스크립트 전용 배선 — 런타임 번들·Vite 경로에는 영향이 0이다.)
+const jitiBabelTransform = require('jiti/dist/babel')
+const ts = require('typescript')
+
 const jiti = require('jiti')(path.join(FRONT, 'scripts/_loader.cjs'), {
   interopDefault: true,
   esmResolve: true,
   cache: false,
   requireCache: false,
+  extensions: ['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.tsx', '.jsx', '.json'],
+  transform(topts) {
+    if (!/\.[cm]?tsx$/.test(topts.filename ?? '')) return jitiBabelTransform(topts)
+    const out = ts.transpileModule(topts.source, {
+      fileName: topts.filename,
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2020,
+        module: ts.ModuleKind.CommonJS,
+        jsx: ts.JsxEmit.ReactJSX,
+        esModuleInterop: true,
+      },
+    })
+    return { code: out.outputText }
+  },
 })
 
 const transform = jiti(path.join(SRC, 'editor2/transform/index.ts'))
 const { markdownToBlocks, blocksToMarkdown, parseToMdast } = transform
 const adapter = jiti(path.join(SRC, 'editor2/adapter/index.ts'))
-const { toBlockNoteBlocks, fromBlockNoteBlocks } = adapter
+const { toBlockNoteBlocks, fromBlockNoteBlocks, fromBlockNoteResult, collapseMicroMarks, MICRO_MARKS } = adapter
 // 계열 ⑤ — 화면(NoteEditPage)이 쓰는 **그 스키마 모듈 그대로**를 불러온다(스펙 자체 선언 금지:
 // 별도 구성이면 캐스트·스펙 회귀를 못 잡는다). 스타일 import는 화면 쪽으로 옮겨 두어 이 모듈이
 // DOM·번들러 없이 로드된다(`blocknote/schema.ts` 머리말 주석 참조).
@@ -79,46 +108,17 @@ function mark(label) {
 // **방언·표현 불가로 분류돼야 하는 표본 전수**. 여기 없는 표본은 전부 "코어"여야 하며,
 // 코어 표본은 계열 ①·②를 통과해야 한다. 분류가 바뀌면(코어가 방언으로 흘러가거나 그 반대)
 // 아래 두 검사가 동시에 깨진다 — 어댑터의 범위를 기계로 못박는 장치다.
-const EXPECTED_DIALECT = new Map([
-  // ---- 방언(형광펜·스포일러·:t·참조 칩·임베드·수식·콜아웃·원문 보존) — stage-34 이식 대상
-  [':t 단일', 'style:t'],
-  [':t 다중', 'style:t'],
-  [':t hex', 'style:t'],
-  [':t 화이트리스트 밖', 'style:t'],
-  [':t 중첩 원본', 'style:t'],
-  ['인라인 수식', 'inline:inlineMath'],
-  // `$100 … $200`은 remark-math가 인라인 수식으로 읽는다(M32 기존 해석 — 어댑터가 만든 규칙이 아니다).
-  ['달러 평문', 'inline:inlineMath'],
-  ['링크 제목', 'link:title'],
-  ['마이크로 밑줄', null], // ++밑줄++ 은 코어 underline으로 이식된다 — 아래에서 코어로 재분류
-  ['마이크로 형광펜', 'style:highlight'],
-  ['마이크로 스포일러', 'style:spoiler'],
-  ['마이크로 3종 혼재', 'style:highlight'],
-  // `==**x**==`·`||…||` 안쪽은 remarkStudy가 다시 파싱하지 않아 표식이 **평문**이다 → 코어.
-  ['마이크로 안 서식', null],
-  ['마이크로+굵게 중첩', null],
-  ['불릿 목록', 'style:highlight'],
-  ['순서 목록', 'inline:refChip'],
-  ['인용 여러 줄', 'style:highlight'],
-  ['여러 줄 문단', 'style:highlight'],
-  ['링크 칩', 'inline:refChip'],
-  ['링크 칩 별칭', 'inline:refChip'],
-  ['앵커 칩', 'inline:refChip'],
-  ['문단 안 임베드', 'block:docEmbed'],
-  ['참조+서식 혼재', 'inline:refChip'],
-  ['이미지 혼재 문단', 'inline:inlineImage'],
-  ['콜아웃', 'block:callout'],
-  ['블록 수식', 'block:mathBlock'],
-  ['경성 줄바꿈', 'inline:hardBreak'],
-])
-// 위 Map에서 값이 null인 항목은 "코어"라는 뜻이다(가독성을 위해 자리만 남긴다).
-for (const [label, kind] of [...EXPECTED_DIALECT]) if (kind === null) EXPECTED_DIALECT.delete(label)
+//
+// **stage-34에서 이 표가 대폭 축소됐다** — 방언 팔레트(형광펜·스포일러·`:t`·참조 칩·문단 안 이미지·
+// 원문 보존·수식·콜아웃·문서 임베드·경성 줄바꿈)가 커스텀 스펙으로 이식돼 **코어로 편입**됐고,
+// 규약 I 흡수 4종(`inline:hardBreak`·`link:title`·`image:title`/`height`·`block:meta`)도 보존 경로가
+// 생겨 보고가 사라졌다. 남는 것은 **R34 판정 대기 3종뿐**이다(임의 흡수 금지 — 사용자 판정 대기):
+//   · `listItem:spread` · `listItem:groupBreak` — 평평한 목록 모델에 자리가 없다(prop 추가 금지)
+//   · `table:align` — 사이드카로 **왕복 보존은 하되** 보고는 유지한다(정렬 편집 UI = M35)
+const EXPECTED_DIALECT = new Map()
 
-// BLOCK_SAMPLES 쪽 방언·표현 불가 표본
+// BLOCK_SAMPLES 쪽 — R34 판정 대기 3종만 남는다.
 for (const [label, kind] of [
-  ['이미지 크기 혼재 문단', 'inline:inlineImage'],
-  ['이미지 크기 평문(이스케이프)', 'inline:inlineImage'],
-  ['체크리스트 중첩', 'style:highlight'],
   ['목록 안 다중 블록', 'listItem:spread'],
   ['느슨한 목록', 'listItem:spread'],
   ['인접 목록 분리(마커 변경)', 'listItem:groupBreak'],
@@ -126,43 +126,7 @@ for (const [label, kind] of [
   ['인접 목록 3연속 분리', 'listItem:groupBreak'],
   ['인접 목록 분리 + 시작 번호', 'listItem:groupBreak'],
   ['중첩 안 인접 목록 분리', 'listItem:groupBreak'],
-  ['콜아웃 다중 블록', 'block:callout'],
-  ['콜아웃 안 코드', 'block:callout'],
-  ['콜아웃 라벨 없음', 'block:callout'],
-  ['접기 directive', 'block:callout'],
   ['표 정렬', 'table:align'],
-  ['표 안 서식', 'inline:refChip'],
-  ['블록 임베드 단독', 'block:docEmbed'],
-  ['블록 임베드 별칭', 'block:docEmbed'],
-  ['임베드 사이 문단', 'block:docEmbed'],
-  ['헤딩 안 참조', 'inline:refChip'],
-  ['블록 수식 여러 줄', 'block:mathBlock'],
-  ['이미지 제목', 'image:title'],
-  ['앵커 칩 별칭', 'inline:refChip'],
-  ['참조 칩 서식 안', 'inline:refChip'],
-  [':t 안 참조', 'style:t'],
-  [':t 부분 겹침', 'style:t'],
-  ['형광 안 :t', 'style:highlight'],
-  ['nbsp + 서식 혼재', 'style:highlight'],
-  [':t 비-ASCII 속성 키', 'style:t'],
-  [':t 속성 키 기호', 'style:t'],
-  [':t 속성 키 라틴확장·이모지', 'style:t'],
-  [':t 속성 빈 값', 'style:t'],
-  [':t 속성 값 인용 필요', 'style:t'],
-  [':t 속성 값 백슬래시', 'style:t'],
-  [':t 속성 값 기호', 'style:t'],
-  [':t 속성 중복 키', 'style:t'],
-  [':t 속성 + 팔레트 혼재', 'style:t'],
-  ['HTML 원시 블록', 'block:sourceFallback'],
-  ['각주 정의', 'block:sourceFallback'],
-  ['콜아웃 비-ASCII 속성 키', 'block:callout'],
-  ['콜아웃 속성 값 인용', 'block:callout'],
-  ['콜아웃 이름 비-ASCII', 'block:callout'],
-  ['콜아웃 이름 밑줄·하이픈', 'block:callout'],
-  ['콜아웃 라벨 내부 연속 공백', 'block:callout'],
-  ['콜아웃 라벨 내부 탭', 'block:callout'],
-  ['콜아웃 라벨 내부 유니코드 공백', 'block:callout'],
-  ['콜아웃 라벨 기호', 'block:callout'],
 ]) {
   EXPECTED_DIALECT.set(label, kind)
 }
@@ -180,7 +144,8 @@ const dialectKinds = new Map()
 
 for (const [label, src] of CORPUS) {
   const doc1 = markdownToBlocks(src)
-  const { blocks: bn, unsupported } = toBlockNoteBlocks(doc1)
+  // 사이드카(규약 I 흡수분)는 화면이 로드→저장 사이에 들고 있는 값이다 — 왕복 검증도 그대로 넘긴다.
+  const { blocks: bn, unsupported, sidecar } = toBlockNoteBlocks(doc1)
   const expectedKind = EXPECTED_DIALECT.get(label)
 
   // ③ 분류 고정 — 기대와 실제(미지원 보고 유무)가 일치하는가.
@@ -214,7 +179,7 @@ for (const [label, src] of CORPUS) {
   coreCount += 1
 
   // ① 블록 동등(id 제외)
-  const doc2 = fromBlockNoteBlocks(bn)
+  const doc2 = fromBlockNoteBlocks(bn, sidecar)
   const want = stable(stripIds(doc1.blocks))
   const got = stable(stripIds(doc2.blocks))
   const okBlocks = want === got
@@ -231,7 +196,7 @@ for (const [label, src] of CORPUS) {
 
   // ②-b 고정점 — 왕복 결과를 한 번 더 돌려도 바이트 동일.
   const bn2 = toBlockNoteBlocks(doc2)
-  const md3 = blocksToMarkdown(fromBlockNoteBlocks(bn2.blocks))
+  const md3 = blocksToMarkdown(fromBlockNoteBlocks(bn2.blocks, bn2.sidecar))
   check(`[고정점] ${label}`, md2 === md3, `1차=${JSON.stringify(md2)} 2차=${JSON.stringify(md3)}`)
 }
 console.log(`  코어 표본 ${coreCount}종 · 방언/표현 불가 표본 ${dialectCount}종 (전체 ${CORPUS.length}종)`)
@@ -241,27 +206,94 @@ mark('①·② 코퍼스 코어 왕복·정규형·고정점 + ③ 분류/사유
 
 // ---------------------------------------------------------------- ③-d 사유별 최소 표본(손실 0 계약)
 
-console.log('== ③ 손실 0: 블록에서 출발한 방언·표현 불가 입력이 전부 명시 보고되는가 ==')
+console.log('== ③ 손실 0: 방언 이식분은 무손실 왕복 · 남은 제약만 명시 보고되는가 ==')
 const t = (text, styles) => (styles ? { type: 'text', text, styles } : { type: 'text', text })
 const p = (content) => ({ id: 'x', type: 'paragraph', content })
-const UNSUPPORTED_CASES = [
-  ['형광펜 스타일', p([t('형광', { highlight: true })]), 'style:highlight'],
-  ['스포일러 스타일', p([t('가림', { spoiler: true })]), 'style:spoiler'],
-  [':t 스타일', p([t('색', { t: [['c', 'red']] })]), 'style:t'],
-  ['참조 칩', p([{ type: 'refChip', ref: 'doc', target: 'DOC-0012' }]), 'inline:refChip'],
-  ['인라인 수식', p([{ type: 'inlineMath', value: 'a^2' }]), 'inline:inlineMath'],
-  ['문단 안 이미지', p([{ type: 'inlineImage', url: '/images/x.png', alt: 'c' }]), 'inline:inlineImage'],
-  ['원문 보존 인라인', p([{ type: 'inlineFallback', markdown: '<b>x</b>', nodeType: 'html' }]), 'inline:inlineFallback'],
-  ['경성 줄바꿈', p([t('첫'), { type: 'hardBreak' }, t('둘')]), 'inline:hardBreak'],
+
+// ③-d ① **방언 팔레트 + 규약 I 흡수 4종**: 미지원 보고가 **0건**이고 왕복이 무손실이어야 한다
+// (stage-34 DoD 2 — "방언에는 더 이상 미지원이 없다"). 실제 스키마 적재(⑤ 경로)까지 통과시켜
+// 커스텀 스펙 prop이 진짜로 살아남는지 함께 본다.
+const DIALECT_ROUNDTRIP_CASES = [
+  ['형광펜 스타일', p([t('형광', { highlight: true })])],
+  ['스포일러 스타일', p([t('가림', { spoiler: true })])],
+  [':t 스타일', p([t('색', { t: [['c', 'red']] })])],
+  [':t 화이트리스트 밖·중복 키 보존', p([t('값', { t: [['c', 'rebeccapurple'], ['키', '값'], ['k', '1'], ['k', '2']] })])],
+  ['마이크로 + CommonMark 중첩', p([t('굵은 형광', { bold: true, highlight: true })])],
+  ['참조 칩(라벨 추종형)', p([{ type: 'refChip', ref: 'doc', target: 'DOC-0012' }])],
+  ['참조 칩(지정 라벨)', p([{ type: 'refChip', ref: 'doc', target: 'DOC-0012', label: '다른 이름' }])],
+  ['앵커 칩', p([{ type: 'refChip', ref: 'anchor', target: '절 제목' }])],
+  ['문단 안 임베드 칩', p([{ type: 'refChip', ref: 'embed', target: 'DOC-0007' }])],
+  ['서식 걸린 참조 칩', p([{ type: 'refChip', ref: 'doc', target: 'DOC-0003', styles: { bold: true, t: [['c', 'blue']] } }])],
+  ['인라인 수식', p([{ type: 'inlineMath', value: 'a^2' }])],
+  ['문단 안 이미지', p([{ type: 'inlineImage', url: '/images/x.png', alt: 'c' }])],
+  ['문단 안 이미지(제목·크기)', p([{ type: 'inlineImage', url: '/images/x.png', alt: 'c', title: '제목', width: 250, height: 100 }])],
+  ['원문 보존 인라인', p([{ type: 'inlineFallback', markdown: '<b>x</b>', nodeType: 'html' }])],
+  ['경성 줄바꿈', p([t('첫'), { type: 'hardBreak' }, t('둘')])],
+  ['링크 제목(사이드카)', p([{ type: 'link', url: 'https://example.com', title: '타이틀', children: [t('링크')] }])],
+  ['수식 블록', { id: 'x', type: 'mathBlock', value: 'a^2' }],
+  ['수식 블록(여러 줄)', { id: 'x', type: 'mathBlock', value: 'a &= b \\\\\nc &= d' }],
+  ['콜아웃', { id: 'x', type: 'callout', variant: 'note', title: '', children: [p([t('내용')])] }],
   [
-    '링크 제목',
-    p([{ type: 'link', url: 'https://example.com', title: '타이틀', children: [t('링크')] }]),
-    'link:title',
+    '콜아웃(고정 목록 밖 variant·속성 보존)',
+    {
+      id: 'x',
+      type: 'callout',
+      variant: '노트',
+      title: '제목 (괄호)',
+      attrs: [['키', '값'], ['data-x', '공백 있는 값']],
+      children: [p([t('내용')])],
+    },
   ],
+  ['문서 임베드 블록', { id: 'x', type: 'docEmbed', target: 'DOC-0007' }],
+  ['문서 임베드 블록(별칭)', { id: 'x', type: 'docEmbed', target: 'DOC-0007', label: '다른 이름' }],
+  ['원문 보존 블록', { id: 'x', type: 'sourceFallback', markdown: '<div class="x">\n원시 HTML\n</div>', nodeType: 'html' }],
+  ['이미지 제목·높이(prop 확장)', { id: 'x', type: 'image', url: '/images/x.png', alt: '캡션', title: '제목', width: 400, height: 300 }],
+  ['블록 메타(사이드카)', { id: 'x', type: 'paragraph', content: [t('a')], meta: { provenance: { kind: 'ocr', capturedAt: '2026-08-16T00:00:00Z' } } }],
+  [
+    '중첩 안 블록 메타(사이드카 — 평평한 id 맵)',
+    {
+      id: 'x',
+      type: 'listItem',
+      ordered: false,
+      content: [t('상위')],
+      children: [{ id: 'y', type: 'paragraph', content: [t('하위')], meta: { provenance: { kind: 'ocr' } } }],
+    },
+  ],
+  [
+    '인용 첫 문단 끌어올리기 + 사이드카 이관',
+    {
+      id: 'q',
+      type: 'quote',
+      children: [
+        {
+          id: 'q-first',
+          type: 'paragraph',
+          content: [{ type: 'link', url: 'https://example.com', title: '타이틀', children: [t('링크')] }],
+          meta: { provenance: { kind: 'ocr' } },
+        },
+        p([t('둘째 문단')]),
+      ],
+    },
+  ],
+]
+for (const [label, block] of DIALECT_ROUNDTRIP_CASES) {
+  const doc = { version: 1, blocks: [block] }
+  const { blocks, unsupported, sidecar } = toBlockNoteBlocks(doc)
+  check(`[방언-미지원0] ${label}`, unsupported.length === 0, `미지원=${JSON.stringify(unsupported)}`)
+  const want = stable(stripIds(doc.blocks))
+  check(
+    `[방언왕복] ${label}`,
+    stable(stripIds(fromBlockNoteBlocks(blocks, sidecar).blocks)) === want,
+    `원본=${want} 왕복=${stable(stripIds(fromBlockNoteBlocks(blocks, sidecar).blocks))}`,
+  )
+}
+
+// ③-d ② 남아 있는 보고 — 구조적 사유 + **R34 판정 대기 3종**(임의 흡수 금지).
+const UNSUPPORTED_CASES = [
   [
     '링크 안 칩',
     p([{ type: 'link', url: 'https://example.com', children: [{ type: 'refChip', ref: 'doc', target: 'DOC-1' }] }]),
-    'inline:refChip',
+    'link:nested',
   ],
   [
     '링크 안 링크(중첩 링크)',
@@ -274,22 +306,15 @@ const UNSUPPORTED_CASES = [
     ]),
     'link:nested',
   ],
-  ['수식 블록', { id: 'x', type: 'mathBlock', value: 'a^2' }, 'block:mathBlock'],
   [
-    '콜아웃',
-    { id: 'x', type: 'callout', variant: 'note', title: '', children: [p([t('내용')])] },
-    'block:callout',
-  ],
-  ['문서 임베드 블록', { id: 'x', type: 'docEmbed', target: 'DOC-0007' }, 'block:docEmbed'],
-  [
-    '원문 보존 블록',
-    { id: 'x', type: 'sourceFallback', markdown: '<div>x</div>', nodeType: 'html' },
-    'block:sourceFallback',
+    '번호 목록 체크박스',
+    { id: 'x', type: 'listItem', ordered: true, checked: true, content: [t('a')] },
+    'listItem:orderedChecked',
   ],
   [
-    '이미지 제목',
-    { id: 'x', type: 'image', url: '/images/x.png', alt: '캡션', title: '제목' },
-    'image:title',
+    '인라인 수식에 걸린 서식',
+    p([{ type: 'inlineMath', value: 'a^2', styles: { bold: true } }]),
+    'inline:mathStyles',
   ],
   ['느슨한 목록', { id: 'x', type: 'listItem', ordered: false, spread: true, content: [t('a')] }, 'listItem:spread'],
   [
@@ -302,7 +327,6 @@ const UNSUPPORTED_CASES = [
     { id: 'x', type: 'table', align: ['center'], rows: [[[t('머리')]], [[t('셀')]]] },
     'table:align',
   ],
-  ['블록 메타(provenance)', { id: 'x', type: 'paragraph', content: [t('a')], meta: { provenance: { kind: 'ocr' } } }, 'block:meta'],
 ]
 for (const [label, block, kind] of UNSUPPORTED_CASES) {
   const { unsupported } = toBlockNoteBlocks({ version: 1, blocks: [block] })
@@ -313,7 +337,46 @@ for (const [label, block, kind] of UNSUPPORTED_CASES) {
   )
 }
 
-mark('③ 손실 0 — 사유별 최소 표본')
+// ③-d ③ 판정 대기 3종 중 `table:align`은 **보고를 유지하면서도 값은 왕복 보존**된다(사이드카).
+// 열 수가 달라지면(사용자가 열을 넣거나 뺐다) 어긋난 정렬을 되살리지 않는다.
+{
+  const table = { id: 'tb', type: 'table', align: ['center', null], rows: [[[t('머리')], [t('둘')]], [[t('셀')], [t('둘')]]] }
+  const { blocks, sidecar } = toBlockNoteBlocks({ version: 1, blocks: [table] })
+  const back = fromBlockNoteBlocks(blocks, sidecar)
+  check('[사이드카] 표 정렬 왕복 보존', stable(back.blocks[0].align) === stable(['center', null]), `실제=${stable(back.blocks[0].align)}`)
+  const shrunk = JSON.parse(JSON.stringify(blocks))
+  shrunk[0].content.rows = shrunk[0].content.rows.map((row) => ({ cells: row.cells.slice(0, 1) }))
+  const backShrunk = fromBlockNoteBlocks(shrunk, sidecar)
+  check(
+    '[사이드카] 열 수가 바뀌면 정렬을 되살리지 않는다',
+    stable(backShrunk.blocks[0].align) === stable([null]),
+    `실제=${stable(backShrunk.blocks[0].align)}`,
+  )
+}
+
+// ③-e 규약 C — 마이크로 마크 상호 배타. 어댑터는 조용히 접지 않고 **집계 보고**한다.
+{
+  const bn = [
+    {
+      id: '1',
+      type: 'paragraph',
+      content: [{ type: 'text', text: '겹침', styles: { underline: true, highlight: true, spoiler: true } }],
+    },
+  ]
+  const result = fromBlockNoteResult(bn)
+  const styles = result.document.blocks[0].content[0].styles
+  check('[규약C] 마이크로 마크는 1개만 남는다', stable(styles) === stable({ underline: true }), `실제=${stable(styles)}`)
+  check('[규약C] 접은 건수 집계 보고', stable(result.microMarkCollapses) === stable(['highlight', 'spoiler']), `실제=${stable(result.microMarkCollapses)}`)
+  const clean = fromBlockNoteResult([{ id: '1', type: 'paragraph', content: [{ type: 'text', text: 'a', styles: { highlight: true } }] }])
+  check('[규약C] 겹치지 않으면 접지 않는다', clean.microMarkCollapses.length === 0)
+  check(
+    '[규약C] 우선순위는 MARK_ORDER(밑줄 > 형광 > 스포일러)',
+    stable(collapseMicroMarks({ highlight: true, spoiler: true }).styles) === stable({ highlight: true }) &&
+      stable(MICRO_MARKS) === stable(['underline', 'highlight', 'spoiler']),
+  )
+}
+
+mark('③ 손실 0 — 방언 무손실 왕복 · 잔존 보고 · 사이드카 · 규약 C')
 
 // ---------------------------------------------------------------- ④ BN 출발 왕복(실제 저장 경로)
 
@@ -422,15 +485,82 @@ const BN_ORIGIN = [
     // 편집기 형태는 왕복 시 단순 배열 형태로 정규화된다 — 앱 블록 기준으로 비교하므로 동등.
   ],
   ['이미지', [{ id: '1', type: 'image', props: { url: '/images/x.png', caption: '캡션', previewWidth: 400, name: '' } }]],
+  [
+    '이미지(확장 prop — title·height)',
+    [{ id: '1', type: 'image', props: { url: '/images/x.png', caption: '캡션', previewWidth: 400, title: '제목', height: 300, name: '' } }],
+  ],
   ['구분선', [{ id: '1', type: 'divider' }]],
+  // ---- stage-34 방언 스펙(편집기가 실제로 돌려주는 형태)
+  ['수식 블록', [{ id: '1', type: 'mathBlock', props: {}, content: [bt('a^2 + b^2')] }]],
+  ['인라인 수식', [{ id: '1', type: 'paragraph', content: [bt('앞 '), { type: 'math', props: {}, content: 'a^2' }, bt(' 뒤')] }]],
+  [
+    '참조 칩 3종',
+    [
+      {
+        id: '1',
+        type: 'paragraph',
+        content: [
+          { type: 'refChip', props: { refType: 'doc', target: 'DOC-0012', label: '', styles: '' } },
+          bt(' '),
+          { type: 'refChip', props: { refType: 'anchor', target: '절 제목', label: '보이는 이름', styles: '' } },
+          bt(' '),
+          { type: 'refChip', props: { refType: 'embed', target: 'DOC-0007', label: '', styles: '' } },
+        ],
+      },
+    ],
+  ],
+  [
+    '문단 안 이미지',
+    [
+      {
+        id: '1',
+        type: 'paragraph',
+        content: [bt('앞 '), { type: 'inlineImage', props: { url: '/images/x.png', alt: '캡션', title: '', width: 250, height: 0, styles: '' } }, bt(' 뒤')],
+      },
+    ],
+  ],
+  [
+    '경성 줄바꿈(원자)',
+    [{ id: '1', type: 'paragraph', content: [bt('첫'), { type: 'lineBreak', props: { styles: '' } }, bt('둘')] }],
+  ],
+  [
+    '방언 스타일 3종',
+    [
+      {
+        id: '1',
+        type: 'paragraph',
+        content: [
+          bt('형광', { highlight: true }),
+          bt('가림', { spoiler: true }),
+          bt('색', { t: JSON.stringify([['c', 'red'], ['s', 'large']]) }),
+        ],
+      },
+    ],
+  ],
+  [
+    '콜아웃(children)',
+    [
+      {
+        id: '1',
+        type: 'callout',
+        props: { variant: 'warn', title: '주의', attrs: '' },
+        children: [{ id: '2', type: 'paragraph', content: [bt('내용')], children: [] }],
+      },
+    ],
+  ],
+  ['문서 임베드', [{ id: '1', type: 'docEmbed', props: { target: 'DOC-0007', label: '다른 이름' } }]],
+  [
+    '원문 보존 블록',
+    [{ id: '1', type: 'sourceFallback', props: { markdown: '<div class="x">\n원시 HTML\n</div>', nodeType: 'html' } }],
+  ],
 ]
 
 let bnPass = 0
 for (const [label, blocks] of BN_ORIGIN) {
   const doc = fromBlockNoteBlocks(blocks)
-  const { blocks: bn2, unsupported } = toBlockNoteBlocks(doc)
+  const { blocks: bn2, unsupported, sidecar } = toBlockNoteBlocks(doc)
   check(`[BN왕복-미지원0] ${label}`, unsupported.length === 0, `미지원=${JSON.stringify(unsupported)}`)
-  const doc2 = fromBlockNoteBlocks(bn2)
+  const doc2 = fromBlockNoteBlocks(bn2, sidecar)
   const ok = stable(stripIds(doc.blocks)) === stable(stripIds(doc2.blocks))
   if (ok) bnPass += 1
   check(
@@ -511,12 +641,12 @@ let schemaCore = 0
 let schemaPass = 0
 for (const [label, src] of CORPUS) {
   const doc1 = markdownToBlocks(src)
-  const { blocks: bn, unsupported } = toBlockNoteBlocks(doc1)
+  const { blocks: bn, unsupported, sidecar } = toBlockNoteBlocks(doc1)
   if (unsupported.length > 0) continue
   schemaCore += 1
   let doc2
   try {
-    doc2 = fromBlockNoteBlocks(throughSchema(bn))
+    doc2 = fromBlockNoteBlocks(throughSchema(bn), sidecar)
   } catch (error) {
     check(`[스키마적재] ${label}`, false, `적재 실패: ${error?.message ?? error}`)
     continue
@@ -540,7 +670,8 @@ for (const [label, blocks] of BN_ORIGIN) {
   const doc = fromBlockNoteBlocks(blocks)
   let doc2
   try {
-    doc2 = fromBlockNoteBlocks(throughSchema(toBlockNoteBlocks(doc).blocks))
+    const forward = toBlockNoteBlocks(doc)
+    doc2 = fromBlockNoteBlocks(throughSchema(forward.blocks), forward.sidecar)
   } catch (error) {
     check(`[스키마적재-BN] ${label}`, false, `적재 실패: ${error?.message ?? error}`)
     continue
@@ -562,17 +693,64 @@ console.log(`  BN 출발 표본 실제 스키마 왕복: ${schemaBnPass}/${BN_OR
   const styleTypes = Object.keys(noteSchema.styleSchema).sort().join(',')
   const inlineTypes = Object.keys(noteSchema.inlineContentSchema).sort().join(',')
   check(
-    '[스키마팔레트] 블록 10종 고정',
+    '[스키마팔레트] 블록 14종 고정(코어 10 + 방언 4)',
     blockTypes ===
-      'bulletListItem,checkListItem,codeBlock,divider,heading,image,numberedListItem,paragraph,quote,table',
+      'bulletListItem,callout,checkListItem,codeBlock,divider,docEmbed,heading,image,mathBlock,numberedListItem,paragraph,quote,sourceFallback,table',
     `실제=${blockTypes}`,
   )
-  check('[스키마팔레트] 스타일 5종 고정(색 스타일 0)', styleTypes === 'bold,code,italic,strike,underline', `실제=${styleTypes}`)
-  check('[스키마팔레트] 인라인 2종 고정', inlineTypes === 'link,text', `실제=${inlineTypes}`)
+  check(
+    '[스키마팔레트] 스타일 8종 고정(BlockNote 기본 색 스타일 0)',
+    styleTypes === 'bold,code,highlight,italic,spoiler,strike,t,underline',
+    `실제=${styleTypes}`,
+  )
+  check(
+    '[스키마팔레트] 인라인 7종 고정(내장 2 + 방언 5)',
+    inlineTypes === 'inlineFallback,inlineImage,lineBreak,link,math,refChip,text',
+    `실제=${inlineTypes}`,
+  )
+  // 기본 색 스타일 2종이 되돌아오면 불변 규칙 5가 깨진다 — 이름으로 못 박는다.
+  check(
+    '[스키마팔레트] textColor/backgroundColor 스타일 0',
+    !('textColor' in noteSchema.styleSchema) && !('backgroundColor' in noteSchema.styleSchema),
+  )
   const props = (type) => Object.keys(noteSchema.blockSchema[type].propSchema).sort().join(',')
   check('[스키마팔레트] 문단 표현 prop 0', props('paragraph') === '', `실제=${props('paragraph')}`)
   check('[스키마팔레트] 헤딩 prop = level만', props('heading') === 'level', `실제=${props('heading')}`)
   check('[스키마팔레트] 코드블록 prop = info,language', props('codeBlock') === 'info,language', `실제=${props('codeBlock')}`)
+  // 규약 I 흡수 ③ — 내장 image에 확장 prop 2개가 붙어 있는가(빠지면 title·height가 조용히 사라진다).
+  check(
+    '[스키마팔레트] 이미지 확장 prop(title·height) 존재',
+    props('image') === 'caption,height,name,previewWidth,showPreview,title,url',
+    `실제=${props('image')}`,
+  )
+  check('[스키마팔레트] 콜아웃 prop = attrs,title,variant', props('callout') === 'attrs,title,variant', `실제=${props('callout')}`)
+  check('[스키마팔레트] 임베드 prop = label,target', props('docEmbed') === 'label,target', `실제=${props('docEmbed')}`)
+  check(
+    '[스키마팔레트] 원문 보존 prop = markdown,nodeType',
+    props('sourceFallback') === 'markdown,nodeType',
+    `실제=${props('sourceFallback')}`,
+  )
+  const inlineProps = (type) => Object.keys(noteSchema.inlineContentSchema[type].propSchema).sort().join(',')
+  check(
+    '[스키마팔레트] 참조 칩 prop = label,refType,styles,target',
+    inlineProps('refChip') === 'label,refType,styles,target',
+    `실제=${inlineProps('refChip')}`,
+  )
+  check(
+    '[스키마팔레트] 문단 안 이미지 prop = alt,height,styles,title,url,width',
+    inlineProps('inlineImage') === 'alt,height,styles,title,url,width',
+    `실제=${inlineProps('inlineImage')}`,
+  )
+  // 원자 인라인 4종은 전부 content:'none'(내부 편집 불가). 수식만 'plain'이다.
+  const icContent = (type) => noteSchema.inlineContentSchema[type].content
+  check(
+    '[스키마팔레트] 방언 인라인은 원자(content:none) · 수식만 plain',
+    icContent('refChip') === 'none' &&
+      icContent('inlineImage') === 'none' &&
+      icContent('inlineFallback') === 'none' &&
+      icContent('lineBreak') === 'none' &&
+      icContent('math') === 'plain',
+  )
 }
 mark('⑤ 실제 BlockNote 스키마 적재 왕복 + 팔레트 고정')
 

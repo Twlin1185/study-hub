@@ -180,33 +180,66 @@
 
 ### 1. 방언 스펙 이식
 
-- [ ] G-1. **커스텀 스타일 3종** — highlight(값 보유: 색) · spoiler(boolean) · `t`(ink/bg/size 3개 스타일)
+- [x] G-1. **커스텀 스타일 3종** — highlight(값 보유: 색) · spoiler(boolean) · `t`(ink/bg/size 3개 스타일)
       — PoC(`editor2/poc/specs.tsx`)의 성립 패턴을 **복제**(PoC 파일은 수정 금지). 값 도메인은
       `components/markdown/palette.ts` **재사용**(신규 색 0 — 불변 규칙 5) · 렌더는 `tokens.css` 변수 경유.
+      → Phase 1 완료(`editor2/blocknote/specs/styles.tsx`). **계획서 표현과 의도적 차이 2건**:
+      highlight는 **boolean**(앱 스키마 `InlineStyles.highlight?: true`와 1:1 — 색은 `:t{bg=}`가 담는다) ·
+      `t`는 **string 스타일 1개**(값 = `JSON.stringify(AttrPair[])`). ink/bg/size 3개 화이트리스트 prop으로
+      쪼개면 `:t 화이트리스트 밖`·`:t 속성 중복 키`·`:t 비-ASCII 속성 키` 같은 실재 표본이 조용히
+      사라진다(손실 0 계약 위반). 렌더·툴바용 ink/bg/size 뷰는 `interpretTextStyle(pairs)`로 파생.
 - [ ] G-2. **마이크로 마크 상호 배타(규약 C)** — `editor2/adapter/marks.ts`(툴바 커맨드 래퍼) + 역방향
       방어적 정규화 + 붙여넣기 접기. 3지점 전부 같은 상수(`MICRO_MARKS`)를 참조할 것.
-- [ ] G-3. **커스텀 블록 3종** — callout(variant 고정 목록 + title 검증 — 규약 E) · docEmbed(원자·읽기 전용 카드) ·
+      → Phase 1에서 **상수·순수 함수·역방향 정규화까지** 완료(`adapter/marks.ts` — `MICRO_MARKS` ·
+      `activeMicroMarks` · `collapseMicroMarks` / `fromBlockNoteResult().microMarkCollapses`로 집계 보고).
+      **툴바 커맨드 래퍼(강제 지점 ①)·붙여넣기 접기(③)는 Phase 2** — 그 둘이 붙어야 이 항목이 닫힌다.
+- [x] G-3. **커스텀 블록 3종** — callout(variant 고정 목록 + title 검증 — 규약 E) · docEmbed(원자·읽기 전용 카드) ·
       sourceFallback(원문 Markdown을 **그대로 보존**하는 읽기 전용 블록 — 편집 불가·삭제만 가능).
+      → Phase 1 완료(`editor2/blocknote/specs/blocks.tsx`). variant 고정 목록은 `CALLOUT_VARIANTS`
+      (note·warn·tip·fold·hide)로 두되 **propSchema에 values 화이트리스트를 걸지 않았다** — 목록 밖
+      variant를 가진 기존 데이터(`:::노트[…]`)를 그대로 보존해야 하기 때문이다(값을 바꾸지 않는 것이 계약).
+      입력 UI만 고정 목록으로 좁힌다(Phase 2·M35). `attrs`는 `t`와 같은 이유로 통짜 JSON 보존.
 - [ ] G-4. **참조 칩 인라인 스펙 + 피커 UX(규약 A ①~④ 전건)** — 3종 진입·검색·최근 문서·앵커는 heading 선택·
       추종형/지정 라벨·자리표시자·칩 팝오버(문서 열기/라벨 편집/대상 변경/삭제). 제목 조회 = `resolve-embeds` 배치.
-- [ ] G-5. **`editor2/schema/refDomain.ts`(규약 B)** — `isSafeRefText` 신설 + **`s32-roundtrip-blocks.mjs` 계열 ⑥이
+      → Phase 1에서 **인라인 스펙·렌더(자리표시자)까지** 완료(`specs/inline.tsx` `refChipInlineSpec`).
+      **피커·팝오버 UX는 Phase 2**.
+- [x] G-5. **`editor2/schema/refDomain.ts`(규약 B)** — `isSafeRefText` 신설 + **`s32-roundtrip-blocks.mjs` 계열 ⑥이
       이 함수를 import하도록 전환**(도메인 단일 출처) + s32 **723건 전건 재통과 확인**.
-- [ ] G-6. **inlineImage 원자 인라인 스펙(규약 D)** — 보존·표시·삭제만. 새 삽입 UI 없음.
-- [ ] G-7. **수식(규약 F)** — 도입 판정 기록(라이선스·전이 의존·성숙도 3건) 후 채택 또는 자체 구현.
+      → 계열 ⑥-b 신설(기존 표는 그대로 두고 함수 판정 일치 + "통과시킨 라벨은 반드시 왕복" 계약을
+      79종 스윕으로 기계 고정) · s32 **723 → 751건 · 실패 0**(기존 723건 무변).
+- [x] G-6. **inlineImage 원자 인라인 스펙(규약 D)** — 보존·표시·삭제만. 새 삽입 UI 없음.
+      → 완료(`specs/inline.tsx` `inlineImageSpec`, content `'none'`). 블록 승격 없음(문단이 쪼개지면 왕복이 깨진다).
+- [x] G-7. **수식(규약 F)** — 도입 판정 기록(라이선스·전이 의존·성숙도 3건) 후 채택 또는 자체 구현.
       `mathBlock`·`inlineMath` 왕복 성립이 판정 기준.
+      → **`@blocknote/math-block@0.54.0` 채택**(MPL-2.0 · 전이 의존 GPL 0건 · 코어와 동일 릴리스 라인).
+      `--save-exact`로 0.54.0 고정. `mathBlock`(content `'plain'`) · 인라인 `math`(content `'plain'`)
+      둘 다 실제 스키마 적재 왕복 성립. `@blocknote/code-block`는 계획대로 **미도입**.
 
 ### 2. 어댑터·왕복 확장
 
-- [ ] G-8. 어댑터(`toBlockNote`/`fromBlockNote`)를 **전 팔레트**로 확장 — stage-33의 코어 범위 + 위 스펙 전부.
+- [x] G-8. 어댑터(`toBlockNote`/`fromBlockNote`)를 **전 팔레트**로 확장 — stage-33의 코어 범위 + 위 스펙 전부.
       stage-33에서 둔 "미지원 서식 = 읽기 전용 폴백" 경로는 **방언 팔레트에 대해 제거**한다
       (방언에는 더 이상 미지원이 없어야 한다). **단 규약 I의 코어 범위 제약 7종은 예외** — 흡수 4종은
       보존으로, 판정 대기 3종은 **명시 보고 유지**로 남으므로 `report()` 창구 자체를 지우지 않는다.
-- [ ] G-8b. **규약 I 이행** — 흡수 4종(`hardBreak`·`link:title`·`image:title`/`height`·`block:meta`)의 왕복
+      → 완료. 코퍼스 131종 중 **코어 60 → 123종**, 미지원 보고는 판정 대기 3종(`listItem:spread` 4 ·
+      `listItem:groupBreak` 6 · `table:align` 1)만 남았다. `report()` 창구·구조적 사유
+      (`link:nested`·`listItem:orderedChecked`·`heading:level`·`inline:unknown`·`block:unknown`)는 그대로.
+      신규 사유 1건 추가: `inline:mathStyles`(채택 스펙 propSchema가 비어 인라인 수식에 걸린 서식을 담지 못한다 —
+      코퍼스 표본 0건, 구조적 사유).
+- [x] G-8b. **규약 I 이행** — 흡수 4종(`hardBreak`·`link:title`·`image:title`/`height`·`block:meta`)의 왕복
       보존 경로를 어댑터에 1곳으로 넣고(사이드카 또는 원자 인라인 — 방식 선택과 근거를 완료 기록에),
       판정 대기 3종은 보고를 유지한다. **흡수 불가 판명 시 사유·표본 수를 정리해 사용자 보고**(임의 강등 금지).
-- [ ] G-9. `frontend/scripts/s33-adapter-roundtrip.mjs` **표본 확장** — M32 공용 코퍼스 **전 표본**(방언 포함)으로
+      → 완료. 방식: `hardBreak` = **원자 인라인**(편집기 타입명 `lineBreak` — BlockNote 코어에 이미
+      `hardBreak` PM 노드가 있고 되읽기에서 무조건 `\n`으로 접히는 것을 실측해 이름을 피했다) ·
+      `link:title`·`block:meta` = **사이드카**(`ToBlockNoteResult.sidecar`, 블록 id 키. quote 끌어올리기
+      경로는 `${quoteId}-p`로 이관) · `image:title`/`height` = 내장 image 스펙 **prop 확장**
+      (`codeBlockSpecWithInfo` 전례). 판정 대기 3종은 보고 유지, `table:align`만 사이드카로 값도 보존
+      (열 수가 바뀌면 복원하지 않는다).
+- [x] G-9. `frontend/scripts/s33-adapter-roundtrip.mjs` **표본 확장** — M32 공용 코퍼스 **전 표본**(방언 포함)으로
       md→블록→BN→블록→md 왕복. 계약: **id 제외 블록 동등 + M32 정규형 동등 + 조용한 손실 0**.
       총 검사 수·실패 수 보고(실패 0이 DoD).
+      → **677 → 961건 · 실패 0**. 코어 123/123 블록 동등·정규형 동등·고정점, 실제 `noteSchema` 적재
+      왕복 123/123 + BN 출발 28/28.
 
 ### 3. 입력 파이프라인
 

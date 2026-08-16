@@ -16,7 +16,13 @@ import '../blocknote/notes.css'
 import MarkdownView from '../../components/MarkdownView'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { blocksToMarkdown } from '../transform'
-import { describeUnsupported, fromBlockNoteBlocks, toBlockNoteBlocks, type BnBlock } from '../adapter'
+import {
+  describeUnsupported,
+  fromBlockNoteBlocks,
+  toBlockNoteBlocks,
+  type AdapterSidecar,
+  type BnBlock,
+} from '../adapter'
 import {
   asAdapterBlocks,
   asEditorBlocks,
@@ -72,7 +78,16 @@ function NoteEditor({ note }: { note: Note }) {
   if (readOnly) {
     return <UnsupportedFallback note={note} reason={describeUnsupported(loaded.unsupported)} />
   }
-  return <EditableNote note={note} initialBlocks={loaded.blocks} {...{ navigate, updateNote, deleteNote, theme }} />
+  // 사이드카(규약 I 흡수분 — 링크 제목·블록 메타·표 정렬)는 편집 세션 동안 그대로 들고 있다가
+  // 저장할 때 역변환에 돌려준다. 편집 표면에 자리가 없는 값이라 여기 말고는 살아남을 곳이 없다.
+  return (
+    <EditableNote
+      note={note}
+      initialBlocks={loaded.blocks}
+      sidecar={loaded.sidecar}
+      {...{ navigate, updateNote, deleteNote, theme }}
+    />
+  )
 }
 
 function UnsupportedFallback({ note, reason }: { note: Note; reason: string }) {
@@ -104,13 +119,22 @@ function TopBarShell({ title }: { title: string }) {
 interface EditableNoteProps {
   note: Note
   initialBlocks: BnBlock[]
+  sidecar: AdapterSidecar
   navigate: ReturnType<typeof useNavigate>
   updateNote: ReturnType<typeof useUpdateNote>
   deleteNote: ReturnType<typeof useDeleteNote>
   theme: 'light' | 'dark'
 }
 
-function EditableNote({ note, initialBlocks, navigate, updateNote, deleteNote, theme }: EditableNoteProps) {
+function EditableNote({
+  note,
+  initialBlocks,
+  sidecar,
+  navigate,
+  updateNote,
+  deleteNote,
+  theme,
+}: EditableNoteProps) {
   const editor = useCreateBlockNote({
     schema: noteSchema,
     dictionary: noteDictionary,
@@ -142,9 +166,9 @@ function EditableNote({ note, initialBlocks, navigate, updateNote, deleteNote, t
 
   /** 편집기 문서 → 앱 블록 → Markdown 프로젝션(규약 A: 저장 요청에 함께 싣는다). */
   const buildBody = useCallback(() => {
-    const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document))
+    const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecar)
     return { content_blocks: doc, content: blocksToMarkdown(doc) }
-  }, [editor])
+  }, [editor, sidecar])
 
   const saveNow = useCallback(() => {
     clearTimers()
@@ -220,7 +244,7 @@ function EditableNote({ note, initialBlocks, navigate, updateNote, deleteNote, t
     () => () => {
       clearTimers()
       if (dirtyRef.current) {
-        const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document))
+        const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecar)
         updateNote.mutate({
           id: note.id,
           title: titleRef.current,
@@ -235,7 +259,7 @@ function EditableNote({ note, initialBlocks, navigate, updateNote, deleteNote, t
   )
 
   const openPreview = () => {
-    setProjection(blocksToMarkdown(fromBlockNoteBlocks(asAdapterBlocks(editor.document))))
+    setProjection(blocksToMarkdown(fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecar)))
     setPreview(true)
   }
 

@@ -36,6 +36,11 @@ const jiti = require('jiti')(path.join(FRONT, 'scripts/_loader.cjs'), {
 
 const transform = jiti(path.join(SRC, 'editor2/transform/index.ts'))
 const { markdownToBlocks, blocksToMarkdown, parseToMdast, serializeInline } = transform
+// stage-34 G-5 — 참조 칩 라벨·target 문자 도메인은 이제 `schema/refDomain.ts`가 **단일 출처**다.
+// 이 스크립트가 표를 따로 들고 있으면 앱과 검증이 갈라지므로, 아래 계열 ⑥이 그 모듈을 직접 불러
+// **표와 함수의 판정이 일치하는지 + 함수가 통과시킨 것은 반드시 왕복하는지**를 기계로 고정한다.
+const refDomain = jiti(path.join(SRC, 'editor2/schema/refDomain.ts'))
+const { isSafeRefText, normalizeRefText, refTextRejection, isDocNo, isSafeAnchorTarget } = refDomain
 
 // ---------------------------------------------------------------- 공통 유틸
 
@@ -778,6 +783,59 @@ for (const [name, label] of LABEL_FORBIDDEN) {
   check(`[라벨 도메인] 금지(고정) — ${name}`, ok, `라벨=${JSON.stringify(label)}가 왕복해 버렸다(제약 변경?)`)
 }
 console.log(`  허용 도메인 왕복: ${labelOkPass}/${LABEL_OK.length} · 금지 문자 고정: ${labelForbidPass}/${LABEL_FORBIDDEN.length}`)
+
+// ---------------------------------------------------------------- ⑥-b 도메인 단일 출처(stage-34 G-5)
+//
+// 위 표는 **관측된 사실**(어떤 라벨이 왕복하는가)이고, `schema/refDomain.ts`는 앱이 입력 시점에
+// 쓰는 **판정 함수**다. 둘이 갈라지면 UI가 통과시킨 라벨이 본문에서 깨진다 — 여기서 못 박는다.
+//
+//   계약: **`isSafeRefText(s) === true`이면 그 문자열은 반드시 방언 Markdown 왕복을 통과한다.**
+//   (역은 성립하지 않아도 된다 — 함수는 보수적인 부분집합이다.)
+console.log('== ⑥-b 규약 C: refDomain.ts가 라벨 도메인의 단일 출처인가 ==')
+for (const [name, label] of LABEL_OK) {
+  check(`[도메인함수] 허용 판정 — ${name}`, isSafeRefText(label) === true, `isSafeRefText(${JSON.stringify(label)}) = false`)
+}
+for (const [name, label] of LABEL_FORBIDDEN) {
+  check(`[도메인함수] 거절 판정 — ${name}`, isSafeRefText(label) === false, `isSafeRefText(${JSON.stringify(label)}) = true`)
+  check(`[도메인함수] 거절 사유 문구 — ${name}`, typeof refTextRejection(label) === 'string' && refTextRejection(label).length > 0)
+}
+// 계약의 기계 고정 — 통과시킨 것은 **반드시** 왕복한다(표 밖 문자까지 훑는다).
+const DOMAIN_SWEEP = []
+for (const ch of [
+  ...'!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~',
+  ' ',
+  '\t',
+  '\n',
+  '가',
+  'é',
+  '😀',
+  '·',
+  '—',
+  ' ',
+  '　',
+]) {
+  DOMAIN_SWEEP.push(`앞${ch}뒤`, `${ch}시작`, `끝${ch}`)
+}
+let sweepSafe = 0
+let sweepViolation = 0
+for (const label of DOMAIN_SWEEP) {
+  if (!isSafeRefText(label)) continue
+  sweepSafe += 1
+  if (!chipRoundTrips(label)) {
+    sweepViolation += 1
+    check(`[도메인계약] 통과시킨 라벨이 왕복하지 않는다 — ${JSON.stringify(label)}`, false)
+  }
+}
+check(
+  `[도메인계약] isSafeRefText 통과 = 왕복 성립 (${sweepSafe}종 표본)`,
+  sweepViolation === 0,
+  `위반 ${sweepViolation}종`,
+)
+// target 도메인 — 피커가 고른 값만 실리는 자리(자유 입력 경로 없음).
+check('[도메인함수] 문서 번호 형식', isDocNo('DOC-0012') && isDocNo('DOC-12345') && !isDocNo('DOC-12') && !isDocNo('doc-0012'))
+check('[도메인함수] 앵커 대상은 `#`으로 시작하지 않는다', isSafeAnchorTarget('절 제목') && !isSafeAnchorTarget('#절 제목'))
+check('[도메인함수] 정규화 = 가장자리 공백 트림뿐', normalizeRefText('  가운데  공백  ') === '가운데  공백')
+console.log(`  도메인 함수 판정 일치: ${LABEL_OK.length + LABEL_FORBIDDEN.length}종 · 계약 스윕 통과 표본 ${sweepSafe}종`)
 
 // ---------------------------------------------------------------- 결과
 
