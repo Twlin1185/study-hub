@@ -112,24 +112,14 @@ function mark(label) {
 // **stage-34에서 이 표가 대폭 축소됐다** — 방언 팔레트(형광펜·스포일러·`:t`·참조 칩·문단 안 이미지·
 // 원문 보존·수식·콜아웃·문서 임베드·경성 줄바꿈)가 커스텀 스펙으로 이식돼 **코어로 편입**됐고,
 // 규약 I 흡수 4종(`inline:hardBreak`·`link:title`·`image:title`/`height`·`block:meta`)도 보존 경로가
-// 생겨 보고가 사라졌다. 남는 것은 **R34 판정 대기 3종뿐**이다(임의 흡수 금지 — 사용자 판정 대기):
-//   · `listItem:spread` · `listItem:groupBreak` — 평평한 목록 모델에 자리가 없다(prop 추가 금지)
-//   · `table:align` — 사이드카로 **왕복 보존은 하되** 보고는 유지한다(정렬 편집 UI = M35)
+// 생겨 보고가 사라졌다.
+//
+// **2026-08-17 R34 판정 완료로 이 표가 비었다** — 남아 있던 판정 대기 3종
+// (`listItem:spread`·`listItem:groupBreak`·`table:align`)을 **사이드카로 흡수**(손실 수용하지 않음)
+// 하기로 확정했다. 그래서 이 8개 표본은 전부 **코어로 편입**돼 ①·②(블록 동등·정규형·고정점)를
+// 통과해야 한다 — 기대값을 "미지원 보고"에서 "왕복 보존"으로 옮긴 것이다. 흡수분의 왕복은
+// 아래 ③-d ③에서 사이드카 단위로 따로 못박는다.
 const EXPECTED_DIALECT = new Map()
-
-// BLOCK_SAMPLES 쪽 — R34 판정 대기 3종만 남는다.
-for (const [label, kind] of [
-  ['목록 안 다중 블록', 'listItem:spread'],
-  ['느슨한 목록', 'listItem:spread'],
-  ['인접 목록 분리(마커 변경)', 'listItem:groupBreak'],
-  ['인접 순서 목록 분리(구분자 변경)', 'listItem:groupBreak'],
-  ['인접 목록 3연속 분리', 'listItem:groupBreak'],
-  ['인접 목록 분리 + 시작 번호', 'listItem:groupBreak'],
-  ['중첩 안 인접 목록 분리', 'listItem:groupBreak'],
-  ['표 정렬', 'table:align'],
-]) {
-  EXPECTED_DIALECT.set(label, kind)
-}
 
 const CORPUS = [...SAMPLES, ...BLOCK_SAMPLES]
 
@@ -288,7 +278,8 @@ for (const [label, block] of DIALECT_ROUNDTRIP_CASES) {
   )
 }
 
-// ③-d ② 남아 있는 보고 — 구조적 사유 + **R34 판정 대기 3종**(임의 흡수 금지).
+// ③-d ② 남아 있는 보고 — **구조적 사유뿐**이다(R34 판정 3종은 2026-08-17 흡수로 보고가 사라졌다).
+// 유일한 예외: `table:align`은 **복원 조건이 애초에 깨져 있을 때**(align 길이 ≠ 열 수)만 보고가 남는다.
 const UNSUPPORTED_CASES = [
   [
     '링크 안 칩',
@@ -316,15 +307,11 @@ const UNSUPPORTED_CASES = [
     p([{ type: 'inlineMath', value: 'a^2', styles: { bold: true } }]),
     'inline:mathStyles',
   ],
-  ['느슨한 목록', { id: 'x', type: 'listItem', ordered: false, spread: true, content: [t('a')] }, 'listItem:spread'],
   [
-    '인접 목록 경계',
-    { id: 'x', type: 'listItem', ordered: false, groupBreak: true, content: [t('a')] },
-    'listItem:groupBreak',
-  ],
-  [
-    '표 열 정렬',
-    { id: 'x', type: 'table', align: ['center'], rows: [[[t('머리')]], [[t('셀')]]] },
+    // 흡수 후에도 남는 유일한 table:align 보고 — align 길이(2)와 실제 열 수(1)가 어긋나
+    // 역변환의 복원 조건(`saved.length === cols`)을 만족할 수 없는 경우.
+    '표 열 정렬 — 열 수와 어긋난 정렬(복원 불가)',
+    { id: 'x', type: 'table', align: ['center', 'left'], rows: [[[t('머리')]], [[t('셀')]]] },
     'table:align',
   ],
 ]
@@ -337,11 +324,16 @@ for (const [label, block, kind] of UNSUPPORTED_CASES) {
   )
 }
 
-// ③-d ③ 판정 대기 3종 중 `table:align`은 **보고를 유지하면서도 값은 왕복 보존**된다(사이드카).
-// 열 수가 달라지면(사용자가 열을 넣거나 뺐다) 어긋난 정렬을 되살리지 않는다.
+// ③-d ③ **R34 흡수 3종 회귀 고정**(2026-08-17 판정 — 손실 수용하지 않고 사이드카로 흡수).
+//
+// 흡수는 "보고가 사라졌다"로 끝나면 안 된다 — 값이 실제로 되돌아오는지, 그리고 사용자가 편집으로
+// 구조를 바꿔도 복원이 무너지지 않는지를 함께 못박는다.
+
+// ③-d ③-a `table:align` — 열 수가 그대로면 왕복 보존 + **보고 없음**. 열 수가 바뀌면 되살리지 않는다.
 {
   const table = { id: 'tb', type: 'table', align: ['center', null], rows: [[[t('머리')], [t('둘')]], [[t('셀')], [t('둘')]]] }
-  const { blocks, sidecar } = toBlockNoteBlocks({ version: 1, blocks: [table] })
+  const { blocks, sidecar, unsupported } = toBlockNoteBlocks({ version: 1, blocks: [table] })
+  check('[흡수] 표 정렬은 더 이상 폴백 사유가 아니다', unsupported.length === 0, `미지원=${JSON.stringify(unsupported)}`)
   const back = fromBlockNoteBlocks(blocks, sidecar)
   check('[사이드카] 표 정렬 왕복 보존', stable(back.blocks[0].align) === stable(['center', null]), `실제=${stable(back.blocks[0].align)}`)
   const shrunk = JSON.parse(JSON.stringify(blocks))
@@ -351,6 +343,121 @@ for (const [label, block, kind] of UNSUPPORTED_CASES) {
     '[사이드카] 열 수가 바뀌면 정렬을 되살리지 않는다',
     stable(backShrunk.blocks[0].align) === stable([null]),
     `실제=${stable(backShrunk.blocks[0].align)}`,
+  )
+}
+
+// ③-d ③-b `listItem:spread` — 느슨함은 **목록(런) 단위** 속성이다. 사이드카에 한 항목만 남아 있어도
+// 런 전체가 loose로 돌아오고, 사용자가 항목을 더하거나 빼도 결과가 흔들리지 않아야 한다.
+{
+  const li = (id, extra) => ({ id, type: 'listItem', ordered: false, content: [t(id)], ...extra })
+  const doc = { version: 1, blocks: [li('a', { spread: true }), li('b', { spread: true }), li('c', { spread: true })] }
+  const { blocks, sidecar, unsupported } = toBlockNoteBlocks(doc)
+  check('[흡수] 느슨한 목록은 더 이상 폴백 사유가 아니다', unsupported.length === 0, `미지원=${JSON.stringify(unsupported)}`)
+  const back = fromBlockNoteBlocks(blocks, sidecar)
+  check(
+    '[사이드카] 느슨한 목록 왕복 보존',
+    stable(back.blocks.map((b) => b.spread)) === stable([true, true, true]),
+    `실제=${stable(back.blocks.map((b) => b.spread))}`,
+  )
+
+  // 사용자가 항목을 **추가**했다(새 항목은 사이드카에 없다) → 런 전체가 loose로 유지돼야 한다.
+  const added = [...JSON.parse(JSON.stringify(blocks)), { id: 'new', type: 'bulletListItem', content: [{ type: 'text', text: 'd', styles: {} }] }]
+  check(
+    '[사이드카] 항목을 추가해도 런 전체가 loose(항목별 복원이면 여기서 들쭉날쭉해진다)',
+    stable(fromBlockNoteBlocks(added, sidecar).blocks.map((b) => b.spread)) === stable([true, true, true, true]),
+    `실제=${stable(fromBlockNoteBlocks(added, sidecar).blocks.map((b) => b.spread))}`,
+  )
+
+  // 사용자가 항목을 **삭제**했다 → 남은 런도 loose.
+  const removed = JSON.parse(JSON.stringify(blocks)).slice(1)
+  check(
+    '[사이드카] 항목을 삭제해도 남은 런이 loose',
+    stable(fromBlockNoteBlocks(removed, sidecar).blocks.map((b) => b.spread)) === stable([true, true]),
+    `실제=${stable(fromBlockNoteBlocks(removed, sidecar).blocks.map((b) => b.spread))}`,
+  )
+
+  // 사이드카에 **하나만** 남아 있어도(부분 유실·부분 편집) 런 전체가 loose — CommonMark 의미론.
+  const partial = { b: sidecar.b }
+  check(
+    '[사이드카] 런에 spread가 하나라도 있으면 전체가 loose',
+    stable(fromBlockNoteBlocks(blocks, partial).blocks.map((b) => b.spread)) === stable([true, true, true]),
+    `실제=${stable(fromBlockNoteBlocks(blocks, partial).blocks.map((b) => b.spread))}`,
+  )
+
+  // 사이드카가 없으면(= tight 목록) 아무것도 붙이지 않는다.
+  check(
+    '[사이드카] 사이드카가 없으면 tight 그대로',
+    stable(fromBlockNoteBlocks(blocks, {}).blocks.map((b) => b.spread)) === stable([undefined, undefined, undefined]),
+    `실제=${stable(fromBlockNoteBlocks(blocks, {}).blocks.map((b) => b.spread))}`,
+  )
+}
+
+// ③-d ③-c `listItem:groupBreak` — 목록 경계는 **항목 위치 표시**다. 앞 형제가 같은 종류의 목록
+// 항목일 때만 되살리고, 구조가 바뀌어 그 조건이 깨지면 버린다(죽은 플래그를 남기지 않는다).
+{
+  const li = (id, extra) => ({ id, type: 'listItem', ordered: false, content: [t(id)], ...extra })
+  const doc = { version: 1, blocks: [li('a'), li('b', { groupBreak: true }), li('c')] }
+  const { blocks, sidecar, unsupported } = toBlockNoteBlocks(doc)
+  check('[흡수] 목록 경계는 더 이상 폴백 사유가 아니다', unsupported.length === 0, `미지원=${JSON.stringify(unsupported)}`)
+  check(
+    '[사이드카] 목록 경계 왕복 보존',
+    stable(fromBlockNoteBlocks(blocks, sidecar).blocks.map((b) => b.groupBreak)) === stable([undefined, true, undefined]),
+    `실제=${stable(fromBlockNoteBlocks(blocks, sidecar).blocks.map((b) => b.groupBreak))}`,
+  )
+
+  // 경계 항목이 **문서 맨 앞**으로 옮겨졌다 → 앞 형제가 없으므로 경계 개념이 사라진다.
+  const moved = JSON.parse(JSON.stringify(blocks)).slice(1)
+  check(
+    '[사이드카] 앞 형제가 없으면 목록 경계를 되살리지 않는다',
+    stable(fromBlockNoteBlocks(moved, sidecar).blocks.map((b) => b.groupBreak)) === stable([undefined, undefined]),
+    `실제=${stable(fromBlockNoteBlocks(moved, sidecar).blocks.map((b) => b.groupBreak))}`,
+  )
+
+  // 앞 형제가 **다른 종류**(번호 목록)로 바뀐 경우도 마찬가지 — 이미 목록이 갈려 있다.
+  const retyped = JSON.parse(JSON.stringify(blocks))
+  retyped[0].type = 'numberedListItem'
+  check(
+    '[사이드카] 앞 형제 종류가 다르면 목록 경계를 되살리지 않는다',
+    fromBlockNoteBlocks(retyped, sidecar).blocks[1].groupBreak === undefined,
+    `실제=${stable(fromBlockNoteBlocks(retyped, sidecar).blocks.map((b) => b.groupBreak))}`,
+  )
+
+  // 경계는 런을 끊는다 — 앞 런만 loose이고 뒤 런은 tight로 남아야 한다.
+  const mixed = { version: 1, blocks: [li('a', { spread: true }), li('b', { groupBreak: true }), li('c')] }
+  const mixedOut = toBlockNoteBlocks(mixed)
+  check(
+    '[사이드카] 목록 경계가 spread 런을 끊는다',
+    stable(fromBlockNoteBlocks(mixedOut.blocks, mixedOut.sidecar).blocks.map((b) => b.spread)) ===
+      stable([true, undefined, undefined]),
+    `실제=${stable(fromBlockNoteBlocks(mixedOut.blocks, mixedOut.sidecar).blocks.map((b) => b.spread))}`,
+  )
+}
+
+// ③-d ③-d 중첩 목록의 런 — 자식 배열도 각자 런 판정을 받는다(바깥 런에 물들지 않는다).
+{
+  const doc = {
+    version: 1,
+    blocks: [
+      {
+        id: 'p',
+        type: 'listItem',
+        ordered: false,
+        content: [t('상위')],
+        children: [
+          { id: 'c1', type: 'listItem', ordered: false, content: [t('하위1')] },
+          { id: 'c2', type: 'listItem', ordered: false, groupBreak: true, spread: true, content: [t('하위2')] },
+        ],
+      },
+    ],
+  }
+  const { blocks, sidecar, unsupported } = toBlockNoteBlocks(doc)
+  check('[흡수] 중첩 목록도 폴백 사유가 없다', unsupported.length === 0, `미지원=${JSON.stringify(unsupported)}`)
+  const back = fromBlockNoteBlocks(blocks, sidecar)
+  const kids = back.blocks[0].children ?? []
+  check(
+    '[사이드카] 중첩 목록의 경계·느슨함 복원',
+    stable(kids.map((k) => [k.groupBreak, k.spread])) === stable([[undefined, undefined], [true, true]]),
+    `실제=${stable(kids.map((k) => [k.groupBreak, k.spread]))}`,
   )
 }
 

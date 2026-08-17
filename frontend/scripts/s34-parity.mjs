@@ -17,9 +17,11 @@
 //   (a) 블록 동등     — id 제외 앱 블록이 원본과 같은가
 //   (b) 프로젝션 일치 — 재투영 Markdown이 M32 정규형(N)으로 원본과 동등한가
 //                       (= 체크리스트의 "저장→새로고침→프로젝션 미리보기 일치")
-//   (c) 미지원 보고   — 방언 팔레트 항목은 0건이어야 한다. 단 판정 대기 3종
-//                       (`listItem:spread`·`listItem:groupBreak`·`table:align`)은 보고가 남는
-//                       것이 기대값이다 — 그 항목은 (a)(b)를 건너뛰고 (c)+보조 검사만 돈다.
+//   (c) 미지원 보고   — 방언 팔레트 항목은 0건이어야 한다. **2026-08-17 R34 판정**으로 종전
+//                       판정 대기 3종(`listItem:spread`·`listItem:groupBreak`·`table:align`)도
+//                       사이드카 흡수가 확정돼 **보고 0건이 기대값**이 됐다(손실 수용하지 않음).
+//                       그래서 이 항목들도 (a)(b)를 정상적으로 돈다.
+//                       (checkMd의 expectUnsupported 경로는 구조적 사유용으로 남겨 둔다.)
 //
 // 마크다운 원문이 없는 항목(사이드카 전용 — 블록 메타·이미지 height 등)은 앱 블록을 직접 구성해
 // checkBlock()으로 (a)(c)만 검사한다(비고에 "마크다운 표현 없음"으로 남긴다).
@@ -225,12 +227,9 @@ console.log('== 표 ==')
 
 checkMd('표 — 헤더 행', '| a | b |\n| --- | --- |\n| 1 | 2 |')
 {
-  const { pending } = checkMd(
-    '표 — 정렬',
-    '| 왼쪽 | 가운데 | 오른쪽 |\n| :--- | :---: | ---: |\n| a | b | c |',
-    { expectUnsupported: ['table:align'], note: 'R34 판정 대기 — 정렬 편집 UI는 M35. 보고 유지가 기대값(설계 결정)' },
-  )
-  // 보고는 유지하되 **사이드카로 값은 보존**되는지 별도 확인(열 수 불변 조건).
+  // R34 판정(2026-08-17) — 사이드카 흡수 확정. 값이 왕복하므로 보고가 0건이고, 전체 경로(a)(b)를 돈다.
+  checkMd('표 — 정렬', '| 왼쪽 | 가운데 | 오른쪽 |\n| :--- | :---: | ---: |\n| a | b | c |')
+  // 마크다운 왕복과 별개로 **사이드카 자체의 보존**도 못박는다(열 수 불변 조건).
   const table = { id: 'tb', type: 'table', align: ['left', 'center', 'right'], rows: [[[t('왼쪽')], [t('가운데')], [t('오른쪽')]], [[t('a')], [t('b')], [t('c')]]] }
   const { blocks, sidecar } = toBlockNoteBlocks({ version: 1, blocks: [table] })
   const back = fromBlockNoteBlocks(blocks, sidecar)
@@ -240,7 +239,6 @@ checkMd('표 — 헤더 행', '| a | b |\n| --- | --- |\n| 1 | 2 |')
     `실제=${stable(back.blocks[0].align)}`,
   )
   rows.push({ label: '표 — 정렬(사이드카 보존)', method: '블록 직접구성(사이드카 왕복)', result: ok ? 'PASS' : '실패', note: '열 수가 바뀌면 되살리지 않음은 s33이 별도 검증' })
-  void pending
 }
 
 // ================================================================== 목록
@@ -252,14 +250,14 @@ checkMd('목록 — 번호', '1. 하나 *기울임*\n2. 둘 [[DOC-0003]]\n3. 셋
 checkMd('목록 — 체크박스', '- [ ] 안 한 일\n- [x] 한 일 **굵게**')
 checkMd('목록 — 중첩', '- 상위\n  - 하위 **굵게**\n- 상위2')
 checkMd('목록 — 시작 번호', '3. 셋\n4. 넷\n5. 다섯')
-checkMd('목록 — 느슨한 목록(spread, 판정 대기)', '- 하나\n\n- 둘', {
-  expectUnsupported: ['listItem:spread'],
-  note: 'R34 판정 대기 — 평평한 목록 모델에 spread prop 자리 없음(임의 흡수 금지)',
-})
-checkMd('목록 — 인접 목록 분리(groupBreak, 판정 대기)', '- 하나\n\n* 둘', {
-  expectUnsupported: ['listItem:groupBreak'],
-  note: 'R34 판정 대기 — 마커 변경으로 갈린 인접 목록의 경계 표현 없음',
-})
+// R34 판정(2026-08-17) — 사이드카 흡수 확정. 보고 0건 + 전체 경로(a)(b) 통과가 기대값이다.
+checkMd('목록 — 느슨한 목록(spread, 사이드카 흡수)', '- 하나\n\n- 둘')
+checkMd('목록 — 느슨한 목록 3항목', '- 하나\n\n- 둘\n\n- 셋')
+checkMd('목록 — 인접 목록 분리(groupBreak, 사이드카 흡수)', '- 하나\n\n* 둘')
+checkMd('목록 — 인접 순서 목록 분리(구분자 변경)', '1. 하나\n\n1) 둘')
+checkMd('목록 — 느슨한 목록 + 인접 분리 혼합', '- 하나\n\n- 둘\n\n* 셋')
+// 실측 폴백 3건의 실제 모양 — 기출 풀이의 물음 목록(1), 2) …) 사이에 빈 줄이 든 느슨한 목록.
+checkMd('목록 — 물음 목록(실문서 폴백 표본 모양)', '1) 첫 물음\n\n2) 둘째 물음\n\n3) 셋째 물음')
 
 // ================================================================== 코드 블록
 
@@ -291,9 +289,9 @@ checkBlock(
   { note: 'height는 표준 Markdown 이미지 구문에 자리가 없다(§규약 E는 w=만 표기) — prop 확장 왕복만 검증' },
 )
 
-// ================================================================== 규약 I 흡수 4종
+// ================================================================== 규약 I 흡수 7종
 
-console.log('== 규약 I 흡수 4종 ==')
+console.log('== 규약 I 흡수 7종(2026-08-17 R34 판정으로 3종 추가) ==')
 
 checkMd('규약I — 경성 줄바꿈', '첫 줄  \n둘째 줄')
 checkMd('규약I — link title', '[제목 달린](https://example.com "타이틀") 링크')
@@ -302,6 +300,66 @@ checkBlock(
   '규약I — block meta(사이드카)',
   { id: 'x', type: 'paragraph', content: [t('a')], meta: { provenance: { kind: 'ocr', capturedAt: '2026-08-16T00:00:00Z' } } },
 )
+
+// R34 흡수 3종 — **실제 스키마를 거친 뒤에도** 런 단위 복원이 서는가(사이드카 키 = 블록 id가
+// 진짜 편집기 왕복에서 살아남는지 함께 확인된다). 구조 편집 내성은 s33이 별도로 못박는다.
+{
+  const li = (id, extra) => ({ id, type: 'listItem', ordered: false, content: [t(id)], ...extra })
+  const cases = [
+    ['규약I — 느슨한 목록(실제 스키마 왕복)', [li('a', { spread: true }), li('b', { spread: true })]],
+    ['규약I — 목록 그룹 경계(실제 스키마 왕복)', [li('a'), li('b', { groupBreak: true })]],
+    [
+      '규약I — 느슨함 + 경계 혼합(실제 스키마 왕복)',
+      [li('a', { spread: true }), li('b', { spread: true }), li('c', { groupBreak: true })],
+    ],
+  ]
+  for (const [label, blocks] of cases) {
+    const doc1 = { version: 1, blocks }
+    const { blocks: bn, unsupported, sidecar } = toBlockNoteBlocks(doc1)
+    const cOk = check(`${label} (c)미지원 보고`, kindSet(unsupported) === stable([]), `실제=${kindSet(unsupported)}`)
+    const doc2 = fromBlockNoteBlocks(throughSchema(bn), sidecar)
+    const want = stable(stripIds(doc1.blocks))
+    const got = stable(stripIds(doc2.blocks))
+    const aOk = check(`${label} (a)블록 동등`, want === got, `원본=${want.slice(0, 300)} 왕복=${got.slice(0, 300)}`)
+    rows.push({
+      label,
+      method: '블록 직접구성→BN→실제 스키마→블록',
+      result: aOk && cOk ? 'PASS' : '실패',
+      note: '사이드카 흡수(R34 판정 2026-08-17) — 복원은 런 단위',
+    })
+  }
+}
+
+// 검토 중요-1 보강 — 붙여넣기 경로는 삽입 전에 블록 id를 `pasted-…`로 갈아 끼우고 사이드카 키도
+// 함께 옮긴다(id 충돌로 사이드카가 엉뚱한 블록에 적용되는 것을 막는다). 그 결선이 성립하려면
+// **그 형식의 id가 실제 스키마 왕복에서 그대로 살아남아야** 한다 — 살아남지 못하면 사이드카 키가
+// 붕 떠서 흡수분이 다시 조용히 사라진다. 그래서 여기서 못박는다.
+{
+  const blocks = [
+    { id: 'pasted-abc123-1', type: 'listItem', ordered: false, spread: true, content: [t('A')] },
+    { id: 'pasted-abc123-2', type: 'listItem', ordered: false, spread: true, content: [t('B')] },
+  ]
+  const { blocks: bn, sidecar } = toBlockNoteBlocks({ version: 1, blocks })
+  const roundTripped = throughSchema(bn)
+  const idsKept = roundTripped.every((b, i) => b.id === bn[i].id)
+  const ok1 = check(
+    '중요-1 — `pasted-…` id가 실제 스키마 왕복에서 보존된다',
+    idsKept,
+    `기대=${stable(bn.map((b) => b.id))} 실제=${stable(roundTripped.map((b) => b.id))}`,
+  )
+  const back = fromBlockNoteBlocks(roundTripped, sidecar)
+  const ok2 = check(
+    '중요-1 — 그래서 붙여넣은 느슨한 목록이 실제 스키마 왕복 뒤에도 살아남는다',
+    stable(back.blocks.map((b) => b.spread)) === stable([true, true]),
+    `실제=${stable(back.blocks.map((b) => b.spread))}`,
+  )
+  rows.push({
+    label: '중요-1 — 붙여넣기 id 재발급 + 사이드카 병합',
+    method: '블록 직접구성→BN→실제 스키마→블록',
+    result: ok1 && ok2 ? 'PASS' : '실패',
+    note: 'paste.ts가 `pasted-…`로 재발급한 id가 스키마 왕복에서 보존되어야 사이드카 키가 유효하다',
+  })
+}
 
 // ---------------------------------------------------------------- 결과
 

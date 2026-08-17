@@ -68,7 +68,9 @@ const jiti = require('jiti')(path.join(FRONT, 'scripts/_loader.cjs'), {
 
 const { htmlToDialectMarkdown } = jiti(path.join(SRC, 'utils/htmlPasteMarkdown.ts'))
 const { markdownToBlocks, blocksToMarkdown } = jiti(path.join(SRC, 'editor2/transform/index.ts'))
-const { toBlockNoteBlocks } = jiti(path.join(SRC, 'editor2/adapter/index.ts'))
+const { toBlockNoteBlocks, fromBlockNoteBlocks, fromBlockNoteResult } = jiti(
+  path.join(SRC, 'editor2/adapter/index.ts'),
+)
 const { createPasteHandler } = jiti(path.join(SRC, 'editor2/blocknote/paste.ts'))
 
 let pass = 0
@@ -235,9 +237,13 @@ function makeClipboardData({ files = [], html = '', plain = '' }) {
 function makeDeps() {
   const notices = []
   const uploadCalls = []
+  // 세션 사이드카 모사(`NoteEditPage`의 `sidecarRef` + `mergeSidecar`) — **기존 키를 덮어쓰지
+  // 않는다**는 화면 쪽 규칙까지 같이 재현해야 병합 결선을 제대로 검사할 수 있다.
+  const sessionSidecar = {}
   return {
     notices,
     uploadCalls,
+    sessionSidecar,
     deps: {
       runUpload: async (file) => {
         uploadCalls.push(file)
@@ -245,6 +251,11 @@ function makeDeps() {
       },
       beginUploadBatch: () => {},
       onNotice: (message) => notices.push(message),
+      mergeSidecar: (entries) => {
+        for (const [key, entry] of Object.entries(entries)) {
+          if (!(key in sessionSidecar)) sessionSidecar[key] = entry
+        }
+      },
     },
   }
 }
@@ -409,6 +420,191 @@ const nonEmptyAnchor = () => ({
   check('중요-3: 빈 문단 앵커는 여전히 replaceBlocks로 대체된다(무변)', calls.replaceBlocks.length === 1)
   check('중요-3: 빈 문단 앵커에서는 insertInlineContent를 타지 않는다', calls.insertInlineContent.length === 0)
   check('중요-3: 빈 문단 앵커에서는 insertBlocks를 타지 않는다', calls.insertBlocks.length === 0)
+}
+
+// ---------------------------------------------------------------- D. 붙여넣기 사이드카 병합(검토 중요-1)
+//
+// 2026-08-17 R34 흡수(느슨한 목록·목록 경계·표 정렬 → 사이드카) 직후 열렸던 **조용한 손실 경로**의
+// 회귀 고정. 종전 `paste.ts`는 변환 결과의 `sidecar`를 버렸고, 흡수로 `unsupported`가 0건이 되면서
+// 안내 배너조차 뜨지 않았다 — "조용히 버리는 경로는 없다"는 어댑터 계약 위반.
+console.log('== D. 붙여넣기 사이드카 병합(검토 중요-1) ==')
+
+// 검토자 실측 시나리오 그대로: 목록 2개가 잇달아 붙어 있는 HTML.
+{
+  const html = '<ul><li>A</li><li>B</li></ul><ul><li>C</li><li>D</li></ul><p>끝</p>'
+  const md = htmlToDialectMarkdown(html)
+  const doc = markdownToBlocks(md)
+  const converted = toBlockNoteBlocks(doc)
+  check(
+    '중요-1: 전제 재현 — 목록 2개 HTML은 느슨한 목록(spread)을 만든다',
+    doc.blocks.some((b) => b.type === 'listItem' && b.spread === true),
+    `md=${JSON.stringify(md)}`,
+  )
+  check(
+    '중요-1: 전제 재현 — 흡수 후 unsupported는 0건이라 배너로는 잡히지 않는다',
+    converted.unsupported.length === 0,
+    JSON.stringify(converted.unsupported),
+  )
+  check(
+    '중요-1: 전제 재현 — 그래서 sidecar가 실제로 채워진다(더 이상 "항상 빈 객체"가 아니다)',
+    Object.keys(converted.sidecar).length > 0,
+  )
+
+  const { editor, calls } = makeFakeEditor()
+  const { deps, sessionSidecar } = makeDeps()
+  const handler = createPasteHandler(deps)
+  handler({ event: { clipboardData: makeClipboardData({ html }) }, editor, defaultPasteHandler: () => true })
+
+  check('중요-1: 붙여넣기가 세션 사이드카에 흡수분을 합류시킨다', Object.keys(sessionSidecar).length > 0)
+  check(
+    '중요-1: 합류한 항목에 느슨한 목록(listSpread)이 실려 있다',
+    Object.values(sessionSidecar).some((entry) => entry.listSpread === true),
+    JSON.stringify(sessionSidecar),
+  )
+
+  // 저장 경로 재현 — 삽입된 블록 + 세션 사이드카로 역변환하면 느슨함이 살아 있어야 한다.
+  const inserted = insertedBlocksOf(calls)
+  const back = fromBlockNoteBlocks(inserted, sessionSidecar)
+  const items = back.blocks.filter((b) => b.type === 'listItem')
+  check(
+    '중요-1: 저장 경로 왕복에서 느슨함이 살아남는다(조용한 손실 0)',
+    items.length > 0 && items.every((item) => item.spread === true),
+    `실제=${JSON.stringify(items.map((i) => i.spread))}`,
+  )
+  // 사이드카를 버렸을 때(수정 전 동작)와 대비 — 회귀가 되살아나면 이 대조가 무너진다.
+  const dropped = fromBlockNoteBlocks(inserted, {})
+  check(
+    '중요-1: 대조 — 사이드카를 버리면 느슨함이 사라진다(그 경로로 돌아가면 안 된다)',
+    dropped.blocks.filter((b) => b.type === 'listItem').every((item) => item.spread === undefined),
+  )
+
+  // 사실 고정 — 이 경로에서 `groupBreak`는 서지 않는다. `htmlToDialectMarkdown`이 두 `<ul>`을
+  // **같은 마커(`-`)**로 방출하므로 CommonMark는 그것을 "빈 줄로 갈라진 **한** 느슨한 목록"으로
+  // 읽는다(마커·구분자가 바뀌어야 목록이 갈린다 — `mdastToBlocks`의 A3 규칙). 그래서 이 표본에서
+  // 실제로 위험했던 흡수분은 `listSpread` 하나뿐이다. 여기가 뒤집히면(=경계가 생기기 시작하면)
+  // 병합 결선이 그 값까지 날라야 하므로 검사로 못박아 둔다.
+  check(
+    '중요-1: 같은 마커로 방출된 인접 목록은 한 느슨한 목록이다(groupBreak 없음이 정상)',
+    back.blocks.every((b) => b.groupBreak === undefined),
+    `실제=${JSON.stringify(back.blocks.map((b) => b.groupBreak))}`,
+  )
+  check(
+    '중요-1: 그 한 목록의 항목 수가 4개 그대로다(목록이 합쳐져도 항목은 잃지 않는다)',
+    items.length === 4,
+    `실제=${items.length}`,
+  )
+}
+
+// 의심-1(검토자 지적) — 변환기의 결정적 id(`b1, b2, …`)가 본문 블록 id와 충돌하면 사이드카 항목
+// 하나가 서로 다른 두 블록에 적용된다. 삽입 전 id 재발급으로 그 경로를 막았는지 고정한다.
+{
+  const html = '<ul><li>A</li><li>B</li></ul><ul><li>C</li><li>D</li></ul>'
+  const bare = toBlockNoteBlocks(markdownToBlocks(htmlToDialectMarkdown(html)))
+  check(
+    '의심-1: 전제 재현 — 변환기 단독 산출 id는 결정적(`b<n>`)이라 본문과 충돌할 수 있다',
+    bare.blocks.every((b) => /^b\d+$/.test(b.id)),
+    JSON.stringify(bare.blocks.map((b) => b.id)),
+  )
+
+  const { editor, calls } = makeFakeEditor()
+  const { deps, sessionSidecar } = makeDeps()
+  const handler = createPasteHandler(deps)
+  handler({ event: { clipboardData: makeClipboardData({ html }) }, editor, defaultPasteHandler: () => true })
+
+  const inserted = insertedBlocksOf(calls)
+  check(
+    '의심-1: 삽입 전에 블록 id를 세션 유일 값(`pasted-…`)으로 갈아 끼운다',
+    inserted.length > 0 && inserted.every((b) => typeof b.id === 'string' && b.id.startsWith('pasted-')),
+    JSON.stringify(inserted.map((b) => b.id)),
+  )
+  check(
+    '의심-1: 사이드카 키도 같은 id로 옮겨져 블록과 짝이 맞는다',
+    Object.keys(sessionSidecar).length > 0 &&
+      Object.keys(sessionSidecar).every((key) => inserted.some((b) => b.id === key)),
+    JSON.stringify(Object.keys(sessionSidecar)),
+  )
+  check(
+    '의심-1: 변환기 원본 id(`b<n>`)는 사이드카에 남지 않는다(본문 블록 오염 방지)',
+    Object.keys(sessionSidecar).every((key) => !/^b\d+$/.test(key)),
+    JSON.stringify(Object.keys(sessionSidecar)),
+  )
+
+  // 두 번 붙여넣어도 서로 겹치지 않는다(붙여넣기끼리의 충돌도 막혔는가).
+  const { editor: editor2, calls: calls2 } = makeFakeEditor()
+  const second = makeDeps()
+  createPasteHandler(second.deps)({
+    event: { clipboardData: makeClipboardData({ html }) },
+    editor: editor2,
+    defaultPasteHandler: () => true,
+  })
+  const insertedAgain = insertedBlocksOf(calls2)
+  const overlap = insertedAgain.filter((b) => inserted.some((a) => a.id === b.id))
+  check('의심-1: 두 번째 붙여넣기 id도 첫 번째와 겹치지 않는다', overlap.length === 0, JSON.stringify(overlap.map((b) => b.id)))
+
+  // 화면의 병합 규칙("기존 키를 덮어쓰지 않는다") 자체도 못박는다.
+  const guard = makeDeps()
+  guard.sessionSidecar['pasted-fixed'] = { listSpread: false }
+  guard.deps.mergeSidecar({ 'pasted-fixed': { listSpread: true } })
+  check(
+    '의심-1: 병합은 기존 키를 덮어쓰지 않는다(문서에 살아 있는 블록의 항목이 정본)',
+    guard.sessionSidecar['pasted-fixed'].listSpread === false,
+  )
+}
+
+// ---------------------------------------------------------------- E. 표 열 정렬 폐기 고지(검토 중요-2)
+//
+// 로드 시점 보고를 없앤 대가로 열린 **저장 시점 무고지 손실**의 회귀 고정. 정렬 편집 UI가 없으므로
+// (M35) 사용자는 화면만 봐서는 정렬의 존재조차 모른다 — 폐기가 일어나면 반드시 집계돼야 한다.
+console.log('== E. 표 열 정렬 폐기 고지(검토 중요-2) ==')
+{
+  const t = (text) => ({ type: 'text', text })
+  const table = {
+    id: 'tb',
+    type: 'table',
+    align: ['left', 'center'],
+    rows: [[[t('a')], [t('b')]], [[t('1')], [t('2')]]],
+  }
+  const { blocks, sidecar, unsupported } = toBlockNoteBlocks({ version: 1, blocks: [table] })
+  check('중요-2: 전제 재현 — 정렬이 실린 표는 로드 시점에 보고가 없다(편집 표면에 오른다)', unsupported.length === 0)
+
+  // 열 수가 그대로면 폐기가 아니다 — 고지도 없어야 한다(거짓 경보 금지).
+  const kept = fromBlockNoteResult(blocks, sidecar)
+  check('중요-2: 열 수가 그대로면 폐기 집계 0건', kept.tableAlignDrops.length === 0)
+  check(
+    '중요-2: 열 수가 그대로면 정렬이 복원된다',
+    JSON.stringify(kept.document.blocks[0].align) === JSON.stringify(['left', 'center']),
+  )
+
+  // 검토자 실측 시나리오 그대로: 편집기에서 열 1개 추가 → 저장 시 정렬 소멸.
+  const widened = JSON.parse(JSON.stringify(blocks))
+  widened[0].content.rows = widened[0].content.rows.map((row) => ({
+    cells: [...row.cells, [{ type: 'text', text: 'x', styles: {} }]],
+  }))
+  const dropped = fromBlockNoteResult(widened, sidecar)
+  check(
+    '중요-2: 열을 추가하면 정렬이 폐기된다(종전 동작 유지)',
+    JSON.stringify(dropped.document.blocks[0].align) === JSON.stringify([null, null, null]),
+  )
+  check(
+    '중요-2: 그 폐기가 조용하지 않다 — tableAlignDrops로 집계된다',
+    JSON.stringify(dropped.tableAlignDrops) === JSON.stringify(['tb']),
+    JSON.stringify(dropped.tableAlignDrops),
+  )
+
+  // 열을 뺀 경우도 같다.
+  const shrunk = JSON.parse(JSON.stringify(blocks))
+  shrunk[0].content.rows = shrunk[0].content.rows.map((row) => ({ cells: row.cells.slice(0, 1) }))
+  check('중요-2: 열을 빼도 집계된다', fromBlockNoteResult(shrunk, sidecar).tableAlignDrops.length === 1)
+
+  // 정렬이 애초에 없던 표는 집계 대상이 아니다.
+  const plain = toBlockNoteBlocks({
+    version: 1,
+    blocks: [{ id: 'tb2', type: 'table', align: [null, null], rows: [[[t('a')], [t('b')]], [[t('1')], [t('2')]]] }],
+  })
+  check(
+    '중요-2: 정렬이 없던 표는 열이 바뀌어도 집계되지 않는다',
+    fromBlockNoteResult(plain.blocks, plain.sidecar).tableAlignDrops.length === 0,
+  )
 }
 
 console.log(`\n총 ${pass + fail}건 · 통과 ${pass} · 실패 ${fail}`)

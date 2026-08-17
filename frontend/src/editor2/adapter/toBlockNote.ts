@@ -12,17 +12,23 @@
 // **손실 0 계약**은 그대로다: 옮길 수 없는 것을 만나면 조용히 버리지 않고 `unsupported`에 보고한다.
 // 남아 있는 보고는 규약 I의 **코어 범위 제약**과 구조적 사유뿐이다:
 //
-//   ┌ 흡수 4종(보고가 사라졌다 — 아래 방식으로 왕복 보존한다)
+//   ┌ 흡수 7종(보고가 사라졌다 — 아래 방식으로 왕복 보존한다)
 //   │  · `inline:hardBreak` → 원자 인라인 `lineBreak`(BlockNote 코어 `hardBreak` 노드와 이름 충돌
 //   │     회피 — 코어는 그 이름을 만나면 `\n`으로 접어 버린다)
 //   │  · `link:title`       → **사이드카**(블록 id → href → title). 링크 노드에 자리가 없다.
 //   │  · `image:title`/`image:height` → 내장 image 스펙 **prop 확장**(codeBlock `info` 전례)
 //   │  · `block:meta`       → **사이드카**(provenance 예약 필드 — 편집 표면에 올릴 자리가 없다)
-//   └
-//   ┌ 판정 대기 3종(R34 — **임의 흡수 금지**. 보고를 유지한다)
-//   │  · `listItem:spread` · `listItem:groupBreak` — 평평한 목록 모델에 자리가 없다(prop 추가 금지)
-//   │  · `table:align`      — 사이드카로 **왕복 보존은 하되** 보고는 유지한다. 정렬 **편집 UI**는
-//   │     M35 범위라, 편집 표면에 올리지 않은 값이 따라다닌다는 사실을 사용자가 알아야 한다.
+//   │  ┈ 아래 3종은 **R34 판정 완료**(2026-08-17 — 사용자 위임 → "손실 수용하지 않는다.
+//   │    사이드카로 흡수한다"로 확정). 실측 근거: 실문서 224건 중 3건(1.3%)이 `listItem:spread`
+//   │    **단독** 사유로 읽기 전용 폴백에 떨어지고 있었고, 전부 기출 풀이의 물음 목록처럼
+//   │    사용자가 자연스럽게 쓰는 서식이었다(계속 재발한다). 흡수 기반은 이미 있었다.
+//   │  · `listItem:spread`     → **사이드카**(항목별로 적되 **런 단위로 복원** — 느슨함은
+//   │     CommonMark에서 항목이 아니라 목록의 성질이다. `fromBlockNote.restoreListGroups` 참조)
+//   │  · `listItem:groupBreak` → **사이드카**(그 항목이 새 목록의 시작임을 표시. 앞 형제가 같은
+//   │     종류의 목록 항목일 때만 복원한다 — 조건이 깨지면 경계 자체가 사라진 것이다)
+//   │  · `table:align`         → **사이드카**. 값이 왕복하므로 보고하지 않는다. 정렬 **편집 UI**는
+//   │     여전히 M35 범위지만, UI가 없다고 문서를 통째로 읽기 전용에 떨어뜨리지는 않는다.
+//   │     보고는 **복원 조건이 깨진 경우**(align 길이 ≠ 열 수)에만 남는다.
 //   └
 //   구조적 사유: `link:nested` · `listItem:orderedChecked` · `heading:level` ·
 //   `inline:mathStyles`(채택한 math 스펙의 propSchema가 비어 서식을 실을 자리가 없다) ·
@@ -243,13 +249,11 @@ function blockToBnInner(ctx: Ctx, at: string, block: Block): BnBlock | null {
     }
 
     case 'listItem': {
-      // R34 판정 대기 — **흡수하지 않는다**(prop 추가 금지). 보고만 유지한다.
-      if (block.spread !== undefined) {
-        report(ctx, at, 'listItem:spread', '느슨한 목록(항목 사이 빈 줄)은 BlockNote가 구분하지 않습니다')
-      }
-      if (block.groupBreak) {
-        report(ctx, at, 'listItem:groupBreak', '인접한 두 목록의 경계는 BlockNote가 구분하지 않습니다')
-      }
+      // 규약 I 흡수 ⑤·⑥(R34 판정 완료 2026-08-17) — 평평한 목록 모델에는 자리가 없고 prop 추가도
+      // 금지이므로 **사이드카**로 왕복 보존한다. 값은 항목별로 적지만 `spread`의 **복원은 런 단위**다
+      // (fromBlockNote.restoreListGroups). 보고는 사라진다 — 손실이 없기 때문이다.
+      if (block.spread !== undefined) sidecarEntry(ctx).listSpread = block.spread
+      if (block.groupBreak) sidecarEntry(ctx).listGroupBreak = true
       const content = inlineToBn(ctx, `${at}.content`, block.content)
       const children = blocksToBn(ctx, `${at}.children`, block.children)
       if (block.checked !== undefined) {
@@ -306,9 +310,15 @@ function blockToBnInner(ctx: Ctx, at: string, block: Block): BnBlock | null {
       const cols = block.rows.reduce((max, row) => Math.max(max, row.length), 0)
       const align = block.align ?? []
       if (align.some((value) => value !== null && value !== undefined)) {
-        // R34 판정 대기 — 사이드카로 **왕복 보존은 하되** 보고는 유지한다(정렬 편집 UI는 M35).
+        // 규약 I 흡수 ⑦(R34 판정 완료 2026-08-17) — 사이드카로 왕복 보존한다.
         sidecarEntry(ctx).tableAlign = align.map((value) => value ?? null)
-        report(ctx, at, 'table:align', '표 열 정렬은 편집 표면에 없습니다(값은 보존됩니다)')
+        // 보고는 **역변환의 복원 조건과 같은 판정**으로만 남긴다: fromBlockNote는 `saved.length === cols`
+        // 일 때만 정렬을 되살리므로, 여기서 이미 길이가 어긋나 있으면 왕복이 성립하지 않는다.
+        // (편집 중 열이 증감하는 경우는 역변환 쪽에서 같은 조건으로 버린다 — 그때는 사용자가 스스로
+        //  구조를 바꾼 것이라 원본 정렬을 되살릴 근거가 없다.)
+        if (align.length !== cols) {
+          report(ctx, at, 'table:align', '표의 열 수와 정렬 정보가 어긋나 정렬을 되살릴 수 없습니다')
+        }
       }
       return {
         id,
@@ -388,7 +398,7 @@ function blockToBnInner(ctx: Ctx, at: string, block: Block): BnBlock | null {
  *
  * 반환값의 `blocks`는 **`unsupported`가 빈 배열일 때만** 편집 표면에 올려도 된다.
  * `sidecar`는 편집 세션 동안 화면이 들고 있다가 저장할 때 `fromBlockNoteBlocks(blocks, sidecar)`로
- * 되돌려 주어야 흡수분(링크 제목·블록 메타·표 정렬)이 복원된다.
+ * 되돌려 주어야 흡수분(링크 제목·블록 메타·표 정렬·느슨한 목록·목록 그룹 경계)이 복원된다.
  */
 export function toBlockNoteBlocks(doc: BlockDocument | null | undefined): ToBlockNoteResult {
   const ctx: Ctx = { issues: [], sidecar: {}, key: '' }
