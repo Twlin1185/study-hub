@@ -295,6 +295,10 @@ export type BnBlockType = (typeof BN_BLOCK_TYPES)[number]
  * 어댑터가 **BlockNote 코어 팔레트로 옮길 수 없는** 내용을 만났을 때의 보고 단위.
  * 조용히 버리는 경로는 없다 — 호출자(화면)는 `unsupported.length > 0`이면 편집 표면에 올리지
  * 않고 읽기 전용 폴백으로 간다(stage-33 F-3·F-8. 덮어쓰기 사고 0).
+ *
+ * **왕복 보존되는 값은 보고하지 않는다**(2026-08-17 R34 판정): 편집 표면에 UI가 없더라도
+ * 사이드카로 되돌아오면 손실이 아니므로 문서를 통째로 읽기 전용으로 떨어뜨릴 이유가 없다.
+ * 보고가 남는 것은 **되돌릴 수 없는** 경우뿐이다(구조적 사유 + 복원 조건이 깨지는 경우).
  */
 export interface AdapterIssue {
   /** 블록 트리 위치(예: `blocks[3].content[1]`) */
@@ -326,10 +330,31 @@ export interface AdapterSidecarEntry {
   linkTitles?: Record<string, string>
   /**
    * `table:align` — 열 정렬. **열 수가 그대로일 때만** 복원한다(열을 넣고 빼면 어긋나므로 버린다).
-   * 보존은 하지만 `unsupported` 보고는 **유지한다** — 정렬 편집 UI가 M35 범위라, 편집 표면에
-   * 올리지 않은 값이 조용히 따라다니는 것을 사용자가 알아야 한다(R34 판정 대기 3종).
+   *
+   * R34 판정(2026-08-17): 값이 왕복 보존되므로 **`unsupported` 보고는 하지 않는다** — 정렬
+   * 편집 UI는 여전히 M35 범위지만, UI가 없다는 이유로 문서를 통째로 읽기 전용 폴백에 떨어뜨리는
+   * 것은 과하다. 보고는 **복원 조건(`saved.length === cols`)이 애초에 깨져 있는 경우**,
+   * 즉 앱 블록의 `align` 길이와 실제 열 수가 어긋나 되살릴 수 없을 때만 남는다.
    */
   tableAlign?: (('left' | 'right' | 'center') | null)[]
+  /**
+   * `listItem:spread` — 느슨한 목록(항목 사이 빈 줄). 평평한 목록 모델에 자리가 없어 사이드카로
+   * 왕복 보존한다(R34 판정 2026-08-17 — 흡수 확정. 실문서 1.3%가 이 사유로만 폴백되고 있었다).
+   *
+   * **항목별 값이지만 복원은 런(run) 단위**다: CommonMark에서 느슨함은 항목이 아니라 **목록**의
+   * 성질이고(항목 하나라도 빈 줄로 갈라지면 그 목록 전체가 loose), `mdastToBlocks`도
+   * `blocksToMarkdown`도 그렇게 다룬다(`items.some(spread)`). 자세한 복원 규칙은
+   * `fromBlockNote.ts`의 `restoreListGroups` 주석 참조.
+   */
+  listSpread?: boolean
+  /**
+   * `listItem:groupBreak` — "여기서 새 목록이 시작된다"(인접한 두 목록의 경계). 사이드카로
+   * 왕복 보존한다(R34 판정 2026-08-17 — 흡수 확정. 실문서 발생 0건이지만 기계는 같이 갖춘다).
+   *
+   * 이전 형제가 **같은 종류의 목록 항목일 때만** 의미가 있는 표시라, 복원도 그 조건에서만 한다
+   * (사용자가 항목을 옮겨 조건이 깨지면 경계 자체가 사라진 것이므로 버린다).
+   */
+  listGroupBreak?: true
 }
 
 /** 블록 id → 사이드카 항목. */

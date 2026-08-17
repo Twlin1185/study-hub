@@ -356,8 +356,10 @@ function blockToAppInner(ctx: Ctx, id: string, block: BnBlock): Block | null {
     case 'table': {
       const rows: BnTableRow[] = block.content?.rows ?? []
       const cols = rows.reduce((max, row) => Math.max(max, (row.cells ?? []).length), 0)
-      // R34 판정 대기 — 열 정렬은 편집 표면에 없다. 사이드카에 남은 값을 **열 수가 그대로일 때만**
+      // 열 정렬은 편집 표면에 없다(UI는 M35). 사이드카에 남은 값을 **열 수가 그대로일 때만**
       // 되살린다(열을 넣거나 빼면 어긋나므로 버린다).
+      // (규약 I 흡수 ⑦ — 값이 왕복하므로 toBlockNote는 이 경우 보고하지 않는다. 길이가 어긋나
+      //  복원이 불가능할 때만 보고가 남는다.)
       const saved = ctx.sidecar[id]?.tableAlign
       const align =
         saved && saved.length === cols ? saved.map((value) => value ?? null) : new Array(cols).fill(null)
@@ -416,6 +418,64 @@ function blockToAppInner(ctx: Ctx, id: string, block: BnBlock): Block | null {
   }
 }
 
+/**
+ * 규약 I 흡수 ⑤·⑥ — 사이드카에 실린 목록 그룹 정보(`listSpread`·`listGroupBreak`)를 **한 형제
+ * 배열 안에서** 되살린다(R34 판정 완료 2026-08-17).
+ *
+ * 왜 항목별로 그대로 되돌리지 않는가: 느슨함(spread)은 CommonMark에서 **항목이 아니라 목록의
+ * 성질**이다 — 항목 중 하나라도 빈 줄로 갈라지면 그 목록 **전체**가 loose다. 앱 모델도 그렇게
+ * 다룬다(`mdastToBlocks`는 그룹 전원에 `spread: true`를 찍고, `blocksToMarkdown`은
+ * `items.some(spread)`로 그룹을 판정한다). 그래서 복원도 **런(run) 단위**로 한다:
+ * 연속한 같은 종류의 목록 항목 런 안에서 사이드카에 `spread === true`가 **하나라도** 있으면
+ * 런 전원을 loose로 되돌린다. 이러면 사용자가 항목을 추가·삭제·재정렬해도(새 항목은 사이드카에
+ * 아예 없다) 결과가 흔들리지 않는다 — 항목별 복원이었다면 같은 목록 안에서 간격이 들쭉날쭉해진다.
+ *
+ * `groupBreak`는 반대로 **항목 하나의 위치 표시**(여기서 새 목록이 시작된다)라 항목별로 되돌리되,
+ * 앞 형제가 **같은 종류의 목록 항목일 때만** 적용한다. 사용자가 그 항목을 목록 맨 앞이나 다른
+ * 문맥으로 옮겼다면 "경계"라는 개념 자체가 사라진 것이므로 표시를 버린다(되살리면 아무 데도
+ * 안 걸리는 죽은 플래그가 남는다). 런 경계 계산은 `blocksToMarkdown.serializeBlockSeq`의 그룹
+ * 규칙(같은 `ordered` + `groupBreak`에서 끊김)과 **같은 판정**을 쓴다.
+ */
+function restoreListGroups(ctx: Ctx, blocks: Block[]): void {
+  // ① groupBreak — 앞 형제가 같은 종류의 목록 항목인 자리에서만 되살린다.
+  blocks.forEach((block, i) => {
+    if (block.type !== 'listItem') return
+    if (!ctx.sidecar[block.id]?.listGroupBreak) return
+    const prev = blocks[i - 1]
+    if (prev && prev.type === 'listItem' && prev.ordered === block.ordered) block.groupBreak = true
+  })
+
+  // ② spread — 런 단위. (①이 끝난 뒤에 돌아야 런 경계가 확정된다.)
+  let i = 0
+  while (i < blocks.length) {
+    const head = blocks[i]
+    if (head.type !== 'listItem') {
+      i += 1
+      continue
+    }
+    let j = i
+    while (j + 1 < blocks.length) {
+      const next = blocks[j + 1]
+      if (next.type !== 'listItem' || next.ordered !== head.ordered || next.groupBreak === true) break
+      j += 1
+    }
+    const run = blocks.slice(i, j + 1) as ListItemBlock[]
+    // `true`가 하나라도 있으면 런 전체가 loose. 아무도 true가 아닌데 명시적 `false`가 남아
+    // 있으면 그 값을 그대로 되돌린다(원본이 `spread: false`를 실어 왔다는 뜻이다).
+    let value: boolean | undefined
+    for (const item of run) {
+      const saved = ctx.sidecar[item.id]?.listSpread
+      if (saved === true) {
+        value = true
+        break
+      }
+      if (saved === false) value = false
+    }
+    if (value !== undefined) for (const item of run) item.spread = value
+    i = j + 1
+  }
+}
+
 function blocksToApp(ctx: Ctx, blocks: BnBlock[] | undefined): Block[] {
   const out: Block[] = []
   for (const block of blocks ?? []) {
@@ -432,6 +492,8 @@ function blocksToApp(ctx: Ctx, blocks: BnBlock[] | undefined): Block[] {
       out.push(...blocksToApp(ctx, block.children))
     }
   }
+  // 형제 배열이 확정된 뒤에 목록 런을 판정한다(중첩 목록도 각자의 children 배열에서 이 경로를 탄다).
+  restoreListGroups(ctx, out)
   return out
 }
 
