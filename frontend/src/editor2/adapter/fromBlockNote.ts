@@ -53,6 +53,12 @@ interface Ctx {
   sidecar: AdapterSidecar
   /** 규약 C 방어적 정규화로 접은 마이크로 마크 목록(집계 보고용). */
   collapsed: MicroMark[]
+  /**
+   * 사이드카에 표 열 정렬이 있는데 **열 수가 달라져 되살리지 못한** 표의 블록 id.
+   * 흡수(R34 판정)로 로드 시점 보고가 사라진 대신, 실제로 값이 폐기되는 **저장 시점**에
+   * 여기서 집계해 보고한다 — `collapsed`(마이크로 마크)와 같은 "조용히 버리지 않는다" 장치다.
+   */
+  alignDrops: string[]
   /** 지금 읽고 있는 블록의 사이드카 항목. */
   entry: AdapterSidecarEntry | undefined
 }
@@ -358,11 +364,15 @@ function blockToAppInner(ctx: Ctx, id: string, block: BnBlock): Block | null {
       const cols = rows.reduce((max, row) => Math.max(max, (row.cells ?? []).length), 0)
       // 열 정렬은 편집 표면에 없다(UI는 M35). 사이드카에 남은 값을 **열 수가 그대로일 때만**
       // 되살린다(열을 넣거나 빼면 어긋나므로 버린다).
-      // (규약 I 흡수 ⑦ — 값이 왕복하므로 toBlockNote는 이 경우 보고하지 않는다. 길이가 어긋나
-      //  복원이 불가능할 때만 보고가 남는다.)
+      // (규약 I 흡수 ⑦ — 값이 왕복하므로 toBlockNote는 로드 시점에 보고하지 않는다. 대신 편집으로
+      //  열이 증감해 **실제로 폐기되는 이 시점**을 집계한다: 보고 시점(로드)과 폐기 시점(저장)이
+      //  시간축으로 어긋나 있어, 로드 시점 판정만으로는 "편집 중에 생긴 손실"을 덮지 못한다.)
       const saved = ctx.sidecar[id]?.tableAlign
-      const align =
-        saved && saved.length === cols ? saved.map((value) => value ?? null) : new Array(cols).fill(null)
+      const restorable = !!saved && saved.length === cols
+      if (saved && !restorable && saved.some((value) => value !== null)) ctx.alignDrops.push(id)
+      const align = restorable
+        ? (saved as (('left' | 'right' | 'center') | null)[]).map((value) => value ?? null)
+        : new Array(cols).fill(null)
       return {
         id,
         type: 'table',
@@ -518,6 +528,12 @@ export interface FromBlockNoteResult {
    * 비어 있지 않으면 편집기에서 상호 배타 규칙을 벗어난 서식이 들어왔다는 뜻이다.
    */
   microMarkCollapses: MicroMark[]
+  /**
+   * 표 열 정렬을 **되살리지 못하고 버린** 표의 블록 id 목록(사용자가 편집 중 열을 넣거나 뺐다).
+   * 정렬 편집 UI가 M35 범위라 화면에는 정렬이 보이지 않으므로, 호출부(화면)는 이 값이 비어
+   * 있지 않으면 **반드시 사용자에게 알려야 한다** — 알리지 않으면 조용한 손실이 된다.
+   */
+  tableAlignDrops: string[]
 }
 
 /**
@@ -529,13 +545,14 @@ export function fromBlockNoteResult(
   blocks: BnBlock[] | undefined,
   sidecar?: AdapterSidecar,
 ): FromBlockNoteResult {
-  const ctx: Ctx = { sidecar: sidecar ?? {}, collapsed: [], entry: undefined }
+  const ctx: Ctx = { sidecar: sidecar ?? {}, collapsed: [], alignDrops: [], entry: undefined }
   return {
     document: {
       version: BLOCK_SCHEMA_VERSION,
       blocks: trimTrailingEmptyParagraphs(blocksToApp(ctx, blocks)),
     },
     microMarkCollapses: ctx.collapsed,
+    tableAlignDrops: ctx.alignDrops,
   }
 }
 

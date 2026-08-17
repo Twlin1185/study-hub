@@ -330,6 +330,37 @@ checkBlock(
   }
 }
 
+// 검토 중요-1 보강 — 붙여넣기 경로는 삽입 전에 블록 id를 `pasted-…`로 갈아 끼우고 사이드카 키도
+// 함께 옮긴다(id 충돌로 사이드카가 엉뚱한 블록에 적용되는 것을 막는다). 그 결선이 성립하려면
+// **그 형식의 id가 실제 스키마 왕복에서 그대로 살아남아야** 한다 — 살아남지 못하면 사이드카 키가
+// 붕 떠서 흡수분이 다시 조용히 사라진다. 그래서 여기서 못박는다.
+{
+  const blocks = [
+    { id: 'pasted-abc123-1', type: 'listItem', ordered: false, spread: true, content: [t('A')] },
+    { id: 'pasted-abc123-2', type: 'listItem', ordered: false, spread: true, content: [t('B')] },
+  ]
+  const { blocks: bn, sidecar } = toBlockNoteBlocks({ version: 1, blocks })
+  const roundTripped = throughSchema(bn)
+  const idsKept = roundTripped.every((b, i) => b.id === bn[i].id)
+  const ok1 = check(
+    '중요-1 — `pasted-…` id가 실제 스키마 왕복에서 보존된다',
+    idsKept,
+    `기대=${stable(bn.map((b) => b.id))} 실제=${stable(roundTripped.map((b) => b.id))}`,
+  )
+  const back = fromBlockNoteBlocks(roundTripped, sidecar)
+  const ok2 = check(
+    '중요-1 — 그래서 붙여넣은 느슨한 목록이 실제 스키마 왕복 뒤에도 살아남는다',
+    stable(back.blocks.map((b) => b.spread)) === stable([true, true]),
+    `실제=${stable(back.blocks.map((b) => b.spread))}`,
+  )
+  rows.push({
+    label: '중요-1 — 붙여넣기 id 재발급 + 사이드카 병합',
+    method: '블록 직접구성→BN→실제 스키마→블록',
+    result: ok1 && ok2 ? 'PASS' : '실패',
+    note: 'paste.ts가 `pasted-…`로 재발급한 id가 스키마 왕복에서 보존되어야 사이드카 키가 유효하다',
+  })
+}
+
 // ---------------------------------------------------------------- 결과
 
 console.log('')

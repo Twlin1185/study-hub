@@ -19,6 +19,7 @@ import { blocksToMarkdown } from '../transform'
 import {
   describeUnsupported,
   fromBlockNoteBlocks,
+  fromBlockNoteResult,
   toBlockNoteBlocks,
   type AdapterSidecar,
   type BnBlock,
@@ -91,8 +92,9 @@ function NoteEditor({ note }: { note: Note }) {
   if (readOnly) {
     return <UnsupportedFallback note={note} reason={describeUnsupported(loaded.unsupported)} />
   }
-  // 사이드카(규약 I 흡수분 — 링크 제목·블록 메타·표 정렬)는 편집 세션 동안 그대로 들고 있다가
-  // 저장할 때 역변환에 돌려준다. 편집 표면에 자리가 없는 값이라 여기 말고는 살아남을 곳이 없다.
+  // 사이드카(규약 I 흡수분 — 링크 제목·블록 메타·표 정렬·느슨한 목록·목록 그룹 경계)는 편집 세션
+  // 동안 들고 있다가 저장할 때 역변환에 돌려준다. 편집 표면에 자리가 없는 값이라 여기 말고는
+  // 살아남을 곳이 없다. 붙여넣기로 들어온 흡수분도 이 세션 사이드카에 합류한다(`mergeSidecar`).
   return (
     <EditableNote
       note={note}
@@ -154,7 +156,37 @@ function EditableNote({
   // 넘기는 `uploadFile`·`pasteHandler` 클로저는 setState·상태 없는 API 호출만 참조해
   // "최초 렌더 이후로도 계속 정확히 동작"하도록 만든다(리렌더마다 새로 만들 필요가 없다).
   const uploadQueue = useImageUploadQueue()
+  // "조용히 버리지 않는다" 공용 배너 — 붙여넣기 안내·드롭 안내·표 정렬 고지가 이 하나를 공유한다.
   const [pasteNotice, setPasteNotice] = useState<string | null>(null)
+
+  // **세션 사이드카** — 로드 때 받은 흡수분에서 출발해, 붙여넣기로 들어온 흡수분이 여기 합류한다.
+  // ref인 이유: `useCreateBlockNote`가 최초 렌더의 `pasteHandler` 클로저를 영구히 캡처하므로
+  // (deps=[] 고정) 상태로 두면 붙여넣기 핸들러가 낡은 사본을 붙잡는다.
+  const sidecarRef = useRef<AdapterSidecar>({ ...sidecar })
+  const mergeSidecar = useCallback((entries: AdapterSidecar) => {
+    // **기존 키를 덮어쓰지 않는다** — 사이드카 키는 블록 id이고, 같은 id가 이미 있다면 그것은
+    // 문서에 살아 있는 다른 블록의 항목이다(그쪽이 정본). 붙여넣기 쪽 id는 `reassignPastedIds`가
+    // 이미 세션 유일 값으로 갈아 끼우므로 정상 경로에서 이 분기는 서지 않는다 — 마지막 방어선이다.
+    for (const [key, entry] of Object.entries(entries)) {
+      if (!(key in sidecarRef.current)) sidecarRef.current[key] = entry
+    }
+  }, [])
+
+  // 표 열 정렬이 실린 문서를 편집 표면에 올릴 때 **1회성 예고**. 정렬은 사이드카로 왕복하지만
+  // 편집 UI가 없어(M35) 화면에는 보이지 않는다 — 사용자가 열을 넣고 빼면 되살릴 근거가 사라진다.
+  // 실제로 폐기됐을 때의 사후 고지는 `buildBody`가 따로 한다(예고 + 사후 고지 2단).
+  useEffect(() => {
+    const tables = Object.values(sidecarRef.current).filter((entry) =>
+      entry.tableAlign?.some((value) => value !== null),
+    ).length
+    if (tables > 0) {
+      setPasteNotice(
+        `이 노트에는 표 열 정렬이 있습니다 — 값은 그대로 보존되지만, 열을 추가·삭제하면 정렬이 복원되지 않습니다(정렬 편집은 이후 단계).`,
+      )
+    }
+    // 로드 1회만.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const editor = useCreateBlockNote({
     schema: noteSchema,
@@ -165,6 +197,7 @@ function EditableNote({
       runUpload: uploadQueue.uploadFile,
       beginUploadBatch: uploadQueue.beginBatch,
       onNotice: setPasteNotice,
+      mergeSidecar,
     }),
   })
 
@@ -191,11 +224,25 @@ function EditableNote({
     maxTimer.current = null
   }, [])
 
+  /** 표 열 정렬 폐기를 이미 알린 블록 id — 자동 저장마다 같은 배너가 반복되지 않게 한다. */
+  const alignNotifiedRef = useRef<Set<string>>(new Set())
+
   /** 편집기 문서 → 앱 블록 → Markdown 프로젝션(규약 A: 저장 요청에 함께 싣는다). */
   const buildBody = useCallback(() => {
-    const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecar)
+    const result = fromBlockNoteResult(asAdapterBlocks(editor.document), sidecarRef.current)
+    // 표 열 정렬은 흡수(사이드카) 대상이라 로드 시점에 미지원 보고가 없다 — 대신 편집으로 열이
+    // 증감해 **실제로 폐기되는 이 시점**에 알린다(정렬 편집 UI가 M35라 화면만 봐서는 정렬이
+    // 있었다는 사실조차 알 수 없다. 알리지 않으면 조용한 손실이다).
+    const fresh = result.tableAlignDrops.filter((id) => !alignNotifiedRef.current.has(id))
+    if (fresh.length > 0) {
+      for (const id of fresh) alignNotifiedRef.current.add(id)
+      setPasteNotice(
+        `표 ${fresh.length}개의 열 정렬을 복원하지 못했습니다 — 열을 추가·삭제하면 정렬이 사라집니다(정렬 편집은 이후 단계).`,
+      )
+    }
+    const doc = result.document
     return { content_blocks: doc, content: blocksToMarkdown(doc) }
-  }, [editor, sidecar])
+  }, [editor])
 
   const saveNow = useCallback(() => {
     clearTimers()
@@ -281,7 +328,7 @@ function EditableNote({
     () => () => {
       clearTimers()
       if (dirtyRef.current) {
-        const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecar)
+        const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecarRef.current)
         updateNote.mutate({
           id: note.id,
           title: titleRef.current,
@@ -296,7 +343,7 @@ function EditableNote({
   )
 
   const openPreview = () => {
-    setProjection(blocksToMarkdown(fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecar)))
+    setProjection(blocksToMarkdown(fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecarRef.current)))
     setPreview(true)
   }
 

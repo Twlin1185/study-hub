@@ -38,7 +38,7 @@
 import { htmlToDialectMarkdown } from '../../utils/htmlPasteMarkdown'
 import { markdownToBlocks } from '../transform'
 import { collapseMicroMarks, describeUnsupported, toBlockNoteBlocks } from '../adapter'
-import type { BnBlock, BnInline, BnStyledText } from '../adapter'
+import type { AdapterSidecar, BnBlock, BnInline, BnStyledText } from '../adapter'
 // `BnStyles`·`BnTableCell`·`BnTableContent`·`BnTableRow`는 어댑터의 **공개 배럴**(`adapter/index.ts`)
 // 에는 재수출되어 있지 않다. 그 배럴은 절대 불변 파일이 아니다 — 실제로 stage-34 Phase 1에서
 // 순수 추가 8줄로 확장된 이력이 있다(헤더 주석의 "stage-34 확장" 표기가 그 흔적이다). 다만
@@ -140,6 +140,76 @@ export function collapseBlocks(blocks: BnBlock[]): { blocks: BnBlock[]; collapse
   return { blocks: out, collapsed }
 }
 
+// ---------------------------------------------------------------- 붙여넣기 블록 id 재발급
+//
+// **왜 필요한가**: `mdastToBlocks.nextId`는 변환 1회마다 `b1, b2, …`를 **결정적으로** 발급한다.
+// 그래서 붙여넣기로 만든 블록 id가 이미 문서에 있는 블록 id와 정면으로 겹친다(본문도 같은 변환기가
+// 만든 것이라면 `b1`부터 시작한다). BlockNote의 UniqueID 플러그인은 **바뀐 범위(newRange) 안의**
+// 중복만 재발급하므로, 멀리 떨어진 자리에 같은 id를 밀어 넣으면 **중복 id가 그대로 남는다**(실측).
+// 사이드카는 블록 id를 키로 쓰므로, 중복이 남으면 `sidecar['b3']` 하나가 **서로 다른 두 블록**에
+// 적용된다 — 링크 제목·표 정렬이 엉뚱한 블록으로 번지는 조용한 오염이다.
+//
+// 종전에는 붙여넣기 사이드카를 통째로 버렸으므로 이 위험이 잠재적이었지만, 흡수 3종(느슨한 목록·
+// 목록 경계·표 정렬)이 들어오면서 사이드카가 실제로 채워지는 빈도가 크게 올랐다. 그래서 삽입 **전에**
+// 블록 id를 이 세션에서 유일한 값으로 갈아 끼우고 사이드카 키도 같이 옮긴다. 접두사 `pasted-`는
+// 변환기(`b<n>`)와도 BlockNote 기본 id(UUID v4)와도 절대 겹치지 않는다.
+let pasteIdSeq = 0
+
+function nextPastedId(): string {
+  pasteIdSeq += 1
+  return `pasted-${Date.now().toString(36)}-${pasteIdSeq}`
+}
+
+function collectIdMap(blocks: BnBlock[], map: Map<string, string>): void {
+  for (const block of blocks) {
+    if (block.id !== undefined && !map.has(block.id)) map.set(block.id, nextPastedId())
+    if (block.children?.length) collectIdMap(block.children, map)
+  }
+}
+
+function applyIdMap(blocks: BnBlock[], map: Map<string, string>): BnBlock[] {
+  return blocks.map((block) => {
+    const next = { ...block } as BnBlock
+    if (block.id !== undefined) next.id = map.get(block.id) ?? block.id
+    if (block.children?.length) next.children = applyIdMap(block.children, map)
+    return next
+  })
+}
+
+/**
+ * 붙여넣기 변환 결과의 블록 id를 세션 유일 id로 갈아 끼우고, 사이드카 키도 함께 옮긴다.
+ *
+ * quote 끌어올리기 주의: `toBlockNote`는 끌어올린 첫 문단의 사이드카를 **`${quoteId}-p`** 키로
+ * 적는다(`adapter/types.ts` 사이드카 절). 그 키는 문서에 존재하는 블록 id가 아니므로 위 맵에
+ * 잡히지 않는다 — `-p` 접미사를 벗겨 부모 quote id로 찾아 같은 규칙으로 다시 붙인다.
+ */
+function reassignPastedIds(
+  blocks: BnBlock[],
+  sidecar: AdapterSidecar,
+): { blocks: BnBlock[]; sidecar: AdapterSidecar } {
+  const map = new Map<string, string>()
+  collectIdMap(blocks, map)
+
+  const nextSidecar: AdapterSidecar = {}
+  for (const [key, entry] of Object.entries(sidecar)) {
+    const direct = map.get(key)
+    if (direct) {
+      nextSidecar[direct] = entry
+      continue
+    }
+    if (key.endsWith('-p')) {
+      const parent = map.get(key.slice(0, -2))
+      if (parent) {
+        nextSidecar[`${parent}-p`] = entry
+        continue
+      }
+    }
+    // 어느 블록에도 매달리지 않는 항목(도달 불가) — 옮겨 봐야 복원되지 않으므로 버린다.
+    // 실제로 여기 오는 경로는 없다(사이드카 키는 전부 변환한 블록 id에서 나온다).
+  }
+  return { blocks: applyIdMap(blocks, map), sidecar: nextSidecar }
+}
+
 // ---------------------------------------------------------------- 커서 삽입(빈 문단 대체 · 인라인)
 
 function isEmptyParagraphAnchor(block: { type: string; content?: unknown }): boolean {
@@ -207,6 +277,13 @@ export interface PasteHandlerDeps {
   /** 미지원 보고·마이크로 마크 정리 집계·건너뛴 비이미지 파일 개수를 한 줄로 알린다(조용히
    * 버리지 않는다 — 여러 갈래가 겹치면 이 함수 호출 전에 이미 한 문자열로 합쳐져 들어온다). */
   onNotice: (message: string) => void
+  /**
+   * 붙여넣은 블록의 **사이드카 흡수분**(느슨한 목록·목록 경계·표 정렬·링크 제목·블록 메타)을
+   * 편집 세션 사이드카에 합류시킨다 — 저장 시 `fromBlockNoteBlocks(doc, sidecar)`가 그 값을
+   * 되살린다. 이 결선이 없으면 붙여넣기 경로에서만 흡수분이 **안내도 없이** 사라진다.
+   * 키는 `reassignPastedIds`가 세션 유일 id로 바꾼 뒤라 기존 항목과 충돌하지 않는다.
+   */
+  mergeSidecar: (entries: AdapterSidecar) => void
 }
 
 interface PasteHandlerContext {
@@ -254,18 +331,22 @@ export function createPasteHandler(deps: PasteHandlerDeps) {
     if (html && html.trim()) {
       const markdown = htmlToDialectMarkdown(html)
       const doc = markdownToBlocks(markdown)
-      // `converted.sidecar`(링크 title·표 정렬 등 규약 I 흡수분)는 여기서 **의도적으로 버린다**
-      // — 오늘은 안전하다: `htmlToDialectMarkdown`이 `<a title=…>`를 방출하지 않고(링크 title 없음)
-      // 표 변환(`convertTable`)도 구분행을 `---`로만 찍어 정렬을 방출하지 않으므로, HTML 붙여넣기
-      // 경로의 `sidecar`는 지금 **항상 빈 객체**다. **`htmlToDialectMarkdown`이 확장돼 title·정렬
-      // 같은 흡수분을 방출하게 되면, 그때는 이 sidecar를 조용히 버리면 안 된다** — 노트 저장 시
-      // `fromBlockNoteBlocks(editorDoc, sidecar)`를 부르는 상위 저장 경로(`NoteEditPage.tsx`의
-      // `buildBody`)가 들고 있는 세션 사이드카에 이 삽입분을 병합해 주어야 한다(현재는 그 결선
-      // 자체가 없다 — sidecar 없이 `fromBlockNoteBlocks`를 부르는 새 호출부가 이 지점 1곳 존재).
+      // `converted.sidecar`(규약 I 흡수분)는 **세션 사이드카에 병합한다** — 저장 시 역변환이
+      // 되살린다. 종전 주석은 "이 경로의 sidecar는 항상 빈 객체라 버려도 무해하다"고 적고 있었지만
+      // **그 전제는 더 이상 참이 아니다**(2026-08-17 R34 판정으로 느슨한 목록·목록 경계가 사이드카로
+      // 흡수됐다): 예컨대 `<ul><li>A</li><li>B</li></ul><ul><li>C</li><li>D</li></ul>`는
+      // `htmlToDialectMarkdown`이 목록 사이에 빈 줄을 넣어 방출하므로 4항목 전원이 `spread: true`가
+      // 되고, 사이드카가 실제로 채워진다. 게다가 흡수 후에는 `unsupported`가 0건이라 **안내 배너도
+      // 뜨지 않아** 완전히 조용한 손실이 된다 — 어댑터 계약(`types.ts` `AdapterIssue` 주석) 위반.
+      // 그래서 여기서 버리지 않고 상위 저장 경로(`NoteEditPage.tsx`의 `buildBody`)가 들고 있는
+      // 세션 사이드카로 넘긴다.
       const converted = toBlockNoteBlocks(doc)
-      const { blocks, collapsed } = collapseBlocks(converted.blocks)
+      // 삽입 **전에** 블록 id를 세션 유일 값으로 갈아 끼운다(사이드카 키 오염 방지 — 위 절 참조).
+      const fresh = reassignPastedIds(converted.blocks, converted.sidecar)
+      const { blocks, collapsed } = collapseBlocks(fresh.blocks)
 
       insertAtCursor(editor, blocks)
+      deps.mergeSidecar(fresh.sidecar)
 
       if (converted.unsupported.length > 0) notices.push(describeUnsupported(converted.unsupported))
       if (collapsed > 0) notices.push(`중첩된 마이크로 서식 ${collapsed}건은 1개만 남기고 정리했습니다`)
