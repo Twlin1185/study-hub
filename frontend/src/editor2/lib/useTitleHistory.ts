@@ -72,14 +72,6 @@ function inEditingSurface(target: EventTarget | null): boolean {
   return element?.closest(EDITING_SURFACE) != null
 }
 
-/** 텍스트를 입력받는 요소인가(= 네이티브 undo의 진입점이 되는 요소). */
-function isTextEntry(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  return (
-    target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable
-  )
-}
-
 interface TitleHistoryEntry {
   value: string
   selectionStart: number
@@ -265,7 +257,13 @@ export function useTitleHistory({ value, apply }: TitleHistoryOptions): TitleHis
       if (input && target === input) return 'title'
       // blur~재포커스 창에서는 포커스가 `document.body`다 — 그 창의 키는 대상과 무관하게 삼킨다.
       if (rewinding.current) return 'block'
-      return isTextEntry(target) ? 'block' : 'skip'
+      // 편집 표면 **밖은 대상을 가리지 않고 전부 막는다**(2026-08-17 재검토 의심-1).
+      // 종전에는 `isTextEntry`(input/textarea/contenteditable)만 막았으나, 포커스가 버튼·`<select>`·
+      // `document.body`에 있을 때의 `Ctrl+Z`도 Blink의 **프레임당 1개** undo 스택을 건드릴 수 있다
+      // (예: 본문 편집 → 상단 버튼 클릭 → `Ctrl+Z`). 그 경로가 실제로 도는지는 브라우저 실조작 없이
+      // 단정할 수 없으나, **조용한 본문 손실**의 대가가 크고 이 훅은 노트 편집 화면에서만 마운트되므로
+      // 넓게 막는 쪽을 택한다. 편집 표면 안은 위에서 이미 `'skip'`으로 빠졌으므로 본문 undo는 무영향이다.
+      return 'block'
     }
 
     /** 제목 히스토리 실행 — 조합 중이면 IME 확정을 강제한 뒤로 미룬다. */
