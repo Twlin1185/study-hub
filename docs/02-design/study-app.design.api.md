@@ -5,7 +5,7 @@
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S33] = stage 1~33에서 구현(태그 번호 = stage 번호). (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만. S26·S27은 프론트 전용 — §4 무변경. S28은 신규 엔드포인트 0개 — documents PATCH `style` 필드 + settings 키 추가, §4.26. **S29는 신규 엔드포인트 1개** — 이미지 업로드, §4.27. **S30~S32는 §4 무변경** — S30(WYSIWYG)은 프론트 전용이라 screens §5.3 S30 절이 단독 계약 정본, S31(BlockNote 집중 분석)·S32(에디터 v2 변환 계층)는 API·DDL 0건. **S33은 신규 엔드포인트 5개** — 노트(베타) CRUD, §4.28. **S34는 §4 무변경**(노트 방언 이식 — 프론트 전용, 이미지·검색·임베드 해석은 §4.27·§4.2·§4.19 재사용).)
+구현 단계 표기: [S1]~[S35] = stage 1~35에서 구현(태그 번호 = stage 번호). (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만. S26·S27은 프론트 전용 — §4 무변경. S28은 신규 엔드포인트 0개 — documents PATCH `style` 필드 + settings 키 추가, §4.26. **S29는 신규 엔드포인트 1개** — 이미지 업로드, §4.27. **S30~S32는 §4 무변경** — S30(WYSIWYG)은 프론트 전용이라 screens §5.3 S30 절이 단독 계약 정본, S31(BlockNote 집중 분석)·S32(에디터 v2 변환 계층)는 API·DDL 0건. **S33은 신규 엔드포인트 5개** — 노트(베타) CRUD, §4.28. **S34는 §4 무변경**(노트 방언 이식 — 프론트 전용, 이미지·검색·임베드 해석은 §4.27·§4.2·§4.19 재사용). **S35는 신규 엔드포인트 0개** — documents 상세·PATCH에 블록 저장 필드 확장(에디터 v2 M34 저장 전환·지연 마이그레이션), §4.29.)
 
 ### 4.1 분류 Categories
 
@@ -35,6 +35,8 @@
 | `DELETE /api/documents/{id}/relations/{to_id}` | 관계 해제 | S4 |
 | `PUT /api/documents/{id}/bookmark` · `DELETE 동일 경로` | 북마크 토글 (F29) | S4 |
 | `GET /api/documents/batch?ids=1,2,3` | 인쇄 뷰 등 다건 조회 | S4 |
+
+> **S35(에디터 v2 M34)**: `GET /api/documents/{id}`·`PATCH /api/documents/{id}`에 블록 저장 필드(`content_blocks`·`explanation_blocks`·`blocks_version`)가 확장된다 — **계약 정본 = §4.29**(신규 엔드포인트 0 · 미전환 문서의 기존 계약은 무변경).
 
 ### 4.3 반입 Import (S2 · S6 — convert 연결 · **S13 — F40-① 변환 결과 보존·복구**)
 
@@ -1334,4 +1336,60 @@ backend/services/fetchers/
 
 - 백엔드: `backend/routers/notes.py`(신규) · `backend/schemas/note.py`(신규) · `backend/models.py`(`Note` 모델 추가만) · `backend/main.py`(라우터 등록 1줄) · `backend/alembic/versions/*`(신규 리비전 1개). **서비스 계층 신설 없음**(CRUD뿐 — 비즈니스 로직 0).
 - 프론트: `frontend/src/editor2/api/notes.ts`(React Query 훅 — 기존 `api/client.ts` 재사용) · 화면은 screens §5.16.
+
+### 4.29 documents 블록 저장 — 에디터 v2 저장 전환·지연 마이그레이션 (S35 — 에디터 v2 M34. **계약 확정 2026-08-18, 지시서 `stage-35-documents-blocks.plan.md`**)
+
+> 근거: 별지 `editor-v2.plan.md` §6(데이터 모델)·§8 M34 행 + 계획서 §6.2 documents 3컬럼(**R42** — 불변 규칙 6 절차) + **§4.28(S33 notes)의 원칙 전건 계승**. **신규 엔드포인트 0** — 기존 §4.2의 `GET /api/documents/{id}`·`PATCH /api/documents/{id}` 두 곳의 **필드 확장**뿐이다.
+> 원칙 3줄: ① **전환 문서(`blocks_version IS NOT NULL`)의 소스 오브 트루스 = 블록 JSON**(`content_blocks`·`explanation_blocks`) — `content`·`explanation`은 **프로젝션 저장소로 역할 전환**(서버가 만들지 않는다 — 클라이언트 변환기(M32) 산출물을 함께 저장만. 리더·퀴즈·인쇄·FTS·LLM·백업은 계속 프로젝션을 소비 = **무변경**) ② 서버는 블록을 **해석·딥 검증하지 않는다**(정본 = `frontend/src/editor2/schema/blocks.ts` — §4.28 원칙 ③ 동일) ③ **미전환 문서(3컬럼 NULL)의 계약은 1바이트도 변하지 않는다**(하위 호환 = 퇴로 — M34 게이트 조건).
+> 에러 규약 §3(코드 4종 불증) · 트랜잭션·소프트 삭제 등 기존 documents 계약 전건 유지.
+
+**① 상세 응답 확장 — `GET /api/documents/{id}` [S35]**
+
+- 추가 3필드: `content_blocks`(**객체 | null**) · `explanation_blocks`(**객체 | null**) · `blocks_version`(**정수 | null**). DB에는 TEXT로 직렬화 저장·응답 시 역직렬화(§4.28 ② 동일).
+- **목록(`GET /api/documents`)·batch(`GET /api/documents/batch`)는 무변경** — 블록 필드 미포함(인쇄 뷰는 프로젝션 소비).
+
+**② PATCH 확장 — 동반 규칙 2쌍 [S35]**
+
+| 필드 | 규칙 |
+|---|---|
+| `content_blocks` ↔ `content` | **항상 함께**(한쪽만 = 422 `projection_required` — §4.28 ③ 동반 규칙 준용). `content_blocks: null` 전송은 **불허**(422 `blocks_invalid` — 전환 해제는 클라이언트 명령이 아니라 ④의 서버 규약) |
+| `explanation_blocks` ↔ `explanation` | 동일 동반 규칙. **두 쌍은 서로 독립**(본문만·해설만 각각 저장 가능). `explanation_blocks: null` + `explanation` 동반 = 해설 블록 제거(전환 상태는 유지 — 전환 판정은 본문 축뿐) |
+| 얕은 검증 | §4.28 ③ 동일 — `version` 1 이상 정수·`blocks` 배열까지만(버전 상한 없음). 위반 = 422 `blocks_invalid`. 크기 상한 = 블록 필드 각 **1,000,000자** 초과 = 422 `too_large` |
+| `blocks_version` | 요청 필드가 아니다 — **서버가 `content_blocks.version`의 컬럼 사본으로 채운다**(§4.28 ② 전례. 지연 마이그레이션의 SQL 조회·전환 판정 단일 기준) |
+| 그 외 필드 | `title`·`answer`·`choices`·`difficulty`·`style`·태그 등 기존 계약 **무변경** — 전환 상태를 건드리지 않는다 |
+
+**③ 전환(지연 마이그레이션)의 성립 — 별도 엔드포인트 없음**
+
+- **블록 쌍을 처음 동반한 PATCH가 곧 전환**이다. 열람·편집 진입은 DB를 쓰지 않는다(클라이언트가 Markdown → 블록을 **메모리에서만** 변환해 편집 표면에 올린다 — 리더 무변경·쓰기 증폭 0).
+- **일괄 변환 금지**(R36) — 배치 변환은 이 API를 경유하는 **별도 수동 스크립트**(드라이런 기본·자동 실행 결선 금지)로만.
+
+**④ 전환 해제(강등) 규약 — 이중 저장 드리프트의 원천 차단**
+
+- **블록을 동반하지 않고 `content` 또는 `explanation`을 기록하는 모든 경로는 같은 트랜잭션에서 3컬럼(`content_blocks`·`explanation_blocks`·`blocks_version`)을 NULL로 되돌린다**(전환 해제). 해당 경로 = ⓐ 클라이언트 PATCH(구 편집기·DocEditor 모달 저장) ⓑ **서버 내부 기록 전부**(F30 재생성 [교체] · F44 답지 해설 반영·해설 채택 등 — 전수 목록은 stage-35 완료 기록이 정본). 구현은 공용 헬퍼 1곳(경로별 복붙 금지 — 누락 1곳이 곧 "옛 블록이 최신 본문을 되돌리는" 조용한 손실 경로다).
+- **전환 해제는 손실 이벤트가 아니다** — 그 시점 최신 본문(프로젝션)이 소스로 승격될 뿐이고, 다음 편집 저장에서 지연 전환이 재전환한다(복구 경로 겸용). 블록에만 담기던 표현(프로젝션 손실 목록 — M36 문서화 대상)은 그 시점 프로젝션 기준으로 남는다 — **알려진 동작·매뉴얼 명시**(조용한 손실 아님).
+
+**⑤ 봉인·무접촉 (재사용 자산 전수 — 2026-08-18 계약 시점)**
+
+| 항목 | 계약 |
+|---|---|
+| 정답·해설 유출면(불변 규칙 1) | quiz/session·resolve-embeds 등 **파생 응답에 블록 필드 부재**(필터링이 아니라 부재 — §4.19·R20 봉인 기법 동일. `explanation_blocks`가 새 유출면이 되지 않는다) |
+| FTS(§4.12) | 계속 `content`·`explanation`(프로젝션) 색인 — **blocks 미색인·가상 테이블/트리거 개정 0** |
+| LLM(변환·재생성·해설 생성) | 프롬프트 입력·산출 전부 프로젝션 소비 — **무변경**(산출 반영은 ④ 전환 해제 경유) |
+| 백업(F27) | **개정 0** — VACUUM INTO라 새 컬럼 자동 포함 |
+| 리더·인쇄 | 프로젝션 소비 — **무변경**. 명시 예외 1건 = 리더 이미지 `{w=}` 반영(M33 이월분 — screens §5.3 S35·별도 격리) |
+| DDL | 3컬럼 추가만(계획서 §6.2 단일 출처 · **Alembic 세트 필수** — 불변 규칙 6 · 기존 행 소급 0 = 전부 미전환) |
+
+**⑥ 에러 표 — §4.28 ⑤ 준용(코드 집합 4종 불증)**
+
+| 조건 | 상태 | code | detail.reason |
+|---|---|---|---|
+| 블록 형태 위반·`content_blocks: null` | 422 | `VALIDATION_ERROR` | `blocks_invalid` |
+| 블록/프로젝션 한쪽만 전송 | 422 | `VALIDATION_ERROR` | `projection_required` |
+| 블록 크기 상한 초과 | 422 | `VALIDATION_ERROR` | `too_large` |
+
+**구현 앵커 (2026-08-18 — 파일 수준. 행 번호는 구현 시 실측)**
+
+- 백엔드: `backend/routers/documents.py`(상세·PATCH 확장) · `backend/schemas/*`(문서 스키마 확장) · `backend/models.py`(3컬럼) · **전환 해제 공용 헬퍼 1곳**(서버측 content/explanation 기록 경로가 전부 경유) · `backend/alembic/versions/*`(신규 리비전 1개).
+- 프론트: `frontend/src/editor2/**`(documents 편집 표면·저장 훅 — 사이드카 결선 필수) · 화면 계약 = screens §5.3 S35.
+
 
