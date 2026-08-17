@@ -2687,6 +2687,7 @@ def apply_regenerate_job(db: Session, document_id: int, job_id: str) -> models.D
     document.answer = draft.get("answer")
     document.explanation = draft.get("explanation")
     document.difficulty = draft.get("difficulty")
+    document_service.demote_blocks(document)  # 전환 해제(규약 C ⓑ) — 재생성 [교체]는 블록 미동반
 
     document_service._apply_tag_replacement(db, document, draft.get("tags") or [])
     tag_rule_service.scan_document(db, document.id)
@@ -3152,6 +3153,7 @@ def apply_explain_job(db: Session, document_id: int, job_id: str) -> models.Docu
     document.explanation = f"{marker}\n\n{draft['explanation']}"
     if included_answer:
         document.answer = draft["answer"]
+    document_service.demote_blocks(document)  # 전환 해제(규약 C ⓑ) — 해설 생성 승인은 블록 미동반
 
     db.commit()
     db.refresh(document)

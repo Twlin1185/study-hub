@@ -15,7 +15,7 @@ import { useFontScale } from '../hooks/useFontScale'
 import { EmbedResolver } from './markdown/embedResolver'
 import { EmbedRenderContext } from './markdown/embedContext'
 import type { EmbedRenderCtx } from './markdown/embedContext'
-import { remarkStudyDirectives, remarkStudyRefs } from './markdown/remarkStudy'
+import { remarkStudyDirectives, remarkStudyImageSizes, remarkStudyRefs } from './markdown/remarkStudy'
 import rehypeSourcePos from './markdown/rehypeSourcePos'
 import { FOLD_DEFAULT_LABEL, HIDE_DEFAULT_LABEL } from './markdown/refSyntax'
 import EmbedCard from './markdown/EmbedCard'
@@ -73,6 +73,9 @@ type MarkdownOptions = ComponentProps<typeof ReactMarkdown>
 // remarkStudyDirectives·remarkStudyRefs는 { inlineFormat } 옵션을 받는 attacher다(F52) —
 // [attacher, options] 튜플로 넘겨 매 렌더 조합(breaks × inlineFormat)마다 최신 옵션을 반영한다
 // (REHYPE_PLUGINS의 [rehypeKatex, opts] 튜플 관례와 동일).
+// remarkStudyImageSizes(S35 F-6)는 remarkStudyRefs 바로 뒤 — **리더 렌더 전용**(이 함수만 조립하는
+// 파이프라인). editor2/transform/index.ts는 remarkStudyRefs까지만 가져다 쓰고 이 플러그인은
+// import하지 않으므로 변환 계층은 무접촉이다(위 remarkStudy.ts 파일 머리말 참조).
 function buildRemarkPlugins(breaks: boolean, inlineFormat: boolean): MarkdownOptions['remarkPlugins'] {
   const base: MarkdownOptions['remarkPlugins'] = [
     remarkGfm,
@@ -80,6 +83,7 @@ function buildRemarkPlugins(breaks: boolean, inlineFormat: boolean): MarkdownOpt
     remarkDirective,
     [remarkStudyDirectives, { inlineFormat }],
     [remarkStudyRefs, { inlineFormat }],
+    remarkStudyImageSizes,
   ]
   return breaks ? [...(base ?? []), remarkBreaks] : base
 }

@@ -57,7 +57,16 @@ def list_documents(
     return Page[DocumentListItem](items=items, total=total, page=page, size=size)
 
 
-@router.get("/batch", response_model=List[DocumentDetail])
+@router.get(
+    "/batch",
+    response_model=List[DocumentDetail],
+    # batch는 인쇄 뷰 등에서 쓰는 다건 조회 — 에디터 v2 저장 전환 3필드는 목록·batch
+    # 무변경 계약(설계 §4.29 ①)이라 응답에서 제외한다. 서비스 계층은 상세 조회와
+    # 동일한 get_document_detail을 재사용하되(DRY), 직렬화 단계에서만 걷어낸다.
+    # List[Model] 응답에서 필드를 걷어내려면 pydantic 관례상 "__all__" 키로 각 항목에
+    # 적용해야 한다(평평한 set은 리스트 인덱스에 매칭돼 아무 것도 걸러내지 못한다).
+    response_model_exclude={"__all__": {"content_blocks", "explanation_blocks", "blocks_version"}},
+)
 def get_documents_batch(
     ids: str = Query(..., description="콤마로 구분된 문서 id 목록"),
     db: Session = Depends(get_db),

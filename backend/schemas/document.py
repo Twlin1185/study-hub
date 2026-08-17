@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -86,6 +86,13 @@ class DocumentUpdate(BaseModel):
     # {font?, size?, bg?} | null — null은 전체 해제(설계 §4.26 ①). 필드 자체를 생략하면
     # 기존 값 유지(exclude_unset — 다른 필드와 동일 관례).
     style: Optional[DocumentStyle] = None
+    # 에디터 v2 저장 전환(M34/stage-35, 설계 §4.29 ②) — 서버는 블록 내부 구조를 딥
+    # 검증하지 않는다(정본은 frontend/src/editor2/schema/blocks.ts). 얕은 형태 검증
+    # (객체·version·blocks)과 동반 규칙(content_blocks ↔ content, explanation_blocks ↔
+    # explanation)은 services/document_service.py에서 수행해 detail.reason을 정확히
+    # 통제한다. Any 타입인 이유는 notes 전례(schemas/note.py)와 동일.
+    content_blocks: Optional[Any] = None
+    explanation_blocks: Optional[Any] = None
 
 
 class DocumentListItem(BaseModel):
@@ -159,6 +166,13 @@ class DocumentDetail(BaseModel):
     forked_from: Optional[int] = None
     created_at: dt.datetime
     updated_at: dt.datetime
+    # 에디터 v2 저장 전환 3필드(M34/stage-35, 설계 §4.29 ①) — DB에는 TEXT로 직렬화
+    # 저장·응답 시 역직렬화(notes 전례). NULL = 미전환 문서. 목록·batch에는 미노출
+    # (인쇄는 프로젝션 소비 — 무변경). quiz/session·resolve-embeds 등 파생 응답에는
+    # 부재(불변 규칙 1 — 이 필드들이 새 정답·해설 유출면이 되지 않는다).
+    content_blocks: Optional[Dict[str, Any]] = None
+    explanation_blocks: Optional[Dict[str, Any]] = None
+    blocks_version: Optional[int] = None
     tags: List[str] = Field(default_factory=list)
     usages: List[DocumentUsage] = Field(default_factory=list)
     relations: List[DocumentRelationOut] = Field(default_factory=list)

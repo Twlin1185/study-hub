@@ -660,6 +660,32 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     </p>
   </div>
 
+  <h3 id="doc-block-editor">새 블록 편집기 — 문서 상세에서 바로 편집 <span class="badge new">v2 준비</span></h3>
+  <p>
+    문서 상세(<span class="path">/docs/문서번호</span>)에서 <strong>[편집]</strong>을 누르면 이제
+    <strong>새 블록 편집기</strong>가 열립니다 — 본문과 해설을 읽던 그 자리에서 서식이 입힌 그대로 보이는
+    채로 편집합니다(문제 문서는 해설 칸도 함께). 제목·보기·정답·난이도는 그 옆의 기존 입력칸 그대로입니다.
+  </p>
+  <ul>
+    <li><strong>자동 저장</strong> — 타이핑을 멈추면 잠시 후 저절로 저장됩니다(저장 상태가 상단에 표시).
+      <kbd>Ctrl</kbd>+<kbd>S</kbd>로 즉시 저장할 수도 있습니다.</li>
+    <li><strong>처음 저장할 때 "전환" 안내가 한 번 뜹니다</strong> — 그 문서가 새 편집기 저장 형식(블록)으로
+      바뀌었다는 뜻입니다. <strong>기존 Markdown 본문도 항상 함께 저장</strong>되므로 읽기 화면·퀴즈·인쇄·검색·
+      백업은 이전과 완전히 동일하게 동작합니다. 내용이 바뀌거나 사라지는 일이 아닙니다.</li>
+    <li><strong>예전 형식으로 자동 복귀(전환 해제)</strong> — 전환된 문서라도 <strong>기존 편집기</strong>
+      (문서 목록·커리큘럼의 [편집] 팝업 등)로 저장하거나, <strong>AI 기능이 본문을 고치면</strong>(문제 재생성
+      [교체], 답지·해설지 반입, AI 풀이 채택) 그 문서는 자동으로 예전 형식으로 되돌아갑니다 — 그 시점의
+      최신 본문이 그대로 기준이 되므로 <strong>내용 손실이 아니며</strong>, 다음에 새 편집기로 저장하면 다시
+      전환됩니다. 신경 쓰지 않아도 되는 자동 동작입니다.</li>
+    <li><strong>예전 편집기로 돌아가려면</strong> — 설정 → <strong>실험실</strong> 카드의
+      <strong>"문서 편집에 새 편집기 사용"</strong> 토글(기본 켜짐)을 끄면 모든 문서가 예전 편집기로 열립니다.</li>
+    <li><strong>일부 문서는 자동으로 예전 편집기가 열립니다</strong> — 새 편집기가 아직 담지 못하는 표현이
+      본문에 있으면(드묾) 그 문서만 기존 편집기로 열리고 사유가 표시됩니다. 그 문서도 편집·저장은 평소대로
+      전부 됩니다.</li>
+    <li><strong>이미지 크기가 읽기 화면에도 반영됩니다</strong> — 본문의 이미지 크기 표기(<code>{w=px}</code>)를
+      이제 문서 읽기·인쇄 화면이 실제 폭으로 반영합니다(크기 표기가 없는 이미지는 이전과 동일).</li>
+  </ul>
+
   <h3 id="doc-image-attach">이미지 첨부 — 캡처 붙여넣기·드래그앤드롭 <span class="badge new">v1.x</span></h3>
   <p>
     본문·해설 입력칸(팝업이든 [창으로 열기]든 어디서나) 안에서 이미지를 바로 넣을 수 있습니다.
@@ -1685,7 +1711,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 <section id="settings">
   <h2>19. 설정 모아보기</h2>
   <div class="h2-line"></div>
-  <p>설정(<span class="path">/settings</span>)은 <strong>6그룹</strong>으로 구성되고, 좌측 목차(폰은 아코디언)로 점프합니다.</p>
+  <p>설정(<span class="path">/settings</span>)은 <strong>7그룹</strong>으로 구성되고, 좌측 목차(폰은 아코디언)로 점프합니다.</p>
   <div class="table-wrap">
     <table>
       <tr><th>그룹</th><th>항목</th><th>기본값 · 메모</th></tr>
@@ -1708,6 +1734,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
         전 기기 공통 저장(서버 설정)</td></tr>
       <tr><td colspan="2">홈 위젯 배치 (열 수·순서·숨김) — 홈 [편집]에서</td><td>전 기기 공통 저장</td></tr>
       <tr><td colspan="2">사이드바 접힘 — 사이드바 « 토글</td><td>기기별로 따로 저장</td></tr>
+      <tr><td><strong>실험실</strong></td><td>문서 편집에 새 편집기 사용</td><td>기본 켜짐 — 끄면 예전 편집기로 완전 복귀 (<a href="#doc-block-editor">4장 "새 블록 편집기"</a>)</td></tr>
     </table>
   </div>
 
