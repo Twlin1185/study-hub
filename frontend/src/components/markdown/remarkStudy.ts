@@ -1,11 +1,16 @@
-// remark 플러그인 2종 (설계 §4.19 ①② + §5.3 S26/F52) — MarkdownView 전용.
+// remark 플러그인 3종 (설계 §4.19 ①② + §5.3 S26/F52 + S35) — 1·2는 `editor2/transform/index.ts`
+// 변환 파이프라인도 그대로 가져다 쓰고(D9 코드 격리 — import만, 무수정), 3은 **리더 렌더 전용**
+// (`MarkdownView.tsx`에서만 사용 — 변환 계층에 얹으면 `{w=}`가 mdast 단계에서 사라져 `mdastToBlocks`
+// 가 읽을 것이 없어진다. stage-35 F-6에서 분리 확정).
 //
-// 1) remarkStudyDirectives : remark-directive가 만든 컨테이너/리프/인라인 directive를
+// 1) remarkStudyDirectives  : remark-directive가 만든 컨테이너/리프/인라인 directive를
 //    data-directive 속성을 가진 요소로 변환(`:::fold[제목]` · `:::hide[제목]` · `:::note/warn/tip[제목]`
 //    · `:t[텍스트]{c= bg= s=}`).
-// 2) remarkStudyRefs       : 본문 텍스트의 `![[DOC-…]]` · `[[DOC-…]]` · `[[#제목]]`과
+// 2) remarkStudyRefs        : 본문 텍스트의 `![[DOC-…]]` · `[[DOC-…]]` · `[[#제목]]`과
 //    마이크로 인라인 문법 3종(`++밑줄++`·`==형광펜==`·`||스포일러||`, F52)을
 //    data-ref-*/hName 속성을 가진 요소 노드로 치환하고, 임베드는 문단 밖 블록으로 끌어올린다.
+// 3) remarkStudyImageSizes  : 이미지 직후 크기 부속 표기 `{w=<px>}`(M32 규약 E)를 img의
+//    width/height로 병합한다(stage-35 F-6 — **리더 전용**, inlineFormat 토글과 무관하게 항상 동작).
 //
 // AST 기반이므로 코드 블록·인라인 코드 안의 참조/마이크로 문법은 자연히 렌더되지 않는다(§4.19 ①).
 // unist-util-visit 등 추가 의존 없이 최소 워커를 직접 돌린다(승인 의존 = remark-directive·
@@ -523,5 +528,77 @@ export function remarkStudyRefs(options?: StudyPluginOptions) {
     const source = typeof file?.value === 'string' ? file.value : ''
     replaceRefs(tree, { inlineFormat, source })
     unwrapEmbeds(tree)
+  }
+}
+
+// ---- 3) 이미지 크기 표기 `{w=<px>}`(선택 `h=`) 반영 (M32 규약 E, stage-35 F-6 리더 반영) ----
+//
+// editor2/transform/mdastToBlocks.ts의 SIZE_SUFFIX_RE와 동일 문법을 공용 리더에서도 인식한다
+// (파서·표기는 M32에서 확정, 여기서는 remark 플러그인 추가 없이 기존 mdast 트리를 후처리).
+// 이미지 노드 바로 다음 형제가 `{w=400}`으로 시작하는 text 노드일 때만 인정하고, **원문 슬라이스가
+// 실제로 `{`로 시작할 때만** 소비한다 — `\{w=400}`으로 이스케이프해 평문을 적은 경우까지 삼키지
+// 않기 위해서다(transform 계층과 동일 방어). 매치가 없는 이미지·문서는 이 함수가 트리를 전혀 바꾸지
+// 않으므로 렌더 diff 0이 성립한다.
+//
+// **별도 플러그인으로 분리한다**(`remarkStudyRefs` 안에 넣지 않는다) — `remarkStudyRefs`는
+// `editor2/transform/index.ts`가 변환 파이프라인에도 그대로 가져다 쓰므로, 거기 섞으면 `{w=}`
+// 텍스트가 mdast 단계에서 사라져 `mdastToBlocks.ts`의 `SIZE_SUFFIX_RE`가 볼 것이 없어진다
+// (stage-35 F-6 1차 구현 결함 — A/B 실측으로 확정, 이 분리로 해소). 이 플러그인은 **리더 렌더
+// 파이프라인에만**(`MarkdownView.tsx`) `remarkStudyRefs` 뒤에 얹는다 — 변환 계층은 무접촉.
+const IMAGE_SIZE_RE = /^\{w=(\d+)(?:[ \t]+h=(\d+))?\}/
+
+function applyImageSizes(node: MdNode, source: string): void {
+  const children = node.children
+  if (!children) return
+  for (let i = 0; i < children.length; i += 1) {
+    const child = children[i]
+    if (child.type === 'image') {
+      const next = children[i + 1]
+      if (next && next.type === 'text') {
+        const value = next.value ?? ''
+        const m = IMAGE_SIZE_RE.exec(value)
+        if (m) {
+          const raw = sliceSource(source, next)
+          if (raw !== null && raw.startsWith(m[0])) {
+            const width = Number(m[1])
+            const height = m[2] === undefined ? undefined : Number(m[2])
+            const hProperties: Record<string, number> = { width }
+            if (height !== undefined) hProperties.height = height
+            // mdast-util-to-hast의 image 핸들러가 기본 생성한 img 요소 속성(src/alt/title)에
+            // hProperties가 그대로 병합된다(hName 미지정 — 태그 교체 없음).
+            child.data = { ...(child.data ?? {}), hProperties }
+            const consumed = m[0].length
+            const remaining = value.slice(consumed)
+            if (remaining === '') {
+              children.splice(i + 1, 1)
+            } else {
+              next.value = remaining
+              // 소비한 만큼 남은 텍스트의 시작 오프셋을 민다 — 이스케이프 없는 접두 구간이라
+              // 원문 문자 수 = value 문자 수(위 raw.startsWith 확인으로 보장)이므로 1:1 이동이다.
+              const start = next.position?.start
+              if (start && typeof start.offset === 'number') {
+                next.position = {
+                  ...next.position,
+                  start: {
+                    ...start,
+                    offset: start.offset + consumed,
+                    column: typeof start.column === 'number' ? start.column + consumed : start.column,
+                  },
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    applyImageSizes(child, source)
+  }
+}
+
+/** 리더 렌더 파이프라인 전용 plugin — `MarkdownView.tsx`에서만 `remarkStudyRefs` 뒤에 붙인다. */
+export function remarkStudyImageSizes() {
+  return (tree: MdNode, file?: { value?: unknown }) => {
+    const source = typeof file?.value === 'string' ? file.value : ''
+    applyImageSizes(tree, source)
   }
 }
