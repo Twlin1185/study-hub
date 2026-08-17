@@ -11,7 +11,7 @@
 // 지연 전환(규약 E): **열람·편집 진입은 DB를 쓰지 않는다**. 미전환 문서는 `content`를 메모리에서
 // 블록으로 변환해 표면에 올리고, **블록 쌍을 처음 동반한 저장이 곧 전환**이다. 변환이 미지원
 // 사유를 보고하면 이 표면을 열지 않고 **구 편집기(완전한 편집 경로)로 퇴로**를 잡는다.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import MarkdownView from '../../components/MarkdownView'
 import type { DocumentDetail, DocumentType } from '../../api/types'
 import { ApiError } from '../../api/client'
@@ -312,17 +312,33 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
   }, [])
 
   // 표면을 떠날 때 남은 편집분을 흘려보내지 않는다(타이머가 죽기 전 마지막 저장 — 노트와 동일).
+  //
+  // **`useLayoutEffect`여야 한다(검토 D-8 — 실측)**: 이 flush는 자식 `BlockSurface`의
+  // `useImperativeHandle` 핸들(`contentRef`/`explanationRef`)로 본문·해설을 꺼낸다. 그런데
+  // **passive(useEffect) cleanup은 자식 ref가 이미 떨어진 뒤에 돈다** — 그 자리에서는 `build()`를
+  // 부를 대상이 없어 PATCH에 `content_blocks/content` 쌍이 통째로 빠지고, 마지막 미저장 편집분이
+  // 조용히 사라진다. 레이아웃 cleanup은 삭제 traversal(부모 → 자식) 안에서 돌기 때문에 자식 ref가
+  // 아직 살아 있다. 노트 화면은 편집기를 **자기 컴포넌트 안에서** 만들어(editor.document 직접 접근)
+  // 이 함정이 없었다 — 표면을 2개로 쪼개면서 새로 생긴 조건이다.
   const buildPatchRef = useRef(buildPatch)
   buildPatchRef.current = buildPatch
   const mutateRef = useRef(updateDocument.mutate)
   mutateRef.current = updateDocument.mutate
   const saveBlockedRef = useRef(saveBlocked)
   saveBlockedRef.current = saveBlocked
-  useEffect(
+  useLayoutEffect(
     () => () => {
       clearTimers()
       // 마지막 저장에도 같은 가드를 건다(D-1) — 문서가 어긋난 채로는 흘려보내지 않는다.
-      if (dirtyRef.current && !saveBlockedRef.current()) mutateRef.current(buildPatchRef.current())
+      if (!dirtyRef.current || saveBlockedRef.current()) return
+      const patch = buildPatchRef.current()
+      // 본문 쌍이 비어 있으면(핸들이 이미 떨어진 예상 밖 상황) **부분 저장을 하지 않는다** —
+      // 제목·보기만 실린 PATCH는 블록 미동반 기록이라 전환 해제까지 부르는 절반짜리 저장이 된다.
+      if (patch.content_blocks === undefined) {
+        console.warn('[editor2] 편집 표면 핸들이 사라져 마지막 저장을 건너뜁니다(부분 저장 방지).')
+        return
+      }
+      mutateRef.current(patch)
     },
     // 언마운트 1회만.
     // eslint-disable-next-line react-hooks/exhaustive-deps
