@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -27,6 +27,11 @@ import { MARKDOWN_SCALE_CLASS } from '../utils/docStyle'
 import { ApiError } from '../api/client'
 import { pickEmbeddedBy, pickManualRelations } from '../utils/relations'
 import { choiceMarker, formatAnswer } from '../utils/answerFormat'
+import { useDocBlockEditorEnabled } from '../editor2/lib/docEditorPreference'
+
+// 에디터 v2 문서 편집 표면(S35 — 이 단계의 새 편집기 **유일한 진입점**). BlockNote·Mantine 번들이
+// 초기 청크에 섞이지 않게 **lazy 청크**로만 들어온다(R37 — 초기 청크 증가 ≤ 5KB가 DoD).
+const DocBlockEditor = lazy(() => import('../editor2/documents/DocBlockEditor'))
 
 const TYPE_LABEL: Record<DocumentType, string> = {
   concept: '개념',
@@ -92,6 +97,12 @@ export default function DocumentDetailPage() {
 
   // 편집은 공용 DocEditor 모달로(설계 §5 도입부, F37) — 문서 상세 전용 인라인 폼 제거.
   const [editing, setEditing] = useState(false)
+  // S35(에디터 v2 M34 — screens §5.3 · stage-35 규약 F) — **편집 진입 분기 1곳**.
+  // 퇴로 토글이 ON이면 새 편집기 표면을 열고, 메모리 변환이 미지원 사유를 보고하면 그 자리에서
+  // 기존 편집기(= 완전한 편집 경로인 퇴로)로 되돌린다. 토글 OFF면 분기 자체가 서지 않는다.
+  const blockEditorEnabled = useDocBlockEditorEnabled()
+  const [blockEditing, setBlockEditing] = useState(false)
+  const [blockFallbackReason, setBlockFallbackReason] = useState<string | null>(null)
   const [addRelationOpen, setAddRelationOpen] = useState(false)
   const [relationError, setRelationError] = useState<string | null>(null)
   const [tagInput, setTagInput] = useState('')
@@ -167,22 +178,33 @@ export default function DocumentDetailPage() {
           <span className="text-xs text-muted">{doc.doc_no}</span>
           <BookmarkButton documentId={doc.id} bookmarked={doc.bookmarked} />
         </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
-          >
-            편집
-          </button>
-          <button
-            type="button"
-            onClick={() => setConfirmDelete(true)}
-            className="rounded border border-border px-3 py-1.5 text-sm text-wrong hover:bg-bg"
-          >
-            삭제
-          </button>
-        </div>
+        {/* 새 편집기 표면이 열려 있는 동안에는 [편집]·[삭제]를 감춘다 — 편집 중 삭제로 들어가는
+            경로를 막고, 종료는 표면 안의 [편집 종료](저장 후 닫기)로 단일화한다. */}
+        {!blockEditing && (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (blockEditorEnabled) {
+                  setBlockFallbackReason(null)
+                  setBlockEditing(true)
+                } else {
+                  setEditing(true)
+                }
+              }}
+              className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
+            >
+              편집
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              className="rounded border border-border px-3 py-1.5 text-sm text-wrong hover:bg-bg"
+            >
+              삭제
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 오류 신고 · 재생성 (설계 §5.3, F30) — 진행 중 잡 배지 / 완료 시 기존·신규 비교 */}
@@ -196,7 +218,27 @@ export default function DocumentDetailPage() {
         <DocEditor mode="edit" documentId={doc.id} onClose={() => setEditing(false)} />
       )}
 
-      {(
+      {/* 메모리 변환이 미지원 사유를 보고해 구 편집기로 되돌아왔을 때의 고지(조용한 폴백 0). */}
+      {blockFallbackReason && !blockEditing && (
+        <div className="mb-3 rounded border border-warning bg-surface p-3 text-xs text-primary">
+          이 문서에는 새 편집기가 아직 다루지 못하는 표현이 있어 기존 편집기로 열었습니다.
+          <span className="mt-1 block text-muted">{blockFallbackReason}</span>
+        </div>
+      )}
+
+      {blockEditing ? (
+        <Suspense fallback={<p className="text-sm text-muted">편집기를 불러오는 중…</p>}>
+          <DocBlockEditor
+            doc={doc}
+            onClose={() => setBlockEditing(false)}
+            onUnsupported={(reason) => {
+              setBlockEditing(false)
+              setBlockFallbackReason(reason)
+              setEditing(true)
+            }}
+          />
+        </Suspense>
+      ) : (
         <div className="flex flex-col gap-4">
           {/* S28(F53 ⑤, §4.26 ①·④) — 이 문서의 본문 렌더 영역에만 문서 스타일 적용(앱 크롬 불변).
               배경 오버라이드가 있으면 bg-surface 대신 --doc-bg-*를 쓰고 인쇄에서는 무시된다. */}
@@ -252,7 +294,8 @@ export default function DocumentDetailPage() {
       )}
 
       {/* 문서 스타일 (S28 — F53 ②, screens §5.3) — DocEditor 편집 모드와 별개로 문서 상세에서도
-          바로 지정할 수 있다. 저장은 documents PATCH style 재사용(신규 API 0). */}
+          바로 지정할 수 있다. 저장은 documents PATCH style 재사용(신규 API 0).
+          S35: 새 편집기 표면에도 스타일 폼을 두지 않는다 — 이 카드가 단일 출처다. */}
       <DocStyleSection doc={doc} />
 
       {/* 태그 */}
