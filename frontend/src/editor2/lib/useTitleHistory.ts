@@ -27,6 +27,21 @@
 // `preventDefault()`는 무조건 하고(본문 무손실이 최우선), IME에 확정을 강제한 뒤(`blur()`)
 // 되돌린다 — `blocknote/toolbar/useHistoryShortcuts.ts`(결함 U-1)와 같은 정신이다.
 // 조합 중 `event.key`가 `'Process'`로 오는 IME가 있어 물리 키(`event.code`)로도 판정한다.
+//
+// **적용 범위(검토 지적 중요-3)**: 원인이 "프레임당 하나의 undo 스택"이므로 피해자는 제목만이
+// 아니다. 같은 화면에 뜨는 **모든** 입력란(참조 피커 검색창·라벨 입력·서식 툴바 링크 입력 등)이
+// 똑같이 본문 스택을 파먹는다. 그래서 이 훅은
+//   - **편집 표면 밖에서 포커스된 `input`/`textarea`/contenteditable 전부**에 대해 되돌리기 키의
+//     기본 동작을 죽이고,
+//   - **자체 히스토리는 제목 입력란에만** 태운다.
+// 트레이드오프: 제목 밖 입력란은 자체 undo 없이 네이티브 undo까지 잃는다. 그래도 **조용한 본문
+// 손실**보다 낫다 — 그 입력란들은 한 줄짜리 임시 입력이고, 잘못 쳤으면 지우면 그만이다.
+// **편집 표면 안(`.bn-editor`/`.ProseMirror`)은 절대 건드리지 않는다** — U-1 훅과 BlockNote
+// 기본 키맵의 영역이라 여기서 손대면 이중 undo가 난다.
+//
+// **키보드 밖 경로(검토 지적 의심-2)**: 우클릭 → "실행 취소"는 keydown을 거치지 않는다.
+// `beforeinput`의 `inputType === 'historyUndo'|'historyRedo'`를 같은 게이트로 잡아 닫는다
+// (취소 가능한 이벤트다). 이 이벤트를 지원하지 않는 환경을 위해 keydown 경로도 그대로 둔다.
 import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 
 /** 타이핑이 이만큼 멈추면 되돌림 경계를 하나 만든다(묶음 커밋). */
@@ -41,6 +56,29 @@ const MAX_ENTRIES = 200
  * 되돌려야 "조합분이 값에 들어간 상태"에서 되돌리게 된다. U-1 래퍼와 같은 값(40ms)을 쓴다.
  */
 const COMPOSITION_SETTLE_MS = 40
+/**
+ * 편집 표면(= BlockNote가 소유한 contenteditable) 판정 선택자.
+ * `useEditorDOMElement`(U-1 훅이 쓰는 것)는 BlockNote 컨텍스트 **안**에서만 쓸 수 있는데
+ * 제목 입력란은 `<BlockNoteView>` 밖에 있어 이 훅에서는 쓸 수 없다. 그래서 DOM 판정으로 간다.
+ * 두 클래스는 편집 가능한 요소 자신에 붙는다 — 툴바·피커 패널은 그 바깥(또는 포털)이라
+ * 여기 걸리지 않는다.
+ */
+const EDITING_SURFACE = '.bn-editor, .ProseMirror'
+
+/** 편집 표면 안에서 난 이벤트인가 — 안이면 이 훅은 **아무것도 하지 않는다**. */
+function inEditingSurface(target: EventTarget | null): boolean {
+  const node = target instanceof Node ? target : null
+  const element = node instanceof Element ? node : (node?.parentElement ?? null)
+  return element?.closest(EDITING_SURFACE) != null
+}
+
+/** 텍스트를 입력받는 요소인가(= 네이티브 undo의 진입점이 되는 요소). */
+function isTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return (
+    target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable
+  )
+}
 
 interface TitleHistoryEntry {
   value: string
@@ -90,6 +128,14 @@ export function useTitleHistory({ value, apply }: TitleHistoryOptions): TitleHis
   const timer = useRef<number | null>(null)
   /** 값 적용 후 DOM이 갱신되면 복원할 커서 위치. */
   const pendingSelection = useRef<TitleHistoryEntry | null>(null)
+  /**
+   * 조합 확정용 `blur()` ~ 재포커스 사이(= 되돌리기 예약 상태)인가.
+   * 그 창에서는 포커스가 `document.body`라 대상 판정이 전부 빗나가 **네이티브 undo가 새어
+   * 나간다**(검토 지적 경미-1). 창이 열려 있는 동안의 되돌리기 키는 통째로 삼킨다.
+   */
+  const rewinding = useRef(false)
+  /** 위 창의 타이머 핸들 — 언마운트 시 정리한다(검토 지적 경미-2). */
+  const settleTimer = useRef<number | null>(null)
 
   const readEntry = useCallback((): TitleHistoryEntry => {
     const input = inputRef.current
@@ -197,43 +243,96 @@ export function useTitleHistory({ value, apply }: TitleHistoryOptions): TitleHis
     input.setSelectionRange(pending.selectionStart, pending.selectionEnd)
   })
 
-  // 키 가로채기 — `document` 캡처 단계에서 잡아 **어떤 경우에도** 네이티브 undo가 돌지 않게 한다.
+  // 되돌리기 요청 가로채기 — `document` 캡처 단계에서 잡아, **편집 표면 밖**에서는 네이티브
+  // undo가 단 한 번도 돌지 않게 한다(그게 본문 스택 유출의 유일한 통로다).
   useEffect(() => {
+    /** 기본 동작 + 다른 리스너까지 통째로 막는다. */
+    const swallow = (event: Event) => {
+      if (event.cancelable) event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+    }
+
+    /**
+     * 이 이벤트를 이 훅이 맡아야 하는가.
+     *  - `'skip'`  : 편집 표면 안(U-1 훅·BlockNote 키맵 영역) 또는 되돌리기와 무관한 대상.
+     *  - `'block'` : 제목 밖 입력란 — 기본 동작만 죽인다(자체 히스토리 없음).
+     *  - `'title'` : 제목 입력란 — 죽이고 자체 히스토리로 되돌린다.
+     */
+    const classify = (target: EventTarget | null): 'skip' | 'block' | 'title' => {
+      if (inEditingSurface(target)) return 'skip'
+      const input = inputRef.current
+      if (input && target === input) return 'title'
+      // blur~재포커스 창에서는 포커스가 `document.body`다 — 그 창의 키는 대상과 무관하게 삼킨다.
+      if (rewinding.current) return 'block'
+      return isTextEntry(target) ? 'block' : 'skip'
+    }
+
+    /** 제목 히스토리 실행 — 조합 중이면 IME 확정을 강제한 뒤로 미룬다. */
+    const run = (direction: 'undo' | 'redo') => {
+      if (rewinding.current) return // 이미 예약된 되돌리기가 하나 있다 — 중복 실행 금지.
+      const rewind = direction === 'redo' ? redo : undo
+      if (!composing.current) {
+        rewind()
+        return
+      }
+      // 조합 중 — IME에 확정을 강제하고(blur) 확정분이 값에 반영된 뒤 되돌린다.
+      rewinding.current = true
+      inputRef.current?.blur()
+      settleTimer.current = window.setTimeout(() => {
+        settleTimer.current = null
+        inputRef.current?.focus()
+        rewind()
+        rewinding.current = false
+      }, COMPOSITION_SETTLE_MS)
+    }
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return
       const key = event.key.toLowerCase()
       const isZ = key === 'z' || event.code === 'KeyZ'
       const isY = key === 'y' || event.code === 'KeyY'
       if (!isZ && !isY) return
-      const input = inputRef.current
-      // 제목 입력란에서 난 키만 처리한다 — 본문 편집 표면은 기존 경로(BlockNote 키맵 +
-      // `useHistoryShortcuts`)가 그대로 담당한다.
-      if (!input || event.target !== input) return
+      const role = classify(event.target)
+      if (role === 'skip') return
 
       // **무조건** 기본 동작을 죽인다(조합 중이든 아니든, 되돌릴 게 있든 없든).
       // 이 한 줄이 본문 스택 유출 = 조용한 본문 손실을 끊는 지점이다.
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-
-      const rewind = isY || event.shiftKey ? redo : undo
-      if (!composing.current) {
-        rewind()
-        return
-      }
-      // 조합 중 — IME에 확정을 강제하고(blur) 확정분이 값에 반영된 뒤 되돌린다.
-      input.blur()
-      window.setTimeout(() => {
-        inputRef.current?.focus()
-        rewind()
-      }, COMPOSITION_SETTLE_MS)
+      swallow(event)
+      if (role === 'block') return
+      run(isY || event.shiftKey ? 'redo' : 'undo')
     }
+
+    // 우클릭 → "실행 취소"·"다시 실행"은 keydown 없이 여기로만 온다(취소 가능한 이벤트).
+    // 키보드 경로는 위에서 이미 `preventDefault`되므로 이 핸들러와 겹쳐 두 번 돌 일은 없다.
+    const onBeforeInput = (event: InputEvent) => {
+      const type = event.inputType
+      if (type !== 'historyUndo' && type !== 'historyRedo') return
+      const role = classify(event.target)
+      if (role === 'skip') return
+      swallow(event)
+      if (role === 'block') return
+      run(type === 'historyRedo' ? 'redo' : 'undo')
+    }
+
     document.addEventListener('keydown', onKeyDown, true)
-    return () => document.removeEventListener('keydown', onKeyDown, true)
+    document.addEventListener('beforeinput', onBeforeInput, true)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('beforeinput', onBeforeInput, true)
+    }
   }, [redo, undo])
 
-  // 언마운트 시 남은 타이머 정리.
-  useEffect(() => () => clearTimer(), [clearTimer])
+  // 언마운트 시 남은 타이머 정리(유휴 커밋 + 조합 확정 대기 둘 다).
+  useEffect(
+    () => () => {
+      clearTimer()
+      if (settleTimer.current !== null) window.clearTimeout(settleTimer.current)
+      settleTimer.current = null
+      rewinding.current = false
+    },
+    [clearTimer],
+  )
 
   return { inputRef, recordChange, beginComposition, endComposition, commit }
 }
