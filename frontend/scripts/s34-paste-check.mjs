@@ -72,6 +72,8 @@ const { toBlockNoteBlocks, fromBlockNoteBlocks, fromBlockNoteResult } = jiti(
   path.join(SRC, 'editor2/adapter/index.ts'),
 )
 const { createPasteHandler } = jiti(path.join(SRC, 'editor2/blocknote/paste.ts'))
+// 느슨한 목록 전처리(U-5) — 붙여넣기 경로가 이 함수를 거친다(F절).
+const { expandLooseLists } = jiti(path.join(SRC, 'editor2/blocknote/looseList.ts'))
 
 let pass = 0
 let fail = 0
@@ -604,6 +606,140 @@ console.log('== E. 표 열 정렬 폐기 고지(검토 중요-2) ==')
   check(
     '중요-2: 정렬이 없던 표는 열이 바뀌어도 집계되지 않는다',
     fromBlockNoteResult(plain.blocks, plain.sidecar).tableAlignDrops.length === 0,
+  )
+}
+
+// ---------------------------------------------------------------- F. 느슨한 목록 HTML 표식(결함 U-5)
+//
+// 사용자 보고: "항목 사이 빈 줄이 **가끔** 사라진다". 원인 = 붙여넣기의 `text/html` 경로가
+// CommonMark 렌더러가 남긴 **유일한 느슨함 표식**(`<li><p>내용</p></li>`)을 접어 tight 목록으로
+// 만들어 버린다(`htmlToDialectMarkdown.convertList` → `normalizeInline`). "가끔"인 이유는 `<ul>`이
+// 두 벌로 갈라진 표본(D절)은 변환기가 목록 사이에 빈 줄을 넣어 이미 살아남기 때문이다.
+// 수정 = `editor2/blocknote/looseList.ts`의 전처리(느슨한 목록을 항목당 한 벌로 편다).
+console.log('== F. 느슨한 목록 HTML 표식 보존(U-5) ==')
+{
+  const looseHtml = '<ul><li><p>A</p></li><li><p>B</p></li><li><p>C</p></li></ul>'
+  const spreadsOf = (html) =>
+    markdownToBlocks(htmlToDialectMarkdown(html))
+      .blocks.filter((b) => b.type === 'listItem')
+      .map((b) => b.spread)
+
+  // ① 전제 재현 — 전처리가 없으면 느슨함이 사라진다(회귀가 되살아나면 이 대조가 무너진다).
+  check(
+    'U-5: 전제 재현 — 전처리 없이는 `<li><p>` 목록이 tight로 접힌다',
+    spreadsOf(looseHtml).every((s) => s === undefined),
+    JSON.stringify(spreadsOf(looseHtml)),
+  )
+
+  // ② 전처리 결과 — 항목당 한 벌의 목록으로 펴져 빈 줄이 생긴다.
+  const expanded = expandLooseLists(looseHtml)
+  check('U-5: 전처리가 느슨한 목록을 항목당 한 벌로 편다', expanded !== looseHtml, expanded)
+  check(
+    'U-5: 전처리 후 Markdown에 항목 사이 빈 줄이 있다',
+    htmlToDialectMarkdown(expanded) === '- A\n\n- B\n\n- C',
+    JSON.stringify(htmlToDialectMarkdown(expanded)),
+  )
+  check(
+    'U-5: 전처리 후 블록 전원이 느슨(spread)하다',
+    spreadsOf(expanded).length === 3 && spreadsOf(expanded).every((s) => s === true),
+    JSON.stringify(spreadsOf(expanded)),
+  )
+  check(
+    'U-5: 항목 수는 그대로다(목록을 쪼개도 항목을 잃지 않는다)',
+    markdownToBlocks(htmlToDialectMarkdown(expanded)).blocks.length === 3,
+  )
+
+  // ③ 붙여넣기 전 경로(핸들러 → 사이드카 → 저장 역변환)에서 살아남는가.
+  {
+    const { editor, calls } = makeFakeEditor()
+    const { deps, sessionSidecar } = makeDeps()
+    createPasteHandler(deps)({
+      event: { clipboardData: makeClipboardData({ html: looseHtml }) },
+      editor,
+      defaultPasteHandler: () => true,
+    })
+    const inserted = insertedBlocksOf(calls)
+    const back = fromBlockNoteBlocks(inserted, sessionSidecar)
+    const items = back.blocks.filter((b) => b.type === 'listItem')
+    check(
+      'U-5: 붙여넣기 세션 사이드카에 listSpread가 실린다',
+      Object.values(sessionSidecar).filter((e) => e.listSpread === true).length === 3,
+      JSON.stringify(sessionSidecar),
+    )
+    check(
+      'U-5: 저장 경로 왕복에서 느슨함이 살아남는다',
+      items.length === 3 && items.every((i) => i.spread === true),
+      JSON.stringify(items.map((i) => i.spread)),
+    )
+    check(
+      'U-5: 그 투영 Markdown에 빈 줄이 있다',
+      blocksToMarkdown(back) === '- A\n\n- B\n\n- C',
+      JSON.stringify(blocksToMarkdown(back)),
+    )
+  }
+
+  // ④ 번호 목록도 같다(마커만 다르다).
+  const orderedHtml = '<ol><li><p>A</p></li><li><p>B</p></li></ol>'
+  check(
+    'U-5: 번호 목록도 느슨함이 복원된다',
+    spreadsOf(expandLooseLists(orderedHtml)).every((s) => s === true),
+    JSON.stringify(spreadsOf(expandLooseLists(orderedHtml))),
+  )
+
+  // ⑤ 거짓 양성 방지 — 손대면 **없던 빈 줄이 생기는** 경로들.
+  const tightHtml = '<ul><li>A</li><li>B</li><li>C</li></ul>'
+  check('U-5: tight 목록 HTML은 전처리가 문자열을 그대로 돌려준다', expandLooseLists(tightHtml) === tightHtml)
+  check(
+    'U-5: tight 목록은 여전히 tight다(빈 줄을 만들지 않는다)',
+    spreadsOf(expandLooseLists(tightHtml)).every((s) => s === undefined),
+  )
+  // BlockNote 자신의 외부 HTML은 tight·loose를 가리지 않고 `<p class="bn-inline-content">`를 쓴다
+  // (실측 — `ServerBlockNoteEditor.blocksToHTMLLossy`). 이것을 근거로 삼으면 편집기 안에서
+  // 복사·붙여넣기할 때마다 없던 빈 줄이 생긴다. **알려진 한계**: 그래서 편집기 내부 복사본은
+  // 느슨함을 되살리지 못한다(느슨함은 사이드카에만 있고 클립보드 HTML에는 없다).
+  const bnCopyHtml =
+    '<ul><li><p class="bn-inline-content">a</p></li><li><p class="bn-inline-content">b</p></li></ul>'
+  check('U-5: BlockNote 자체 복사 HTML은 느슨함의 근거가 아니다', expandLooseLists(bnCopyHtml) === bnCopyHtml)
+  check(
+    'U-5: 그래서 편집기 내부 복사·붙여넣기에 없던 빈 줄이 생기지 않는다',
+    spreadsOf(expandLooseLists(bnCopyHtml)).every((s) => s === undefined),
+  )
+  // 항목이 1개면 "항목 사이"가 없다(Markdown으로 표현할 수도 없다) — 손대지 않는다.
+  const singleHtml = '<ul><li><p>A</p></li></ul>'
+  check('U-5: 항목이 1개인 목록은 전처리 대상이 아니다', expandLooseLists(singleHtml) === singleHtml)
+  // 목록이 없는 붙여넣기는 파싱조차 하지 않는다(경로 무접촉).
+  check('U-5: 목록이 없는 HTML은 원본 문자열 그대로다', expandLooseLists('<p>문단</p>') === '<p>문단</p>')
+  // D절의 "목록 2개" 표본(이미 살아남던 경로)도 전처리가 건드리지 않는다.
+  const twoLists = '<ul><li>A</li><li>B</li></ul><ul><li>C</li><li>D</li></ul>'
+  check('U-5: 이미 살아남던 "목록 2개" 표본은 무접촉이다', expandLooseLists(twoLists) === twoLists)
+  // Google Docs·Word Online은 tight·loose를 가리지 않고 모든 <li> 내용을
+  // <p role="presentation">으로 감싼다(2026-08-17 검토 중요-2 실측) — 느슨함의 근거가 아니다.
+  const gdocsHtml =
+    '<ul><li><p dir="ltr" role="presentation">항목1</p></li>' +
+    '<li><p dir="ltr" role="presentation">항목2</p></li>' +
+    '<li><p dir="ltr" role="presentation">항목3</p></li></ul>'
+  check('U-5: Google Docs의 tight 목록은 전처리 대상이 아니다', expandLooseLists(gdocsHtml) === gdocsHtml)
+  check(
+    'U-5: 그래서 Google Docs 붙여넣기에 없던 빈 줄이 생기지 않는다',
+    spreadsOf(expandLooseLists(gdocsHtml)).every((s) => s === undefined),
+  )
+  // role="presentation"이 아닌 진짜 <p> 래핑(CommonMark 렌더러 산출)은 여전히 느슨함으로 본다.
+  const mixedRoleHtml =
+    '<ul><li><p>진짜 느슨</p></li><li><p role="presentation">레이아웃</p></li></ul>'
+  check('U-5: role 없는 <p>가 하나라도 있으면 여전히 느슨함으로 판정한다', expandLooseLists(mixedRoleHtml) !== mixedRoleHtml)
+
+  // ⑥ 중첩 — 느슨한 부모를 쪼개도 자식 목록은 그 항목 안에 남는다.
+  const nestedHtml = '<ul><li><p>A</p><ul><li>a1</li><li>a2</li></ul></li><li><p>B</p></li></ul>'
+  const nested = markdownToBlocks(htmlToDialectMarkdown(expandLooseLists(nestedHtml))).blocks
+  check(
+    'U-5: 중첩 자식은 부모 항목 안에 그대로 남는다',
+    nested.length === 2 && (nested[0].children ?? []).length === 2,
+    JSON.stringify(nested.map((b) => (b.children ?? []).length)),
+  )
+  check(
+    'U-5: 중첩이 있어도 부모 항목은 느슨해진다',
+    nested.every((b) => b.spread === true),
+    JSON.stringify(nested.map((b) => b.spread)),
   )
 }
 

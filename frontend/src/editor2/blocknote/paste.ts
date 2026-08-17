@@ -48,6 +48,7 @@ import type { AdapterSidecar, BnBlock, BnInline, BnStyledText } from '../adapter
 import type { BnStyles, BnTableCell, BnTableContent, BnTableRow } from '../adapter/types'
 import type { InlineStyles } from '../schema/blocks'
 import { asEditorBlocks, type NoteBlockNoteEditor } from './schema'
+import { expandLooseLists } from './looseList'
 import { describeSkippedNonImageFiles, insertUploadedImages, isImageFile } from './uploads'
 
 // ---------------------------------------------------------------- 규약 C 강제 지점 ③
@@ -329,7 +330,10 @@ export function createPasteHandler(deps: PasteHandlerDeps) {
     // ② HTML — 앱 방언 화이트리스트 변환기 1벌만 탄다.
     const html = clipboardData.getData('text/html')
     if (html && html.trim()) {
-      const markdown = htmlToDialectMarkdown(html)
+      // 느슨한 목록 전처리(결함 U-3) — CommonMark 렌더러가 남긴 유일한 느슨함 표식(`<li><p>…`)이
+      // 변환기에서 접혀 사라지므로, 그 전에 항목당 한 벌의 목록으로 펴 둔다(`looseList.ts` 머리말).
+      // 표식이 없으면 원본 문자열을 그대로 돌려주므로 다른 붙여넣기 경로는 무접촉이다.
+      const markdown = htmlToDialectMarkdown(expandLooseLists(html))
       const doc = markdownToBlocks(markdown)
       // `converted.sidecar`(규약 I 흡수분)는 **세션 사이드카에 병합한다** — 저장 시 역변환이
       // 되살린다. 종전 주석은 "이 경로의 sidecar는 항상 빈 객체라 버려도 무해하다"고 적고 있었지만
