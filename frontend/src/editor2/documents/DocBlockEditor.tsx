@@ -55,6 +55,8 @@ function loadSurface(blocks: BlockDocument | null, markdown: string | null | und
 }
 
 interface PreparedDocument {
+  /** **로드 시점의 문서 id** — 표면에 올라간 본문의 주인이다(검토 D-1 가드의 기준). */
+  docId: number
   content: SurfaceLoad
   explanation: SurfaceLoad | null
   /** 로드 시점의 전환 여부 — 최초 전환 1회 안내(규약 E)의 기준. */
@@ -64,6 +66,7 @@ interface PreparedDocument {
 function prepareDocument(doc: DocumentDetail): PreparedDocument {
   const fields = readBlockFields(doc)
   return {
+    docId: doc.id,
     content: loadSurface(fields.content_blocks, doc.content),
     // 해설 표면은 기존 폼과 같은 조건(문제·기출)에서만 연다 — 개념 문서의 해설은 종전대로
     // 편집 대상이 아니며, 보내지 않으므로 전환 해제(§4.29 ④)도 일어나지 않는다.
@@ -107,6 +110,7 @@ export default function DocBlockEditor({ doc, onClose, onUnsupported }: DocBlock
   return (
     <DocBlockEditorSurface
       doc={doc}
+      loadedDocId={prepared.docId}
       content={prepared.content.source}
       explanation={prepared.explanation ? prepared.explanation.source : null}
       converted={prepared.converted}
@@ -117,13 +121,15 @@ export default function DocBlockEditor({ doc, onClose, onUnsupported }: DocBlock
 
 interface SurfaceProps {
   doc: DocumentDetail
+  /** 표면에 올라간 본문의 주인 문서 id(로드 시점 고정) — 저장 가드의 기준. */
+  loadedDocId: number
   content: SurfaceSource
   explanation: SurfaceSource | null
   converted: boolean
   onClose: () => void
 }
 
-function DocBlockEditorSurface({ doc, content, explanation, converted, onClose }: SurfaceProps) {
+function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, converted, onClose }: SurfaceProps) {
   const theme = useEditorTheme()
   const updateDocument = useUpdateDocumentBlocks()
 
@@ -160,6 +166,19 @@ function DocBlockEditorSurface({ doc, content, explanation, converted, onClose }
   const formRef = useRef({ title, choices, answer, difficulty })
   formRef.current = { title, choices, answer, difficulty }
 
+  // **저장 가드(검토 D-1 이중 방어 ②)** — 이 표면에 올라간 본문은 `loadedDocId`의 것이다.
+  // 호출부가 `key`를 잊어 같은 인스턴스가 **다른 문서**를 받게 되면(문서 상세는 라우트가 같아
+  // 언마운트되지 않는다) 저장이 남의 문서를 덮어쓴다 — 그런 상태에서는 **아무 데도 쓰지 않는다**.
+  const currentDocIdRef = useRef(doc.id)
+  currentDocIdRef.current = doc.id
+  const saveBlocked = useCallback(() => {
+    if (currentDocIdRef.current === loadedDocId) return false
+    console.warn(
+      `[editor2] 편집 표면이 로드한 문서(id=${loadedDocId})와 화면의 문서(id=${currentDocIdRef.current})가 달라 저장을 중단합니다.`,
+    )
+    return true
+  }, [loadedDocId])
+
   const clearTimers = useCallback(() => {
     if (idleTimer.current !== null) window.clearTimeout(idleTimer.current)
     if (maxTimer.current !== null) window.clearTimeout(maxTimer.current)
@@ -178,7 +197,9 @@ function DocBlockEditorSurface({ doc, content, explanation, converted, onClose }
     const form = formRef.current
     const body = contentRef.current?.build()
     const patch: DocumentBlocksPatch = {
-      id: doc.id,
+      // 저장 대상은 **로드한 문서**다(화면의 현재 doc이 아니라). 둘이 어긋난 상황은 위
+      // `saveBlocked`가 이미 막지만, 대상 id도 로드 시점 값으로 고정해 둔다.
+      id: loadedDocId,
       difficulty: form.difficulty ? Number(form.difficulty) : null,
     }
     // 제목은 서버 계약상 1자 이상이다 — 비어 있으면 **보내지 않는다**(422로 자동 저장이 계속
@@ -203,11 +224,14 @@ function DocBlockEditorSurface({ doc, content, explanation, converted, onClose }
       }
     }
     return patch
-  }, [doc.id, questionLike])
+  }, [loadedDocId, questionLike])
 
   const saveNow = useCallback(() => {
     clearTimers()
     if (!dirtyRef.current) return
+    // 표면과 화면의 문서가 어긋났으면 **어느 문서에도 쓰지 않는다**(D-1 가드). 편집분은 dirty로
+    // 남겨 두어 화면이 원래 문서로 돌아오면 다음 주기에 정상 저장된다.
+    if (saveBlocked()) return
     // IME 조합 중이거나 직전 저장이 비행 중이면 버리지 않고 뒤로 미룬다(규약 C).
     if (composingRef.current || inFlight.current) {
       idleTimer.current = window.setTimeout(saveNow, IDLE_MS)
@@ -245,7 +269,7 @@ function DocBlockEditorSurface({ doc, content, explanation, converted, onClose }
         maxTimer.current = window.setTimeout(saveNow, RETRY_MS)
       },
     })
-  }, [buildPatch, clearTimers, updateDocument])
+  }, [buildPatch, clearTimers, saveBlocked, updateDocument])
 
   const scheduleSave = useCallback(() => {
     dirtyRef.current = true
@@ -292,10 +316,13 @@ function DocBlockEditorSurface({ doc, content, explanation, converted, onClose }
   buildPatchRef.current = buildPatch
   const mutateRef = useRef(updateDocument.mutate)
   mutateRef.current = updateDocument.mutate
+  const saveBlockedRef = useRef(saveBlocked)
+  saveBlockedRef.current = saveBlocked
   useEffect(
     () => () => {
       clearTimers()
-      if (dirtyRef.current) mutateRef.current(buildPatchRef.current())
+      // 마지막 저장에도 같은 가드를 건다(D-1) — 문서가 어긋난 채로는 흘려보내지 않는다.
+      if (dirtyRef.current && !saveBlockedRef.current()) mutateRef.current(buildPatchRef.current())
     },
     // 언마운트 1회만.
     // eslint-disable-next-line react-hooks/exhaustive-deps

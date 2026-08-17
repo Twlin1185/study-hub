@@ -113,8 +113,14 @@ export default function DocumentDetailPage() {
   const doc = docQuery.data
 
   // 문서가 바뀔 때마다 정답·해설은 기본 가림 상태로 초기화한다.
+  // **편집 상태도 함께 내린다(검토 D-1)** — 이 화면은 라우트가 같아서 `/docs/:id` 사이를 오갈 때
+  // 컴포넌트가 언마운트되지 않는다. 이동한 문서가 캐시 히트면 `isLoading` 조기 반환도 없어,
+  // 편집 표면이 **이전 문서의 본문을 든 채** 새 문서 id로 저장될 수 있었다.
   useEffect(() => {
     setAnswerRevealed(false)
+    setBlockEditing(false)
+    setBlockFallbackReason(null)
+    setEditing(false)
   }, [documentId])
 
   if (!documentId) return <p className="p-4 text-sm text-wrong">잘못된 문서 ID입니다.</p>
@@ -229,6 +235,9 @@ export default function DocumentDetailPage() {
       {blockEditing ? (
         <Suspense fallback={<p className="text-sm text-muted">편집기를 불러오는 중…</p>}>
           <DocBlockEditor
+            // key = 문서 id — 다른 문서로 이동하면 편집 표면을 **새로 만든다**(검토 D-1 이중 방어 ①.
+            // 위 리셋 이펙트가 먼저 닫지만, 그 이펙트가 도는 순서에 기대지 않는다).
+            key={doc.id}
             doc={doc}
             onClose={() => setBlockEditing(false)}
             onUnsupported={(reason) => {
