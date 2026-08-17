@@ -40,6 +40,7 @@ import {
 } from '../blocknote/uploads'
 import { useDeleteNote, useNote, useUpdateNote, type Note } from '../api/notes'
 import { useNoteDocumentTitle } from '../lib/useNoteDocumentTitle'
+import { useTitleHistory } from '../lib/useTitleHistory'
 
 /** 규약 C — 유휴 1.5초 · 최대 대기 10초. */
 const IDLE_MS = 1500
@@ -242,6 +243,16 @@ function EditableNote({
     if (maxTimer.current === null) maxTimer.current = window.setTimeout(saveNow, MAX_WAIT_MS)
   }, [saveNow])
 
+  // 제목 입력란 전용 undo 스택(결함 U-2) — 제목에서 난 Ctrl+Z가 **본문**을 되돌리던 경로를 끊고
+  // 묶음 단위 되돌리기를 제공한다. 되돌린 값도 편집이므로 저장 파이프라인(규약 C)에 그대로 태운다.
+  const titleHistory = useTitleHistory({
+    value: title,
+    apply: (next) => {
+      setTitle(next)
+      scheduleSave()
+    },
+  })
+
   // Ctrl+S 명시 저장(규약 C)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -313,18 +324,25 @@ function EditableNote({
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <input
+          ref={titleHistory.inputRef}
           value={title}
           onChange={(e) => {
             setTitle(e.target.value)
+            // 히스토리(U-2)와 저장 디바운스(규약 C)는 서로 다른 판정을 쓴다 — 각각 통지한다.
+            titleHistory.recordChange(e.target.value)
             scheduleSave()
           }}
           onCompositionStart={() => {
             composingRef.current = true
+            titleHistory.beginComposition()
           }}
           onCompositionEnd={() => {
             composingRef.current = false
+            titleHistory.endComposition()
             if (dirtyRef.current) scheduleSave()
           }}
+          // 포커스를 잃는 지점도 되돌림 경계로 삼는다(다시 돌아와 친 글자와 섞이지 않게).
+          onBlur={titleHistory.commit}
           placeholder="제목 없음"
           className="min-w-0 flex-1 rounded border border-border bg-surface px-3 py-2 text-base font-semibold text-primary placeholder:font-normal placeholder:text-muted"
         />
