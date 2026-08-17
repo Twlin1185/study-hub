@@ -59,6 +59,19 @@ class Document(Base):
     # bg in F52 팔레트 7색 이름(§4.26 — 임의 JSON·hex는 422). NULL = 미지정(전역 상속·기존
     # 행 소급 0). resolve-embeds 응답에는 부재 — 임베드 무시의 계약 봉인.
     style: Mapped[str | None] = mapped_column(Text)
+    # 에디터 v2 저장 전환 3컬럼 (M34/stage-35, 설계 §4.29 — R42). content_blocks TEXT NULL:
+    # 앱 중립 블록 JSON 문자열 {version, blocks} — NULL = 미전환 문서. NOT NULL이면 본문의
+    # 소스 오브 트루스(content는 프로젝션으로 역할 전환). 스키마 정본은
+    # frontend/src/editor2/schema/blocks.ts(서버는 딥 검증하지 않는다 — notes 전례).
+    content_blocks: Mapped[str | None] = mapped_column(Text)
+    # explanation_blocks TEXT NULL: 해설 블록 JSON(동일 규약). 전환 문서에서 해설이
+    # 없으면 NULL — 전환 판정에 쓰지 않는다.
+    explanation_blocks: Mapped[str | None] = mapped_column(Text)
+    # blocks_version INTEGER NULL: content_blocks.version의 컬럼 사본(서버가 채움 —
+    # notes 전례). NULL = 미전환. 전환 판정·지연 마이그레이션 SQL 조회의 단일 기준.
+    # 블록을 동반하지 않는 content/explanation 기록은 같은 트랜잭션에서 3컬럼을 NULL로
+    # 되돌린다(전환 해제 — §4.29 ④, services.document_service.demote_blocks 경유).
+    blocks_version: Mapped[int | None] = mapped_column(Integer)
     source_id: Mapped[int | None] = mapped_column(ForeignKey("sources.id"))
     source_detail: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[int] = mapped_column(Integer, default=1)

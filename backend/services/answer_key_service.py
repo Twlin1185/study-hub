@@ -32,7 +32,7 @@ from schemas.answer_key import (
     AnswerKeyTarget,
     AnswerKeyUploadResult,
 )
-from services import convert_service, import_service, source_match, tree_utils
+from services import convert_service, document_service, import_service, source_match, tree_utils
 
 KEY_TTL = dt.timedelta(hours=1)
 
@@ -453,6 +453,7 @@ def apply_answer_key(db: Session, key_id: str, document_ids: Sequence[int]) -> A
             changed = True
         if "explanation" in proposed and not (document.explanation and document.explanation.strip()):
             document.explanation = proposed["explanation"]
+            document_service.demote_blocks(document)  # 전환 해제(규약 C ⓑ) — 블록 미동반 기록
             changed = True
 
         if not changed:

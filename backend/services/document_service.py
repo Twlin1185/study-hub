@@ -28,6 +28,64 @@ from services.tag_service import get_or_create_tag
 
 DOC_NO_PREFIX = "DOC-"
 
+# 에디터 v2 저장 전환(M34/stage-35, 설계 §4.29) — 블록 필드 크기 상한(직렬화 JSON
+# 문자열 길이 기준, 규약 B).
+BLOCKS_SERIALIZED_MAX_LEN = 1_000_000
+
+
+def demote_blocks(document: "models.Document") -> None:
+    """전환 해제(강등) 공용 헬퍼 — 설계 §4.29 ④·계획서 규약 C.
+
+    블록을 동반하지 않고 content 또는 explanation을 기록하는 모든 경로(클라이언트
+    PATCH의 레거시 축·서버 내부 기록 전부 — 전수 목록은 stage-35 완료 기록)가 같은
+    트랜잭션 안에서 이 함수를 호출해 3컬럼을 NULL로 되돌린다. 손실 이벤트가 아니다 —
+    그 시점 최신 본문(프로젝션)이 소스로 승격될 뿐이고, 다음 블록 저장에서 재전환한다.
+    호출부는 db.commit() 전에 불러야 한다(같은 트랜잭션 — 불변 규칙 2와 동일한 원칙을
+    저장 전환에도 적용).
+    """
+    document.content_blocks = None
+    document.explanation_blocks = None
+    document.blocks_version = None
+
+
+def _blocks_error(reason: str, message: str) -> ValidationAppError:
+    return ValidationAppError(message, detail={"reason": reason})
+
+
+def _projection_required_error() -> ValidationAppError:
+    return _blocks_error(
+        "projection_required", "블록 내용과 프로젝션(마크다운)은 함께 저장해야 합니다"
+    )
+
+
+def _blocks_invalid_error() -> ValidationAppError:
+    return _blocks_error(
+        "blocks_invalid", "문서 내용을 저장할 수 없습니다(형식 오류) — 새로고침 후 다시 시도해 주세요"
+    )
+
+
+def _too_large_error() -> ValidationAppError:
+    return _blocks_error("too_large", "저장할 내용이 너무 큽니다 — 내용을 나눠 주세요")
+
+
+def _validate_blocks_shape(value) -> Dict:
+    """얕은 형태 검증만(§4.29 ②) — 딥 검증 금지, 정본은 frontend/src/editor2/schema/blocks.ts."""
+    if not isinstance(value, dict):
+        raise _blocks_invalid_error()
+    version = value.get("version")
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        raise _blocks_invalid_error()
+    blocks = value.get("blocks")
+    if not isinstance(blocks, list):
+        raise _blocks_invalid_error()
+    return value
+
+
+def _check_blocks_size(blocks: Dict) -> None:
+    serialized = json.dumps(blocks, ensure_ascii=False)
+    if len(serialized) > BLOCKS_SERIALIZED_MAX_LEN:
+        raise _too_large_error()
+
 
 def _decode_style(raw: str | None) -> Optional[Dict[str, str]]:
     """`documents.style` TEXT 컬럼 디코딩 — 손상 데이터 방어.
@@ -244,6 +302,52 @@ def update_document(
 ) -> models.Document:
     document = get_document_or_404(db, document_id)
     data = payload.model_dump(exclude_unset=True)
+
+    # 에디터 v2 저장 전환(M34/stage-35, 설계 §4.29 ②③④) — 동반 규칙은 블록 쪽에서만
+    # 강제한다: content_blocks를 보내면 반드시 content도 함께(그 반대는 강제하지 않음
+    # — content만 보내는 것은 구 편집기의 정상 경로이며, 전환 문서였다면 전환 해제로
+    # 이어진다. 대칭 강제는 "미전환 문서의 계약은 1바이트도 변하지 않는다"는 게이트
+    # 조건과 §4.29 ④의 구 편집기 강등 경로를 동시에 어긴다).
+    has_content_blocks = "content_blocks" in data
+    has_content = "content" in data
+    has_expl_blocks = "explanation_blocks" in data
+    has_expl = "explanation" in data
+
+    if has_content_blocks and not has_content:
+        raise _projection_required_error()
+    if has_expl_blocks and not has_expl:
+        raise _projection_required_error()
+
+    if has_content_blocks:
+        blocks = _validate_blocks_shape(data["content_blocks"])
+        content_value = data.get("content")
+        if not isinstance(content_value, str):
+            raise _blocks_invalid_error()
+        _check_blocks_size(blocks)
+        data["content_blocks"] = json.dumps(blocks, ensure_ascii=False)
+        data["blocks_version"] = blocks["version"]  # 서버 사본(§4.29 ② — 요청 필드 아님)
+
+    if has_expl_blocks:
+        expl_blocks_raw = data["explanation_blocks"]
+        if expl_blocks_raw is None:
+            # explanation_blocks: null + explanation 동반 = 해설 블록만 제거(전환 판정은
+            # 본문 축뿐이므로 blocks_version은 건드리지 않는다 — §4.29 ② 표 2행).
+            data["explanation_blocks"] = None
+        else:
+            blocks = _validate_blocks_shape(expl_blocks_raw)
+            expl_value = data.get("explanation")
+            if expl_value is not None and not isinstance(expl_value, str):
+                raise _blocks_invalid_error()
+            _check_blocks_size(blocks)
+            data["explanation_blocks"] = json.dumps(blocks, ensure_ascii=False)
+
+    # 전환 해제(강등, §4.29 ④·규약 C) — 블록을 동반하지 않고 content 또는 explanation을
+    # 기록하면 3컬럼을 NULL로 되돌린다. 필드 대입 뒤 마지막에 적용해 최종 상태를 지배하게
+    # 한다(같은 요청에 정상 전환 쓰기가 섞여도 강등이 우선 — 프런트는 두 쌍을 항상 함께
+    # 보내므로(규약 D) 실전에서 섞일 일은 없다).
+    legacy_content_write = has_content and not has_content_blocks
+    legacy_explanation_write = has_expl and not has_expl_blocks
+
     if "choices" in data:
         data["choices"] = (
             json.dumps(data["choices"], ensure_ascii=False)
@@ -269,6 +373,10 @@ def update_document(
         )
     for field, value in data.items():
         setattr(document, field, value)
+
+    if legacy_content_write or legacy_explanation_write:
+        demote_blocks(document)
+
     if "content" in data:
         # embeds 인덱스 동기화(§4.19 ⑥) — content 변경 시에만, 문서 저장과 같은 트랜잭션
         embed_service.sync_embeds_for_document(db, document)
@@ -368,6 +476,9 @@ def get_document_detail(db: Session, document_id: int) -> DocumentDetail:
         forked_from=document.forked_from,
         created_at=document.created_at,
         updated_at=document.updated_at,
+        content_blocks=json.loads(document.content_blocks) if document.content_blocks else None,
+        explanation_blocks=json.loads(document.explanation_blocks) if document.explanation_blocks else None,
+        blocks_version=document.blocks_version,
         tags=_tags_for_document(db, document.id),
         usages=usages,
         relations=_relations_for_document(db, document.id),
