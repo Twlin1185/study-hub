@@ -1387,6 +1387,8 @@ backend/services/fetchers/
 | 블록/프로젝션 한쪽만 전송 | 422 | `VALIDATION_ERROR` | `projection_required` |
 | 블록 크기 상한 초과 | 422 | `VALIDATION_ERROR` | `too_large` |
 
+> 각주(구현 실측 2026-08-18 — stage-35 검토 D-2): `content_blocks: null`을 **단독**(`content` 미동반)으로 보내면 동반 규칙 검사가 먼저 걸려 `projection_required`로 응답한다(1행과 2행이 겹치는 구간). `content` 동반 시에는 규정대로 `blocks_invalid`. 상태 코드·`code`는 두 경우 동일하므로 계약 위반이 아니라 우선순위 명시다.
+
 **구현 앵커 (2026-08-18 — 파일 수준. 행 번호는 구현 시 실측)**
 
 - 백엔드: `backend/routers/documents.py`(상세·PATCH 확장) · `backend/schemas/*`(문서 스키마 확장) · `backend/models.py`(3컬럼) · **전환 해제 공용 헬퍼 1곳**(서버측 content/explanation 기록 경로가 전부 경유) · `backend/alembic/versions/*`(신규 리비전 1개).

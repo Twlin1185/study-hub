@@ -333,7 +333,9 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
       if (!dirtyRef.current || saveBlockedRef.current()) return
       const patch = buildPatchRef.current()
       // 본문 쌍이 비어 있으면(핸들이 이미 떨어진 예상 밖 상황) **부분 저장을 하지 않는다** —
-      // 제목·보기만 실린 PATCH는 블록 미동반 기록이라 전환 해제까지 부르는 절반짜리 저장이 된다.
+      // content 키가 아예 없는 부분 PATCH는 서버 강등(§4.29 ④)을 부르지는 않지만(강등 조건 =
+      // content 동반 · 블록 미동반), 제목·보기만 저장되고 본문 편집분은 소리 없이 빠지는
+      // "성공처럼 보이는 절반짜리 저장"이 된다. 어느 쪽도 쓰지 않는 편이 안전하다.
       if (patch.content_blocks === undefined) {
         console.warn('[editor2] 편집 표면 핸들이 사라져 마지막 저장을 건너뜁니다(부분 저장 방지).')
         return
