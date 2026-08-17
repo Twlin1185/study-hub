@@ -415,15 +415,21 @@ export function useTitleHistory({ value, apply }: TitleHistoryOptions): TitleHis
       if (role !== 'skip') {
         // 되돌려질 DOM이 제목이거나(=`'title'`) 편집 표면 밖의 다른 입력란이다(=`'block'`).
         swallow(event)
+        lastContextMenu.current = null
         if (role === 'title') run(direction)
         return
       }
       // 여기부터가 U-3 경로 — 되돌려질 DOM이 **편집 표면**이다. `target`만으로는 이 명령을
       // 본문에서 냈는지 제목에서 냈는지 알 수 없으므로 발원지 신호로 가른다.
-      if (requestedInsideSurface()) return // 정당한 본문 우클릭 undo — prosemirror-history에 맡긴다.
+      const insideSurface = requestedInsideSurface()
+      const fromTitle = requestedFromTitle()
+      // 신호 ①은 **한 번 판정에 쓰면 소비**한다(2026-08-17 검토 경미-1) — 우클릭 메뉴는 명령이
+      // 나가는 순간 닫히므로, 남겨 두면 TTL 30초 동안 낡은 발원지가 무관한 undo를 오판정한다.
+      lastContextMenu.current = null
+      if (insideSurface) return // 정당한 본문 우클릭 undo — prosemirror-history에 맡긴다.
       swallow(event)
       // 제목에서 낸 명령이면 사용자가 기대하는 대상은 제목이다. 본문은 손대지 않는다.
-      if (requestedFromTitle()) run(direction)
+      if (fromTitle) run(direction)
     }
 
     /** 발원지 신호 ① 수집 — 판정만 하고 이벤트는 건드리지 않는다. */

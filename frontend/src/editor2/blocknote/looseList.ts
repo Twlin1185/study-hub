@@ -1,5 +1,5 @@
 // 붙여넣기 전처리 — **느슨한 목록(loose list)의 HTML 표식을 Markdown이 읽을 수 있는 형태로 편다**
-// (결함 U-3 "항목 사이 빈 줄이 가끔 사라진다").
+// (결함 U-5 "항목 사이 빈 줄이 가끔 사라진다" — U-3은 제목 undo 결함이다, 혼동 주의).
 //
 // 왜 필요한가:
 //   붙여넣기 경로는 `text/html` → `htmlToDialectMarkdown` → Markdown → 블록이다. 그런데 CommonMark
@@ -20,12 +20,17 @@
 //   stage-34 §"목록 그룹 경계" 참조). 변환기 자체(`utils/htmlPasteMarkdown.ts`)는 1바이트도
 //   건드리지 않는다(D9 격리 계약 — editor2는 그 모듈을 import만 한다).
 //
-// 판정에서 **제외**하는 것: `<p class="bn-inline-content">` — BlockNote 자신이 내보내는 외부 HTML의
-//   인라인 컨테이너다(편집기 안에서 복사하면 tight·loose를 가리지 않고 항상 이 모양이 나온다).
-//   근거로 삼으면 편집기 안 복사·붙여넣기마다 없던 빈 줄이 생긴다. 즉 **편집기 내부 복사본은
-//   느슨함 정보를 담지 못한다**(느슨함은 사이드카에만 있다) — 이 전처리의 알려진 한계다.
+// 판정에서 **제외**하는 것 (둘 다 "레이아웃용 <p>"라 느슨함의 근거가 못 된다):
+//   ① `<p class="bn-inline-content">` — BlockNote 자신이 내보내는 외부 HTML의 인라인 컨테이너다
+//     (편집기 안에서 복사하면 tight·loose를 가리지 않고 항상 이 모양이 나온다). 근거로 삼으면
+//     편집기 안 복사·붙여넣기마다 없던 빈 줄이 생긴다. 즉 **편집기 내부 복사본은 느슨함 정보를
+//     담지 못한다**(느슨함은 사이드카에만 있다) — 이 전처리의 알려진 한계다.
+//   ② `<p role="presentation">` — Google Docs·Word Online이 tight·loose를 가리지 않고 **모든**
+//     `<li>` 내용을 이 모양으로 감싼다(2026-08-17 검토 중요-2 실측). 근거로 삼으면 Google Docs의
+//     tight 목록을 붙여넣을 때마다 없던 빈 줄이 생긴다. `role="presentation"`은 "시각 배치용,
+//     의미 없음"의 표준 선언이므로 문서 구조(느슨함)의 근거에서 빼는 것이 정의에도 맞다.
 
-/** BlockNote 외부 HTML의 인라인 컨테이너 표식 — 느슨함의 근거로 쓰지 않는다(위 머리말). */
+/** BlockNote 외부 HTML의 인라인 컨테이너 표식 — 느슨함의 근거로 쓰지 않는다(위 머리말 ①). */
 const BN_INLINE_CLASS = 'bn-inline-content'
 
 function tagOf(el: Element): string {
@@ -37,6 +42,8 @@ function hasParagraphChild(li: Element): boolean {
   for (const child of Array.from(li.children)) {
     if (tagOf(child) !== 'p') continue
     if (child.classList.contains(BN_INLINE_CLASS)) continue
+    // 레이아웃용 문단(Google Docs·Word Online) — 느슨함의 근거가 아니다(머리말 ②).
+    if (child.getAttribute('role') === 'presentation') continue
     return true
   }
   return false
