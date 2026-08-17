@@ -42,12 +42,65 @@
 // **키보드 밖 경로(검토 지적 의심-2)**: 우클릭 → "실행 취소"는 keydown을 거치지 않는다.
 // `beforeinput`의 `inputType === 'historyUndo'|'historyRedo'`를 같은 게이트로 잡아 닫는다
 // (취소 가능한 이벤트다). 이 이벤트를 지원하지 않는 환경을 위해 keydown 경로도 그대로 둔다.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// **결함 U-3(2026-08-17)**: 위 `beforeinput` 게이트가 뚫렸다 — "제목 입력란에서 우클릭 실행
+// 취소하면 본문이 사라진다".
+//
+// **원인**: `beforeinput{historyUndo}`의 `target`은 **명령을 낸 곳이 아니라 되돌려질 DOM의
+// 주인**이다(Blink는 되돌릴 UndoStep의 root editable에 이 이벤트를 쏜다). 제목에서 우클릭
+// 취소를 눌러도 스택 맨 위가 본문 편집분이면 `target`은 **본문 contenteditable**이 되고,
+// 종전 `classify`는 편집 표면을 `'skip'`으로 흘려보내 게이트를 정확히 비켜 갔다.
+//
+// **그다음에 무슨 일이 벌어지나(코드 확인)**: `@blocknote/core`의 HistoryExtension은
+// `prosemirror-history`의 `history()` 플러그인을 그대로 얹는다(dist: `prosemirrorPlugins:[history()]`).
+// 그 플러그인에는 **정식 `beforeinput` 핸들러**가 있다:
+//   `handleDOMEvents.beforeinput(view, e){ inputType==='historyUndo' ? undo : ... ; e.preventDefault(); command(...) }`
+// 즉 흘려보낸 이벤트는 네이티브 DOM 파괴가 아니라 **본문의 정상 PM undo**로 실행된다.
+// 사용자가 본 "본문이 사라진다"의 정체가 이것이다(제목에서 낸 명령이 본문을 되돌림).
+//
+// **그래서 "history 계열 beforeinput은 무조건 차단"은 쓸 수 없다** — 그 차단은 본문에서
+// 우클릭 → 실행 취소하는 **정당한 경로**(prosemirror-history)까지 같이 죽인다.
+// 대신 **발원지(origin)** 로 가른다. `target`은 못 믿으니 두 신호를 본다:
+//   ① 직전 `contextmenu` 이벤트의 대상  ② 현재 `document.activeElement`.
+// **둘 다 편집 표면 안**을 가리킬 때만 정당한 본문 undo로 보고 통과시킨다. 하나라도 밖(제목·
+// 다른 입력란·body)을 가리키면 삼킨다 — 확신이 없으면 막는다(조용한 본문 손실이 최악이므로).
+// 신호가 갈리는 실제 사례: 우클릭 시 입력란에 포커스를 주지 않는 브라우저(①=제목, ②=본문).
+// 발원지가 제목이면 삼킨 뒤 **자체 히스토리**를 태운다(사용자 기대 = 제목이 되돌아감).
+// **한계**: `event.cancelable === false`인 환경에서는 기본 동작을 막을 수 없다. 그때도
+// `stopImmediatePropagation`으로 이중 실행(PM undo)은 막지만 네이티브 undo 자체는 못 막는다.
 import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 
 /** 타이핑이 이만큼 멈추면 되돌림 경계를 하나 만든다(묶음 커밋). */
 const COALESCE_MS = 500
 /** 이 문자를 입력하면 그 자리에서 경계를 만든다(단어 단위 되돌림). */
 const BOUNDARY = /[\s.,;:!?()[\]{}<>'"`~@#$%^&*+=|/\\·…—–-]/
+/**
+ * 길이 기반 경계(결함 U-4) — 마지막 커밋 이후 길이 변화가 이만큼 쌓이면 **조합이 끝나는
+ * 시점**에 경계를 하나 만든다.
+ *
+ * **왜 필요한가**: 종전 경계는 "유휴 500ms"와 "공백·문장부호"뿐이었다. 한글은 조합 중
+ * (`composing`) 커밋하지 않고 `compositionend`에서 유휴 타이머를 **다시 걸기만** 하므로,
+ * 음절을 쉬지 않고 이으면 타이머가 매번 재무장돼 **타이핑을 완전히 멈출 때까지 커밋이 한 번도
+ * 일어나지 않는다**. 게다가 한글 제목은 공백이 없는 경우가 많아 경계 문자도 안 걸린다.
+ * 결과가 "제목이 한 덩이로 통째 사라짐"(U-4)이었다.
+ *
+ * **왜 4인가**: 되돌림 횟수 = `floor(L/N)`(+ 나머지가 있으면 1). 목표는 결함 원문의 예시
+ * `테스트노트입니다`(8자)에서 "통째"가 아닌 **2~3회**다 — N=4면 8자가 정확히 2회,
+ * 20자면 5회로 "긴 제목이면 조금 더"에 맞는다. N=8~12로 잡으면 8자짜리가 다시 **1회**(=통째)가
+ * 되어 결함이 그대로 남는다. 한글 4음절은 대략 한 어절이라 의미 단위로도 자연스럽다.
+ * 반대편 극단(9자에 21회 = 결함 U-2)과는 한 자리 수 차이로 멀다.
+ *
+ * **적용 범위**: 조합(`composition`)이 **끝나는 순간에만** 본다. 조합 중에 끊으면 음절 중간
+ * 스냅샷이 남고, 라틴 문자 타이핑은 공백 경계로 이미 어절 단위라 여기 손댈 이유가 없다.
+ */
+const CHUNK_CHARS = 4
+/**
+ * 직전 우클릭 대상을 "발원지 신호"로 인정하는 유효 시간(ms).
+ * 컨텍스트 메뉴를 열어 두고 고르는 시간을 넉넉히 잡되, 아주 오래된 우클릭이 발원지 판정을
+ * 지배하지 않도록 상한을 둔다. (보수 판정이라 낡은 값은 "더 막는" 쪽으로만 기운다.)
+ */
+const CONTEXT_MENU_TTL_MS = 30_000
 /** 히스토리 상한 — 제목은 짧아 이 정도면 세션 내내 마르지 않는다. */
 const MAX_ENTRIES = 200
 /**
@@ -128,6 +181,12 @@ export function useTitleHistory({ value, apply }: TitleHistoryOptions): TitleHis
   const rewinding = useRef(false)
   /** 위 창의 타이머 핸들 — 언마운트 시 정리한다(검토 지적 경미-2). */
   const settleTimer = useRef<number | null>(null)
+  /**
+   * 직전 우클릭(컨텍스트 메뉴) 대상과 시각 — 네이티브 history 명령의 **발원지** 판정용(U-3).
+   * `beforeinput{historyUndo}`의 `target`은 "되돌려질 DOM의 주인"이라 명령을 낸 곳을 알려주지
+   * 않는다. 우클릭 대상은 알려준다.
+   */
+  const lastContextMenu = useRef<{ target: EventTarget | null; at: number } | null>(null)
 
   const readEntry = useCallback((): TitleHistoryEntry => {
     const input = inputRef.current
@@ -156,6 +215,18 @@ export function useTitleHistory({ value, apply }: TitleHistoryOptions): TitleHis
     past.current.push(entry)
     if (past.current.length > MAX_ENTRIES) past.current.shift()
   }, [clearTimer, readEntry])
+
+  /**
+   * 마지막 커밋 이후의 길이 변화량(U-4). 늘어남·줄어듦을 가리지 않는다 — 되돌림 덩어리가
+   * 커지는 건 지우기에서도 똑같기 때문이다. (다만 이 값을 실제로 쓰는 곳은 `endComposition`
+   * 하나뿐이라, 백스페이스 연타는 종전대로 "유휴 500ms" 경계에 맡긴다. 눌러서 지우는 동작은
+   * 하나의 제스처이므로 한 번에 되살아나는 편이 기대에 맞는다.)
+   */
+  const changedSinceCommit = useCallback((): number => {
+    const top = past.current[past.current.length - 1]
+    if (!top) return valueRef.current.length
+    return Math.abs(valueRef.current.length - top.value.length)
+  }, [])
 
   const scheduleCommit = useCallback(() => {
     clearTimer()
@@ -219,10 +290,17 @@ export function useTitleHistory({ value, apply }: TitleHistoryOptions): TitleHis
 
   const endComposition = useCallback(() => {
     composing.current = false
-    // 조합 결과 전체를 하나의 단계로 — 여기서 즉시 커밋하지 않고 유휴 타이머만 다시 건다.
+    // 길이 기반 경계(U-4) — 마지막 커밋 이후 `CHUNK_CHARS`만큼 변했으면 **바로 여기서** 끊는다.
+    // 여기가 음절 경계(조합이 막 끝난 지점)라 잘라도 조합이 깨지지 않는다. 이 분기가 없으면
+    // 쉬지 않고 친 한글 제목이 유휴 타이머를 무한 재무장시켜 통째로 한 덩이가 된다.
+    if (changedSinceCommit() >= CHUNK_CHARS) {
+      commit()
+      return
+    }
+    // 그 밖에는 종전대로 — 조합 결과 전체를 하나의 단계로 묶기 위해 유휴 타이머만 다시 건다.
     // (다음 음절이 이어지면 같은 묶음으로 합쳐진다.)
     scheduleCommit()
-  }, [scheduleCommit])
+  }, [changedSinceCommit, commit, scheduleCommit])
 
   // 값이 DOM에 반영된 뒤 커서를 복원한다(`apply` → 부모 상태 갱신 → 리렌더 다음 시점).
   useLayoutEffect(() => {
@@ -301,23 +379,65 @@ export function useTitleHistory({ value, apply }: TitleHistoryOptions): TitleHis
       run(isY || event.shiftKey ? 'redo' : 'undo')
     }
 
+    /** 발원지 신호 ① — 아직 유효한 직전 우클릭 대상(없으면 null). */
+    const contextSignal = (): EventTarget | null => {
+      const recent = lastContextMenu.current
+      if (!recent) return null
+      return Date.now() - recent.at <= CONTEXT_MENU_TTL_MS ? recent.target : null
+    }
+
+    /**
+     * 네이티브 history 명령이 **편집 표면 안에서 요청됐다고 확신**할 수 있는가(U-3).
+     * 신호 ①(직전 우클릭)·②(현재 포커스)를 **모두** 보고, 하나라도 편집 표면 밖을 가리키면
+     * false다. 확신이 설 때만 `prosemirror-history`에 넘긴다 — 나머지는 전부 삼킨다.
+     */
+    const requestedInsideSurface = (): boolean => {
+      const signals = [contextSignal(), document.activeElement].filter(
+        (target): target is EventTarget => target != null,
+      )
+      return signals.length > 0 && signals.every(inEditingSurface)
+    }
+
+    /** 발원지가 제목 입력란인가 — 신호 둘 중 하나라도 제목을 가리키면 그렇다고 본다. */
+    const requestedFromTitle = (): boolean => {
+      const input = inputRef.current
+      if (!input) return false
+      return contextSignal() === input || document.activeElement === input
+    }
+
     // 우클릭 → "실행 취소"·"다시 실행"은 keydown 없이 여기로만 온다(취소 가능한 이벤트).
     // 키보드 경로는 위에서 이미 `preventDefault`되므로 이 핸들러와 겹쳐 두 번 돌 일은 없다.
     const onBeforeInput = (event: InputEvent) => {
       const type = event.inputType
       if (type !== 'historyUndo' && type !== 'historyRedo') return
+      const direction = type === 'historyRedo' ? 'redo' : 'undo'
       const role = classify(event.target)
-      if (role === 'skip') return
+      if (role !== 'skip') {
+        // 되돌려질 DOM이 제목이거나(=`'title'`) 편집 표면 밖의 다른 입력란이다(=`'block'`).
+        swallow(event)
+        if (role === 'title') run(direction)
+        return
+      }
+      // 여기부터가 U-3 경로 — 되돌려질 DOM이 **편집 표면**이다. `target`만으로는 이 명령을
+      // 본문에서 냈는지 제목에서 냈는지 알 수 없으므로 발원지 신호로 가른다.
+      if (requestedInsideSurface()) return // 정당한 본문 우클릭 undo — prosemirror-history에 맡긴다.
       swallow(event)
-      if (role === 'block') return
-      run(type === 'historyRedo' ? 'redo' : 'undo')
+      // 제목에서 낸 명령이면 사용자가 기대하는 대상은 제목이다. 본문은 손대지 않는다.
+      if (requestedFromTitle()) run(direction)
+    }
+
+    /** 발원지 신호 ① 수집 — 판정만 하고 이벤트는 건드리지 않는다. */
+    const onContextMenu = (event: MouseEvent) => {
+      lastContextMenu.current = { target: event.target, at: Date.now() }
     }
 
     document.addEventListener('keydown', onKeyDown, true)
     document.addEventListener('beforeinput', onBeforeInput, true)
+    document.addEventListener('contextmenu', onContextMenu, true)
     return () => {
       document.removeEventListener('keydown', onKeyDown, true)
       document.removeEventListener('beforeinput', onBeforeInput, true)
+      document.removeEventListener('contextmenu', onContextMenu, true)
     }
   }, [redo, undo])
 
