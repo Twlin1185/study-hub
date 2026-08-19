@@ -32,6 +32,8 @@ import {
   useEditorTheme,
 } from '../blocknote/schema'
 import { createPasteHandler } from '../blocknote/paste'
+import { createEditor2Extensions, tableAlignFromSidecar } from '../blocknote/extensions'
+import { syncTableAlignIntoSidecar } from '../blocknote/tableAlign/sidecarSync'
 import { NoteEditorDialectUI, RefUiProvider } from '../blocknote/ui'
 import {
   describeSkippedNonImageFiles,
@@ -172,21 +174,9 @@ function EditableNote({
     }
   }, [])
 
-  // 표 열 정렬이 실린 문서를 편집 표면에 올릴 때 **1회성 예고**. 정렬은 사이드카로 왕복하지만
-  // 편집 UI가 없어(M35) 화면에는 보이지 않는다 — 사용자가 열을 넣고 빼면 되살릴 근거가 사라진다.
-  // 실제로 폐기됐을 때의 사후 고지는 `buildBody`가 따로 한다(예고 + 사후 고지 2단).
-  useEffect(() => {
-    const tables = Object.values(sidecarRef.current).filter((entry) =>
-      entry.tableAlign?.some((value) => value !== null),
-    ).length
-    if (tables > 0) {
-      setPasteNotice(
-        `이 노트에는 표 열 정렬이 있습니다 — 값은 그대로 보존되지만, 열을 추가·삭제하면 정렬이 복원되지 않습니다(정렬 편집은 이후 단계).`,
-      )
-    }
-    // 로드 1회만.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // stage-36 F-6 — 표 열 정렬 **1회성 예고는 없앴다**. 정렬 편집 UI(`TableAlignBar`)가 생겨
+  // 커서를 표 안에 두면 현재 열의 정렬이 그대로 보이고, 열을 넣고 빼도 플러그인이 정렬 배열을
+  // 함께 옮기므로 "모르는 새 사라진다"는 상황 자체가 없어졌다(사후 고지는 안전망으로 남긴다).
 
   const editor = useCreateBlockNote({
     schema: noteSchema,
@@ -199,6 +189,8 @@ function EditableNote({
       onNotice: setPasteNotice,
       mergeSidecar,
     }),
+    // 찾기/바꾸기(F-7)·표 열 정렬(F-6) PM 플러그인. 정렬 초기값은 **로드 사이드카**에서 온다.
+    extensions: createEditor2Extensions(tableAlignFromSidecar(sidecar)),
   })
 
   const [title, setTitle] = useState(note.title)
@@ -229,16 +221,15 @@ function EditableNote({
 
   /** 편집기 문서 → 앱 블록 → Markdown 프로젝션(규약 A: 저장 요청에 함께 싣는다). */
   const buildBody = useCallback(() => {
+    // F-6 — 편집 세션이 들고 있던 표 열 정렬을 **역변환 직전에** 사이드카로 옮겨 적는다.
+    syncTableAlignIntoSidecar(editor, sidecarRef.current)
     const result = fromBlockNoteResult(asAdapterBlocks(editor.document), sidecarRef.current)
-    // 표 열 정렬은 흡수(사이드카) 대상이라 로드 시점에 미지원 보고가 없다 — 대신 편집으로 열이
-    // 증감해 **실제로 폐기되는 이 시점**에 알린다(정렬 편집 UI가 M35라 화면만 봐서는 정렬이
-    // 있었다는 사실조차 알 수 없다. 알리지 않으면 조용한 손실이다).
+    // 정렬 폐기 고지는 **안전망**으로 남긴다. 정상 경로에서는 플러그인이 열 증감 때마다 정렬 배열을
+    // 함께 옮겨 길이가 늘 맞으므로 0건이어야 한다 — 뜨면 그 자체가 결함 신호다.
     const fresh = result.tableAlignDrops.filter((id) => !alignNotifiedRef.current.has(id))
     if (fresh.length > 0) {
       for (const id of fresh) alignNotifiedRef.current.add(id)
-      setPasteNotice(
-        `표 ${fresh.length}개의 열 정렬을 복원하지 못했습니다 — 열을 추가·삭제하면 정렬이 사라집니다(정렬 편집은 이후 단계).`,
-      )
+      setPasteNotice(`표 ${fresh.length}개의 열 정렬을 복원하지 못했습니다.`)
     }
     const doc = result.document
     return { content_blocks: doc, content: blocksToMarkdown(doc) }
@@ -328,6 +319,7 @@ function EditableNote({
     () => () => {
       clearTimers()
       if (dirtyRef.current) {
+        syncTableAlignIntoSidecar(editor, sidecarRef.current)
         const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecarRef.current)
         updateNote.mutate({
           id: note.id,
@@ -343,6 +335,7 @@ function EditableNote({
   )
 
   const openPreview = () => {
+    syncTableAlignIntoSidecar(editor, sidecarRef.current)
     setProjection(blocksToMarkdown(fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecarRef.current)))
     setPreview(true)
   }

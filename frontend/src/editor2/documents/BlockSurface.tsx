@@ -13,7 +13,7 @@
 // **사이드카는 표면마다 따로다**: 본문·해설은 각각 `markdownToBlocks`가 `b1,b2,…`를 결정적으로
 // 발급하므로 두 표면의 블록 id는 서로 겹친다. 사이드카를 공유하면 본문의 링크 제목이 해설의
 // 같은 번호 블록에 붙는 오염이 생긴다 — 인스턴스마다 자기 것만 들고 있게 해서 원천 차단한다(F-4).
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react'
 import { BlockNoteView } from '@blocknote/mantine'
 import { useCreateBlockNote } from '@blocknote/react'
 import '@blocknote/mantine/style.css'
@@ -25,6 +25,8 @@ import { fromBlockNoteResult, type AdapterSidecar, type BnBlock, type MicroMark 
 import type { BlockDocument } from '../schema/blocks'
 import { asAdapterBlocks, asEditorBlocks, noteDictionary, noteSchema } from '../blocknote/schema'
 import { createPasteHandler } from '../blocknote/paste'
+import { createEditor2Extensions, tableAlignFromSidecar } from '../blocknote/extensions'
+import { syncTableAlignIntoSidecar } from '../blocknote/tableAlign/sidecarSync'
 import { NoteEditorDialectUI, RefUiProvider } from '../blocknote/ui'
 import {
   describeSkippedNonImageFiles,
@@ -95,21 +97,13 @@ const BlockSurface = forwardRef<BlockSurfaceHandle, BlockSurfaceProps>(function 
       onNotice: notify,
       mergeSidecar,
     }),
+    // 찾기/바꾸기(F-7)·표 열 정렬(F-6) PM 플러그인 — 노트 화면과 **같은 묶음**을 쓴다.
+    // 정렬 초기값은 이 표면의 사이드카에서만 온다(표면끼리 섞이지 않는다 — F-4 격리 계승).
+    extensions: createEditor2Extensions(tableAlignFromSidecar(sidecar)),
   })
 
-  // 표 열 정렬 1회성 예고(노트와 동일 — 정렬 편집 UI는 M35라 화면만 봐서는 정렬의 존재를 모른다).
-  useEffect(() => {
-    const tables = Object.values(sidecarRef.current).filter((entry) =>
-      entry.tableAlign?.some((value) => value !== null),
-    ).length
-    if (tables > 0) {
-      notify(
-        `${label}에 표 열 정렬이 있습니다 — 값은 그대로 보존되지만, 열을 추가·삭제하면 정렬이 복원되지 않습니다(정렬 편집은 이후 단계).`,
-      )
-    }
-    // 로드 1회만.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // stage-36 F-6 — 표 열 정렬 1회성 예고는 없앴다(정렬 편집 UI가 생겨 화면에서 바로 보이고,
+  // 열 증감에도 플러그인이 정렬을 함께 옮긴다). 사후 고지는 아래 `build`에 안전망으로 남는다.
 
   /** 이미 알린 표 정렬 폐기 블록 id — 자동 저장마다 같은 배너가 반복되지 않게. */
   const alignNotifiedRef = useRef<Set<string>>(new Set())
@@ -117,16 +111,16 @@ const BlockSurface = forwardRef<BlockSurfaceHandle, BlockSurfaceProps>(function 
   const microNotifiedRef = useRef<Set<MicroMark>>(new Set())
 
   const build = useCallback((): SurfaceBody => {
+    // F-6 — 편집 세션이 들고 있던 표 열 정렬을 **역변환 직전에** 사이드카로 옮겨 적는다.
+    syncTableAlignIntoSidecar(editor, sidecarRef.current)
     // **규약 D의 강제 지점** — 저장 경로는 반드시 사이드카를 동반한 `fromBlockNoteResult`다.
     const result = fromBlockNoteResult(asAdapterBlocks(editor.document), sidecarRef.current)
 
-    // ① 표 열 정렬이 실제로 폐기된 시점(열 증감) 고지
+    // ① 표 열 정렬 폐기 고지 — 안전망(정상 경로에서는 0건이어야 한다).
     const freshAligns = result.tableAlignDrops.filter((id) => !alignNotifiedRef.current.has(id))
     if (freshAligns.length > 0) {
       for (const id of freshAligns) alignNotifiedRef.current.add(id)
-      notify(
-        `${label}의 표 ${freshAligns.length}개에서 열 정렬을 복원하지 못했습니다 — 열을 추가·삭제하면 정렬이 사라집니다(정렬 편집은 이후 단계).`,
-      )
+      notify(`${label}의 표 ${freshAligns.length}개에서 열 정렬을 복원하지 못했습니다.`)
     }
 
     // ② 마이크로 마크 접힘 고지(인계 6) — documents는 **편집기 밖에서 만들어진 본문**이 들어오는

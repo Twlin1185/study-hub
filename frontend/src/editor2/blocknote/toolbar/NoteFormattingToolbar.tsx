@@ -12,7 +12,7 @@
 // 색 리터럴 0 — 스와치까지 전부 토큰 유틸(`bg-mark-*`·`text-ink-*`)이고, 팔레트 밖 hex는
 // `tokens.css`가 계산하는 커스텀 프로퍼티(`--u-ink`/`--u-bg`)로만 흘린다(불변 규칙 5).
 import { useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode, SyntheticEvent } from 'react'
 import {
   FormattingToolbar,
   getFormattingToolbarItems,
@@ -56,9 +56,56 @@ import { useNoteEditor } from './useNoteEditor'
  */
 const DEFAULT_UNDERLINE_ITEM_KEY = 'underlineStyleButton'
 
-/** 기본 항목 목록에서 밑줄 하나만 뺀다(나머지는 순서까지 그대로). */
-function defaultToolbarItemsWithoutUnderline() {
-  return getFormattingToolbarItems().filter((item) => item.key !== DEFAULT_UNDERLINE_ITEM_KEY)
+/**
+ * **원자 서식 가드를 씌울 코어 버튼**(stage-36 F-8 — stage-34가 남긴 알려진 한계의 해소).
+ *
+ * 이 넷은 선택 구간에 **마크/링크를 얹는** 기본 버튼이다. 참조 칩·인라인 이미지·수식처럼
+ * 마크를 실어 나를 수 없는 원자가 선택에 섞여 있으면, 화면에는 먹히는 것처럼 보이지만
+ * 저장·재로드에서 그 원자의 서식만 사라진다(`atoms.ts` 참조). 방언 버튼처럼 **눈에 보이게**
+ * 막는다 — 우리가 만든 버튼이 아니라 기본 버튼이므로 `isDisabled`를 넘길 자리가 없어,
+ * 활성화 이벤트를 캡처 단계에서 삼키는 **덮개**(`AtomGuardShield`)를 씌운다.
+ * (링크도 포함한다: 링크 적용은 선택 구간을 링크 인라인으로 감싸므로 원자가 더 크게 다친다.)
+ */
+const ATOM_GUARDED_DEFAULT_KEYS: ReadonlySet<string> = new Set([
+  'boldStyleButton',
+  'italicStyleButton',
+  'strikeStyleButton',
+  'createLinkButton',
+])
+
+/** 활성화(클릭·Enter·Space)를 캡처 단계에서 삼키는 덮개 — 시각적으로도 흐리게 보인다. */
+function AtomGuardShield({ children }: { children: ReactNode }) {
+  const swallow = (event: SyntheticEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  return (
+    <span
+      title={ATOM_GUARD_TOOLTIP}
+      aria-disabled
+      className="editor2-atom-guarded inline-flex"
+      onMouseDownCapture={swallow}
+      onClickCapture={swallow}
+      onKeyDownCapture={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') swallow(event)
+      }}
+    >
+      {children}
+    </span>
+  )
+}
+
+/** 기본 항목 목록 — 밑줄 하나만 빼고(규약 C), 원자 선택일 때 마크 버튼에 가드를 씌운다. */
+function defaultToolbarItems(blocked: boolean) {
+  return getFormattingToolbarItems()
+    .filter((item) => item.key !== DEFAULT_UNDERLINE_ITEM_KEY)
+    .map((item) =>
+      blocked && item.key !== null && ATOM_GUARDED_DEFAULT_KEYS.has(item.key) ? (
+        <AtomGuardShield key={item.key}>{item}</AtomGuardShield>
+      ) : (
+        item
+      ),
+    )
 }
 
 const CALLOUT_LABEL: Record<string, string> = {
@@ -377,7 +424,7 @@ export default function NoteFormattingToolbar() {
 
   return (
     <FormattingToolbar>
-      {defaultToolbarItemsWithoutUnderline()}
+      {defaultToolbarItems(blocked)}
       <MicroMarkButton key="microUnderline" mark="underline" blocked={blocked} />
       <HighlightMenu key="microHighlight" blocked={blocked} />
       <MicroMarkButton key="microSpoiler" mark="spoiler" blocked={blocked} />

@@ -163,8 +163,45 @@ export const noteSchema = BlockNoteSchema.create({
   },
 })
 
+/**
+ * 수식 사전(`@blocknote/math-block`) — **한국어 이식**(stage-36 F-5 "한국어 라벨 정리").
+ *
+ * 이 패키지는 `editor.dictionary.math ?? en`을 읽는다(`getMathDictionary` 실측). 지금까지 우리는
+ * `math` 키를 넣지 않아 수식 블록의 자리표시 문구가 영어("Add a LaTeX equation")로 떴고, 슬래시
+ * 메뉴 항목도 영어 라벨이었다. 사전을 채우는 것은 **항목을 늘리는 것이 아니라 이미 있는 블록의
+ * 라벨을 맞추는 일**이다(규약 E: 정합·발견성 마감).
+ */
+const MATH_KO = {
+  block: {
+    add_source_text: 'LaTeX 수식을 입력하세요',
+    input_placeholder: 'E = mc^2',
+    preview_error_text: '수식이 올바르지 않습니다 (눌러서 수정)',
+  },
+  inline: {
+    add_source_text: 'LaTeX 수식을 입력하세요',
+    input_placeholder: 'E = mc^2',
+    preview_error_text: '수식이 올바르지 않습니다 (눌러서 수정)',
+  },
+  slash_menu: {
+    math_block: {
+      title: '수식 블록',
+      subtext: '한 줄을 통째로 쓰는 수식',
+      aliases: ['math', 'latex', 'formula', 'equation'],
+      group: '고급',
+    },
+    inline_math: {
+      title: '인라인 수식',
+      subtext: '문장 안에 넣는 수식',
+      aliases: ['math', 'latex', 'formula', 'equation'],
+      group: '고급',
+    },
+  },
+  block_type_select: { name: '수식' },
+  exporter: { invalid_formula: (formula: string) => `올바르지 않은 수식 "${formula}"` },
+}
+
 /** 편집기 UI 문자열 — 한국어 사전(슬래시 메뉴 한글 필터가 성립한다. stage-31 실측). */
-export const noteDictionary = ko
+export const noteDictionary = { ...ko, math: MATH_KO }
 
 export type NotePartialBlock = PartialBlock<
   typeof noteSchema.blockSchema,
