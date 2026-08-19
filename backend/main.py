@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncIterator
 
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
@@ -45,7 +47,31 @@ from routers import (
 )
 from services import backup_service, settings_service
 
-app = FastAPI(title="Study Hub API")
+
+def _maybe_auto_backup() -> None:
+    """`settings:backup.auto == 'daily'`이면 앱 기동 시 마지막 백업이 24h 지났을 때
+    자동으로 백업 1개를 만든다(설계 §4.10). 실패해도 앱 기동은 막지 않는다."""
+    db = SessionLocal()
+    try:
+        auto = settings_service.get_setting(db, "backup.auto", False)
+        if auto != "daily":
+            return
+        latest = backup_service.latest_backup_at()
+        if latest is None or (dt.datetime.now() - latest) > dt.timedelta(hours=24):
+            backup_service.create_backup(label="auto")
+    except Exception:  # noqa: BLE001 - 백업 실패가 앱 기동을 막아서는 안 된다
+        pass
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    _maybe_auto_backup()
+    yield
+
+
+app = FastAPI(title="Study Hub API", lifespan=_lifespan)
 
 app.include_router(categories.router)
 app.include_router(documents.router)
@@ -70,24 +96,6 @@ app.include_router(improve.router)
 app.include_router(split.router)
 app.include_router(uploads.router)
 app.include_router(notes.router)
-
-
-@app.on_event("startup")
-def _maybe_auto_backup() -> None:
-    """`settings:backup.auto == 'daily'`이면 앱 기동 시 마지막 백업이 24h 지났을 때
-    자동으로 백업 1개를 만든다(설계 §4.10). 실패해도 앱 기동은 막지 않는다."""
-    db = SessionLocal()
-    try:
-        auto = settings_service.get_setting(db, "backup.auto", False)
-        if auto != "daily":
-            return
-        latest = backup_service.latest_backup_at()
-        if latest is None or (dt.datetime.now() - latest) > dt.timedelta(hours=24):
-            backup_service.create_backup(label="auto")
-    except Exception:  # noqa: BLE001 - 백업 실패가 앱 기동을 막아서는 안 된다
-        pass
-    finally:
-        db.close()
 
 
 def _error_body(code: str, message: str, detail: object | None = None) -> dict:
