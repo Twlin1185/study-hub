@@ -114,11 +114,21 @@ export function useUpdateNote() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, ...body }: { id: number } & NotePatch) => api.patch<Note>(`/notes/${id}`, body),
-    // 낙관적 업데이트·낙관적 잠금 없이 서버 응답을 받은 뒤 목록만 무효화한다
-    // (stage-33 확정 규약 C "낙관적 잠금 없음" · `editor-v2.plan.md` §7.2 단일 사용자 전제 —
-    //  마지막 저장이 이긴다. §4.28 ⑥ "동시 편집" 행과 동일).
-    // 단건은 편집 중인 표면이므로 재요청하지 않는다(자동 저장이 1.5초마다 돌 수 있다).
-    onSuccess: () => qc.invalidateQueries({ queryKey: noteKeys.lists() }),
+    // 낙관적 업데이트·낙관적 잠금 없다(stage-33 확정 규약 C · `editor-v2.plan.md` §7.2 단일 사용자
+    // 전제 — 마지막 저장이 이긴다. §4.28 ⑥ "동시 편집" 행과 동일).
+    //
+    // 저장에 성공하면 **서버가 돌려준 노트로 단건 캐시를 직접 갱신**한다(`setQueryData`).
+    // 이것은 **재요청이 아니다** — "편집 중인 표면은 다시 끌어오지 않는다"는 종전 계약을 그대로
+    // 지키면서(네트워크 왕복 0), 캐시가 낡은 채 남지 않게만 한다.
+    // 갱신하지 않으면(2026-08-19 사용자 실사용 결함): 노트를 쓰고 목록으로 나갔다가 **같은 노트로
+    // 다시 들어올 때** `useNote`가 편집 전 캐시(전역 staleTime 30초)를 그대로 돌려주고, 편집 표면은
+    // 첫 데이터로 1회만 시드되므로 뒤늦게 도착한 refetch도 반영되지 않아 **작성한 내용이 사라진 것처럼
+    // 보인다**(새로고침하면 보임 = 캐시만의 문제). staleTime 안(재요청 없음)·밖(오래된 값으로 먼저
+    // 시드) 두 경우가 모두 이 한 줄로 닫힌다.
+    onSuccess: (data, variables) => {
+      qc.setQueryData(noteKeys.detail(variables.id), data)
+      qc.invalidateQueries({ queryKey: noteKeys.lists() })
+    },
   })
 }
 
