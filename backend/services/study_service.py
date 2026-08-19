@@ -15,7 +15,7 @@ from schemas.study import (
     StudyTrackDocument,
     StudyTrackResponse,
 )
-from services import category_service
+from services import category_service, srs_service
 from services.tree_utils import category_path, collect_descendant_ids_ordered
 
 
@@ -114,7 +114,7 @@ def record_event(db: Session, payload: StudyEventRequest) -> None:
     category_service.get_category_or_404(db, payload.category_id)
     _get_document_or_404(db, payload.document_id)
 
-    now = dt.datetime.utcnow()
+    now = srs_service.utc_now()
 
     if payload.action == "complete":
         progress = db.get(

@@ -42,7 +42,7 @@ from schemas.applied_exam import (
     AppliedExamSubmitReport,
 )
 from schemas.exam import ExamCut, ExamHistorySubject, ExamSubjectReport, ExamSubmitRequest, ExamTotal
-from services import attempt_service, category_service, exam_scoring, llm_engine_service, settings_service
+from services import attempt_service, category_service, exam_scoring, llm_engine_service, settings_service, srs_service
 from services import document_service, source_match, tag_rule_service, tree_utils
 from services.document_service import _generate_doc_no
 
@@ -670,7 +670,7 @@ def submit_applied_exam(db: Session, payload: ExamSubmitRequest) -> AppliedExamS
                 detail={"document_id": ans.document_id, "subject_category_id": ans.subject_category_id},
             )
 
-    run_key = dt.datetime.utcnow()  # 배치 공통 answered_at — 응시 런 키(F25 §4.14 전례)
+    run_key = srs_service.utc_now()  # 배치 공통 answered_at — 응시 런 키(F25 §4.14 전례)
     tallies: Dict[int, exam_scoring.SubjectTally] = {
         cid: exam_scoring.SubjectTally(category_id=cid, name=category_by_id[cid].name)
         for cid in subject_ids

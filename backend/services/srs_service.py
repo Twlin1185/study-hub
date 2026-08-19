@@ -43,6 +43,15 @@ def local_today() -> dt.date:
     return dt.date.today()
 
 
+def utc_now() -> dt.datetime:
+    """naive UTC 현재 시각 — DB의 기존 naive datetime 값들과 비교/저장 호환.
+
+    datetime.utcnow()의 대체(3.12 deprecation). tzinfo를 붙이면 DB에 쌓인
+    naive 값과의 비교가 TypeError가 되므로 naive를 유지한다.
+    """
+    return dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
+
 def _daily_limit(db: Session) -> int:
     return int(settings_service.get_setting(db, "srs.daily_limit", DEFAULT_DAILY_LIMIT))
 
@@ -113,7 +122,7 @@ def apply_sm2(db: Session, document_id: int, q: int) -> models.SrsCard:
     card.interval_days = updated.interval_days
     card.repetitions = updated.repetitions
     card.due_date = local_today() + dt.timedelta(days=updated.interval_days)
-    card.last_reviewed = dt.datetime.utcnow()
+    card.last_reviewed = utc_now()
     return card
 
 
