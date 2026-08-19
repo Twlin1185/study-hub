@@ -181,14 +181,14 @@ D8"을 한 행에 담고 있어 단일 stage로는 M33(→ stage-33/34 분할)�
 - [x] F-7. **찾기/바꾸기**(규약 E) — PM 플러그인 자체 구현 · 하이라이트/치환/전체 바꾸기 undo 1단위 ·
       Ctrl+F 가로채기 범위 준수 · 원자 노드 제외.
 - [x] F-8. **콜아웃 마감 2건**(규약 E) — children 시각 소속 · 원자 서식 가드의 코어 버튼·단축키 확장.
-- [ ] F-9. **검증 일괄** — 회귀 세트 전건(s30(ref)·s32 751·s33 997·s34-paste 95·s34-parity 193·
+- [x] F-9. **검증 일괄** — 회귀 세트 전건(s30(ref)·s32 751·s33 997·s34-paste 95·s34-parity 193·
       s35-realdoc·**s35-doc-roundtrip 3055**) 실패 0·건수 무변 · `tsc -b`·`npm run build` ·
       초기 청크 증가 ≤5KB(min) · `invariant-scan.ps1` PASS · `run-tests.ps1`(528 passed 무회귀 +
       B-1 신규 테스트 가산 시 표기).
 
 ### 공통
 
-- [ ] G-10. **문서 반영** — 본 문서 체크박스·완료 기록(진입점 6곳 확인 표 · 전환 해제 경로 갱신 표 ·
+- [x] G-10. **문서 반영** — 본 문서 체크박스·완료 기록(진입점 6곳 확인 표 · 전환 해제 경로 갱신 표 ·
       choices 렌더 지점 표 · 슬래시 전수표 · 검증 수치) · `editor-v2.plan.md` §8 M35 행·§13 ·
       마스터 §14 M35 행·말미 · **`docs/manual/user-manual.html` 갱신**(새 편집기 적용 범위 확대·
       choices 인라인 표현·찾기/바꾸기·임베드 카드 내용 표시·구 편집기 잔존 한계) · 필요 시
@@ -258,3 +258,119 @@ D8"을 한 행에 담고 있어 단일 stage로는 M33(→ stage-33/34 분할)�
 - F-9는 각 묶음 머지 때마다 증분 실행(TDD형 루프 계승).
 - 완료 후 리뷰 = `stage-reviewer`(Opus). 말미에 "완료 기록"을 추가한다 — M35 게이트 판정은 여기서
   하지 않는다(stage-37 말미).
+
+## 완료 기록 (2026-08-20 — 구현 사이클 종료. 검토 결과는 아래 "검토 결과"에 추기)
+
+### 경위
+
+- 2026-08-19 지시서·설계 계약(§4.29 ⑦ S36·§4.30 선확정·screens §5.3 S36) 확정 후 당일 착수.
+  구현 = backend-dev(Sonnet — B-1·B-2) + frontend-dev 3묶음(F-3·F-4 = Sonnet / F-5~F-8·F-1·F-2 = Opus 승격).
+- B-1~B-2·F-1~F-9 전건 이행. DDL 0 · Alembic 0 · 신규 엔드포인트 0 · settings 키 0 ·
+  **신규 npm/파이썬 의존 0**(package.json/lock 무변).
+
+### 최종 검증 수치 (F-9 — 오케스트레이터 독립 재실행)
+
+| 항목 | 결과 |
+|---|---|
+| s30(ref `00ef3e7`) | **364/365** — 유일 실패 [A-0] = stage-35 완료 기록과 동일한 도구 아티팩트(동일 ref·동일 결과 = 무회귀) |
+| s32 / s33 / s34-paste / s34-parity | **751 / 997 / 95 / 193** — 실패 0·건수 무변 |
+| s35-realdoc-adapter / s35-doc-roundtrip | 폴백 **0** / **3055건 실패 0** |
+| **s36-editor-ux(신규 스크립트)** | **35/35** — 슬래시 전수표·표 정렬 사이드카 왕복·드래그 후 id 정합(역순 재배열 기계 증명) |
+| `run-tests.ps1` | **539 passed**(기존 528 + B-1 계약 pytest 11 — `test_documents_blocks_post.py`) |
+| `invariant-scan.ps1` | PASS(신규 위반 0) |
+| `tsc -b` · `npm run build` | 통과 |
+| 초기 청크(R37) | index 1,610,032 → 1,613,755 B = **+3.72 kB(min) ≤ 5 kB** (블록 표면 lazy 유지 — 신규 lazy 청크: DocFormBlockFields 2.21·surfaceSource 2.97 kB) |
+
+### B-1 공용화·B-2 스모크
+
+- 검증 공용 헬퍼 = `document_service._apply_blocks_payload`(동반 규칙 → 얕은 검증 → 상한 →
+  `blocks_version` 사본) — `create_document`·`update_document` 공유(PATCH 동작 diff 0·에러 우선순위 보존).
+- 스모크(임시 포트 8907 — 종료·리스너 부재 확인 완료): POST 동반 생성→상세 왕복 ✓ · 한쪽만/`null` 단독
+  422 `projection_required` ✓ · 미동반 POST 종전 무변 ✓ · quiz/session·resolve-embeds 봉인 유지 ✓.
+  `demote_blocks` 4경로·FTS·백업·LLM diff 0.
+
+### 진입점 6곳 검증 표 (F-2 — 규약 A 이행)
+
+| # | 진입점 | 경로 증명 | 저장 결과 |
+|---|---|---|---|
+| ① | `/docs/:id` [편집] | DocumentDetail → DocBlockEditor(stage-35분 무변) | PATCH 동반·전환 유지 |
+| ② | `/docs/new` | DocEditPage(create) → DocEditor 분기 → `useCreateDocumentWithBlocks` | **POST 동반 = 태생 전환** |
+| ③ | `/docs/:id/edit` | DocEditPage(edit) → DocEditor 분기 → PATCH 파이프라인 | 전환 유지/승격 |
+| ④ | Explore [+ 문서] | DocEditor 모달 → 동일 분기 | 태생 전환 |
+| ⑤ | CurriculumDetail [+ 문서 추가] | 동일 | 태생 전환 |
+| ⑥ | CurriculumDetail 행 [편집] | 동일 | PATCH 동반·전환 유지 |
+
+개조 지점은 `DocEditor.tsx` 내부 분기 1곳(진입점 파일 5개 diff 0 — 복붙 금지 준수). 토글 OFF = 전
+진입점 구 편집기 완전 복귀. 퇴로 토글 값은 편집기 여는 순간 고정(편집 중 토글 변경으로 표면이 갈리는
+경로 차단). create는 페어 헬퍼+required 타입+`assertBlockPairs` 3중 방어로 "한쪽만 전송"이 구조적으로
+불가능(생성 후 PATCH 왕복 0).
+
+### 전환 해제(강등) 유발 클라이언트 경로 — 통합 후 갱신 표 (stage-35 표 계승)
+
+| 경로 | 통합 후 |
+|---|---|
+| 진입점 ①~⑥ 저장(토글 ON) | **강등 없음**(블록 쌍 동반 — ②④⑤는 태생 전환) |
+| 임의 진입점 · 토글 OFF | **강등 — 유일하게 남은 클라이언트 경로**(퇴로 불변 축·의도된 계약) |
+| 미지원 폴백 후 구 편집기 저장 | 이론상 강등이나 실측 0(전환 문서 재로드 왕복 실패 0 — 폴백 걸리는 문서는 애초에 미전환) |
+| 서버 내부(F30·F44 등 — stage-35 전수표) | 무변경(`demote_blocks` 4경로 그대로) |
+
+부수 방어: PATCH 훅에도 `assertBlockPairs` 가드(개념/플래시카드 편집이 `explanation` 단독 기록으로
+converted 문서를 강등시키던 `legacy_explanation_write` 함정의 프론트 차단) · 폼 `submitter` 가드
+(편집기 내부 버튼의 암묵 submit로 조용히 저장·닫힘 방지).
+
+### choices·메모 인라인 리치 렌더 지점 전수표 (F-3 — 규약 C)
+
+| 화면 | 파일 | 필드 |
+|---|---|---|
+| 모의고사 런 | `components/QuestionCard.tsx` | choices |
+| 퀴즈 런 | `pages/QuizRun.tsx` | choices |
+| 학습 모드(문제 카드·즉시 퀴즈 2곳) | `pages/Study.tsx` | choices |
+| 복습(SRS) | `pages/Review.tsx` | choices |
+| 문서 상세 | `pages/DocumentDetail.tsx` | choices |
+| 인쇄 — 문제집 | `components/print/QuizPrintView.tsx` | choices |
+| 인쇄 — 오답노트 | `components/print/WrongNotePrintView.tsx` | review_notes.note |
+
+공용 래퍼 `components/markdown/InlineRichText.tsx` 1개(MarkdownView 재사용·`breaks=false` — 신규 파서
+0). 방언 없는 문자열 렌더 diff 0 근거 = remark 단일 문단 통과 + 상태색 상속 CSS. 편집 UI는 전부 무변경.
+**의도적 제외 1건**: `RegenerateJobPanel`의 choices diff 비교 필드(규약 C 열거 5범주 밖 + diff
+하이라이팅과 구조 충돌 — 경미, 필요 시 후속).
+
+### 슬래시 전수표·UX 마감 (F-5~F-8 — 규약 E)
+
+- 슬래시 26항 전수표 = `blocknote/slash/slashTable.ts`가 코드 정본(`node scripts/s36-editor-ux.mjs
+  --list`로 재생성). 정비 = 순서 재편·제목 그룹 병합·**수식 2종/콜아웃 5종의 슬래시 미연결 해소**(팔레트
+  확장 아님 — 발견성 마감)·한/영 별칭 보강. 표에 없는 코어 기본 항목은 뒤에 그대로 붙여 유실 0.
+- 표 열 정렬: PM 플러그인 세션 소유(`tableAlign/`) — 정렬 값을 문서에 넣지 않는 이유 = BlockNote 셀
+  `textAlignment` 기본 `"left"`가 GFM `---`/`:---`를 구분 못해 전 문서 프로젝션 변형 유발. 열 증감은
+  probe 위치를 `tr.mapping`으로 추적해 정렬 승계(인덱스 어긋남 소멸 — 규약 E 계약 이행). 저장은
+  `syncTableAlignIntoSidecar()`가 `fromBlockNoteResult` 직전 사이드카 직렬화(어댑터·변환기 무수정).
+- 찾기/바꾸기: 자체 PM 플러그인(`find/` 4파일) — 원자 노드는 ` ` 벽으로 검색 제외·가로지름 차단,
+  바꾸기/전체 바꾸기 = `editor.transact` undo 1단위, Ctrl+F는 편집 표면·패널 안에서만 가로챔.
+- 콜아웃: children 시각 소속(CSS 계층·색 리터럴 0) + 원자 서식 가드를 코어 버튼 4종(가드 덮개)·코어
+  단축키 4종(원자 포함 시에만 차단)으로 확장.
+- 드래그 재배열 사이드카 정합 = s36 ②가 기계 증명(사이드카 고정 후 블록 역순 재배열 →
+  `fromBlockNoteResult` 왕복에서 id 기준 흡수분 추적·드랍 0).
+
+### 구현 중 판단 기록 (임의 확정 아님 — 검토·실사용 재론 가능)
+
+1. **DocEditor edit 모드 = 명시 저장 유지**(자동 저장 미이식): 규약 B "자동 저장 계승"과 규약 A "폼
+   필드 기존 유지"([저장]/[취소]+미저장 확인이 DocEditor 계약)의 충돌을 후자로 해소 — 자동 저장을 넣으면
+   [취소]·확인창이 거짓이 된다. 동반 저장 계약·사이드카 결선·미지원 퇴로는 전건 계승, 자동 저장
+   타이머·저장 상태 4종·IME 보류는 명시 저장에 대상 없음. (문서 상세 ①의 자동 저장은 stage-35분 그대로.)
+2. 표 정렬 변경은 Ctrl+Z 대상 아님(세션 UI 소유의 귀결 — 문서 무접촉이라 히스토리 스텝이 없다.
+   "없음" 버튼이 항상 1클릭).
+3. 원자 가드에 링크 버튼 포함(stage-34 한계 목록 그대로 — 칩 포함 선택에 링크 허용이 필요하면 후속).
+4. `prosemirror-state/view/tables` 직접 import(코어의 선언된 직접 의존 — 트리 단일 사본·lock 무변이라
+   신규 의존 0 유지. 명시 선언 여부는 후속 판단).
+5. 신규 작성(개념/플래시카드)의 `explanation`은 NULL 저장(구 경로 `''`) — 렌더·계약 차이 0.
+6. docEmbed 리치 카드는 블록별 독립 resolve 요청(펼치기 전 요청 0 — R37 준수. 다중 펼침 배치 병합은
+   후속 개선 후보).
+
+### 경미 잔존 (기능 영향 0 — 사용자 보고용)
+
+- 진입점 ① 미지원 폴백 시 안내 배너 2중 표시 가능(DocumentDetail분 + DocEditor 내부분 동일 문구 —
+  해소에는 진입점 파일 수정 필요라 보류).
+- blockDirty가 마운트 직후 spurious onChange로 과판정될 수 있음(손실 방향 아님 — 확인창이 한 번 더
+  뜰 뿐). 실사용 확인 항목.
+- 콜아웃 자식 테두리의 variant 색은 DOM `data-variant` 의존 — 미탑재 시 중립 `--border`로 안전 강등.
+- 표 정렬 바 노출 조건 = "커서가 표 안"(타이핑 중 상시 노출 — 표 핸들 메뉴 통합은 후속 선택지).
