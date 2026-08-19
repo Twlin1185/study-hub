@@ -148,12 +148,14 @@ D8"을 한 행에 담고 있어 단일 stage로는 M33(→ stage-33/34 분할)�
 
 ### 백엔드 묶음 (담당 `backend-dev` · Sonnet)
 
-- [ ] B-1. **api §4.29 ⑦ 이행 — POST 블록 확장**(규약 B): 동반 규칙 2쌍·얕은 검증·상한·`blocks_version`
+- [x] B-1. **api §4.29 ⑦ 이행 — POST 블록 확장**(규약 B): 동반 규칙 2쌍·얕은 검증·상한·`blocks_version`
       서버 사본·태생 전환 · **블록 미동반 POST 완전 하위 호환**(기존 스모크 무변). 검증 로직은 stage-35
-      PATCH 구현과 **공용화**(복붙 금지).
-- [ ] B-2. **봉인·무접촉 확인** — quiz/session·resolve-embeds 응답 블록 필드 부재 유지(불변 규칙 1) ·
+      PATCH 구현과 **공용화**(복붙 금지) — `services/document_service.py`의 `_apply_blocks_payload`
+      헬퍼로 추출해 `create_document`·`update_document`가 공유(2026-08-19 완료).
+- [x] B-2. **봉인·무접촉 확인** — quiz/session·resolve-embeds 응답 블록 필드 부재 유지(불변 규칙 1) ·
       전환 해제 헬퍼(`demote_blocks`) 4경로 무변 · FTS·백업·LLM 경로 **diff 0** · API 스모크
-      (POST 동반 생성→상세 왕복 · 동반 위반 422 · 미동반 생성 무변).
+      (POST 동반 생성→상세 왕복 · 동반 위반 422 · 미동반 생성 무변) — 전건 확인 완료(2026-08-19,
+      `schemas/quiz.py`·`schemas/embed.py`·`demote_blocks` 무접촉).
 
 ### 프론트 묶음 (담당 `frontend-dev` · Sonnet — **F-1·F-2는 opus 승격 권장**: 진입점 전수 결선·저장 계약이 걸린다. F-7(찾기/바꾸기 PM 플러그인)도 opus 권장)
 

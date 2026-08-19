@@ -70,6 +70,12 @@ class DocumentCreate(BaseModel):
     difficulty: Optional[int] = Field(default=None, ge=1, le=5)
     source_id: Optional[int] = None
     source_detail: Optional[str] = None
+    # 에디터 v2 저장 전환(M35/stage-36, 설계 §4.29 ⑦) — PATCH(DocumentUpdate 위 주석)와
+    # 같은 동반 규칙·얕은 검증·상한을 생성 시점에도 적용한다(services/document_service.py
+    # _apply_blocks_payload 공용). 동반 생성 = 태생 전환(blocks_version 서버 사본).
+    # 미동반이면 기존 계약 그대로 미전환 생성(하위 호환 무변).
+    content_blocks: Optional[Any] = None
+    explanation_blocks: Optional[Any] = None
 
     _check_type = field_validator("type")(_validate_type)
 
