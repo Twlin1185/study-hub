@@ -57,7 +57,12 @@
 
 ## 실행
 
-- 백엔드: `uvicorn main:app --host 0.0.0.0 --port 8000` (backend/에서)
+- **서버 구동 금지 규칙 (2026-08-19 사용자 지시 — 모든 세션·에이전트)**: Claude는 서버(uvicorn·vite)를
+  **직접 열지 않는다** — 사용자가 쓰도록 띄워 주는 것 포함(정식 서버 주인은 `2_StartServer.bat`, 켜는 것은
+  사용자 몫이며 머지 후 재시작도 하지 않는다). 스모크 등 **자체 검증으로 부득이한 경우만** 임시 포트로 짧게
+  띄우되(8000 금지), **작업이 끝나면 반드시 자신이 띄운 모든 서버를 종료하고 포트 리스너 부재까지 확인**한다.
+  서브에이전트에 서버 검증을 시킬 때도 이 종료 의무를 프롬프트에 명시할 것.
+- 백엔드: `uvicorn main:app --host 0.0.0.0 --port 8000` (backend/에서 — 사용자 실행 기준)
 - 프론트 개발: `npm run dev` (frontend/에서) / 배포 빌드는 `npm run build` → FastAPI가 dist 서빙
 - 테스트: `powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1` (요약만 출력 · `-Path tests/test_sm2.py` 부분 실행 · `-Full` 전체 로그)
   — 임베디드 파이썬(`python-embed/`, `_pth`)이라 `python -m pytest`는 임포트 실패한다. 래퍼가 sys.path를 주입한다.
