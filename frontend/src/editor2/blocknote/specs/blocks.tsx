@@ -5,10 +5,11 @@
 // 여기 render는 머리(라벨)와 테두리만 그리고, 자식 블록은 편집기가 중첩 그룹으로 렌더한다
 // (`notes.css`가 그 그룹에 콜아웃 여백을 준다).
 import { createReactBlockSpec } from '@blocknote/react'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { CALLOUT_VARIANTS } from '../../adapter'
 import { describeRef, useRefUi } from '../refPicker/RefTitleContext'
+import DocEmbedReadCard from './DocEmbedReadCard'
 
 /** 콜아웃 **고정 목록**(규약 E — 자유 입력 UI 금지). 목록 밖 값은 **보존만** 하고 기본 스타일로 표시한다. */
 const CALLOUT_STYLE: Record<string, { border: string; text: string; icon: string; label: string }> = {
@@ -55,8 +56,10 @@ export const createCalloutBlockSpec = createReactBlockSpec(
 
 // ---------------------------------------------------------------- 문서 임베드(`![[DOC-0007]]`)
 //
-// 원자·읽기 전용 카드. `label: ''` ⇔ 앱 `label === undefined`(**추종형** — 규약 A ③).
-// 제목 추종·자리표시자·클릭 팝오버는 참조 칩과 **같은 규칙**을 쓴다(`describeRef`·`RefUiContext` 공유).
+// 머리글은 원자·제목 추종 칩(기존 그대로) — 클릭하면 참조 칩과 **같은 규칙**의 팝오버가 열린다
+// (`describeRef`·`RefUiContext` 공유). **펼치기(stage-36 규약 D)**를 누르면 그 아래에 대상 문서
+// 본문을 읽기 전용 카드로 편다(`DocEmbedReadCard` — resolve-embeds 재사용·MarkdownView 재사용).
+// 기본은 **접힘**(편집 중 여러 임베드가 쌓여도 본문 조회가 한꺼번에 나가지 않도록).
 export const createDocEmbedBlockSpec = createReactBlockSpec(
   {
     type: 'docEmbed',
@@ -70,6 +73,7 @@ export const createDocEmbedBlockSpec = createReactBlockSpec(
     render: function DocEmbedRender({ block, editor }) {
       const { target, label } = block.props
       const refUi = useRefUi()
+      const [expanded, setExpanded] = useState(false)
 
       useEffect(() => {
         if (!label) refUi.requestTitle(target)
@@ -95,20 +99,43 @@ export const createDocEmbedBlockSpec = createReactBlockSpec(
         })
       }
 
+      const toggle = (event: MouseEvent<HTMLElement>) => {
+        event.preventDefault()
+        event.stopPropagation()
+        setExpanded((v) => !v)
+      }
+
       return (
-        <div
-          onClick={openMenu}
-          className="my-1 flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border bg-surface-raised px-3 py-2 text-sm"
-          title={display.title}
-        >
-          <span aria-hidden className="text-muted">
-            ⧉
-          </span>
-          <span className="shrink-0 font-medium text-accent">{target}</span>
-          <span className={`truncate ${display.placeholder ? 'text-muted' : 'text-primary'}`}>
-            {display.text === target ? '' : display.text}
-          </span>
-          <span className="ml-auto shrink-0 text-xs text-muted">문서 임베드</span>
+        <div className="my-1 w-full rounded-lg border border-dashed border-border bg-surface-raised text-sm">
+          <div
+            onClick={openMenu}
+            className="flex cursor-pointer items-center gap-2 px-3 py-2"
+            title={display.title}
+          >
+            <span aria-hidden className="text-muted">
+              ⧉
+            </span>
+            <span className="shrink-0 font-medium text-accent">{target}</span>
+            <span className={`truncate ${display.placeholder ? 'text-muted' : 'text-primary'}`}>
+              {display.text === target ? '' : display.text}
+            </span>
+            <span className="ml-auto shrink-0 text-xs text-muted">문서 임베드</span>
+            {target && (
+              <button
+                type="button"
+                onClick={toggle}
+                aria-expanded={expanded}
+                className="shrink-0 rounded border border-border px-1.5 py-0.5 text-xs text-primary hover:bg-bg"
+              >
+                {expanded ? '접기' : '펼치기'}
+              </button>
+            )}
+          </div>
+          {expanded && target && (
+            <div className="border-t border-border px-2 pb-2 pt-1">
+              <DocEmbedReadCard target={target} alias={label} />
+            </div>
+          )}
         </div>
       )
     },

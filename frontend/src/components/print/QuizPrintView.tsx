@@ -3,6 +3,7 @@ import { useCategoryTree } from '../../api/categories'
 import { useDocumentsBatch } from '../../api/documents'
 import { findCategory, collectLeafGroups } from '../../utils/tree'
 import MarkdownView from '../MarkdownView'
+import InlineRichText from '../markdown/InlineRichText'
 import { useFontScale } from '../../hooks/useFontScale'
 import { resolveDocStyle } from '../../utils/docStyle'
 import { useLeafStudyTracks } from './useLeafStudyTracks'
@@ -84,7 +85,7 @@ export default function QuizPrintView({ categoryId, includeExplanation, answerSp
                       {(doc?.choices ?? []).map((c, i) => (
                         <li key={i} className="flex gap-2">
                           <span className="shrink-0 font-medium">{CIRCLED_DIGITS[i] ?? `${i + 1}.`}</span>
-                          <span>{c}</span>
+                          <InlineRichText content={c} scale={scale} />
                         </li>
                       ))}
                     </ul>

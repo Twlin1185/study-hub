@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MarkdownView from '../components/MarkdownView'
+import InlineRichText from '../components/markdown/InlineRichText'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ProgressBar from '../components/ProgressBar'
 import BookmarkButton from '../components/BookmarkButton'
@@ -302,7 +303,7 @@ export default function QuizRunPage() {
               className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-default ${MARKDOWN_SCALE_CLASS[docScale]} ${docFontClass} ${stateClass}`}
             >
               <span className="font-medium">{CIRCLED_DIGITS[i] ?? `${i + 1}.`}</span>
-              <span>{choice}</span>
+              <InlineRichText content={choice} scale={docScale} />
             </button>
           )
         })}
