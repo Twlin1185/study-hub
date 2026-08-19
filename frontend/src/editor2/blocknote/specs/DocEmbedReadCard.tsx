@@ -13,13 +13,19 @@
 // 그 안에 또 임베드가 있으면 리더의 깊이 초과 자리표시자로 축약 표시"가 되게 한다. 새 규칙을 추가한
 // 게 아니라 `EmbedCard`/`MarkdownView`가 이미 하는 깊이 계산에 시작값 하나만 다르게 흘려보낸
 // 것뿐이다(순환 참조 방어도 `EmbedCard`의 기존 ancestors 체크를 그대로 탄다).
-import { useMemo, useRef } from 'react'
+//
+// stage-36 검토 중요-1 — 편집 표면 안에서는 [원문 열기]가 `navigate()`로 편집기를 언마운트시키면
+// 안 된다(저장 안 된 본문·해설이 확인 없이 사라진다). `OpenRefDocumentOverride`로 이 카드 서브트리
+// 전체(EmbedCard 본체·자리표시자·중첩 링크 칩 포함)의 열기 동작을 새 탭으로 바꿔치기한다 —
+// 리더는 이 Provider를 쓰지 않으므로 동작이 전혀 바뀌지 않는다.
+import { useCallback, useMemo, useRef } from 'react'
 import MarkdownView from '../../../components/MarkdownView'
 import EmbedCard from '../../../components/markdown/EmbedCard'
 import { EmbedResolver } from '../../../components/markdown/embedResolver'
 import { EmbedRenderContext } from '../../../components/markdown/embedContext'
 import type { EmbedRenderCtx } from '../../../components/markdown/embedContext'
 import { MAX_EMBED_DEPTH } from '../../../components/markdown/refSyntax'
+import { OpenRefDocumentOverride } from '../../../components/markdown/useOpenRefDocument'
 import { useFontScale } from '../../../hooks/useFontScale'
 
 interface DocEmbedReadCardProps {
@@ -37,13 +43,19 @@ export default function DocEmbedReadCard({ target, alias }: DocEmbedReadCardProp
     [],
   )
 
+  const openInNewTab = useCallback((documentId: number) => {
+    window.open(`/docs/${documentId}`, '_blank', 'noopener')
+  }, [])
+
   return (
-    <EmbedRenderContext.Provider value={ctx}>
-      <EmbedCard
-        docNo={target}
-        alias={alias}
-        renderContent={(content, docNo) => <MarkdownView content={content} scale={scale} docNo={docNo} />}
-      />
-    </EmbedRenderContext.Provider>
+    <OpenRefDocumentOverride open={openInNewTab}>
+      <EmbedRenderContext.Provider value={ctx}>
+        <EmbedCard
+          docNo={target}
+          alias={alias}
+          renderContent={(content, docNo) => <MarkdownView content={content} scale={scale} docNo={docNo} />}
+        />
+      </EmbedRenderContext.Provider>
+    </OpenRefDocumentOverride>
   )
 }
