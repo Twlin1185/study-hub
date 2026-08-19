@@ -15,12 +15,12 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import MarkdownView from '../../components/MarkdownView'
 import type { DocumentDetail, DocumentType } from '../../api/types'
 import { ApiError } from '../../api/client'
-import { markdownToBlocks } from '../transform'
-import { describeUnsupported, toBlockNoteBlocks, type AdapterSidecar, type BnBlock } from '../adapter'
-import type { BlockDocument } from '../schema/blocks'
 import { useEditorTheme } from '../blocknote/schema'
 import BlockSurface, { type BlockSurfaceHandle } from './BlockSurface'
 import { readBlockFields, useUpdateDocumentBlocks, type DocumentBlocksPatch } from '../api/documents'
+// 로드 재료 계산은 stage-36 F-1에서 `surfaceSource`로 공용화했다(DocEditor 통합 분기와 같은 판정을
+// 쓰기 위해서 — 계산 내용은 stage-35 원본 그대로다).
+import { loadSurface, type SurfaceLoad, type SurfaceSource } from './surfaceSource'
 
 /** 규약 C(노트) 계승 — 유휴 1.5초 · 최대 대기 10초 · 실패 후 재시도 5초. */
 const IDLE_MS = 1500
@@ -31,27 +31,6 @@ type SaveState = 'clean' | 'dirty' | 'saving' | 'error'
 
 function isQuestionLike(type: DocumentType): boolean {
   return type === 'question' || type === 'past_question'
-}
-
-interface SurfaceSource {
-  blocks: BnBlock[]
-  sidecar: AdapterSidecar
-}
-
-type SurfaceLoad = { ok: true; source: SurfaceSource } | { ok: false; reason: string }
-
-/**
- * 한 표면의 로드 재료를 만든다.
- * - 전환 문서: 저장된 블록(`*_blocks`)이 소스 오브 트루스다 — Markdown은 쳐다보지 않는다(규약 D).
- * - 미전환 문서: `content`/`explanation`을 **메모리에서만** 블록으로 변환한다(DB 무기록 — 규약 E).
- */
-function loadSurface(blocks: BlockDocument | null, markdown: string | null | undefined): SurfaceLoad {
-  const document = blocks ?? markdownToBlocks(markdown ?? '')
-  const result = toBlockNoteBlocks(document)
-  if (result.unsupported.length > 0) {
-    return { ok: false, reason: describeUnsupported(result.unsupported) }
-  }
-  return { ok: true, source: { blocks: result.blocks, sidecar: result.sidecar } }
 }
 
 interface PreparedDocument {

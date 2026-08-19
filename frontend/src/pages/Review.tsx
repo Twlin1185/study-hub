@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MarkdownView from '../components/MarkdownView'
+import InlineRichText from '../components/markdown/InlineRichText'
 import FlipCard from '../components/FlipCard'
 import ProgressBar from '../components/ProgressBar'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -338,7 +339,7 @@ function QuizReviewCard({
               className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-default ${stateClass}`}
             >
               <span className="font-medium">{CIRCLED_DIGITS[i] ?? `${i + 1}.`}</span>
-              <span>{choice}</span>
+              <InlineRichText content={choice} scale={fontScale} />
             </button>
           )
         })}

@@ -87,6 +87,53 @@ def _check_blocks_size(blocks: Dict) -> None:
         raise _too_large_error()
 
 
+def _apply_blocks_payload(data: Dict) -> None:
+    """블록 동반 규칙·얕은 검증·크기 상한·직렬화 공용 헬퍼 (§4.29 ②·⑦).
+
+    PATCH(update_document)와 POST(create_document)가 공유한다(복붙 금지 — S36
+    지시서 B-1). `data`는 `payload.model_dump(exclude_unset=True)` 결과이며, 이
+    함수가 검증을 통과시킨 `content_blocks`/`explanation_blocks`를 JSON 직렬화
+    문자열로, `content_blocks.version`을 `blocks_version`으로 치환해 `data`를
+    제자리에서 갱신한다(서버 사본 — 요청 필드 아님). 위반 시 422를 던진다.
+
+    동반 규칙은 블록 쪽에서만 강제한다 — `content_blocks`를 보내면 반드시
+    `content`도 함께(반대는 강제하지 않음: content만 보내는 것은 정상 경로다.
+    PATCH에서는 구 편집기 축이자 전환 해제 트리거, POST에서는 미전환 생성).
+    """
+    has_content_blocks = "content_blocks" in data
+    has_content = "content" in data
+    has_expl_blocks = "explanation_blocks" in data
+    has_expl = "explanation" in data
+
+    if has_content_blocks and not has_content:
+        raise _projection_required_error()
+    if has_expl_blocks and not has_expl:
+        raise _projection_required_error()
+
+    if has_content_blocks:
+        blocks = _validate_blocks_shape(data["content_blocks"])
+        content_value = data.get("content")
+        if not isinstance(content_value, str):
+            raise _blocks_invalid_error()
+        _check_blocks_size(blocks)
+        data["content_blocks"] = json.dumps(blocks, ensure_ascii=False)
+        data["blocks_version"] = blocks["version"]  # 서버 사본(§4.29 ② — 요청 필드 아님)
+
+    if has_expl_blocks:
+        expl_blocks_raw = data["explanation_blocks"]
+        if expl_blocks_raw is None:
+            # explanation_blocks: null + explanation 동반 = 해설 블록만 제거(전환 판정은
+            # 본문 축뿐이므로 blocks_version은 건드리지 않는다 — §4.29 ② 표 2행).
+            data["explanation_blocks"] = None
+        else:
+            blocks = _validate_blocks_shape(expl_blocks_raw)
+            expl_value = data.get("explanation")
+            if expl_value is not None and not isinstance(expl_value, str):
+                raise _blocks_invalid_error()
+            _check_blocks_size(blocks)
+            data["explanation_blocks"] = json.dumps(blocks, ensure_ascii=False)
+
+
 def _decode_style(raw: str | None) -> Optional[Dict[str, str]]:
     """`documents.style` TEXT 컬럼 디코딩 — 손상 데이터 방어.
 
@@ -268,19 +315,30 @@ def create_document(db: Session, payload: DocumentCreate) -> models.Document:
             "문제 타입 문서는 정답(answer)이 필요합니다", detail={"type": payload.type}
         )
 
+    # 에디터 v2 저장 전환(M35/stage-36, 설계 §4.29 ⑦) — PATCH(update_document)와 동일한
+    # 동반 규칙·얕은 검증·크기 상한을 공용 헬퍼로 적용한다. 블록 쌍을 동반한 생성은
+    # 태생 전환(_apply_blocks_payload가 채운 blocks_version이 INSERT에 그대로 실린다)
+    # 이고, 미동반 생성은 data에 해당 키가 없어 기존 계약 그대로 3필드 NULL로 남는다
+    # (하위 호환 무변 — 반입·구 편집기 등 미동반 POST 전 경로 1바이트도 안 변함).
+    data = payload.model_dump(exclude_unset=True)
+    _apply_blocks_payload(data)
+
     for attempt in range(3):
         doc_no = _generate_doc_no(db)
         document = models.Document(
             doc_no=doc_no,
             type=payload.type,
             title=payload.title,
-            content=payload.content,
-            choices=json.dumps(payload.choices, ensure_ascii=False) if payload.choices is not None else None,
-            answer=payload.answer,
-            explanation=payload.explanation,
-            difficulty=payload.difficulty,
-            source_id=payload.source_id,
-            source_detail=payload.source_detail,
+            content=data.get("content"),
+            choices=json.dumps(data["choices"], ensure_ascii=False) if data.get("choices") is not None else None,
+            answer=data.get("answer"),
+            explanation=data.get("explanation"),
+            difficulty=data.get("difficulty"),
+            source_id=data.get("source_id"),
+            source_detail=data.get("source_detail"),
+            content_blocks=data.get("content_blocks"),
+            explanation_blocks=data.get("explanation_blocks"),
+            blocks_version=data.get("blocks_version"),
         )
         db.add(document)
         try:
@@ -303,43 +361,18 @@ def update_document(
     document = get_document_or_404(db, document_id)
     data = payload.model_dump(exclude_unset=True)
 
-    # 에디터 v2 저장 전환(M34/stage-35, 설계 §4.29 ②③④) — 동반 규칙은 블록 쪽에서만
-    # 강제한다: content_blocks를 보내면 반드시 content도 함께(그 반대는 강제하지 않음
-    # — content만 보내는 것은 구 편집기의 정상 경로이며, 전환 문서였다면 전환 해제로
-    # 이어진다. 대칭 강제는 "미전환 문서의 계약은 1바이트도 변하지 않는다"는 게이트
-    # 조건과 §4.29 ④의 구 편집기 강등 경로를 동시에 어긴다).
+    # 에디터 v2 저장 전환(M34/stage-35, 설계 §4.29 ②③④) — 동반 규칙·얕은 검증·크기
+    # 상한은 공용 헬퍼(_apply_blocks_payload, S36 B-1에서 POST와 공유)가 담당한다.
+    # 강제는 블록 쪽에서만: content_blocks를 보내면 반드시 content도 함께(그 반대는
+    # 강제하지 않음 — content만 보내는 것은 구 편집기의 정상 경로이며, 전환 문서였다면
+    # 전환 해제로 이어진다. 대칭 강제는 "미전환 문서의 계약은 1바이트도 변하지 않는다"는
+    # 게이트 조건과 §4.29 ④의 구 편집기 강등 경로를 동시에 어긴다).
     has_content_blocks = "content_blocks" in data
     has_content = "content" in data
     has_expl_blocks = "explanation_blocks" in data
     has_expl = "explanation" in data
 
-    if has_content_blocks and not has_content:
-        raise _projection_required_error()
-    if has_expl_blocks and not has_expl:
-        raise _projection_required_error()
-
-    if has_content_blocks:
-        blocks = _validate_blocks_shape(data["content_blocks"])
-        content_value = data.get("content")
-        if not isinstance(content_value, str):
-            raise _blocks_invalid_error()
-        _check_blocks_size(blocks)
-        data["content_blocks"] = json.dumps(blocks, ensure_ascii=False)
-        data["blocks_version"] = blocks["version"]  # 서버 사본(§4.29 ② — 요청 필드 아님)
-
-    if has_expl_blocks:
-        expl_blocks_raw = data["explanation_blocks"]
-        if expl_blocks_raw is None:
-            # explanation_blocks: null + explanation 동반 = 해설 블록만 제거(전환 판정은
-            # 본문 축뿐이므로 blocks_version은 건드리지 않는다 — §4.29 ② 표 2행).
-            data["explanation_blocks"] = None
-        else:
-            blocks = _validate_blocks_shape(expl_blocks_raw)
-            expl_value = data.get("explanation")
-            if expl_value is not None and not isinstance(expl_value, str):
-                raise _blocks_invalid_error()
-            _check_blocks_size(blocks)
-            data["explanation_blocks"] = json.dumps(blocks, ensure_ascii=False)
+    _apply_blocks_payload(data)
 
     # 전환 해제(강등, §4.29 ④·규약 C) — 블록을 동반하지 않고 content 또는 explanation을
     # 기록하면 3컬럼을 NULL로 되돌린다. 필드 대입 뒤 마지막에 적용해 최종 상태를 지배하게

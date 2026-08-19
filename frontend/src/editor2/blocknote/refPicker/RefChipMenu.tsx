@@ -2,8 +2,11 @@
 //
 // 편집 표면에서 칩 클릭은 **라우팅이 아니라 팝오버**다 — 편집 중 클릭이 곧바로 문서로 튀면 편집
 // 흐름이 끊긴다(원자 인라인 콘텐츠의 표준 동작). 읽기 표면(F43 `MarkdownView`)은 종전대로 이동한다.
+//
+// stage-36 검토 중요-1 — [문서 열기]도 `navigate()`를 쓰면 이 팝오버가 열려 있는 편집 표면
+// (DocEditor·노트 편집 공용) 자체가 언마운트되어 저장 안 된 편집분이 확인 없이 사라진다. 이 파일은
+// 편집 표면 전용 컴포넌트이므로 새 탭으로 바로 연다(노트 표면에도 같은 보호가 파급되는 것은 의도).
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { isSafeRefText, normalizeRefText, refTextRejection } from '../../schema/refDomain'
 import AnchoredPanel from './AnchoredPanel'
 import { describeRef } from './RefTitleContext'
@@ -19,7 +22,6 @@ interface RefChipMenuProps {
 }
 
 export default function RefChipMenu({ request, entry, onClose, onChangeTarget }: RefChipMenuProps) {
-  const navigate = useNavigate()
   const [editingLabel, setEditingLabel] = useState(false)
   const [label, setLabel] = useState(request.label)
 
@@ -93,7 +95,7 @@ export default function RefChipMenu({ request, entry, onClose, onChangeTarget }:
                 onClick={() => {
                   if (typeof docId === 'number') {
                     onClose()
-                    navigate(`/docs/${docId}`)
+                    window.open(`/docs/${docId}`, '_blank', 'noopener')
                   }
                 }}
               >

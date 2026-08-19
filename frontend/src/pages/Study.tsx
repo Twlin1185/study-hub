@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import MarkdownView from '../components/MarkdownView'
+import InlineRichText from '../components/markdown/InlineRichText'
 import ProgressBar from '../components/ProgressBar'
 import Stepper from '../components/Stepper'
 import type { StepperStep } from '../components/Stepper'
@@ -377,7 +378,7 @@ function StudyCard({
                 className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-default ${stateClass}`}
               >
                 <span className="font-medium">{CIRCLED_DIGITS[i] ?? `${i + 1}.`}</span>
-                <span>{choice}</span>
+                <InlineRichText content={choice} scale={docScale} />
               </button>
             )
           })}
@@ -963,7 +964,7 @@ function QuizStage({
               className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-default ${stateClass}`}
             >
               <span className="font-medium">{CIRCLED_DIGITS[i] ?? `${i + 1}.`}</span>
-              <span>{choice}</span>
+              <InlineRichText content={choice} scale={fontScale} />
             </button>
           )
         })}

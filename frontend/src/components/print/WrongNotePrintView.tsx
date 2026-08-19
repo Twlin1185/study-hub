@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useAllReviewNotes } from '../../api/reviewNotes'
 import { groupByCategoryPath } from '../../utils/reviewNoteGroups'
 import MarkdownView from '../MarkdownView'
+import InlineRichText from '../markdown/InlineRichText'
 
 interface WrongNotePrintViewProps {
   categoryId: number | null
@@ -60,9 +61,10 @@ export default function WrongNotePrintView({ categoryId, dateFrom, dateTo, inclu
                     </p>
                     <MarkdownView content={note.document.content} docNo={note.document.doc_no} />
                     {includeNotes && note.note && (
-                      <p className="mt-1 rounded border border-dashed border-border bg-bg p-2 text-xs text-muted">
-                        내 메모: {note.note}
-                      </p>
+                      <div className="mt-1 rounded border border-dashed border-border bg-bg p-2 text-xs text-muted">
+                        <span className="font-medium">내 메모: </span>
+                        <InlineRichText content={note.note} />
+                      </div>
                     )}
                   </li>
                 ))}

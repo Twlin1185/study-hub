@@ -13,6 +13,7 @@ import {
 } from '../api/documents'
 import type { DocumentDetail, DocumentStyle, DocumentType, RelationType } from '../api/types'
 import MarkdownView from '../components/MarkdownView'
+import InlineRichText from '../components/markdown/InlineRichText'
 import TagChip from '../components/TagChip'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MiniHistoryChart from '../components/MiniHistoryChart'
@@ -265,7 +266,7 @@ export default function DocumentDetailPage() {
                 {(doc.choices ?? []).map((c, i) => (
                   <li key={i} className="flex gap-2">
                     <span className="shrink-0 font-medium text-muted">{choiceMarker(i)}</span>
-                    <span>{c}</span>
+                    <InlineRichText content={c} scale={docScale} />
                   </li>
                 ))}
               </ul>

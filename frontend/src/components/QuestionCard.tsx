@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import MarkdownView from './MarkdownView'
+import InlineRichText from './markdown/InlineRichText'
 import type { FontScale } from '../api/types'
 import { CIRCLED_DIGITS } from '../utils/answerFormat'
 
@@ -52,7 +53,7 @@ export default function QuestionCard({
               }`}
             >
               <span className="font-medium">{CIRCLED_DIGITS[i] ?? `${i + 1}.`}</span>
-              <span>{choice}</span>
+              <InlineRichText content={choice} scale={fontScale} />
             </button>
           )
         })}

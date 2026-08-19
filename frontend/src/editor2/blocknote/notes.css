@@ -53,12 +53,111 @@
 }
 
 /* 콜아웃 본문은 BlockNote **자식 블록**으로 담긴다(앱 `CalloutBlock.children`과 1:1).
-   자식 그룹을 콜아웃 머리 아래로 붙여 하나의 상자처럼 보이게 한다. */
+   ---------------------------------------------------------------- stage-36 F-8 ① children 시각 소속
+   종전에는 자식 그룹에 왼쪽 선만 그어 "콜아웃 안"인지 "그냥 들여쓴 블록"인지 구분되지 않았다.
+   머리(스펙 렌더)와 자식 그룹을 **한 상자**로 읽히게 만든다:
+     · 머리 = 아래 모서리를 펴고(둥근 모서리 위쪽만) 아래 테두리를 지운다,
+     · 자식 그룹 = 같은 폭·같은 배경으로 머리에 이어 붙이고 아래 모서리만 둥글게,
+     · 왼쪽 굵은 선(4px)이 머리부터 자식 끝까지 **끊기지 않고** 이어진다.
+   색은 전부 토큰(var) 경유 — 리터럴 0(불변 규칙 5). variant 색은 스펙이 머리에 Tailwind 유틸로
+   주므로, 자식 쪽은 `data-variant`가 실릴 때만 같은 색으로 맞추고 아니면 `--border`로 떨어진다. */
+.note-editor-frame [data-content-type='callout'] > div {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-width: 0;
+  margin-bottom: 0;
+}
+
 .note-editor-frame [data-content-type='callout'] + .bn-block-group {
-  margin-top: -4px;
-  padding-left: 14px;
-  border-left: 3px solid var(--border);
-  margin-left: 6px;
+  margin-top: 0;
+  margin-bottom: 4px;
+  padding: 2px 10px 6px 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-top-width: 0;
+  border-left-width: 4px;
+  border-left-color: var(--border);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+.note-editor-frame [data-content-type='callout'][data-variant='note'] + .bn-block-group {
+  border-left-color: var(--accent);
+}
+.note-editor-frame [data-content-type='callout'][data-variant='warn'] + .bn-block-group {
+  border-left-color: var(--warning);
+}
+.note-editor-frame [data-content-type='callout'][data-variant='tip'] + .bn-block-group {
+  border-left-color: var(--correct);
+}
+
+/* ---------------------------------------------------------------- stage-36 F-8 ② 원자 서식 가드(코어 버튼)
+   기본 툴바 버튼에는 `isDisabled`를 넘길 자리가 없어 덮개를 씌운다(활성화 이벤트는 React가 캡처
+   단계에서 삼킨다 — `NoteFormattingToolbar`의 `AtomGuardShield`). 여기서는 "못 누른다"는 것이
+   보이게만 한다. 색 선언이 아니라 투명도라 토큰 규칙과 무관하다. */
+.bn-toolbar .editor2-atom-guarded {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------- stage-36 F-6 표 열 정렬
+   정렬은 문서가 아니라 **편집 세션 상태**다(사유는 `tableAlign/tableAlignPlugin.ts`). 화면 반영은
+   PM 장식이 셀에 붙이는 이 클래스가 전부다 — 문서·prop을 건드리지 않는다. */
+.note-editor-frame .editor2-col-align-left {
+  text-align: left;
+}
+.note-editor-frame .editor2-col-align-center {
+  text-align: center;
+}
+.note-editor-frame .editor2-col-align-right {
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------- stage-36 F-7 찾기/바꾸기
+   하이라이트 색은 형광펜과 같은 토큰 계열을 쓴다(`--mark-*`) — 신규 토큰 0. */
+.note-editor-frame .editor2-find-hit {
+  background: var(--mark-yellow);
+  border-radius: 2px;
+}
+.note-editor-frame .editor2-find-hit-active {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* 표면 부속 패널(찾기 패널·표 정렬 바)을 화면 오른쪽 아래에 고정한다.
+   BlockNoteView children은 편집 영역 **뒤에** 그려지므로(실측) 흐름 배치로는 문서 끝에 붙는다 —
+   길이와 무관하게 손에 닿는 자리에 두려면 fixed가 맞다. 아무것도 열려 있지 않을 때 클릭을
+   가로채지 않도록 컨테이너는 `pointer-events: none`이다. */
+.editor2-surface-overlay {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.editor2-surface-overlay > * {
+  pointer-events: auto;
+}
+
+/* 모바일(<768px): 하단 탭바를 피해 올리고, 좁은 폭에서 패널이 잘리지 않게 가로로 편다. */
+@media (max-width: 767px) {
+  .editor2-surface-overlay {
+    left: 8px;
+    right: 8px;
+    bottom: 72px;
+    align-items: stretch;
+  }
+
+  .editor2-find-panel input[aria-label='찾을 말'],
+  .editor2-find-panel input[aria-label='바꿀 말'] {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 /* 수식(@blocknote/math-block) — KaTeX 출력이 편집 표면 글자색을 따르게 한다. */
