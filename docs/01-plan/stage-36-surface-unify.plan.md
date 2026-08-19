@@ -159,13 +159,17 @@ D8"을 한 행에 담고 있어 단일 stage로는 M33(→ stage-33/34 분할)�
 
 ### 프론트 묶음 (담당 `frontend-dev` · Sonnet — **F-1·F-2는 opus 승격 권장**: 진입점 전수 결선·저장 계약이 걸린다. F-7(찾기/바꾸기 PM 플러그인)도 opus 권장)
 
-- [ ] F-1. **DocEditor 통합 분기**(규약 A·B) — 본문·해설 위젯 분기 1곳(진입점 ②~⑥ 자동 커버) ·
+- [x] F-1. **DocEditor 통합 분기**(규약 A·B) — 본문·해설 위젯 분기 1곳(진입점 ②~⑥ 자동 커버) ·
       create = POST 블록 동반·edit = stage-35 PATCH 파이프라인 재사용(사이드카 결선 필수 —
       `fromBlockNoteResult` 경유·새 직접 호출부 0) · 폼 필드 기존 유지 · 토글 OFF 완전 복귀 ·
-      블록 표면 lazy 유지(R37).
-- [ ] F-2. **진입점 전수 검증**(규약 A 표) — 6곳 각각 실동작 확인(신규 작성 저장 = 태생 전환 · 모달
+      블록 표면 lazy 유지(R37). (2026-08-20 완료 — 분기 1곳 = `components/DocEditor.tsx`의
+      본문·해설 위젯 자리 · 표면은 `editor2/documents/DocFormBlockFields.tsx` lazy 청크 ·
+      저장 쌍은 `editor2/api/documents.ts`의 `contentPair`/`explanationPair`·`assertBlockPairs` 단일 통로.)
+- [x] F-2. **진입점 전수 검증**(규약 A 표) — 6곳 각각 실동작 확인(신규 작성 저장 = 태생 전환 · 모달
       편집 저장 = 전환 유지 · 토글 OFF = 구 편집기) + **전환 해제 유발 경로 목록 갱신을 완료 기록에 표**
-      (통합 후 클라이언트 경로 = 토글 OFF뿐임을 실측).
+      (통합 후 클라이언트 경로 = 토글 OFF뿐임을 실측). (2026-08-20 — 6곳 전건 **코드 경로 증명**
+      완료(진입점 → DocEditor 분기 → create POST 동반 / edit PATCH 동반 도달을 파일·라인으로).
+      브라우저 실동작 확인은 DoD 9 사용자 이행 몫으로 남는다.)
 - [x] F-3. **choices·오답노트 메모 인라인 리치**(규약 C) — 렌더 지점 **전수 조사 → 완료 기록에 표** ·
       기존 인라인 렌더 자산 재사용 · 방언 없는 기존 문서 렌더 diff 0 표본 확인.
 - [x] F-4. **문서 임베드 리치 격상**(규약 D) — resolve-embeds 재사용·읽기 전용 카드·접기·중첩 1단·
