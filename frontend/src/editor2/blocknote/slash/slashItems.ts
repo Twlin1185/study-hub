@@ -13,11 +13,13 @@ import { composeSlashItems } from './slashTable'
 export function buildSlashItems(
   editor: NoteBlockNoteEditor,
   openPicker: (mode: RefKind) => void,
+  openWebEmbedPanel: () => void,
 ): DefaultReactSuggestionItem[] {
   return composeSlashItems(
     getDefaultReactSlashMenuItems(editor),
     getMathSlashMenuItems(editor) as DefaultReactSuggestionItem[],
     editor,
     openPicker,
+    openWebEmbedPanel,
   )
 }

@@ -13,7 +13,13 @@ import type { PaletteColor, TextSize } from '../../components/markdown/palette'
 
 export type { PaletteColor, TextSize }
 
-/** 스키마 버전 — 저장분 마이그레이션의 기준(문서 루트에 함께 기록된다). */
+/**
+ * 스키마 버전 — 저장분 마이그레이션의 기준(문서 루트에 함께 기록된다).
+ *
+ * **stage-37에서 `toc`·`webEmbed`가 늘어도 1을 유지한다**(규약 E): 추가는 **가산적**이라
+ * 기존 저장분은 전건 그대로 유효하고(필드 제거·의미 변경 0) 단일 클라이언트 로컬 앱이라
+ * 구버전 소비자가 없다 — 버전 승격·마이그레이션·Alembic·§4.29 얕은 검증 전부 무변.
+ */
 export const BLOCK_SCHEMA_VERSION = 1
 
 // ---------------------------------------------------------------- 문서 루트·공통
@@ -364,6 +370,55 @@ export interface DocEmbedBlock extends BlockBase {
 }
 
 /**
+ * `::toc` — 목차 블록(M35 / stage-37 규약 A).
+ *
+ * **저장 데이터가 0이다**(prop 없음). 목차 내용을 저장하지 않는 것이 "자동 갱신" 요구의 답이다 —
+ * 렌더 시점에 같은 표면의 heading 블록을 훑어 파생하므로 갱신 동기화 문제가 애초에 없다
+ * (저장하면 헤딩을 고칠 때마다 stale). 정규형 = `::toc`(속성 없음 — leaf directive).
+ * **속성 동반(`::toc{…}`)은 스키마에 흡수하지 않는다** — 기존 미지 directive 폴백 관례
+ * (`sourceFallback`)로 원문을 보존한다(손실 0 · 새 속성 예약도 하지 않는다, YAGNI).
+ */
+export interface TocBlock extends BlockBase {
+  type: 'toc'
+}
+
+/**
+ * 웹 임베드 메타 캐시 — **api §4.30 응답 필드와 1:1**(스네이크 → 카멜 표기만 다르다).
+ * `url`·`title`은 블록 자신의 필드라 여기 없다. 값은 전부 **문자열|null**(추출 실패 필드 = null ·
+ * 부분 성공 허용)이며, 응답을 **그대로** 담는 캐시다(서버는 DB에 쓰지 않는다 — 블록 JSON이 소스).
+ */
+export interface WebEmbedMeta {
+  description?: string | null
+  siteName?: string | null
+  image?: string | null
+  favicon?: string | null
+  fetchedAt?: string | null
+}
+
+/**
+ * `::web{url="…" title="…"}` — 웹 임베드 블록(M35 / stage-37 규약 B · api §4.30).
+ *
+ * 정규형 직렬화는 **`url`·`title` 두 속성만**이고 값은 항상 큰따옴표로 감싼다(결정적 출력·고정점).
+ * `url` 부재·미지 속성 동반은 스키마에 흡수하지 않고 `sourceFallback`으로 원문을 보존한다.
+ * **메타 캐시는 프로젝션 비대상**(directive에는 url·title만 실린다) — 명문화된 강등 손실이며,
+ * 전환 문서는 블록 JSON이 소스라 실손실은 0이다(md→블록 재전환 시 meta 없음 = 텍스트 카드로
+ * 시작 → [메타 새로고침]으로 복원).
+ *
+ * **`meta` 필드가 공통 `BlockBase.meta`(provenance 예약)와 같은 이름인 것에 대하여**: 스키마
+ * 정본은 블록마다 메타 주머니를 **하나만** 둔다 — 이 블록에서는 그 주머니가 공통 예약 필드(
+ * `provenance`)와 §4.30 캐시를 **함께** 담는 교집합 타입으로 넓어진다(가산 확장 · 기존 타입 무변).
+ * 어댑터는 이 주머니를 통째로 BlockNote **prop**(JSON 문자열)으로 실어 왕복시킨다 —
+ * 다른 블록의 `meta`가 타는 사이드카 경로를 쓰지 않는다(stage-37 F-2 "사이드카 불요").
+ */
+export interface WebEmbedBlock extends BlockBase {
+  type: 'webEmbed'
+  url: string
+  /** `title="…"` — **있을 때만**(§4.30 응답의 null 제목은 키를 넣지 않는 것으로 수렴). */
+  title?: string
+  meta?: BlockMeta & WebEmbedMeta
+}
+
+/**
  * 팔레트 밖 mdast 노드(원시 html·각주 정의·leaf directive 등)의 **원문 Markdown 슬라이스** 보존
  * (규약 D). 투영 = 원문 그대로이므로 왕복이 자명하게 성립하고, M34 지연 마이그레이션의 안전망이다.
  * 발생 건수는 검증 스크립트가 집계·보고한다(팔레트 표본에서는 0이 계약).
@@ -386,6 +441,9 @@ export type Block =
   | DividerBlock
   | CalloutBlock
   | DocEmbedBlock
+  // ---- 신규 커스텀(M35 / stage-37 — 가산 확장이라 `BLOCK_SCHEMA_VERSION`은 1 그대로다)
+  | TocBlock
+  | WebEmbedBlock
   | SourceFallbackBlock
 
 export type BlockType = Block['type']
@@ -431,6 +489,8 @@ export function emptyDocument(): BlockDocument {
 // | divider             | 커스텀 블록(코어 미내장 — §5.4 "가로 구분선" 행)   | createReactBlockSpec 1개 |
 // | callout             | 커스텀 블록(공식 Alert Block 예제 경로 — §2.3)     | variant/title = props |
 // | docEmbed            | 커스텀 블록(원자) — 참조 칩 스파이크(§5.1)의 블록판 | content:"none" |
+// | toc                 | 커스텀 블록(원자·prop 0) — 렌더 시점 파생          | stage-37 F-1 |
+// | webEmbed            | 커스텀 블록(원자) — url/title/meta prop           | stage-37 F-1 · meta = §4.30 캐시 |
 // | sourceFallback      | 커스텀 블록(원문 보존·읽기 전용)                   | M34 지연 마이그레이션 안전망 |
 // | bold/italic/strike  | 내장 스타일                                        | 1:1 |
 // | underline           | 내장 `underline`                                   | 1:1 |

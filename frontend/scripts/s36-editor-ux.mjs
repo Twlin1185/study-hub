@@ -100,7 +100,11 @@ const docOf = (blocks) => server._blocksToProsemirrorNode(asEditorBlocks(blocks)
   const { getMathSlashMenuItems } = jiti('@blocknote/math-block')
   const defaults = getDefaultSlashMenuItems(server.editor)
   const mathItems = getMathSlashMenuItems(server.editor)
-  const items = composeSlashItems(defaults, mathItems, server.editor, () => {})
+  // stage-37 F-3·F-4 — 웹 임베드 항목은 커맨드로 열리는 URL 패널을 부른다(삽입은 패널이 한다).
+  let webEmbedPanelOpened = false
+  const items = composeSlashItems(defaults, mathItems, server.editor, () => {}, () => {
+    webEmbedPanelOpened = true
+  })
 
   // `--list`로 부르면 **완료 기록에 실을 전수표**를 그대로 뽑는다(문서와 코드의 표류 방지).
   if (process.argv.includes('--list')) {
@@ -133,6 +137,11 @@ const docOf = (blocks) => server._blocksToProsemirrorNode(asEditorBlocks(blocks)
     ['note', 'warn', 'tip', 'fold', 'hide'].every((variant) => has(`callout_${variant}`)),
   )
   check('①-e 참조 3종 경로', has('ref_doc') && has('ref_anchor') && has('ref_embed'))
+  // stage-37 F-3·F-4 — 목차·웹 임베드 슬래시 항목(전수표 2종 가산).
+  check('①-e2 목차 항목 경로', has('toc'))
+  check('①-e3 웹 임베드 항목 경로', has('web_embed'))
+  items.find((item) => item.key === 'web_embed')?.onItemClick?.()
+  check('①-e4 웹 임베드 항목이 URL 패널을 연다', webEmbedPanelOpened)
 
   // 한/영 양방향 검색(필터는 title·aliases 부분 일치 — BlockNote 기본 동작과 같은 판정).
   const matches = (query) =>
@@ -146,6 +155,8 @@ const docOf = (blocks) => server._blocksToProsemirrorNode(asEditorBlocks(blocks)
   check('①-h "수식"으로 수식 검색', matches('수식').some((item) => item.key === 'math_block'))
   check('①-i "콜아웃"으로 콜아웃 검색', matches('콜아웃').length === 5)
   check('①-j "구분선"으로 구분선 검색', matches('구분선').some((item) => item.key === 'divider'))
+  check('①-j2 "목차"로 목차 검색', matches('목차').some((item) => item.key === 'toc'))
+  check('①-j3 "웹"으로 웹 임베드 검색', matches('웹').some((item) => item.key === 'web_embed'))
   // 수식 라벨이 한국어 사전을 탄다(= dictionary.math 결선 확인).
   check(
     '①-k 수식 라벨 한국어',

@@ -33,7 +33,14 @@
 //   구조적 사유: `link:nested` · `listItem:orderedChecked` · `heading:level` ·
 //   `inline:mathStyles`(채택한 math 스펙의 propSchema가 비어 서식을 실을 자리가 없다) ·
 //   `inline:unknown` · `block:unknown`
-import type { AttrPair, Block, BlockDocument, InlineNode, InlineStyles } from '../schema/blocks'
+import type {
+  AttrPair,
+  Block,
+  BlockDocument,
+  InlineNode,
+  InlineStyles,
+  WebEmbedBlock,
+} from '../schema/blocks'
 import type {
   AdapterIssue,
   AdapterSidecar,
@@ -70,6 +77,14 @@ function sidecarEntry(ctx: Ctx): AdapterSidecarEntry {
 /** `:t` 속성 쌍 → 스타일 prop 문자열(원본 순서·중복 키·미지 키까지 그대로). */
 function encodeAttrPairs(pairs: AttrPair[] | undefined): string {
   return pairs && pairs.length > 0 ? JSON.stringify(pairs) : ''
+}
+
+/**
+ * 웹 임베드 메타(§4.30 캐시 + 공통 provenance) → prop 문자열. `''` ⇔ `undefined`.
+ * 빈 객체(`{}`)는 `'{}'`로 남겨 **"메타 없음"과 구분**한다(왕복에서 키 유무가 그대로 살아난다).
+ */
+function encodeWebEmbedMeta(meta: WebEmbedBlock['meta']): string {
+  return meta === undefined ? '' : JSON.stringify(meta)
 }
 
 function mapStyles(styles: InlineStyles | undefined, extra?: BnStyles): BnStyles {
@@ -230,7 +245,9 @@ function blockToBn(ctx: Ctx, at: string, block: Block): BnBlock | null {
 
 function blockToBnInner(ctx: Ctx, at: string, block: Block): BnBlock | null {
   // 규약 I 흡수 ④ — 블록 메타(provenance)는 편집 표면에 자리가 없으므로 사이드카로 왕복한다.
-  if (block.meta) sidecarEntry(ctx).meta = block.meta
+  // **예외 = webEmbed**(stage-37 F-2): 이 블록의 meta는 §4.30 캐시까지 담는 **자기 prop**이라
+  // 사이드카를 거치지 않는다(사이드카 불요 — 편집 세션이 사이드카를 흘려도 캐시가 살아남는다).
+  if (block.meta && block.type !== 'webEmbed') sidecarEntry(ctx).meta = block.meta
   const id = block.id
 
   switch (block.type) {
@@ -378,6 +395,22 @@ function blockToBnInner(ctx: Ctx, at: string, block: Block): BnBlock | null {
         id,
         type: 'docEmbed',
         props: { target: block.target, label: block.label ?? '' },
+      }
+
+    case 'toc':
+      // 원자 + prop 0 — 옮길 값이 없다(목차는 렌더 시점 파생이다).
+      return { id, type: 'toc' }
+
+    case 'webEmbed':
+      return {
+        id,
+        type: 'webEmbed',
+        props: {
+          url: block.url,
+          // `''` ⇔ undefined(규약 C 전례). 메타는 통짜 JSON — prop 하나로 완전 왕복한다.
+          title: block.title ?? '',
+          meta: encodeWebEmbedMeta(block.meta),
+        },
       }
 
     case 'sourceFallback':

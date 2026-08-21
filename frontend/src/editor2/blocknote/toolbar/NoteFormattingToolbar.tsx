@@ -11,7 +11,7 @@
 //
 // 색 리터럴 0 — 스와치까지 전부 토큰 유틸(`bg-mark-*`·`text-ink-*`)이고, 팔레트 밖 hex는
 // `tokens.css`가 계산하는 커스텀 프로퍼티(`--u-ink`/`--u-bg`)로만 흘린다(불변 규칙 5).
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import type { CSSProperties, ReactNode, SyntheticEvent } from 'react'
 import {
   FormattingToolbar,
@@ -36,13 +36,20 @@ import {
 } from '../../../components/markdown/palette'
 import { CALLOUT_VARIANTS } from '../../adapter'
 import { isSafeRefText, normalizeRefText, refTextRejection } from '../../schema/refDomain'
+import type { NotePartialBlock } from '../schema'
 import { insertCalloutBlock } from '../refPicker/insert'
 import { useRefPickerCommands } from '../refPicker/RefUiProvider'
 import { ATOM_GUARD_TOOLTIP, selectionHasAtomInline } from './atoms'
+import type { CropTarget } from './imageCropEligibility'
+import { computeCropTarget } from './imageCropEligibility'
 import { MICRO_MARK_LABEL, applyMicroMark, clearMicroMark, toggleMicroMark } from './microMarks'
 import type { MicroMark } from './microMarks'
 import { readTextStyleView, setTextStyleKey } from './textStyle'
 import { useNoteEditor } from './useNoteEditor'
+
+// 크롭 UI(canvas 인코딩 로직)는 **lazy 청크로만** 들여온다(R37 — 초기 청크 증가 금지). 버튼 자체는
+// 선택 판정(가벼운 함수)만 하므로 초기 청크에 있어도 무방하다.
+const ImageCropDialog = lazy(() => import('./ImageCropDialog'))
 
 /**
  * 기본 툴바의 **밑줄 버튼 키**(`@blocknote/react`의 `getFormattingToolbarItems()`가 박아 넣는 값).
@@ -414,6 +421,48 @@ function CalloutMenu() {
   )
 }
 
+// ---------------------------------------------------------------- 이미지 자르기(stage-37 F-6, 규약 C)
+
+/**
+ * [자르기] — 선택이 크롭 제공 조건(자체 호스팅 `/images/` 경로만 · GIF 제외)을 만족하는 image 블록
+ * 1개일 때만 나타난다(그 밖에는 **버튼 자체가 없다** — `FileReplaceButton` 등 기본 파일 버튼과 같은
+ * "조건 미달 = null" 관례). 판정은 선택 변경 시에만 다시 계산한다(다른 방언 버튼의 `blocked`와 같은
+ * 패턴 — `useEditorSelectionChange`).
+ */
+function CropButton() {
+  const Components = useComponentsContext()!
+  const editor = useNoteEditor()
+  const [target, setTarget] = useState<CropTarget | null>(() => computeCropTarget(editor))
+  useEditorSelectionChange(() => setTarget(computeCropTarget(editor)))
+  const [open, setOpen] = useState(false)
+
+  if (!target) return null
+
+  return (
+    <>
+      <Components.FormattingToolbar.Button label="자르기" mainTooltip="이미지 자르기" onClick={() => setOpen(true)}>
+        자르기
+      </Components.FormattingToolbar.Button>
+      {open && (
+        <Suspense fallback={null}>
+          <ImageCropDialog
+            url={target.url}
+            onCancel={() => setOpen(false)}
+            onApply={(newUrl) => {
+              // 단일 updateBlock 호출 = undo 1단위(되돌리면 구 url로 복귀). caption·title·height·
+              // previewWidth 등 나머지 prop은 partial 갱신이라 그대로 보존된다(uploads.ts의 업로드
+              // 완료 갱신과 같은 관례 — `props: { url }`만 넘긴다).
+              editor.updateBlock(target.id, { type: 'image', props: { url: newUrl } } as NotePartialBlock)
+              setOpen(false)
+              refocus(() => editor.focus())
+            }}
+          />
+        </Suspense>
+      )}
+    </>
+  )
+}
+
 // ---------------------------------------------------------------- 툴바 본체
 
 export default function NoteFormattingToolbar() {
@@ -433,6 +482,7 @@ export default function NoteFormattingToolbar() {
       <SizeMenu key="textSize" blocked={blocked} />
       <RefButton key="refChip" />
       <CalloutMenu key="callout" />
+      <CropButton key="imageCrop" />
     </FormattingToolbar>
   )
 }

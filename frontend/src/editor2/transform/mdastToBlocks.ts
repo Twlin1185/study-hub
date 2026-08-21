@@ -348,6 +348,47 @@ function calloutBlock(node: MdNode, ctx: Ctx): Block {
   return block
 }
 
+/** 규약 B — `::web`이 흡수하는 속성 키 전수(이 밖의 키가 하나라도 있으면 원문 보존으로 간다). */
+const WEB_ATTR_KEYS = new Set(['url', 'title'])
+
+/**
+ * leaf directive(`::name{…}`) → 신규 커스텀 블록(stage-37 규약 A·B).
+ *
+ * **정규형만 스키마로 흡수한다** — 벗어난 표기(속성 동반 `::toc{…}` · `[라벨]` 동반 ·
+ * `url` 부재 · 미지 속성 동반)는 `null`을 돌려 호출부가 **기존 미지 directive 폴백 관례**
+ * (`sourceFallback` — 원문 슬라이스 보존)로 처리하게 한다. 비정규형을 스키마에 우겨넣으면
+ * 직렬화에서 조용히 형태가 바뀌므로(손실) 원문 보존이 정답이다.
+ *
+ * 파싱은 **무인용 속성도 수용**한다(`::web{url=https://a.example}` — remark-directive 표준).
+ * 직렬화만 항상 큰따옴표로 수렴시킨다(`blocksToMarkdown` — 결정적 출력·고정점).
+ */
+function leafDirectiveBlock(node: MdNode, ctx: Ctx): Block | null {
+  const name = node.name ?? ''
+  if (name !== 'toc' && name !== 'web') return null
+  // `::toc[라벨]`처럼 내용이 붙은 표기는 정규형이 아니다(원문 보존으로 보낸다).
+  if ((node.children ?? []).length > 0) return null
+  const attrs = attrPairsOf(node)
+
+  if (name === 'toc') {
+    // 규약 A — 정규형은 **속성 없음**. `{.class}`·`{#id}` 축약도 attributes에 실리므로 함께 걸린다.
+    if (attrs.length > 0) return null
+    return { id: nextId(ctx), type: 'toc' }
+  }
+
+  // 규약 B — `url`·`title` 외의 속성이 하나라도 있으면 흡수하지 않는다.
+  if (attrs.some(([key]) => !WEB_ATTR_KEYS.has(key))) return null
+  const url = attrs.find(([key]) => key === 'url')?.[1] ?? ''
+  // `::web` · `::web{url}` · `::web{url=""}` — 카드가 성립하지 않는 표기는 원문 보존.
+  if (url.trim() === '') return null
+  const block: Block = { id: nextId(ctx), type: 'webEmbed', url }
+  const title = attrs.find(([key]) => key === 'title')?.[1]
+  // 빈 제목(`title=""`)은 **없는 것으로 수렴**한다 — 앱 스키마·어댑터가 통틀어 `''` ⇔ 부재
+  // 관례를 쓰고(이미지 title·참조 칩 label 전례), 빈 값은 담을 정보가 없다. 표기만 정규형으로
+  // 접히고(`::web{url="…"}`) 의미는 그대로다.
+  if (title !== undefined && title !== '') block.title = title
+  return block
+}
+
 function convertBlocks(nodes: MdNode[], ctx: Ctx): Block[] {
   const out: Block[] = []
   for (const node of nodes) {
@@ -396,6 +437,11 @@ function convertBlocks(nodes: MdNode[], ctx: Ctx): Block[] {
         break
       case 'containerDirective':
         out.push(calloutBlock(node, ctx))
+        break
+      case 'leafDirective':
+        // 신규 방언 2종(`::toc`·`::web`)만 흡수한다 — 그 밖의 leaf directive는 종전 그대로
+        // sourceFallback으로 간다(기존 문서 변환 diff 0 계약).
+        out.push(leafDirectiveBlock(node, ctx) ?? fallbackBlock(node, ctx))
         break
       case 'studyRef': {
         // remarkStudy가 문단 밖으로 끌어올린 임베드(문단 안에 남은 것은 인라인 refChip이다).

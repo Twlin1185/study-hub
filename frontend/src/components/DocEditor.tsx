@@ -175,6 +175,22 @@ export default function DocEditor({
     blockDirty ||
     JSON.stringify(form) !== JSON.stringify(initialFormRef.current)
 
+  // stage-37 F-7(stage-36 검토 잔여 ⓑ 이월) — `attemptClose`는 SPA 내부 닫기 경로(Esc·오버레이·X·
+  // 취소 버튼)만 지킨다. 임베드 카드 안 마크다운 링크처럼 **브라우저 전체 이동**(다른 탭 진입 없이
+  // 같은 창이 다른 URL로 넘어가거나 새로고침되는 경우)은 그 경로를 거치지 않으므로 별도의
+  // `beforeunload` 1개로 미저장 손실을 고지한다. 기본 동작은 dirty가 아니면 그대로다(리스너 자체를
+  // 등록하지 않는다) — 저장 성공·정상 닫기로 컴포넌트가 언마운트되거나 dirty가 풀리면 이 effect의
+  // cleanup이 리스너를 해제한다(경고가 뜨지 않아야 한다는 계약 이행).
+  useEffect(() => {
+    if (!isDirty) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [isDirty])
+
   // S36 통합 분기 조건(규약 A = stage-35 규약 F 그대로):
   //   **퇴로 토글 ON** 그리고 ⓐ 표면이 미지원 사유로 물러난 적이 없고 ⓑ 편집 대상이 확정됐다
   //   (신규 작성 = 빈 문서라 항상 성립 · 수정 = 상세가 로드된 뒤라야 블록/본문이 소스로 확정된다).

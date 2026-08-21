@@ -42,6 +42,8 @@ import {
   createDocEmbedBlockSpec,
   createSourceFallbackBlockSpec,
 } from './specs/blocks'
+import { createTocBlockSpec } from './specs/tocBlock'
+import { createWebEmbedBlockSpec } from './specs/webEmbedBlock'
 import {
   inlineFallbackSpec,
   inlineImageSpec,
@@ -137,6 +139,8 @@ export const noteSchema = BlockNoteSchema.create({
     mathBlock: createReactMathBlockSpec(),
     callout: createCalloutBlockSpec(),
     docEmbed: createDocEmbedBlockSpec(),
+    toc: createTocBlockSpec(),
+    webEmbed: createWebEmbedBlockSpec(),
     sourceFallback: createSourceFallbackBlockSpec(),
   },
   inlineContentSpecs: {

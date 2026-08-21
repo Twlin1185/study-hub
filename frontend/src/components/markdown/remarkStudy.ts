@@ -184,6 +184,30 @@ function applyDirectives(node: MdNode, opts: StudyCtx): void {
         if (styleDecls.length) hProperties.style = styleDecls.join(';')
         if (classNames.length) hProperties.className = classNames
       }
+      if (name === 'toc' || name === 'web') {
+        // stage-37 규약 A·B(리더 렌더 전용 부가 정보) — **hProperties 신규 키만 추가**하고
+        // node.type/name/attributes/children은 절대 건드리지 않는다: 이 함수(remarkStudyDirectives)
+        // 는 editor2/transform/index.ts의 parseToMdast도 그대로 가져다 쓰므로(D9 공유), 여기서
+        // 구조를 바꾸면 mdastToBlocks.ts의 leafDirectiveBlock(원문 슬라이스 기반 sourceFallback
+        // 판정)이 보는 raw 필드가 오염된다. 정규형 판정은 mdastToBlocks.ts의 규칙과 동일하게
+        // 리더에서도 다시 계산해 hProperties에 실어 두고, 실제 정규/비정규 분기 렌더링은
+        // MarkdownView.tsx(리더 전용 컴포넌트)가 맡는다.
+        const attrs = child.attributes ?? {}
+        const keys = Object.keys(attrs)
+        const normative =
+          name === 'toc'
+            ? keys.length === 0
+            : keys.every((k) => k === 'url' || k === 'title') && (attrs.url ?? '').trim() !== ''
+        hProperties['data-directive-normative'] = normative ? 'true' : 'false'
+        if (!normative) {
+          const raw = sliceSource(opts.source, child)
+          if (raw !== null) hProperties['data-directive-raw'] = raw
+        }
+        if (name === 'web') {
+          if (attrs.url) hProperties['data-web-url'] = attrs.url
+          if (attrs.title) hProperties['data-web-title'] = attrs.title
+        }
+      }
       child.data = {
         ...(child.data ?? {}),
         // textDirective는 문단 안(인라인)에 있으므로 span, 나머지는 블록(div).

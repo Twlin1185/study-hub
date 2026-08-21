@@ -1400,7 +1400,7 @@ backend/services/fetchers/
 - 백엔드: `backend/routers/documents.py`(상세·PATCH 확장 · **⑦ POST 확장은 S36 구현분**) · `backend/schemas/*`(문서 스키마 확장) · `backend/models.py`(3컬럼) · **전환 해제 공용 헬퍼 1곳**(서버측 content/explanation 기록 경로가 전부 경유) · `backend/alembic/versions/*`(신규 리비전 1개).
 - 프론트: `frontend/src/editor2/**`(documents 편집 표면·저장 훅 — 사이드카 결선 필수) · 화면 계약 = screens §5.3 S35(진입 분기) · **§5.3 S36(표면 통합·UX 마감)**.
 
-### 4.30 웹 임베드 북마크 카드 — 메타데이터 조회 (S37 — 에디터 v2 M35 후반부·R39. **계약 확정 2026-08-19 — 착수 문서화는 stage-37 생성 시**(계약 확정·착수 분리는 §4.26 전례). 지시서(범위 분할 정본) = `stage-36-surface-unify.plan.md` "범위 분할")
+### 4.30 웹 임베드 북마크 카드 — 메타데이터 조회 (S37 — 에디터 v2 M35 후반부·R39. **계약 확정 2026-08-19 · 착수 문서화 2026-08-21 — 지시서 `stage-37-custom-blocks.plan.md`**(계약 확정·착수 분리는 §4.26 전례 — 본문은 선확정분 무개정). 범위 분할 정본 = `stage-36-surface-unify.plan.md` "범위 분할")
 
 > 근거: 별지 `editor-v2.plan.md` §7.1 7번(웹사이트 임베드 = 화이트리스트 iframe + 북마크 카드 폴백)·§9 **R39**. 북마크 카드에 제목·설명·썸네일을 채우려면 대상 URL의 HTML(OpenGraph/`<title>`)을 읽어야 하는데, 브라우저에서 외부 사이트 fetch는 CORS로 불가하다 — **서버측 fetch 엔드포인트 1개**가 필요하다. 이 앱의 서버측 아웃바운드는 URL 반입(§4.18)·큐넷(§4.16)에 이어 세 번째이며, **사용자 지정 URL을 인증 없는 로컬 서버가 대신 fetch**하므로 SSRF 가드를 계약으로 명시한다(R12 — 홈 네트워크 전용이라도 내부망 프로브 경로를 열지 않는다).
 > **원시 HTML 렌더가 아니다**(F43 ⓐ 불번복) — 서버는 메타 문자열만 추출해 돌려주고, 임베드 블록은 앱 컴포넌트다.
