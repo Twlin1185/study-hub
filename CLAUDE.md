@@ -30,8 +30,9 @@
 | 구현 사이클 오케스트레이션(`/stage-implement` 진행 중 메인 대화) | 메인 대화 | **Opus 이하** — 문서 Grep·에이전트 분배·결과 중계는 기계적이다. Fable은 계획·설계 대화에만 쓴다 |
 | 백엔드/프론트 구현 | `backend-dev` / `frontend-dev` | **Sonnet** (예외: sm2·import_service·학습모드 UX는 opus 승격) |
 | 단계 검토·코드 리뷰 | `stage-reviewer` | **Opus 고정** |
+| 브라우저 재현·UI 디버깅 | `browser-debugger` | **Sonnet** |
 
-워크플로 스킬: `/stage-implement <n>` (구현+검토 한 사이클) · `/stage-review <n>` (검토만) · `/stage-status` (진행 현황).
+워크플로 스킬: `/stage-implement <n>` (구현+검토 한 사이클) · `/stage-review <n>` (검토만) · `/stage-status` (진행 현황) · `/browser-debug <증상>` (Chrome 재현·진단).
 
 ## 토큰 규약 (모든 세션·에이전트)
 
@@ -41,6 +42,17 @@
 4. 불변 규칙 기계 검사는 LLM이 grep하지 말고 `scripts/invariant-scan.ps1` 실행 결과(PASS/FAIL)로 갈음한다.
 5. 서브에이전트에는 필요한 발췌·라인 범위를 프롬프트에 담아 전달 — 문서를 통째로 다시 읽게 하지 않는다.
 6. 한 단계(stage) 사이클이 끝나면 새 세션으로 — 진척의 단일 출처는 stage 문서이므로 세션을 끊어도 잃는 게 없다.
+
+## 브라우저 디버깅 (claude-in-chrome)
+
+UI 결함 재현은 **사용자가 띄운 서버** `http://localhost:8000`에 접속한다 — 서버 구동 금지 규칙과
+무충돌(서버는 사용자가 켠 것). 접속 불가면 사용자에게 기동을 요청하고 대기.
+
+1. MCP 도구는 ToolSearch **1회 일괄 로드** — 디버깅이면 `read_console_messages`·`read_network_requests`까지 같은 호출에.
+2. **텍스트 우선**: 상태 확인은 `get_page_text`/`read_page`(filter)로. 스크린샷은 시각·레이아웃 결함에만 최소 횟수. GIF 녹화는 사용자가 요청할 때만.
+3. `read_console_messages`는 반드시 `pattern` 필터, `read_network_requests`는 대상 URL로 좁힌다 — 무필터 전체 덤프 금지.
+4. 왕복 많은 재현·콘솔/네트워크 추적은 `browser-debugger` 에이전트에 위임(`/browser-debug`) — 메인 대화에는 결론만. 브라우저 에이전트는 **동시 1개**(Chrome 연결 공유).
+5. 뒷정리: 자신이 연 탭은 닫는다. 노트 편집 화면은 **자동저장이 돌므로** 건드렸으면 원상복구(+`/api/notes/{id}` 확인). CDP는 한글 IME 조합을 안 태운다 — 미열림≠결함, ASCII·툴바로 우회.
 
 ## 불변 규칙 (모든 코드 작업에 적용)
 
