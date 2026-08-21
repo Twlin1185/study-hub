@@ -92,8 +92,12 @@ export const createWebEmbedBlockSpec = createReactBlockSpec(
             type: 'webEmbed',
             props: {
               url,
-              title: preview.title ?? '',
+              // 부분 성공(title=null)이 기존 제목을 빈 값으로 후퇴시키지 않는다.
+              title: preview.title ?? title,
+              // 기존 주머니를 스프레드해 §4.30 응답 5필드 밖의 공존 필드(예약 `provenance` 등)를
+              // 보존한다 — 새로고침은 대체가 아니라 병합.
               meta: JSON.stringify({
+                ...(parseMeta(block.props.meta) ?? {}),
                 description: preview.description,
                 siteName: preview.siteName,
                 image: preview.image,

@@ -26,18 +26,24 @@ function collectHeadings(root: Element): TocEntry[] {
   })
 }
 
+function tocEqual(a: TocEntry[], b: TocEntry[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((e, i) => e.id === b[i].id && e.text === b[i].text && e.level === b[i].level)
+}
+
 export function TocBlockReader() {
   const anchorRef = useRef<HTMLElement>(null)
   const [entries, setEntries] = useState<TocEntry[]>([])
 
   useEffect(() => {
-    // 리더 콘텐츠는 이 컴포넌트 수명 동안 정적이다(문서 본문이 바뀌면 ReactMarkdown이 트리를
-    // 통째로 다시 그려 이 컴포넌트도 새로 마운트된다) — 마운트 1회만 훑으면 된다. 빈 deps 없이
-    // 매 렌더 돌리면 `collectHeadings`가 매번 새 배열을 반환해 `setEntries`가 무한 재렌더를
-    // 유발한다(실측 방지).
+    // deps 없이 매 렌더 후 수집한다 — ReactMarkdown은 내용이 바뀌어도 이 컴포넌트를 리마운트하지
+    // 않을 수 있어(재조정만), 마운트 1회 수집은 같은 자리에서 내용이 갈리는 표면(프로젝션 미리보기
+    // 등)에서 stale해진다. 무한 재렌더는 동등 비교로 막는다: 내용이 같으면 기존 배열 참조를
+    // 그대로 반환해 setState가 재렌더를 일으키지 않는다.
     const root = anchorRef.current?.closest('[data-markdown-root]')
-    setEntries(root ? collectHeadings(root) : [])
-  }, [])
+    const next = root ? collectHeadings(root) : []
+    setEntries((prev) => (tocEqual(prev, next) ? prev : next))
+  })
 
   function goTo(id: string) {
     const root = anchorRef.current?.closest('[data-markdown-root]')

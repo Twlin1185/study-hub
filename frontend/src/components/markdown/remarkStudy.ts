@@ -194,10 +194,13 @@ function applyDirectives(node: MdNode, opts: StudyCtx): void {
         // MarkdownView.tsx(리더 전용 컴포넌트)가 맡는다.
         const attrs = child.attributes ?? {}
         const keys = Object.keys(attrs)
+        // `::toc[라벨]`처럼 children(라벨)이 붙은 표기는 비정규형 — mdastToBlocks.ts의
+        // leafDirectiveBlock(children 있으면 원문 보존)과 같은 결론이어야 두 표면이 일치한다.
         const normative =
-          name === 'toc'
+          (child.children ?? []).length === 0 &&
+          (name === 'toc'
             ? keys.length === 0
-            : keys.every((k) => k === 'url' || k === 'title') && (attrs.url ?? '').trim() !== ''
+            : keys.every((k) => k === 'url' || k === 'title') && (attrs.url ?? '').trim() !== '')
         hProperties['data-directive-normative'] = normative ? 'true' : 'false'
         if (!normative) {
           const raw = sliceSource(opts.source, child)
