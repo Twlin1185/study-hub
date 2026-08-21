@@ -229,10 +229,11 @@ function makeFakeEditor({ anchor = { id: 'anchor', type: 'paragraph', content: [
   return { editor, calls }
 }
 
-function makeClipboardData({ files = [], html = '', plain = '' }) {
+function makeClipboardData({ files = [], html = '', plain = '', bn = '' }) {
   return {
     files,
-    getData: (type) => (type === 'text/html' ? html : type === 'text/plain' ? plain : ''),
+    getData: (type) =>
+      type === 'blocknote/html' ? bn : type === 'text/html' ? html : type === 'text/plain' ? plain : '',
   }
 }
 
@@ -266,7 +267,40 @@ function insertedBlocksOf(calls) {
   return calls.replaceBlocks[0]?.newBlocks ?? calls.insertBlocks[0]?.newBlocks ?? []
 }
 
-console.log('== B. createPasteHandler 분기 회귀(검토 경미-1) ==')
+console.log('== B. createPasteHandler 분기 회귀(검토 경미-1 · U-6) ==')
+
+// U-6(2026-08-21): 에디터 내부 복사 — `blocknote/html`(무손실 내부 포맷)이 실려 있으면 방언
+// 변환기를 태우지 않고 기본 핸들러에 통째로 위임한다. 수정 전에는 함께 실린 text/html이 ②를
+// 타서 테마 색 인라인 스타일이 색상 방언 `[…]{c= bg=}`으로 흡수되고 원문이 노출됐다.
+{
+  const { editor, calls } = makeFakeEditor()
+  const { deps, notices } = makeDeps()
+  const handler = createPasteHandler(deps)
+  const clipboardData = makeClipboardData({
+    bn: '<div data-id="b1"><p>내부 복사본</p></div>',
+    html: '<p><span style="color:#cfcfcf;background-color:#1f1f1f">내부 복사본</span></p>',
+    plain: '내부 복사본',
+  })
+  let defaultCalled = false
+  let capturedOpts = 'unset'
+  const result = handler({
+    event: { clipboardData },
+    editor,
+    defaultPasteHandler: (opts) => {
+      defaultCalled = true
+      capturedOpts = opts
+      return true
+    },
+  })
+
+  check('U-6: 내부 복사(blocknote/html)는 기본 핸들러에 위임한다', defaultCalled && result === true)
+  check('U-6: 옵션 없이 위임한다(기본 핸들러의 내부 포맷 최우선 경로 그대로)', capturedOpts === undefined)
+  check(
+    'U-6: 방언 변환기 삽입 경로를 타지 않는다',
+    calls.replaceBlocks.length === 0 && calls.insertBlocks.length === 0 && calls.pasteText.length === 0,
+  )
+  check('U-6: 안내 배너 0(내부 왕복은 조용히 무손실이어야 한다)', notices.length === 0)
+}
 
 // 경미-1 재현 표본: PDF 하나 + text/html 본문이 같은 클립보드에 실려 온 경우(일부 앱의
 // "첨부+본문" 붙여넣기 모사) — 수정 전에는 이미지 분기가 무조건 `return true`로 이벤트를
