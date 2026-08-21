@@ -81,6 +81,34 @@
   .note-editor-frame [data-file-block] .bn-visual-media-wrapper {
     max-width: 100%;
   }
+
+  /* ---------------------------------------------------------------- stage-38 F-3 (D7) 이어서
+     터치 타겟 44px 미달 — 이 블록이 이미 다루는 표·이미지 조작 요소만 마저 키운다(툴바·슬래시
+     메뉴·이미지 패널·사이드 메뉴는 아래 별도 블록). */
+
+  /* 표 행/열 추가(+) 핸들 — 표는 위 D2에서 이미 가로 스크롤 컨테이너가 됐으므로, 예약 여백
+     (`--bn-table-widget-size`, 코어 기본 22px)을 넓혀도 넘침은 스크롤이 흡수한다. 버튼 자체 폭/
+     높이는 코어와 같은 비율(예약 여백 - margin 4px)로 맞춰 예약 영역을 정확히 채운다
+     (18=22-4 → 36=40-4). 결과: 18px → 36px(목표치 그대로, 표 폭 손실 없음). */
+  .note-editor-frame [data-content-type='table'] .tableWrapper {
+    --bn-table-widget-size: 40px;
+  }
+  .bn-mantine .bn-extend-button-add-remove-columns {
+    width: 36px;
+  }
+  .bn-mantine .bn-extend-button-add-remove-rows {
+    height: 36px;
+  }
+
+  /* 이미지/비디오 리사이즈 핸들(8×30) — 시각 두께를 그대로 키우면 손잡이가 과하게 두꺼워
+     보이므로, 투명 `::before`로 **히트 영역만** 44×44 근접까지 넓힌다(표시는 그대로 — 보이는
+     것과 누를 수 있는 것을 분리하는 관례는 규약 A ③ 팝오버 판정과 같은 결). 핸들 자신이 이미
+     `position: absolute`(코어 CSS)라 `::before`의 포함 블록이 된다 — 별도 포지셔닝 조상 불필요. */
+  .note-editor-frame [data-file-block] .bn-resize-handle::before {
+    content: '';
+    position: absolute;
+    inset: -7px -18px;
+  }
 }
 
 /* ---------------------------------------------------------------- stage-34 방언 스펙 마감
@@ -185,12 +213,16 @@
   pointer-events: auto;
 }
 
-/* 모바일(<768px): 하단 탭바를 피해 올리고, 좁은 폭에서 패널이 잘리지 않게 가로로 편다. */
+/* 모바일(<768px): 하단 탭바를 피해 올리고, 좁은 폭에서 패널이 잘리지 않게 가로로 편다.
+   ---------------------------------------------------------------- stage-38 F-3 safe-area
+   이 패널은 편집 표면에서 유일하게 화면 **하단에 고정**되는 조작 요소다(찾기·표 정렬 바) —
+   iOS 홈 인디케이터 제스처 바와 겹칠 수 있는 자리라 `env(safe-area-inset-bottom)`을 더한다
+   (지원 안 하는 브라우저는 0으로 계산돼 기존 72px 그대로다 — 과설계 아님, 이 한 곳만 최소 적용). */
 @media (max-width: 767px) {
   .editor2-surface-overlay {
     left: 8px;
     right: 8px;
-    bottom: 72px;
+    bottom: calc(72px + env(safe-area-inset-bottom));
     align-items: stretch;
   }
 
@@ -239,6 +271,14 @@
   .bn-toolbar .editor2-atom-guarded {
     flex-shrink: 0;
   }
+
+  /* ---------------------------------------------------------------- stage-38 F-3 (D7) 이어서
+     실측 28~30px → 최소 36px로. `min-height`는 코어가 어떤 방식(고정 height·CSS 변수)으로 버튼
+     높이를 정하든 항상 이긴다(별개 속성이라 우선순위 다툼이 없다 — 계산된 높이의 하한만 강제). */
+  .bn-toolbar .mantine-Button-root,
+  .bn-toolbar .mantine-ActionIcon-root {
+    min-height: 36px;
+  }
 }
 
 /* 참조 칩·문서 임베드 카드는 클릭 = 팝오버(규약 A ③)이므로 손가락 모양을 준다. */
@@ -251,4 +291,47 @@
    BlockNote 부유 UI는 z-index 40대를 쓰므로 그 위에 둔다. */
 .editor2-ref-panel {
   z-index: 60;
+}
+
+/* ---------------------------------------------------------------- stage-38 F-3 (D8·D9·D7 나머지)
+   모바일 터치 마감의 나머지 절반 — 위 두 블록(D2~D6, D1·D6/D7 툴바)이 못 다룬 조작 요소.
+   전부 `.bn-mantine` 아래로 잡는다(코어·방언 팝오버가 전부 그 조상 아래 포털되는 관례는 위 D1
+   주석과 동일 — 새로 확인한 것도 아니고 같은 근거를 반복 적용한다). */
+@media (max-width: 767px) {
+  /* D8 — 이미지/파일 패널(업로드·임베드 탭)이 `width: 500px`(코어 기본, `max-width: 100vw`뿐)로
+     뜬다. 블록이 화면 왼쪽에서 30px만 들어간 자리에서 열리면 `min(500, 100vw)` = 뷰포트 폭 그대로
+     라 오른쪽으로 30px 넘친다. 넉넉히 48px(좌우 여백 몫) 빼서 항상 뷰포트 안에 들어오게 한다. */
+  .bn-mantine .bn-panel {
+    max-width: calc(100vw - 48px);
+  }
+
+  /* D9 — 슬래시(`/`) 메뉴가 사용 가능한 높이를 거의 다 채워(390×740에서 627px ≈ 85%) 옆에 뜬
+     가상 키보드와 공존하지 못한다. 45vh로 눌러도 `overflow-y: auto`(코어 기본, 위에서 확인)가
+     그대로라 스크롤은 유지된다. */
+  .bn-mantine .bn-suggestion-menu {
+    max-height: 45vh;
+  }
+
+  /* D7 — 슬래시 메뉴 항목(`-small` 변형, 실측 30px)을 36px로. 라벨 부제(`subtitle`)는 이미
+     `-small`에서 숨겨지므로(코어 기본) 항목 자체가 늘어나도 줄바꿈으로 깨지지 않는다. */
+  .bn-mantine .bn-suggestion-menu-item-small {
+    min-height: 36px;
+  }
+
+  /* D7 — 블록 사이드 메뉴(＋ 추가 · 드래그 핸들) `ActionIcon`은 `size={24}`를 CSS 커스텀 프로퍼티
+     (`--ai-size`)로 인라인 style에 박아 넣는다(Mantine 관례) — 외부 시트로 그 변수를 되받는 대신,
+     `width`/`height`를 직접 `!important`로 겨눠 계산값을 덮는다(인라인 style보다 우선하는 유일한
+     방법 — 오서 `!important`는 인라인 일반 선언을 이긴다). 메뉴 상자(`.bn-side-menu`)는 블록 한 줄
+     높이(기본 30px)에 맞춰져 있고 `overflow: visible`이므로(코어 기본), 버튼이 살짝 위아래로
+     번져도 잘리지 않는다 — 상자 자체 높이는 블록 줄맞춤 용도라 건드리지 않는다(36px 선 실용 타협). */
+  .bn-side-menu .mantine-ActionIcon-root {
+    width: 36px !important;
+    height: 36px !important;
+  }
+
+  /* D7 — 표 정렬 바(`TableAlignBar`, 우리 컴포넌트라 포털 고려 불필요)는 22px 안팎의 라벨
+     버튼이다. 최소 높이만 36px로 올린다(가로 폭은 라벨 길이를 그대로 따르게 둔다). */
+  .editor2-table-align-bar button {
+    min-height: 36px;
+  }
 }
