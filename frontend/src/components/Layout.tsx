@@ -166,7 +166,14 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <div className="flex min-h-screen flex-1 flex-col">
+      {/* 본문 컬럼 = 위 가로 flex(90행)의 아이템이다. `min-w-0`이 없으면 `min-width: auto`(=min-content)라
+          **넓은 자식의 고유 폭이 셸까지 밀려 올라가** 헤더·하단 탭바까지 화면 밖으로 밀린다
+          (stage-38 F-2 R1 실측: 표 있는 노트에서 documentElement.scrollWidth 527 vs client 373 →
+          이 한 줄로 388). 편집 표면 안쪽 봉인은 `editor2/blocknote/notes.css`가 이미 하지만,
+          **전파를 끊는 마지막 마디는 여기**라 셸에서 한 번 더 끊는다.
+          데스크톱 영향: flex 아이템의 축소 하한만 푸는 것이라 통상 화면(자식이 컬럼보다 좁음)에는
+          변화가 없고, 넓은 자식은 종전처럼 자기 상자에서 넘칠 뿐 **셸 골격을 늘리지 않는다**. */}
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         {/* 모바일 상단 헤더 */}
         <header className="flex items-center justify-between gap-2 border-b border-border bg-surface px-4 py-3 md:hidden print:hidden">
           <div className="flex items-center gap-1.5">
