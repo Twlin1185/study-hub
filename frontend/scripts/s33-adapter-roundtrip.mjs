@@ -800,9 +800,9 @@ console.log(`  BN 출발 표본 실제 스키마 왕복: ${schemaBnPass}/${BN_OR
   const styleTypes = Object.keys(noteSchema.styleSchema).sort().join(',')
   const inlineTypes = Object.keys(noteSchema.inlineContentSchema).sort().join(',')
   check(
-    '[스키마팔레트] 블록 14종 고정(코어 10 + 방언 4)',
+    '[스키마팔레트] 블록 16종 고정(코어 10 + 방언 6 — stage-37 toc·webEmbed 가산)',
     blockTypes ===
-      'bulletListItem,callout,checkListItem,codeBlock,divider,docEmbed,heading,image,mathBlock,numberedListItem,paragraph,quote,sourceFallback,table',
+      'bulletListItem,callout,checkListItem,codeBlock,divider,docEmbed,heading,image,mathBlock,numberedListItem,paragraph,quote,sourceFallback,table,toc,webEmbed',
     `실제=${blockTypes}`,
   )
   check(
@@ -832,6 +832,13 @@ console.log(`  BN 출발 표본 실제 스키마 왕복: ${schemaBnPass}/${BN_OR
   )
   check('[스키마팔레트] 콜아웃 prop = attrs,title,variant', props('callout') === 'attrs,title,variant', `실제=${props('callout')}`)
   check('[스키마팔레트] 임베드 prop = label,target', props('docEmbed') === 'label,target', `실제=${props('docEmbed')}`)
+  // stage-37 F-3·F-4 — 편집 표면 스펙 등재의 계약(어댑터가 낸 BN 표현과 1:1이어야 한다).
+  check('[스키마팔레트] 목차 prop 0', props('toc') === '', `실제=${props('toc')}`)
+  check(
+    '[스키마팔레트] 웹 임베드 prop = meta,title,url',
+    props('webEmbed') === 'meta,title,url',
+    `실제=${props('webEmbed')}`,
+  )
   check(
     '[스키마팔레트] 원문 보존 prop = markdown,nodeType',
     props('sourceFallback') === 'markdown,nodeType',

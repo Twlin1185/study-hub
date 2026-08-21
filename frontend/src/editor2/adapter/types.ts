@@ -235,6 +235,29 @@ export interface BnDocEmbed extends BnBlockCommon {
   props: { target: string; label: string }
 }
 
+/**
+ * `::toc` — 목차 블록(stage-37 F-2). **원자 + prop 0**: 목차 내용은 저장하지 않고 렌더 시점에
+ * 같은 표면의 heading 블록에서 파생한다(자동 갱신이 공짜다). 앱 블록과 완전히 1:1이라
+ * 옮길 값이 아예 없다 — 사이드카도 미지원 보고도 발생하지 않는다.
+ */
+export interface BnToc extends BnBlockCommon {
+  type: 'toc'
+}
+
+/**
+ * `::web{url="…" title="…"}` — 웹 임베드(stage-37 F-2). **원자 카드**.
+ * `title:''` ⇔ undefined(규약 C 전례) · `meta:''` ⇔ undefined.
+ *
+ * `meta`는 §4.30 응답 캐시 + 블록 공통 메타를 **통짜 JSON 문자열**로 싣는다(`callout.attrs`·
+ * `refChip.styles`와 같은 전례): 자유 편집 UI가 없고 값 구조가 서버 응답을 따라가므로 prop을
+ * 필드별로 쪼갤 이유가 없다. 이 prop 하나로 **완전 왕복**하므로 이 블록은 사이드카를 쓰지 않는다
+ * (다른 블록의 `block:meta`가 타는 사이드카 경로에서 webEmbed만 제외된다 — `toBlockNote` 참조).
+ */
+export interface BnWebEmbed extends BnBlockCommon {
+  type: 'webEmbed'
+  props: { url: string; title: string; meta: string }
+}
+
 /** 팔레트 밖 mdast 노드의 원문 Markdown 보존(읽기 전용 — 편집 불가·삭제만). */
 export interface BnSourceFallback extends BnBlockCommon {
   type: 'sourceFallback'
@@ -255,9 +278,15 @@ export type BnBlock =
   | BnMathBlock
   | BnCallout
   | BnDocEmbed
+  | BnToc
+  | BnWebEmbed
   | BnSourceFallback
 
-/** 우리가 채택하는 BlockNote 블록 타입 전수 — `blocknote/schema.ts`가 이 목록으로 스키마를 좁힌다. */
+/**
+ * 우리가 채택하는 BlockNote 블록 타입 전수 — `blocknote/schema.ts`가 이 목록으로 스키마를 좁힌다.
+ * (`toc`·`webEmbed`의 편집 표면 스펙은 stage-37 F-3·F-4에서 `noteSchema`에 등재 완료 —
+ * 이 목록과 `noteSchema.blockSpecs`는 다시 일치한다.)
+ */
 export const BN_BLOCK_TYPES = [
   'paragraph',
   'heading',
@@ -272,6 +301,8 @@ export const BN_BLOCK_TYPES = [
   'mathBlock',
   'callout',
   'docEmbed',
+  'toc',
+  'webEmbed',
   'sourceFallback',
 ] as const
 

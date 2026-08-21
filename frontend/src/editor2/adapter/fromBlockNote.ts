@@ -29,6 +29,8 @@ import type {
   InlineNode,
   InlineStyles,
   ListItemBlock,
+  ParagraphBlock,
+  WebEmbedBlock,
 } from '../schema/blocks'
 import { collapseMicroMarks } from './marks'
 import type { MicroMark } from './marks'
@@ -82,6 +84,23 @@ function decodeAttrPairs(value: string | undefined): AttrPair[] | undefined {
     }
   }
   return out.length > 0 ? out : undefined
+}
+
+/**
+ * 웹 임베드 메타 prop(JSON) → 앱 메타 주머니(§4.30 캐시 + provenance 예약).
+ * 형태가 깨져 있으면 **저장을 막지 않고 무시**한다(`decodeAttrPairs`와 같은 관례).
+ * 빈 객체(`{}`)는 그대로 살린다 — "메타 없음"(`''`)과 구분되는 상태다.
+ */
+function decodeWebEmbedMeta(value: string | undefined): WebEmbedBlock['meta'] {
+  if (!value) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return undefined
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+  return parsed as WebEmbedBlock['meta']
 }
 
 function appStyles(ctx: Ctx, styles: BnStyles | undefined): InlineStyles | undefined {
@@ -311,8 +330,10 @@ function blockToApp(ctx: Ctx, block: BnBlock): Block | null {
   const id = idOf(block)
   const converted = withEntry(ctx, id, () => blockToAppInner(ctx, id, block))
   // 규약 I 흡수 ④ — 블록 메타(provenance) 복원.
+  // webEmbed는 제외한다(stage-37 F-2): 그 블록의 메타는 **자기 prop**에서 이미 복원됐고,
+  // 사이드카 값으로 덮으면 §4.30 캐시가 지워진다.
   const meta = ctx.sidecar[id]?.meta
-  if (converted && meta) converted.meta = meta
+  if (converted && meta && converted.type !== 'webEmbed') converted.meta = meta
   return converted
 }
 
@@ -344,7 +365,7 @@ function blockToAppInner(ctx: Ctx, id: string, block: BnBlock): Block | null {
       const content = withEntry(ctx, paragraphId, () => inlineToApp(ctx, block.content))
       const kids = blocksToApp(ctx, block.children)
       if (content.length === 0) return { id, type: 'quote', children: kids }
-      const paragraph: Block = { id: paragraphId, type: 'paragraph', content }
+      const paragraph: ParagraphBlock = { id: paragraphId, type: 'paragraph', content }
       const meta = ctx.sidecar[paragraphId]?.meta
       if (meta) paragraph.meta = meta
       return { id, type: 'quote', children: [paragraph, ...kids] }
@@ -414,6 +435,16 @@ function blockToAppInner(ctx: Ctx, id: string, block: BnBlock): Block | null {
     case 'docEmbed': {
       const out: Block = { id, type: 'docEmbed', target: block.props?.target ?? '' }
       if (block.props?.label) out.label = block.props.label
+      return out
+    }
+    case 'toc':
+      return { id, type: 'toc' }
+    case 'webEmbed': {
+      const out: WebEmbedBlock = { id, type: 'webEmbed', url: block.props?.url ?? '' }
+      // `''` ⇔ undefined(규약 C 전례).
+      if (block.props?.title) out.title = block.props.title
+      const meta = decodeWebEmbedMeta(block.props?.meta)
+      if (meta) out.meta = meta
       return out
     }
     case 'sourceFallback':

@@ -105,6 +105,15 @@ export function escapeText(text: string, ctx: EscapeContext): string {
       out += '\\&'
       continue
     }
+    // 줄머리 `::name` = **leaf directive**(stage-37 `::toc`·`::web`가 여기 산다). 막지 않으면
+    // 평문으로 적은 `::toc` 한 줄이 다음 파싱에서 목차 블록으로 바뀐다(조용한 본문 변형).
+    // **콜론 두 개를 모두 막는다** — 앞 하나만 막으면 남은 `:name`이 이번엔 **인라인 directive**로
+    // 잡힌다(실측). 실문서 코퍼스에 줄머리 `::name` 표기는 0표면이라(s37 계열 ⑤) 기존 문서 diff 0.
+    if (lineStart && ch === ':' && /^::[A-Za-z]/.test(text.slice(i))) {
+      out += '\\:\\:'
+      i += 1
+      continue
+    }
     // directive(`:t[…]{…}` · `:::name`) — 실제 directive 모양일 때만 막는다.
     if (ch === ':' && (/^:{3,}/.test(text.slice(i)) || /^:[A-Za-z][A-Za-z0-9-]*[[{]/.test(text.slice(i)))) {
       out += '\\:'
@@ -176,6 +185,15 @@ function safeAttrs(pairs: AttrPair[]): AttrPair[] {
     else out[idx] = [key, safeValue]
   }
   return out
+}
+
+/**
+ * 인용 속성 값(`key="…"`)에 실을 수 있는 형태로 수렴 — `safeAttrs`의 값 규칙과 **같은 도메인**이다.
+ * 인용 값 안에는 이스케이프 수단이 없어 `"`가 directive 자체를 깨뜨리고(실측), 줄바꿈은 줄을
+ * 끊어 블록을 붕괴시킨다. 백슬래시는 리터럴로 보존되므로 손대지 않는다.
+ */
+function quotedAttrValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').replace(/"/g, '')
 }
 
 function attrString(pairs: AttrPair[]): string {
@@ -597,6 +615,18 @@ function serializeBlock(block: Block): string {
     }
     case 'docEmbed':
       return `![[${block.target}${block.label === undefined ? '' : `|${block.label}`}]]`
+    case 'toc':
+      // 규약 A — 정규형은 **속성 없는 leaf directive** 한 줄이다(저장 데이터 0 · 옵션 없음).
+      return '::toc'
+    case 'webEmbed': {
+      // 규약 B — 실리는 속성은 **url·title 둘뿐**이고 값은 항상 큰따옴표로 감싼다(결정적 출력).
+      // 메타 캐시(§4.30)는 **프로젝션 비대상**이다(명문화된 강등 손실 — 블록 JSON이 소스).
+      // url이 빈 블록(편집 표면이 만들 수 없는 퇴화 상태)도 같은 형태로 낸다 — 재파싱하면
+      // 원문 보존(sourceFallback)으로 떨어지므로 **Markdown 고정점은 그대로 성립**한다.
+      // 빈 제목은 속성 자체를 만들지 않는다(`''` ⇔ 부재 — 파싱측과 같은 관례).
+      const title = block.title ? ` title="${quotedAttrValue(block.title)}"` : ''
+      return `::web{url="${quotedAttrValue(block.url)}"${title}}`
+    }
     case 'sourceFallback':
       return block.markdown
     case 'listItem':

@@ -21,6 +21,7 @@ import { FOLD_DEFAULT_LABEL, HIDE_DEFAULT_LABEL } from './markdown/refSyntax'
 import EmbedCard from './markdown/EmbedCard'
 import { DocLinkChip, HeadingAnchorChip } from './markdown/RefChips'
 import { CalloutBlock, FoldSection, HideSection, InlineSpoiler } from './markdown/DirectiveBlocks'
+import { TocBlockReader, WebEmbedCardReader } from './markdown/CustomBlockReaders'
 import {
   HEX_INK_CLASS,
   HEX_INK_VAR,
@@ -216,6 +217,23 @@ export default function MarkdownView({
         // 콜아웃 3종(F52) — note=accent·warn=warning·tip=correct(기존 토큰 재사용, 콜아웃 신규 토큰 0).
         if (directive === 'note' || directive === 'warn' || directive === 'tip') {
           return <CalloutBlock kind={directive} label={attr(node, 'data-directive-label')}>{children}</CalloutBlock>
+        }
+        // 목차(::toc)·웹 임베드(::web) — stage-37 규약 A·B. 비정규형(속성 동반 toc·url 부재·
+        // 미지 속성 동반 web)은 원문 그대로 노출한다(기존 미지 directive 폴백 관례와 동일 취지 —
+        // 조용한 실패 없음. 정규형 판정은 remarkStudy.ts가 계산해 hProperties로 실어 둔 것을 그대로 쓴다).
+        if (directive === 'toc' || directive === 'web') {
+          const normative = attr(node, 'data-directive-normative') === 'true'
+          if (!normative) {
+            const raw = attr(node, 'data-directive-raw')
+            return <p>{raw || (directive === 'toc' ? '::toc' : '::web')}</p>
+          }
+          if (directive === 'toc') return <TocBlockReader />
+          return (
+            <WebEmbedCardReader
+              url={attr(node, 'data-web-url')}
+              title={attr(node, 'data-web-title') || undefined}
+            />
+          )
         }
         // 알 수 없는 directive(:::foo)는 스타일 없이 내용만 렌더한다(크래시 금지 — §4.19 ②).
         if (directive) return <div>{children}</div>

@@ -16,6 +16,7 @@ import { CALLOUT_VARIANTS } from '../../adapter'
 import { insertCalloutBlock } from '../refPicker/insert'
 import type { RefKind } from '../refPicker/RefTitleContext'
 import type { NoteBlockNoteEditor } from '../schema'
+import { insertTocBlock } from '../toc/insert'
 
 /** 그룹 이름 — 사전(`ko`)이 쓰는 이름을 그대로 재사용한다(새 이름을 만들지 않는다). */
 const GROUP = {
@@ -33,6 +34,8 @@ type SlashRow =
   | { source: 'math'; slot: 'block' | 'inline'; group: string; aliases: string[] }
   | { source: 'callout'; variant: string; group: string }
   | { source: 'ref'; mode: RefKind; group: string }
+  | { source: 'toc'; group: string }
+  | { source: 'webEmbed'; group: string }
 
 /**
  * ---------------------------------------------------------------- 슬래시 메뉴 전수표
@@ -59,12 +62,16 @@ const SLASH_TABLE: SlashRow[] = [
   { source: 'core', key: 'heading_6', group: GROUP.heading },
   // --- 고급
   { source: 'core', key: 'table', group: GROUP.advanced, aliases: ['table', '테이블', '격자'] },
+  // 목차(방언 · stage-37 규약 A) — 저장 데이터 0 · 자기 표면 헤딩에서 렌더 시점 파생.
+  { source: 'toc', group: GROUP.advanced },
   { source: 'math', slot: 'block', group: GROUP.advanced, aliases: ['수식', '수학', '라텍스'] },
   { source: 'math', slot: 'inline', group: GROUP.advanced, aliases: ['수식', '수학', '라텍스'] },
   // --- 콜아웃(방언 · stage-34 이식분)
   ...CALLOUT_VARIANTS.map((variant): SlashRow => ({ source: 'callout', variant, group: GROUP.callout })),
   // --- 미디어
   { source: 'core', key: 'image', group: GROUP.media, aliases: ['그림', '사진'] },
+  // 웹 임베드(방언 · stage-37 규약 B) — URL 입력 패널을 연다(§4.30 조회는 패널이 담당).
+  { source: 'webEmbed', group: GROUP.media },
   // --- 참조(방언 · 규약 A ①)
   { source: 'ref', mode: 'doc', group: GROUP.ref },
   { source: 'ref', mode: 'anchor', group: GROUP.ref },
@@ -124,6 +131,7 @@ export function composeSlashItems(
   mathItems: DefaultReactSuggestionItem[],
   editor: NoteBlockNoteEditor,
   openPicker: (mode: RefKind) => void,
+  openWebEmbedPanel: () => void,
 ): DefaultReactSuggestionItem[] {
   const core = new Map<string, KeyedSlashItem>()
   for (const item of defaults as KeyedSlashItem[]) {
@@ -166,6 +174,28 @@ export function composeSlashItems(
         aliases: meta.aliases,
         group: row.group,
         onItemClick: () => insertCalloutBlock(editor, row.variant, ''),
+      })
+      continue
+    }
+    if (row.source === 'toc') {
+      out.push({
+        key: 'toc',
+        title: '목차',
+        subtext: '이 표면의 제목(heading)으로 만든 목차',
+        aliases: ['toc', '목차', '차례', 'contents'],
+        group: row.group,
+        onItemClick: () => insertTocBlock(editor),
+      })
+      continue
+    }
+    if (row.source === 'webEmbed') {
+      out.push({
+        key: 'web_embed',
+        title: '웹 임베드',
+        subtext: 'URL을 입력해 북마크 카드를 넣습니다',
+        aliases: ['web', '웹', '웹임베드', '링크카드', 'embed', 'url'],
+        group: row.group,
+        onItemClick: () => openWebEmbedPanel(),
       })
       continue
     }

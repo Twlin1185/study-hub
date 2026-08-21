@@ -7,7 +7,7 @@
 // (`_tiptapEditor` 직접 접근은 `refPicker/insert.ts`의 `setTextSelection` 전례를 따른다.)
 import { useEffect, useState } from 'react'
 import type { EditorState } from 'prosemirror-state'
-import type { NoteBlockNoteEditor } from './schema'
+import type { BlockNoteEditor } from '@blocknote/core'
 
 /**
  * `read(state)`의 결과를 들고 있다가 트랜잭션마다 다시 읽는다.
@@ -16,9 +16,15 @@ import type { NoteBlockNoteEditor } from './schema'
  * `idle`은 **뷰가 아직 없을 때**(첫 렌더 — BlockNoteView children은 편집기 mount 콜백보다 먼저
  * 그려진다. `prosemirrorView`는 `_tiptapEditor.view`이고 코어도 `?.`로 다룬다) 쓰는 값이다.
  * mount 직후 effect가 곧바로 다시 읽으므로 이 값이 화면에 오래 남지 않는다.
+ *
+ * 편집기 타입은 **스키마 제네릭에 무관하게 느슨히**(`BlockNoteEditor<any, any, any>`) 받는다 —
+ * 이 훅이 쓰는 멤버(`prosemirrorView`·`_tiptapEditor`)는 스키마와 무관하고, 커스텀 블록 스펙의
+ * `render(({ editor }) => …)`가 주는 `editor`는 **그 블록 하나만의 스키마로 좁혀진 타입**이라
+ * (stage-37 F-3 `TocBlockRender`) 화면 전체 스키마 타입(`NoteBlockNoteEditor`)과 구조적으로
+ * 안 맞는다(TS2345 실측). 호출부가 무엇을 넘기든(화면 전체 스키마든 블록 하나짜리든) 받는다.
  */
 export function usePmSnapshot<T>(
-  editor: NoteBlockNoteEditor,
+  editor: BlockNoteEditor<any, any, any>,
   read: (state: EditorState) => T,
   equal: (a: T, b: T) => boolean,
   idle: T,

@@ -44,6 +44,7 @@ from routers import (
     tag_rules,
     tags,
     uploads,
+    web_embed,
 )
 from services import backup_service, settings_service
 
@@ -96,6 +97,7 @@ app.include_router(improve.router)
 app.include_router(split.router)
 app.include_router(uploads.router)
 app.include_router(notes.router)
+app.include_router(web_embed.router)
 
 
 def _error_body(code: str, message: str, detail: object | None = None) -> dict:
