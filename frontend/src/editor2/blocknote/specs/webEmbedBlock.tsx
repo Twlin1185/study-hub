@@ -120,7 +120,10 @@ export const createWebEmbedBlockSpec = createReactBlockSpec(
       }
 
       return (
-        <div className="my-1 w-full overflow-hidden rounded-lg border border-border bg-surface-raised text-sm">
+        // `max-w-full`·`min-w-0` = stage-38 F-2 D5. 카드 머리줄의 버튼들이 `shrink-0`이라 카드의
+        // 고유 최소 폭이 화면보다 넓어졌고(390px에서 426px), [메타 새로고침]이 잘렸다. 상자를
+        // 부모 폭에 묶고 안에서 줄이게 한다(도메인·제목은 이미 `truncate`) — 표시 전용.
+        <div className="my-1 w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-surface-raised text-sm">
           <div className="flex items-center gap-2 border-b border-border bg-bg px-2.5 py-1.5 text-xs text-muted">
             {meta?.favicon && faviconOk ? (
               <img
