@@ -1,6 +1,8 @@
 // 에디터 v2 — 붙여넣기 파이프라인(stage-34 G-10, 규약 G).
 //
-// 세 갈래(구현 힌트 순서 그대로 — 이미지 우선 판정이 핵심이다):
+// 네 갈래(⓪ 이후는 구현 힌트 순서 그대로 — 이미지 우선 판정이 핵심이다):
+//   ⓪ `blocknote/html`(에디터 내부 복사의 무손실 포맷)이 있으면 → 기본 핸들러에 통째로 위임.
+//      내부 복사·붙여넣기는 방언 변환기를 타면 안 된다(2026-08-21 실사용 재현 — 본체 ⓪ 주석).
 //   ① `clipboardData.files`에 **이미지가 1개 이상** 있으면 → 규약 H 업로드 루프(`uploads.ts`
 //      공유)로 처리하고 여기서 끝낸다(`return true`). **HTML 분기보다 먼저 검사한다** — Word/웹
 //      붙여넣기는 `text/html`과 실제 이미지 `Files`를 동시에 실어 보내는 경우가 흔하고, BlockNote
@@ -302,6 +304,17 @@ export function createPasteHandler(deps: PasteHandlerDeps) {
     const { event, editor, defaultPasteHandler } = context
     const clipboardData = event.clipboardData
     if (!clipboardData) return defaultPasteHandler({ plainTextAsMarkdown: false })
+
+    // ⓪ 에디터 내부 복사 — BlockNote는 복사 시 무손실 내부 포맷(`blocknote/html`)을 함께 싣고,
+    // 기본 핸들러는 acceptedMIMETypes 순서상 그것을 최우선으로 집어 원형 그대로 되살린다
+    // (`pasteExtension.ts` 실측 — `pasteHTML(data, true)`; 붙여넣기로 생긴 중복 블록 id는 코어
+    // `uniqueID` 플러그인이 자동으로 새 id를 발급한다 = 사이드카 키 오염 없음. 단 새 id가 되므로
+    // 원본 블록의 사이드카 흡수분은 복사본에 승계되지 않는다 — looseList.ts 머리말 ①과 같은
+    // 계열의 알려진 한계). 이 분기가 없으면 내부 복사분까지 아래 ②의 외부 HTML 방언 변환기를
+    // 타서, 클립보드 HTML에 실린 테마 색 인라인 스타일이 색상 방언 `[…]{c= bg=}`으로 흡수되고
+    // 커스텀 블록(콜아웃 등)이 방언 원문 노출로 뭉개진다(2026-08-21 실사용 재현 결함).
+    // 내부 복사 클립보드에는 Files가 실리지 않으므로 ①의 이미지 우선 판정과 충돌하지 않는다.
+    if (clipboardData.getData('blocknote/html')) return defaultPasteHandler()
 
     // 안내는 이 이벤트 안에서 여러 갈래가 동시에 쌓일 수 있다(예: 비이미지 파일 건너뜀 + HTML
     // 미지원 보고) — 낱개로 여러 번 알리면 뒤엣것이 앞엣것을 덮어써 버리므로(`pasteNotice`는
