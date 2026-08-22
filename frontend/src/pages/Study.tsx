@@ -256,7 +256,7 @@ export default function StudyPage() {
           />
         )}
 
-        <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-surface md:static md:mt-6 md:border-0 md:bg-transparent md:p-0">
+        <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-surface md:static md:mt-6 md:border-0 md:bg-transparent md:p-0 pb-[env(safe-area-inset-bottom)] md:pb-0">
           <div className="mx-auto flex max-w-xl items-center gap-3 p-3 md:p-0">
             <button
               type="button"
