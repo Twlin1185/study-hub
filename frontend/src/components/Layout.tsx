@@ -40,7 +40,7 @@ function NavButton({ item, compact, collapsed }: { item: NavItem; compact?: bool
       <span
         className={`flex select-none items-center gap-0.5 rounded text-muted opacity-40 ${
           compact
-            ? 'flex-1 flex-col justify-center px-2 py-1.5 text-[11px]'
+            ? 'min-h-[48px] flex-1 flex-col justify-center px-2 py-1.5 text-[11px]'
             : collapsed
               ? 'justify-center px-2 py-2 text-sm'
               : 'flex-row justify-start gap-2 px-3 py-1.5 text-sm'
@@ -61,7 +61,7 @@ function NavButton({ item, compact, collapsed }: { item: NavItem; compact?: bool
       className={({ isActive }) =>
         `flex items-center rounded transition-colors ${
           compact
-            ? 'flex-1 flex-col justify-center gap-0.5 px-2 py-1.5 text-[11px]'
+            ? 'min-h-[48px] flex-1 flex-col justify-center gap-0.5 px-2 py-1.5 text-[11px]'
             : collapsed
               ? 'justify-center px-2 py-2 text-sm'
               : 'flex-row justify-start gap-2 px-3 py-2 text-sm'
@@ -175,7 +175,9 @@ export default function Layout({ children }: { children: ReactNode }) {
           변화가 없고, 넓은 자식은 종전처럼 자기 상자에서 넘칠 뿐 **셸 골격을 늘리지 않는다**. */}
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         {/* 모바일 상단 헤더 */}
-        <header className="flex items-center justify-between gap-2 border-b border-border bg-surface px-4 py-3 md:hidden print:hidden">
+        {/* pt-[calc(...)]가 py-3의 상단만 override — PWA standalone 설치 시 상태바와 겹치지 않도록
+            viewport-fit=cover(index.html)의 safe-area를 더한다. 브라우저 탭 사용 시 env()=0이라 무변. */}
+        <header className="flex items-center justify-between gap-2 border-b border-border bg-surface px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] md:hidden print:hidden">
           <div className="flex items-center gap-1.5">
             {/* 좌측 드로어 진입점(S22, F48, 설계 §5·§4.24 ⑥) — 모바일은 사이드바가 없으므로
                 여기서 연다. 하단 탭바 5개는 그대로 유지(F39 "탭 추가 금지" 관례). */}
@@ -202,10 +204,12 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto pb-16 md:pb-0 print:overflow-visible print:pb-0">{children}</main>
+        <main className="flex-1 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0 print:overflow-visible print:pb-0">{children}</main>
 
-        {/* 모바일 하단 탭바 */}
-        <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface md:hidden print:hidden">
+        {/* 모바일 하단 탭바 — viewport-fit=cover(index.html) 하에서 제스처 바 기종은 탭바가
+            홈 인디케이터와 겹쳐 하단 잘림·터치 미스가 났다(v2.00.0 실기기 피드백). env()로
+            탭바 자체를 인디케이터 위로 올린다 — 비대상 기종·데스크톱은 env()=0이라 무변. */}
+        <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden print:hidden">
           {NAV_ITEMS.map((item) => (
             <NavButton key={item.to} item={item} compact />
           ))}
