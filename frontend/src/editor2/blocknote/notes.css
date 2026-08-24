@@ -352,3 +352,106 @@
     min-height: 36px;
   }
 }
+
+/* ================================================================== stage-40 F-4·F-5 도킹 서식 툴바(FB-9)
+   `BlockNoteView`의 children DOM 순서는 편집 영역(`.bn-editor`) 다음이다(`BlockNoteViewEditor`
+   실측 — 규약 A① "DOM 순서상 상단 배치는 구현 재량"). `.bn-container`는 코어가 레이아웃을 지정
+   하지 않는 빈 래퍼라(위 CSS 변수 결선 말고는 규칙 0) 여기서 flex로 처음 관여해도 다른 규칙과
+   충돌하지 않는다. `order: -1`로 도킹 툴바를 시각적 최상단에 앉히고, `.note-editor-frame`(스크롤
+   조상은 앱 셸의 `<main overflow-y-auto>` — §5.16 상단 [저장]/[취소] 헤더는 sticky가 아니라 겹침
+   대상이 없다) 안에서 `position: sticky`로 상단에 고정한다. 전 편집 표면 공용(노트·문서 표면 둘
+   다 `.note-editor-frame`). */
+.note-editor-frame .bn-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.editor2-docked-toolbar {
+  order: -1;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  overflow-x: auto;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 4px 6px;
+}
+
+/* 도킹 전용 — 부유 `.bn-toolbar`의 stage-38 모바일 줄바꿈 규칙(D1·D6·D7, 위 267~285행)과
+   **분리**한다(규약 A ⑤ "부유 3줄 규칙 무변"). 도킹은 폭에 상관없이 **항상 1줄 가로 스크롤**
+   (상시 점유 높이 최소화 — 부유처럼 선택 시에만 뜨는 것이 아니라 늘 붙어 있으므로 줄바꿈으로
+   세로 공간을 계속 뺏으면 안 된다). 특이도가 같은 `.bn-mantine .bn-toolbar`보다 이 파일에서
+   더 뒤에 오므로(소스 순서) 이 규칙이 이긴다. */
+.editor2-docked-toolbar .bn-toolbar {
+  flex-wrap: nowrap;
+  max-width: none;
+}
+
+.editor2-docked-toolbar .mantine-Button-root,
+.editor2-docked-toolbar .mantine-ActionIcon-root,
+.editor2-docked-toolbar .editor2-atom-guarded {
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  /* 규약 A ⑤ — 버튼 최소 높이 36px(부유 stage-38 D7과 같은 터치 타겟 하한). */
+  .editor2-docked-toolbar .mantine-Button-root,
+  .editor2-docked-toolbar .mantine-ActionIcon-root {
+    min-height: 36px;
+  }
+}
+
+/* ================================================================== stage-40 F-5 · 규약 D
+   코드 블록·인라인 코드 외양 — 토큰만(색 리터럴 0). 대상 선택자는 엔진 실측
+   (`@blocknote/core` `blocks/Code/helpers/render/createCodeBlock.ts`): 코드 블록의
+   `.bn-block-content[data-content-type='codeBlock']`는 `[언어 select 래퍼]?, <pre><code>`
+   순서로 자식을 담는다 — select 래퍼를 우상단으로 옮기고 본문에 토큰 배경·테두리를 준다.
+   토큰은 리더(`components/MarkdownView.tsx` — `[&_pre]:bg-bg [&_pre]:border-border`,
+   `[&_code]:bg-bg`)를 그대로 따른다(편집 표면을 리더에 근접 — 리더 CSS 자체는 무접촉). */
+.note-editor-frame [data-content-type='codeBlock'] {
+  position: relative;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 32px 12px 12px;
+}
+
+.note-editor-frame [data-content-type='codeBlock'] pre {
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/* 언어 선택 select 래퍼 — 엔진이 `contenteditable="false"`로 표시해 만든다(`createLanguageSelect`
+   실측, `:has()` 없이 그 속성으로 직접 겨눈다). 우상단 정돈. 드롭다운 자체는 엔진 것 그대로
+   (규약 D "엔진 언어 드롭다운을 우상단으로 정돈" — 값·동작 무접촉, 위치·크기만). */
+.note-editor-frame [data-content-type='codeBlock'] > div[contenteditable='false'] {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+}
+
+.note-editor-frame [data-content-type='codeBlock'] select {
+  background: var(--surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 1px 4px;
+}
+
+/* 인라인 코드 칩 — 코드 블록 내부의 `<code>`(위에서 이미 배경을 준 `pre` 안)는 제외한다
+   (`:not(pre code)` — 이중 배경 방지). 리더의 `[&_code]:bg-bg [&_code]:rounded [&_code]:px-1
+   [&_code]:py-0.5`와 같은 토큰. */
+.note-editor-frame .bn-editor code:not(pre code) {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+}

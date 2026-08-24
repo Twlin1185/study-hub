@@ -40,6 +40,7 @@ import type { NotePartialBlock } from '../schema'
 import { insertCalloutBlock } from '../refPicker/insert'
 import { useRefPickerCommands } from '../refPicker/RefUiProvider'
 import { ATOM_GUARD_TOOLTIP, selectionHasAtomInline } from './atoms'
+import { shouldShowTextFormattingGroup, useSelectedBlockTypes } from './blockFilter'
 import type { CropTarget } from './imageCropEligibility'
 import { computeCropTarget } from './imageCropEligibility'
 import { MICRO_MARK_LABEL, applyMicroMark, clearMicroMark, toggleMicroMark } from './microMarks'
@@ -79,6 +80,14 @@ const ATOM_GUARDED_DEFAULT_KEYS: ReadonlySet<string> = new Set([
   'strikeStyleButton',
   'createLinkButton',
 ])
+
+/**
+ * **텍스트 서식군의 코어 항목 키**(stage-40 규약 B ②) — "코어 bold/italic/strike/link"는
+ * 원자 가드 대상 4종과 정확히 일치한다(교집합 재사용 — 별도 목록을 만들지 않는다). 이 키를 가진
+ * 기본 항목만 `hideTextGroup`일 때 걸러진다. 나머지 기본 항목(블록 타입 선택·표 셀 병합·파일
+ * 버튼·정렬·중첩·댓글 등)은 규약 B ②의 "블록 기능군"이라 항상 남는다.
+ */
+const TEXT_GROUP_DEFAULT_KEYS = ATOM_GUARDED_DEFAULT_KEYS
 
 /** 활성화(클릭·Enter·Space)를 캡처 단계에서 삼키는 덮개 — 시각적으로도 흐리게 보인다. */
 function AtomGuardShield({ children }: { children: ReactNode }) {
@@ -192,6 +201,34 @@ function MicroMarkButton({ mark, blocked }: { mark: MicroMark; blocked: boolean 
       }}
     >
       {MICRO_MARK_LABEL[mark]}
+    </Components.FormattingToolbar.Button>
+  )
+}
+
+/**
+ * 인라인 코드 버튼(stage-40 FB-11 ⓒ, 규약 C) — `MicroMarkButton` 전례를 따르되 토글 대상은
+ * **코어 `code` 스타일**이다(`editor.toggleStyles({ code: true })` — 마이크로 마크 상호 배타
+ * 대상이 아니므로 `microMarks.ts`를 거치지 않는다). 신규 스타일 스펙 0 — `code`는 이미
+ * `schema.ts`의 코어 5종에 등재돼 있고 어댑터 `inlineCode` 왕복도 기존재라, 이 버튼은 발견성만
+ * 더한다(백틱 입력 규칙·`Ctrl+E` 단축키는 이미 동작한다).
+ */
+function InlineCodeButton({ blocked }: { blocked: boolean }) {
+  const Components = useComponentsContext()!
+  const editor = useNoteEditor()
+  const styles = useActiveStyles() as unknown as Record<string, unknown>
+  const active = styles.code === true
+  return (
+    <Components.FormattingToolbar.Button
+      label="코드"
+      mainTooltip={blocked ? ATOM_GUARD_TOOLTIP : '인라인 코드'}
+      isSelected={active}
+      isDisabled={blocked}
+      onClick={() => {
+        editor.toggleStyles({ code: true })
+        refocus(() => editor.focus())
+      }}
+    >
+      코드
     </Components.FormattingToolbar.Button>
   )
 }
@@ -463,6 +500,60 @@ function CropButton() {
   )
 }
 
+// ---------------------------------------------------------------- 항목 빌더(규약 A ③ 단일 출처)
+
+/**
+ * **부유·도킹 공용 항목 빌더**(stage-40 F-1, 규약 A ③) — 부유(`NoteFormattingToolbar`)와 도킹
+ * (`DockedFormattingToolbar`)이 이 함수 하나만 호출한다. 도킹 전용·부유 전용 항목은 0개다.
+ *
+ * `showTextGroup=false`(규약 B — 원자·미디어만 또는 코드 블록만 선택)면 **텍스트 서식군**(코어
+ * bold/italic/strike/link + 방언 밑줄/형광/스포일러/색·크기 + 인라인 코드 + 참조 삽입)을 렌더
+ * 자체를 생략한다(비활성이 아니라 DOM 없음 — 규약 B ⑤). **블록 기능군**(블록 타입 선택·표 셀
+ * 병합·파일 버튼·정렬·중첩·댓글 + 콜아웃·이미지 자르기)은 항상 남는다.
+ *
+ * 기본 항목의 **상대 순서는 바꾸지 않는다** — `getFormattingToolbarItems()`가 정한 순서 그대로
+ * 두고 텍스트 서식군에 속하는 키만 걸러낸다(부유 툴바의 기존 버튼 배치를 그대로 지키기 위함).
+ */
+export function buildFormattingToolbarItems({
+  blocked,
+  showTextGroup,
+}: {
+  blocked: boolean
+  showTextGroup: boolean
+}): ReactNode[] {
+  type GroupedItem = { key: string; group: 'text' | 'block'; node: ReactNode }
+
+  const defaultItems: GroupedItem[] = defaultToolbarItems(blocked).map((node) => {
+    const key = typeof (node as { key?: unknown }).key === 'string' ? ((node as { key: string }).key) : ''
+    return { key, group: TEXT_GROUP_DEFAULT_KEYS.has(key) ? 'text' : 'block', node }
+  })
+
+  const dialectItems: GroupedItem[] = [
+    { key: 'inlineCode', group: 'text', node: <InlineCodeButton key="inlineCode" blocked={blocked} /> },
+    {
+      key: 'microUnderline',
+      group: 'text',
+      node: <MicroMarkButton key="microUnderline" mark="underline" blocked={blocked} />,
+    },
+    { key: 'microHighlight', group: 'text', node: <HighlightMenu key="microHighlight" blocked={blocked} /> },
+    {
+      key: 'microSpoiler',
+      group: 'text',
+      node: <MicroMarkButton key="microSpoiler" mark="spoiler" blocked={blocked} />,
+    },
+    { key: 'textInk', group: 'text', node: <ColorMenu key="textInk" target="c" blocked={blocked} /> },
+    { key: 'textBg', group: 'text', node: <ColorMenu key="textBg" target="bg" blocked={blocked} /> },
+    { key: 'textSize', group: 'text', node: <SizeMenu key="textSize" blocked={blocked} /> },
+    { key: 'refChip', group: 'text', node: <RefButton key="refChip" /> },
+    { key: 'callout', group: 'block', node: <CalloutMenu key="callout" /> },
+    { key: 'imageCrop', group: 'block', node: <CropButton key="imageCrop" /> },
+  ]
+
+  return [...defaultItems, ...dialectItems]
+    .filter((item) => showTextGroup || item.group === 'block')
+    .map((item) => item.node)
+}
+
 // ---------------------------------------------------------------- 툴바 본체
 
 export default function NoteFormattingToolbar() {
@@ -470,19 +561,9 @@ export default function NoteFormattingToolbar() {
   const [blocked, setBlocked] = useState(() => selectionHasAtomInline(editor))
   // 원자 인라인 가드는 **선택**에 달려 있다(스타일 변화만으로는 갱신되지 않는다).
   useEditorSelectionChange(() => setBlocked(selectionHasAtomInline(editor)))
+  // 블록별 필터(규약 B) — 부유 툴바도 도킹과 같은 규칙을 쓴다.
+  const blockTypes = useSelectedBlockTypes(editor)
+  const showTextGroup = shouldShowTextFormattingGroup(blockTypes)
 
-  return (
-    <FormattingToolbar>
-      {defaultToolbarItems(blocked)}
-      <MicroMarkButton key="microUnderline" mark="underline" blocked={blocked} />
-      <HighlightMenu key="microHighlight" blocked={blocked} />
-      <MicroMarkButton key="microSpoiler" mark="spoiler" blocked={blocked} />
-      <ColorMenu key="textInk" target="c" blocked={blocked} />
-      <ColorMenu key="textBg" target="bg" blocked={blocked} />
-      <SizeMenu key="textSize" blocked={blocked} />
-      <RefButton key="refChip" />
-      <CalloutMenu key="callout" />
-      <CropButton key="imageCrop" />
-    </FormattingToolbar>
-  )
+  return <FormattingToolbar>{buildFormattingToolbarItems({ blocked, showTextGroup })}</FormattingToolbar>
 }

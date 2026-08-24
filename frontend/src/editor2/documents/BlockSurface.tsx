@@ -35,15 +35,26 @@ import {
   useImageUploadQueue,
 } from '../blocknote/uploads'
 
+/** [취소] 복귀 대상 스냅샷이 빈 문서였을 때의 최소 문서(빈 배열은 편집기에 넘길 수 없다). */
+const EMPTY_BLOCKS: BnBlock[] = [{ type: 'paragraph', content: [] }]
+
 /** 저장 파이프라인이 이 표면에서 꺼내 가는 것 = 블록 + 그 블록의 Markdown 프로젝션(항상 한 쌍). */
 export interface SurfaceBody {
   blocks: BlockDocument
   markdown: string
 }
 
+/** 세션 스냅샷(규약 E)이 담는 형태 — **편집기 블록**(에디터 문서 그대로, 앱 블록 아님) + 사이드카. */
+export interface SurfaceSnapshotBody {
+  blocks: BnBlock[]
+  sidecar: AdapterSidecar
+}
+
 export interface BlockSurfaceHandle {
   /** 편집기 문서 → (사이드카 경유) 앱 블록 → Markdown 프로젝션. 저장 요청에 **함께** 실린다. */
   build: () => SurfaceBody
+  /** 스냅샷을 편집기에 되돌린다([취소] 복귀 — 규약 C). 빈 문서는 최소 문단 하나로 대체한다. */
+  restore: (body: SurfaceSnapshotBody) => void
 }
 
 interface BlockSurfaceProps {
@@ -142,7 +153,25 @@ const BlockSurface = forwardRef<BlockSurfaceHandle, BlockSurfaceProps>(function 
     return { blocks, markdown: blocksToMarkdown(blocks) }
   }, [editor, label, notify])
 
-  useImperativeHandle(ref, () => ({ build }), [build])
+  /**
+   * [취소] 복귀(규약 C) — 스냅샷을 편집기 문서·사이드카에 되돌린다. 스냅샷 자체는 부모(예:
+   * `DocBlockEditor.tsx`)가 저장 파이프라인의 산출물(`build()`의 앱 블록)을 다시
+   * `toBlockNoteBlocks`로 되읽어 만든다(검토 중요 2 수정 — 재진입 로드분과 형태를 맞춰야
+   * 세션 스냅샷 동등 비교가 성립한다). 그래서 이 표면은 "지금 편집기 내용을 그대로 꺼내는"
+   * 스냅샷 확보 메서드를 따로 갖지 않는다(`build()` 하나로 저장·체크포인트 둘 다 충분하다).
+   */
+  const restore = useCallback(
+    (body: SurfaceSnapshotBody) => {
+      editor.replaceBlocks(
+        editor.document,
+        asEditorBlocks(body.blocks.length > 0 ? body.blocks : EMPTY_BLOCKS),
+      )
+      sidecarRef.current = { ...body.sidecar }
+    },
+    [editor],
+  )
+
+  useImperativeHandle(ref, () => ({ build, restore }), [build, restore])
 
   const uploadStatus = uploadQueue.status
   const showUploadBox = uploadStatus.active || uploadStatus.failures.length > 0
