@@ -295,8 +295,11 @@ function stripPosition(node) {
 
 // A-0 기준선 ref — **S30 착수 전 커밋**이어야 한다. `HEAD`로 두면 구현을 커밋한 뒤에는
 // "자기 자신과의 비교"가 되어 ③ 렌더 diff 검사가 공허해지고 A-0 전파 검사(변경 전 결손 > 0)가
-// 거짓 실패로 뒤집힌다. 기본값 `main` · 필요하면 첫 인자로 다른 ref를 준다.
-const BASELINE_REF = process.argv[2] || 'main'
+// 거짓 실패로 뒤집힌다. 검토 반려 결함 7 — 기본값이 `main`이었는데, S30의 A-0 커밋(`86d171d`)이
+// main에 병합된 뒤로는 `main`이 더 이상 "착수 전"이 아니라서 같은 자기비교 함정에 빠져
+// `[A-0] 합성 노드 position 전무`가 거짓 실패한다. `86d171d~1`(그 직전 커밋, stage-29)로 고정한다
+// — 필요하면 여전히 첫 인자로 다른 ref를 줄 수 있다.
+const BASELINE_REF = process.argv[2] || '86d171d~1'
 
 try {
   const baselineSource = execFileSync(

@@ -13,14 +13,27 @@
 // 사유를 보고하면 이 표면을 열지 않고 **구 편집기(완전한 편집 경로)로 퇴로**를 잡는다.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import MarkdownView from '../../components/MarkdownView'
+import ConfirmDialog from '../../components/ConfirmDialog'
+import Modal from '../../components/Modal'
 import type { DocumentDetail, DocumentType } from '../../api/types'
 import { ApiError } from '../../api/client'
 import { useEditorTheme } from '../blocknote/schema'
 import BlockSurface, { type BlockSurfaceHandle } from './BlockSurface'
 import { readBlockFields, useUpdateDocumentBlocks, type DocumentBlocksPatch } from '../api/documents'
+import { toBlockNoteBlocks } from '../adapter'
+import { emptyDocument } from '../schema/blocks'
 // 로드 재료 계산은 stage-36 F-1에서 `surfaceSource`로 공용화했다(DocEditor 통합 분기와 같은 판정을
 // 쓰기 위해서 — 계산 내용은 stage-35 원본 그대로다).
 import { loadSurface, type SurfaceLoad, type SurfaceSource } from './surfaceSource'
+// stage-39 F-1 실측 편입분(2026-08-23 지시서 정정 — 규약 D·E) — 노트 편집(§5.16)과 동일 계약의
+// 문서 표면 적용. 스냅샷 저장소는 노트 표면과 공유(`sessionSnapshotStorage`), 형태만 다르다.
+import {
+  clearDocBlockSnapshot,
+  docBlockSnapshotsEqual,
+  readDocBlockSnapshot,
+  writeDocBlockSnapshot,
+  type DocBlockSnapshot,
+} from './docBlockSnapshot'
 
 /** 규약 C(노트) 계승 — 유휴 1.5초 · 최대 대기 10초 · 실패 후 재시도 5초. */
 const IDLE_MS = 1500
@@ -132,14 +145,33 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
   // 최초 전환 1회 안내(규약 E) — 미전환으로 열린 문서가 처음 블록과 함께 저장된 순간에만.
   const [convertedNotice, setConvertedNotice] = useState(false)
 
+  // FB-2(stage-39 F-1 편입분) — 세션 원본 스냅샷(규약 E) · [취소](규약 C)의 복귀 기준점과
+  // 동일 실체. `liveSnapshotRef`는 "지금 취소하면 무엇으로 돌아가는가"의 살아있는 값(체크포인트
+  // — 진입 시점에서 시작해 명시 [저장]/[취소] 성공마다 그 시점으로 갱신), localStorage 사본은
+  // 크래시 감지 전용이다(노트 표면과 동일 구조 — `NoteEditPage.tsx` 참조).
+  const liveSnapshotRef = useRef<DocBlockSnapshot | null>(null)
+  const [snapshotOk, setSnapshotOk] = useState(true)
+  const [snapshotErrorMessage, setSnapshotErrorMessage] = useState<string | null>(null)
+  // 체크포인트 이후 실제로 뭔가 바뀌었는지(저장 상태 4종의 dirty와는 별개).
+  const [changedFromSnapshot, setChangedFromSnapshot] = useState(false)
+  // 재진입에서 미폐기 스냅샷을 발견했을 때만 채워진다 — 복구 선택 다이얼로그(규약 E).
+  const [recoveryPrompt, setRecoveryPrompt] = useState<DocBlockSnapshot | null>(null)
+  const [confirmCancel, setConfirmCancel] = useState(false)
+
   const questionLike = isQuestionLike(doc.type)
 
   const dirtyRef = useRef(false)
   const composingRef = useRef(false)
   const idleTimer = useRef<number | null>(null)
   const maxTimer = useRef<number | null>(null)
+  // 검토 경미 4 — [취소]가 IME 조합 중이라 재시도로 미룬 타이머. 추적하지 않으면 언마운트
+  // 뒤에도 살아남아 죽은 편집기에 restore·PATCH를 뒤늦게 쏘는 경로가 열린다.
+  const cancelRetryTimer = useRef<number | null>(null)
   const inFlight = useRef(false)
   const convertedRef = useRef(converted)
+  // 검토 경미 3 — React StrictMode(dev) 이중 마운트 방어(노트 표면과 동일 — `NoteEditPage.tsx`
+  // 참조). 크래시 복구 결정이 나기 전에는 언마운트 정리가 스냅샷을 지우지 않게 막는다.
+  const recoveryPendingRef = useRef(false)
 
   // 최신 폼 값을 저장 시점에 읽는다(타이머 클로저가 낡은 값을 붙잡지 않게).
   const formRef = useRef({ title, choices, answer, difficulty })
@@ -158,11 +190,73 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
     return true
   }, [loadedDocId])
 
+  // 검토 경미 B — `clearTimers()`는 자동저장(`saveNow` 서두)에서도 불린다. `cancelRetryTimer`를
+  // 여기서 함께 지우면, 조합 중 [취소] 확인 후 재시도를 기다리는 동안 자동저장(특히 maxTimer
+  // 10초 만기)이 발사돼 `saveNow`가 `clearTimers()`를 부르는 순간 재시도 타이머가 지워지고
+  // 재무장되지 않아 "되돌리기"가 조용히 무시된다. **`cancelRetryTimer`는 이 함수가 건드리지
+  // 않고 언마운트 cleanup에서만 정리한다**(죽은 편집기로의 발사만 막으면 충분 — 살아있는 동안은
+  // 재시도가 스스로를 재무장한다).
   const clearTimers = useCallback(() => {
     if (idleTimer.current !== null) window.clearTimeout(idleTimer.current)
     if (maxTimer.current !== null) window.clearTimeout(maxTimer.current)
     idleTimer.current = null
     maxTimer.current = null
+  }, [])
+
+  /**
+   * 스냅샷 체크포인트를 (재)확보한다 — 진입 시점(생략 진입) · 명시 [저장] 성공 후 · [취소] 복귀
+   * 성공 후에만 부른다(규약 E "세션 갱신 시 대체" — 자동 저장은 체크포인트를 옮기지 않는다. 그래야
+   * 자동저장이 서버에 이미 반영한 분과 체크포인트가 계속 달라 크래시 복구가 의미 있게 동작한다).
+   * 기록 실패 시 `snapshotOk=false` — 호출부가 [취소]를 비활성한다.
+   */
+  const commitLiveSnapshot = useCallback(
+    (snap: DocBlockSnapshot) => {
+      const ok = writeDocBlockSnapshot(loadedDocId, snap)
+      liveSnapshotRef.current = snap
+      setSnapshotOk(ok)
+      setSnapshotErrorMessage(
+        ok ? null : '이 브라우저에 편집 내용을 기록하지 못했습니다 — 취소를 쓸 수 없습니다.',
+      )
+      setChangedFromSnapshot(false)
+    },
+    [loadedDocId],
+  )
+
+  // 진입 시점 스냅샷 확보(마운트 1회) — 미폐기 스냅샷을 발견하면 크래시 복구 다이얼로그로,
+  // 없거나 손상됐으면(또는 정상 종결 직후 그대로면) 조용히 새 체크포인트를 확보한다. 노트
+  // 표면(`NoteEditPage.tsx`)과 동일 판정 — 여기서는 문서 표면의 편집 대상 필드 전체(제목·보기·
+  // 정답·난이도·본문·해설)가 스냅샷 범위다(규약 E "블록 상태(제목 포함)"의 문서 표면 준용).
+  useEffect(() => {
+    const found = readDocBlockSnapshot(loadedDocId)
+    const currentCompare = {
+      title: doc.title,
+      choices: (doc.choices ?? []).join('\n'),
+      answer: doc.answer ?? '',
+      difficulty: doc.difficulty != null ? String(doc.difficulty) : '',
+      content: content.blocks,
+      explanation: explanation ? explanation.blocks : null,
+    }
+    if (found && !docBlockSnapshotsEqual(found, currentCompare)) {
+      liveSnapshotRef.current = found
+      setSnapshotOk(true)
+      setSnapshotErrorMessage(null)
+      // 이미 로드된 내용(자동저장분)이 스냅샷과 다르다는 뜻 — [취소]가 곧바로 유효하다.
+      setChangedFromSnapshot(true)
+      // 결정 전 이탈(StrictMode 합성 언마운트 포함)로부터 스냅샷을 지킨다(경미 3).
+      recoveryPendingRef.current = true
+      setRecoveryPrompt(found)
+    } else {
+      commitLiveSnapshot({
+        title: doc.title,
+        choices: (doc.choices ?? []).join('\n'),
+        answer: doc.answer ?? '',
+        difficulty: doc.difficulty != null ? String(doc.difficulty) : '',
+        content: { blocks: content.blocks, sidecar: content.sidecar },
+        explanation: explanation ? { blocks: explanation.blocks, sidecar: explanation.sidecar } : null,
+      })
+    }
+    // 마운트 1회만 — 호출부가 `key={doc.id}`로 문서별 새 인스턴스를 만든다(DocumentDetail.tsx).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /**
@@ -205,54 +299,106 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
     return patch
   }, [loadedDocId, questionLike])
 
-  const saveNow = useCallback(() => {
-    clearTimers()
-    if (!dirtyRef.current) return
-    // 표면과 화면의 문서가 어긋났으면 **어느 문서에도 쓰지 않는다**(D-1 가드). 편집분은 dirty로
-    // 남겨 두어 화면이 원래 문서로 돌아오면 다음 주기에 정상 저장된다.
-    if (saveBlocked()) return
-    // IME 조합 중이거나 직전 저장이 비행 중이면 버리지 않고 뒤로 미룬다(규약 C).
-    if (composingRef.current || inFlight.current) {
-      idleTimer.current = window.setTimeout(saveNow, IDLE_MS)
-      return
-    }
+  /**
+   * `explicit` = 사용자가 명시적으로 명한 저장(상시 [저장] 버튼·Ctrl+S — 규약 B: 같은 flush
+   * 경로). 자동 저장(디바운스·최대 대기·실패 재시도)은 항상 `explicit=false`. 성공한 명시
+   * 저장·[취소] 복귀만 스냅샷 체크포인트를 그 시점으로 옮긴다(규약 E).
+   */
+  const saveNow = useCallback(
+    (opts?: { explicit?: boolean }) => {
+      clearTimers()
+      if (!dirtyRef.current) return
+      // 표면과 화면의 문서가 어긋났으면 **어느 문서에도 쓰지 않는다**(D-1 가드). 편집분은 dirty로
+      // 남겨 두어 화면이 원래 문서로 돌아오면 다음 주기에 정상 저장된다.
+      if (saveBlocked()) return
+      // IME 조합 중이거나 직전 저장이 비행 중이면 버리지 않고 뒤로 미룬다(규약 C).
+      if (composingRef.current || inFlight.current) {
+        idleTimer.current = window.setTimeout(() => saveNow(opts), IDLE_MS)
+        return
+      }
 
-    const patch = buildPatch()
-    if (patch.content != null) setProjection(patch.content)
-    dirtyRef.current = false
-    inFlight.current = true
-    setState('saving')
-    updateDocument.mutate(patch, {
-      onSuccess: () => {
-        inFlight.current = false
-        setSavedAt(new Date())
-        setErrorMessage(null)
-        setState(dirtyRef.current ? 'dirty' : 'clean')
-        if (!convertedRef.current) {
-          convertedRef.current = true
-          setConvertedNotice(true)
-        }
-      },
-      onError: (error) => {
-        inFlight.current = false
-        // 로컬 편집분을 버리지 않는다 — 다시 dirty로 돌리고 다음 주기에 재시도.
-        dirtyRef.current = true
-        setErrorMessage(
-          error instanceof ApiError
-            ? error.message
-            : error instanceof Error
+      const patch = buildPatch()
+      if (patch.content != null) setProjection(patch.content)
+      dirtyRef.current = false
+      inFlight.current = true
+      setState('saving')
+      updateDocument.mutate(patch, {
+        onSuccess: () => {
+          inFlight.current = false
+          setSavedAt(new Date())
+          setErrorMessage(null)
+          setState(dirtyRef.current ? 'dirty' : 'clean')
+          if (!convertedRef.current) {
+            convertedRef.current = true
+            setConvertedNotice(true)
+          }
+          if (opts?.explicit) {
+            // 검토 중요 2 — `BlockSurface.snapshot()`(실 편집기 스키마 산출물)을 그대로 체크포인트에
+            // 쓰면 재진입 로드분(`toBlockNoteBlocks`)과 구조가 달라(모든 블록의 `children`/`props`
+            // 유무 차이·표 셀 표현 차이·경성 줄바꿈 런 분할 차이 등 — 실측: scratchpad 검증
+            // 스크립트) `docBlockSnapshotsEqual`이 내용이 같아도 항상 false를 낸다. **방금 저장한
+            // 그 앱 블록(`patch.content_blocks`/`patch.explanation_blocks`)을 다시
+            // `toBlockNoteBlocks`로 되읽어** 재진입과 완전히 같은 함수·같은 형태를 만든다(노트
+            // 표면과 동일 수정 — `NoteEditPage.tsx` 참조).
+            const form = formRef.current
+            if (patch.content_blocks !== undefined) {
+              const reloadedContent = toBlockNoteBlocks(patch.content_blocks)
+              // 해설: 이 저장에 해설 쌍이 없었으면(질문형이 아니거나 애초에 안 보냈으면) `undefined`
+              // — 스냅샷에도 해설이 없다. `null`(해설을 비워 제거)은 빈 문서로 재읽는다.
+              const reloadedExplanation =
+                patch.explanation_blocks === undefined
+                  ? undefined
+                  : toBlockNoteBlocks(patch.explanation_blocks ?? emptyDocument())
+              const contentOk = reloadedContent.unsupported.length === 0
+              const explanationOk =
+                reloadedExplanation === undefined || reloadedExplanation.unsupported.length === 0
+              // unsupported면(이론상 발생하지 않는다 — 방금 편집기에서 나온 데이터다) 재커밋을
+              // 건너뛴다 — 이전 체크포인트가 남는 편이 형태를 모르는 값을 쓰는 것보다 안전하다.
+              if (contentOk && explanationOk) {
+                commitLiveSnapshot({
+                  // 검토 경미 A — 폼 필드도 블록과 같은 "같은 경로를 태운다" 원칙: raw form 값이
+                  // 아니라 **실제로 보낸(정규화된) 값**을 체크포인트에 쓴다. 그래야 재진입 로드분
+                  // (서버가 정규화해 돌려준 값)과 항등이 성립한다(보기 끝 빈 줄·제목 끝 공백 등
+                  // 좁은 잔여 거짓 다이얼로그 재현 — patch.title/choices/difficulty는 이미
+                  // trim·split·filter·Number 정규화를 거쳤다).
+                  title: patch.title ?? '',
+                  choices: (patch.choices ?? []).join('\n'),
+                  answer: form.answer,
+                  difficulty: patch.difficulty != null ? String(patch.difficulty) : '',
+                  content: { blocks: reloadedContent.blocks, sidecar: reloadedContent.sidecar },
+                  explanation: reloadedExplanation
+                    ? { blocks: reloadedExplanation.blocks, sidecar: reloadedExplanation.sidecar }
+                    : null,
+                })
+              }
+            }
+          }
+        },
+        onError: (error) => {
+          inFlight.current = false
+          // 로컬 편집분을 버리지 않는다 — 다시 dirty로 돌리고 다음 주기에 재시도.
+          dirtyRef.current = true
+          setErrorMessage(
+            error instanceof ApiError
               ? error.message
-              : '문서를 저장하지 못했습니다',
-        )
-        setState('error')
-        maxTimer.current = window.setTimeout(saveNow, RETRY_MS)
-      },
-    })
-  }, [buildPatch, clearTimers, saveBlocked, updateDocument])
+              : error instanceof Error
+                ? error.message
+                : '문서를 저장하지 못했습니다',
+          )
+          setState('error')
+          maxTimer.current = window.setTimeout(saveNow, RETRY_MS)
+        },
+      })
+    },
+    [buildPatch, clearTimers, saveBlocked, updateDocument, commitLiveSnapshot],
+  )
 
   const scheduleSave = useCallback(() => {
     dirtyRef.current = true
     setState((prev) => (prev === 'saving' ? prev : 'dirty'))
+    // 체크포인트(스냅샷) 대비 달라졌다 — [취소](규약 C)가 이제 의미를 갖는다. 자동 저장이
+    // 성공해도(저장 상태는 clean으로 돌아가도) 이 값은 되돌리지 않는다.
+    setChangedFromSnapshot(true)
     if (composingRef.current) return
     if (idleTimer.current !== null) window.clearTimeout(idleTimer.current)
     idleTimer.current = window.setTimeout(saveNow, IDLE_MS)
@@ -272,7 +418,8 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
-        saveNow()
+        // 규약 B — Ctrl+S는 상시 [저장] 버튼과 **같은 명시 저장**이다(체크포인트도 함께 갱신).
+        saveNow({ explicit: true })
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -308,6 +455,18 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
   useLayoutEffect(
     () => () => {
       clearTimers()
+      // 검토 경미 B — `cancelRetryTimer`는 `clearTimers()`가 건드리지 않으므로(자동저장이
+      // 진행 중인 [취소] 재시도를 지워버리지 않게) 진짜 이탈인 여기서만 명시적으로 정리한다.
+      if (cancelRetryTimer.current !== null) {
+        window.clearTimeout(cancelRetryTimer.current)
+        cancelRetryTimer.current = null
+      }
+      // 규약 E — 명시 버튼 없는 정상 이탈(목록 이동·"편집 종료" 등)도 유지 확정으로 간주해
+      // 스냅샷을 지운다(자동 저장이 이미 서버에 반영). 지우지 않으면 다음 진입에서 거짓 복구
+      // 다이얼로그가 뜬다(DoD 4·5 — 거짓 다이얼로그 0). **단, 크래시 복구 결정이 아직 나지
+      // 않은 동안은 지우지 않는다**(경미 3 — StrictMode(dev) 합성 언마운트 방어. 노트 표면과
+      // 동일 사유 — `NoteEditPage.tsx` 참조).
+      if (!recoveryPendingRef.current) clearDocBlockSnapshot(loadedDocId)
       // 마지막 저장에도 같은 가드를 건다(D-1) — 문서가 어긋난 채로는 흘려보내지 않는다.
       if (!dirtyRef.current || saveBlockedRef.current()) return
       const patch = buildPatchRef.current()
@@ -331,6 +490,53 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
     if (body) setProjection(body.markdown)
     setPreview(true)
   }
+
+  /**
+   * [취소](규약 C — ② 확정: 편집 세션 진입 시점 원본 스냅샷 복귀) — 체크포인트로 편집기
+   * 문서(본문·해설)·제목·보기·정답·난이도를 되돌린 뒤 **저장**한다(자동저장이 이미 서버에
+   * 쓴 분까지 물린다). IME 조합 중이면 본문이 다치지 않게 조합이 끝난 뒤로 미룬다.
+   */
+  const performCancel = useCallback(() => {
+    if (composingRef.current) {
+      // 검토 경미 4 — 추적 가능한 ref에 재시도 타이머를 담아 언마운트 cleanup이 정리할 수
+      // 있게 한다(추적 안 하면 죽은 편집기에 뒤늦게 restore·PATCH가 발사된다). **경미 B** —
+      // `clearTimers()`는 건드리지 않는다(자동저장이 이 재시도를 조용히 지우면 [취소]가
+      // 무시된다) — 이 ref는 여기(재무장)와 언마운트 cleanup(정리)에서만 손댄다.
+      cancelRetryTimer.current = window.setTimeout(performCancel, IDLE_MS)
+      return
+    }
+    cancelRetryTimer.current = null
+    const snap = liveSnapshotRef.current
+    if (!snap) return
+    contentRef.current?.restore(snap.content)
+    if (snap.explanation) explanationRef.current?.restore(snap.explanation)
+    setTitle(snap.title)
+    setChoices(snap.choices)
+    setAnswer(snap.answer)
+    setDifficulty(snap.difficulty)
+    // 검토 치명 1 — `formRef.current`는 렌더 중에만 갱신되므로, 위 setState 직후 같은
+    // 이벤트 핸들러 안에서 곧바로 `saveNow`(→ `buildPatch`)를 부르면 아직 **편집분(되돌리기
+    // 이전) 값**을 읽는다. 화면은 복귀돼 보여도 서버엔 편집분이 남고, 그 값으로
+    // commitLiveSnapshot이 체크포인트를 잡아 [취소]가 비활성되며 재진입 시 편집분이 부활한다.
+    // `saveNow` 호출 **전에** formRef를 직접 스냅샷 값으로 맞춘다(노트 표면의
+    // `titleRef.current = snap.title` 패턴과 동일).
+    formRef.current = {
+      title: snap.title,
+      choices: snap.choices,
+      answer: snap.answer,
+      difficulty: snap.difficulty,
+    }
+    dirtyRef.current = true
+    setState('dirty')
+    setChangedFromSnapshot(true)
+    // 명시 저장(규약 B — 상시 [저장]과 같은 flush)으로 복귀분을 즉시 서버에 반영하고,
+    // 성공하면 체크포인트도 이 복귀 시점으로 다시 잡는다(commitLiveSnapshot).
+    saveNow({ explicit: true })
+  }, [saveNow])
+
+  const saveDisabled = state === 'clean' || state === 'saving'
+  // 규약 C — 변경분(체크포인트 대비)이 없으면 비활성. 규약 E 상한 — 스냅샷 확보 실패 시 비활성.
+  const cancelDisabled = !snapshotOk || !changedFromSnapshot
 
   const statusText =
     state === 'saving'
@@ -390,11 +596,26 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className={state === 'error' ? 'text-wrong' : 'text-muted'}>{statusText}</span>
         {state === 'error' && errorMessage && <span className="text-wrong">{errorMessage}</span>}
-        {state === 'error' && (
-          <button type="button" onClick={saveNow} className="rounded border border-border px-2 py-0.5 text-primary">
-            지금 저장
-          </button>
-        )}
+        {/* FB-2(stage-39 규약 A·B — F-1 실측 편입분) — 상시 [저장]/[취소]. 종전 "실패 시에만
+            지금 저장" 조건부 버튼은 이 상시 [저장]으로 흡수됐다(문구·의미는 저장 상태 4종 그대로
+            병존). "편집 종료"(저장+닫기)는 별개 성격으로 위 제목 행에 그대로 둔다. */}
+        <button
+          type="button"
+          onClick={() => saveNow({ explicit: true })}
+          disabled={saveDisabled}
+          className="rounded border border-accent px-2 py-0.5 text-accent disabled:cursor-not-allowed disabled:border-border disabled:text-muted"
+        >
+          저장
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirmCancel(true)}
+          disabled={cancelDisabled}
+          className="rounded border border-border px-2 py-0.5 text-primary disabled:cursor-not-allowed disabled:text-muted"
+        >
+          취소
+        </button>
+        {!snapshotOk && snapshotErrorMessage && <span className="text-wrong">{snapshotErrorMessage}</span>}
         {convertedNotice && (
           <span className="text-muted">
             새 편집기 형식으로 전환했습니다 — 기존 Markdown 본문도 함께 저장되어 읽기·퀴즈·인쇄·검색은 그대로입니다.
@@ -488,6 +709,65 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
           <h2 className="mb-2 text-xs font-semibold text-muted">Markdown 미리보기 (저장되는 프로젝션)</h2>
           <MarkdownView content={projection} docNo={doc.doc_no} />
         </section>
+      )}
+
+      {/* 규약 C — [취소]는 확인 없이 폐기하지 않는다(파괴적 조작 관례). */}
+      {confirmCancel && (
+        <ConfirmDialog
+          title="편집 되돌리기"
+          message="편집 내용을 되돌릴까요? 이 문서를 열었을 때의 상태로 복원되고, 그 사이 자동 저장된 내용도 함께 되돌아갑니다."
+          confirmLabel="되돌리기"
+          danger
+          onConfirm={() => {
+            setConfirmCancel(false)
+            performCancel()
+          }}
+          onClose={() => setConfirmCancel(false)}
+        />
+      )}
+
+      {/* 규약 E — 재진입에서 미폐기 스냅샷을 발견했을 때만(예기치 못한 종료). 조용한 자동
+          선택은 없다 — 사용자가 둘 중 하나를 직접 고른다. */}
+      {recoveryPrompt && (
+        <Modal
+          title="이전 편집 복구"
+          onClose={() => {
+            // 경미 3 — 결정 없이 닫아도(X·Esc·오버레이) "이어서 편집"과 동일하게 결정 완료로
+            // 간주한다(비파괴 기본값). 이제부터는 정상 이탈에서 스냅샷을 지워도 된다.
+            recoveryPendingRef.current = false
+            setRecoveryPrompt(null)
+          }}
+        >
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-primary">
+              이전 편집이 정상적으로 종료되지 않았습니다. 자동 저장된 내용을 이어서 편집할까요,
+              편집을 시작하기 전 상태로 되돌릴까요?
+            </p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  recoveryPendingRef.current = false
+                  performCancel()
+                  setRecoveryPrompt(null)
+                }}
+                className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
+              >
+                원본으로 되돌리기
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  recoveryPendingRef.current = false
+                  setRecoveryPrompt(null)
+                }}
+                className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90"
+              >
+                이어서 편집
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )

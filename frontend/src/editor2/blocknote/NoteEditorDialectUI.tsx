@@ -18,6 +18,7 @@ import { useRefPickerCommands } from './refPicker/RefUiProvider'
 import FindReplacePanel from './find/FindReplacePanel'
 import { buildSlashItems } from './slash/slashItems'
 import TableAlignBar from './tableAlign/TableAlignBar'
+import DockedFormattingToolbar from './toolbar/DockedFormattingToolbar'
 import NoteFormattingToolbar from './toolbar/NoteFormattingToolbar'
 import { useAtomMarkGuard } from './toolbar/useAtomMarkGuard'
 import { useHistoryShortcuts } from './toolbar/useHistoryShortcuts'
@@ -39,6 +40,9 @@ export default function NoteEditorDialectUI() {
 
   return (
     <>
+      {/* 도킹 서식 툴바(stage-40 FB-9, 규약 A①②) — 부유 컨트롤러와 병행. DOM 순서는 여기지만
+          CSS `order`(notes.css)로 편집 표면 최상단·sticky에 앉힌다(구현 재량 — 규약 A①). */}
+      <DockedFormattingToolbar />
       <FormattingToolbarController formattingToolbar={NoteFormattingToolbar} />
       <SuggestionMenuController
         triggerCharacter="/"

@@ -15,6 +15,7 @@ import '@blocknote/mantine/style.css'
 import '../blocknote/notes.css'
 import MarkdownView from '../../components/MarkdownView'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import Modal from '../../components/Modal'
 import { blocksToMarkdown } from '../transform'
 import {
   describeUnsupported,
@@ -44,12 +45,21 @@ import {
 import { useDeleteNote, useNote, useUpdateNote, type Note } from '../api/notes'
 import { useNoteDocumentTitle } from '../lib/useNoteDocumentTitle'
 import { useTitleHistory } from '../lib/useTitleHistory'
+import {
+  clearNoteSnapshot,
+  noteSnapshotsEqual,
+  readNoteSnapshot,
+  writeNoteSnapshot,
+  type NoteSnapshot,
+} from '../lib/noteSessionSnapshot'
 
 /** 규약 C — 유휴 1.5초 · 최대 대기 10초. */
 const IDLE_MS = 1500
 const MAX_WAIT_MS = 10000
 /** 저장 실패 후 다음 재시도까지(로컬 편집분은 버리지 않는다 — 규약 C). */
 const RETRY_MS = 5000
+/** [취소] 복귀 대상 스냅샷이 빈 문서였을 때의 최소 문서(빈 배열은 편집기에 넘길 수 없다). */
+const EMPTY_BLOCKS: BnBlock[] = [{ type: 'paragraph', content: [] }]
 
 type SaveState = 'clean' | 'dirty' | 'saving' | 'error'
 
@@ -201,14 +211,42 @@ function EditableNote({
   const [projection, setProjection] = useState(note.content)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
+  // 세션 원본 스냅샷(규약 E) — [취소](규약 C)의 복귀 기준점과 동일 실체. `liveSnapshotRef`는
+  // "지금 취소하면 무엇으로 돌아가는가"의 살아있는 값(체크포인트 — 진입 시점에서 시작해 매 명시
+  // [저장]/[취소] 성공마다 그 시점으로 갱신된다), localStorage 사본은 크래시 감지 전용이다.
+  const liveSnapshotRef = useRef<NoteSnapshot | null>(null)
+  const [snapshotOk, setSnapshotOk] = useState(true)
+  const [snapshotErrorMessage, setSnapshotErrorMessage] = useState<string | null>(null)
+  // 체크포인트 이후 실제로 뭔가 바뀌었는지(저장 상태 4종의 dirty와는 별개 — 자동저장이 이미
+  // 서버에 반영된 뒤에도 "체크포인트 대비 달라졌다"는 사실은 남아 있어야 [취소]가 의미가 있다).
+  const [changedFromSnapshot, setChangedFromSnapshot] = useState(false)
+  // 재진입에서 미폐기 스냅샷을 발견했을 때만 채워진다 — 복구 선택 다이얼로그(규약 E).
+  const [recoveryPrompt, setRecoveryPrompt] = useState<NoteSnapshot | null>(null)
+  const [confirmCancel, setConfirmCancel] = useState(false)
+
   const titleRef = useRef(title)
   titleRef.current = title
   const dirtyRef = useRef(false)
   const composingRef = useRef(false)
   const idleTimer = useRef<number | null>(null)
   const maxTimer = useRef<number | null>(null)
+  // 검토 경미 4 — [취소]가 IME 조합 중이라 재시도로 미룬 타이머. 추적하지 않으면 언마운트
+  // 뒤에도 살아남아 죽은 편집기에 replaceBlocks·PATCH를 쏘는 경로가 열린다.
+  const cancelRetryTimer = useRef<number | null>(null)
   const inFlight = useRef(false)
+  // 검토 경미 3 — React StrictMode(dev) 이중 마운트 방어. 마운트 이펙트가 크래시 복구를
+  // 감지해 다이얼로그를 띄운 직후 dev 전용 합성 언마운트가 스냅샷을 지우면(그리고 곧바로
+  // 재마운트가 "부재"로 오판해 현재분으로 체크포인트를 덮어쓰면) "원본으로 되돌리기"가
+  // no-op이 된다. 복구 결정이 나기 전에는 언마운트 정리가 스냅샷을 지우지 않게 이 ref로 막는다
+  // (실제 이탈이든 StrictMode 합성 이탈이든 동일 — 결정 전 이탈은 "아직 미해결"이라 보존이 맞다).
+  const recoveryPendingRef = useRef(false)
 
+  // 검토 경미 B — `clearTimers()`는 자동저장(`saveNow` 서두)에서도 불린다. `cancelRetryTimer`를
+  // 여기서 함께 지우면, 조합 중 [취소] 확인 후 재시도를 기다리는 동안 자동저장(특히 maxTimer
+  // 10초 만기)이 발사돼 `saveNow`가 `clearTimers()`를 부르는 순간 재시도 타이머가 지워지고
+  // 재무장되지 않아 "되돌리기"가 조용히 무시된다. **`cancelRetryTimer`는 이 함수가 건드리지
+  // 않고 언마운트 cleanup에서만 정리한다**(죽은 편집기로의 발사만 막으면 충분 — 살아있는 동안은
+  // 재시도가 스스로를 재무장한다).
   const clearTimers = useCallback(() => {
     if (idleTimer.current !== null) window.clearTimeout(idleTimer.current)
     if (maxTimer.current !== null) window.clearTimeout(maxTimer.current)
@@ -218,6 +256,46 @@ function EditableNote({
 
   /** 표 열 정렬 폐기를 이미 알린 블록 id — 자동 저장마다 같은 배너가 반복되지 않게 한다. */
   const alignNotifiedRef = useRef<Set<string>>(new Set())
+
+  /**
+   * 스냅샷 체크포인트를 (재)확보한다 — 진입 시점(생략 진입) · 명시 [저장] 성공 후 · [취소] 복귀
+   * 성공 후 3곳에서만 부른다(규약 E "세션 갱신 시 대체" — 자동 저장은 이 체크포인트를 옮기지
+   * 않는다. 그래야 자동저장이 서버에 이미 반영한 분과 체크포인트가 계속 달라 크래시 복구가
+   * 의미 있게 동작한다). 기록 실패 시 `snapshotOk=false` — 호출부가 [취소]를 비활성한다.
+   */
+  const commitLiveSnapshot = useCallback(
+    (nextTitle: string, blocks: BnBlock[], sidecar: AdapterSidecar) => {
+      const snap: NoteSnapshot = { title: nextTitle, blocks, sidecar: { ...sidecar } }
+      const ok = writeNoteSnapshot(note.id, snap)
+      liveSnapshotRef.current = snap
+      setSnapshotOk(ok)
+      setSnapshotErrorMessage(
+        ok ? null : '이 브라우저에 편집 내용을 기록하지 못했습니다 — 취소를 쓸 수 없습니다.',
+      )
+      setChangedFromSnapshot(false)
+    },
+    [note.id],
+  )
+
+  // 진입 시점 스냅샷 확보(마운트 1회) — 미폐기 스냅샷을 발견하면 크래시 복구 다이얼로그로,
+  // 없거나 손상됐으면(또는 정상 종결 직후 그대로면) 조용히 새 체크포인트를 확보한다.
+  useEffect(() => {
+    const found = readNoteSnapshot(note.id)
+    if (found && !noteSnapshotsEqual(found, { title: note.title, blocks: initialBlocks })) {
+      liveSnapshotRef.current = found
+      setSnapshotOk(true)
+      setSnapshotErrorMessage(null)
+      // 이미 로드된 내용(자동저장분)이 스냅샷과 다르다는 뜻 — [취소]가 곧바로 유효하다.
+      setChangedFromSnapshot(true)
+      // 결정 전 이탈(StrictMode 합성 언마운트 포함)로부터 스냅샷을 지킨다(경미 3).
+      recoveryPendingRef.current = true
+      setRecoveryPrompt(found)
+    } else {
+      commitLiveSnapshot(note.title, initialBlocks, sidecarRef.current)
+    }
+    // 마운트 1회만 — note.id별로 컴포넌트가 새로 마운트된다(NoteEditPage의 key=note.id).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /** 편집기 문서 → 앱 블록 → Markdown 프로젝션(규약 A: 저장 요청에 함께 싣는다). */
   const buildBody = useCallback(() => {
@@ -235,46 +313,74 @@ function EditableNote({
     return { content_blocks: doc, content: blocksToMarkdown(doc) }
   }, [editor])
 
-  const saveNow = useCallback(() => {
-    clearTimers()
-    if (!dirtyRef.current) return
-    // IME 조합 중(규약 C)이거나 직전 저장이 비행 중이면 **버리지 않고 뒤로 미룬다**
-    // — 타이머를 지운 채 그냥 돌아가면 그 편집분이 다음 입력 때까지 저장되지 않는다.
-    if (composingRef.current || inFlight.current) {
-      idleTimer.current = window.setTimeout(saveNow, IDLE_MS)
-      return
-    }
+  /**
+   * `explicit` = 사용자가 명시적으로 명한 저장(상시 [저장] 버튼·Ctrl+S — 규약 B: 같은 flush
+   * 경로). 자동 저장(디바운스·최대 대기·실패 재시도)은 항상 `explicit=false`. 성공한 명시
+   * 저장만 스냅샷 체크포인트를 그 시점으로 옮긴다(규약 E — 자동 저장은 체크포인트를 옮기지
+   * 않아야 크래시 복구가 의미 있다).
+   */
+  const saveNow = useCallback(
+    (opts?: { explicit?: boolean }) => {
+      clearTimers()
+      if (!dirtyRef.current) return
+      // IME 조합 중(규약 C)이거나 직전 저장이 비행 중이면 **버리지 않고 뒤로 미룬다**
+      // — 타이머를 지운 채 그냥 돌아가면 그 편집분이 다음 입력 때까지 저장되지 않는다.
+      if (composingRef.current || inFlight.current) {
+        idleTimer.current = window.setTimeout(() => saveNow(opts), IDLE_MS)
+        return
+      }
 
-    const body = buildBody()
-    setProjection(body.content)
-    dirtyRef.current = false
-    inFlight.current = true
-    setState('saving')
-    updateNote.mutate(
-      { id: note.id, title: titleRef.current, ...body },
-      {
-        onSuccess: () => {
-          inFlight.current = false
-          setSavedAt(new Date())
-          setErrorMessage(null)
-          setState(dirtyRef.current ? 'dirty' : 'clean')
+      const body = buildBody()
+      setProjection(body.content)
+      dirtyRef.current = false
+      inFlight.current = true
+      setState('saving')
+      updateNote.mutate(
+        { id: note.id, title: titleRef.current, ...body },
+        {
+          onSuccess: () => {
+            inFlight.current = false
+            setSavedAt(new Date())
+            setErrorMessage(null)
+            setState(dirtyRef.current ? 'dirty' : 'clean')
+            if (opts?.explicit) {
+              // 검토 중요 2 — 여기서 `asAdapterBlocks(editor.document)`(실 편집기 스키마 산출물)를
+              // 그대로 체크포인트에 쓰면 재진입 로드분(`toBlockNoteBlocks`)과 구조가 달라(모든
+              // 블록의 `children`/`props` 유무 차이·표 셀 표현 차이·경성 줄바꿈 런 분할 차이 등
+              // — 실측: scratchpad 검증 스크립트) `noteSnapshotsEqual`이 내용이 같아도 항상
+              // false를 낸다. **방금 저장한 그 앱 블록(`body.content_blocks`)을 다시
+              // `toBlockNoteBlocks`로 되읽어** 재진입과 완전히 같은 함수·같은 형태를 만든다
+              // (정규화로 흉내 내는 대신 "같은 경로를 태운다"가 더 강한 보장).
+              const reloaded = toBlockNoteBlocks(body.content_blocks)
+              if (reloaded.unsupported.length === 0) {
+                commitLiveSnapshot(titleRef.current, reloaded.blocks, reloaded.sidecar)
+              }
+              // unsupported면(이론상 발생하지 않는다 — 방금 편집기에서 나온 데이터다) 재커밋을
+              // 건너뛴다 — 이전 체크포인트가 남는 편이 형태를 모르는 값을 쓰는 것보다 안전하다.
+            }
+          },
+          onError: (error) => {
+            inFlight.current = false
+            // 로컬 편집분을 버리지 않는다 — 다시 dirty로 돌리고 다음 주기에 재시도한다.
+            dirtyRef.current = true
+            setErrorMessage(error instanceof Error ? error.message : '노트를 저장하지 못했습니다')
+            setState('error')
+            maxTimer.current = window.setTimeout(saveNow, RETRY_MS)
+          },
         },
-        onError: (error) => {
-          inFlight.current = false
-          // 로컬 편집분을 버리지 않는다 — 다시 dirty로 돌리고 다음 주기에 재시도한다.
-          dirtyRef.current = true
-          setErrorMessage(error instanceof Error ? error.message : '노트를 저장하지 못했습니다')
-          setState('error')
-          maxTimer.current = window.setTimeout(saveNow, RETRY_MS)
-        },
-      },
-    )
-  }, [buildBody, clearTimers, note.id, updateNote])
+      )
+    },
+    [buildBody, clearTimers, note.id, updateNote, commitLiveSnapshot],
+  )
 
   /** 규약 C — 디바운스(유휴 1.5초) + 최대 대기 10초. */
   const scheduleSave = useCallback(() => {
     dirtyRef.current = true
     setState((prev) => (prev === 'saving' ? prev : 'dirty'))
+    // 체크포인트(스냅샷) 대비 달라졌다 — [취소](규약 C)가 이제 의미를 갖는다. 자동 저장이
+    // 성공해도(저장 상태는 clean으로 돌아가도) 이 값은 되돌리지 않는다: [취소]는 "자동저장이
+    // 이미 서버에 쓴 분까지" 물려야 하기 때문이다.
+    setChangedFromSnapshot(true)
     if (composingRef.current) return
     if (idleTimer.current !== null) window.clearTimeout(idleTimer.current)
     idleTimer.current = window.setTimeout(saveNow, IDLE_MS)
@@ -296,7 +402,8 @@ function EditableNote({
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
-        saveNow()
+        // 규약 B — Ctrl+S는 상시 [저장] 버튼과 **같은 명시 저장**이다(체크포인트도 함께 갱신).
+        saveNow({ explicit: true })
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -318,6 +425,12 @@ function EditableNote({
   useEffect(
     () => () => {
       clearTimers()
+      // 검토 경미 B — `cancelRetryTimer`는 `clearTimers()`가 건드리지 않으므로(자동저장이 진행
+      // 중인 [취소] 재시도를 지워버리지 않게) 진짜 이탈인 여기서만 명시적으로 정리한다.
+      if (cancelRetryTimer.current !== null) {
+        window.clearTimeout(cancelRetryTimer.current)
+        cancelRetryTimer.current = null
+      }
       if (dirtyRef.current) {
         syncTableAlignIntoSidecar(editor, sidecarRef.current)
         const doc = fromBlockNoteBlocks(asAdapterBlocks(editor.document), sidecarRef.current)
@@ -328,6 +441,14 @@ function EditableNote({
           content: blocksToMarkdown(doc),
         })
       }
+      // 규약 E — 명시 버튼 없는 정상 이탈(목록 이동 등)도 "유지 확정"으로 간주해 스냅샷을
+      // 지운다(자동 저장이 이미 서버에 반영했다). 지우지 않으면 다음 진입에서 거짓 복구
+      // 다이얼로그가 뜬다(DoD 4·5 — 거짓 다이얼로그 0). **단, 크래시 복구 결정이 아직 나지
+      // 않은 동안은 지우지 않는다**(경미 3) — StrictMode(dev) 합성 언마운트가 이 폐기를
+      // 밟으면 재마운트가 "부재"로 오판해 체크포인트를 현재분으로 덮어써 복구 다이얼로그가
+      // no-op이 된다. 결정이 안 난 이탈(진짜든 합성이든)은 "아직 미해결"이라 보존이 맞다 —
+      // 다음 진입에 같은 다이얼로그가 다시 뜨는 것은 거짓이 아니라 정확한 재고지다.
+      if (!recoveryPendingRef.current) clearNoteSnapshot(note.id)
     },
     // 언마운트 1회만 — 의존성으로 재실행되면 매 렌더 저장이 돈다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -348,6 +469,39 @@ function EditableNote({
       },
     })
   }
+
+  /**
+   * [취소](규약 C — ② 확정: 편집 세션 진입 시점 원본 스냅샷 복귀) — 체크포인트로 편집기
+   * 문서·제목·사이드카를 되돌린 뒤 **저장**한다(자동저장이 이미 서버에 쓴 분까지 물린다).
+   * IME 조합 중이면 본문이 다치지 않게 조합이 끝난 뒤로 미룬다(규약 B의 조합 중 보류 계승).
+   */
+  const performCancel = useCallback(() => {
+    if (composingRef.current) {
+      // 검토 경미 4 — 추적 가능한 ref에 재시도 타이머를 담아 언마운트 cleanup이 정리할 수
+      // 있게 한다(추적 안 하면 죽은 편집기에 뒤늦게 replaceBlocks·PATCH가 발사된다). **경미
+      // B** — `clearTimers()`는 건드리지 않는다(자동저장이 이 재시도를 조용히 지우면 [취소]가
+      // 무시된다) — 이 ref는 여기(재무장)와 언마운트 cleanup(정리)에서만 손댄다.
+      cancelRetryTimer.current = window.setTimeout(performCancel, IDLE_MS)
+      return
+    }
+    cancelRetryTimer.current = null
+    const snap = liveSnapshotRef.current
+    if (!snap) return
+    editor.replaceBlocks(editor.document, asEditorBlocks(snap.blocks.length > 0 ? snap.blocks : EMPTY_BLOCKS))
+    sidecarRef.current = { ...snap.sidecar }
+    setTitle(snap.title)
+    titleRef.current = snap.title
+    dirtyRef.current = true
+    setState('dirty')
+    setChangedFromSnapshot(true)
+    // 명시 저장(규약 B — 상시 [저장]과 같은 flush)으로 복귀분을 즉시 서버에 반영하고,
+    // 성공하면 체크포인트도 이 복귀 시점으로 다시 잡는다(commitLiveSnapshot).
+    saveNow({ explicit: true })
+  }, [editor, saveNow])
+
+  const saveDisabled = state === 'clean' || state === 'saving'
+  // 규약 C — 변경분(체크포인트 대비)이 없으면 비활성. 규약 E 상한 — 스냅샷 확보 실패 시 비활성.
+  const cancelDisabled = !snapshotOk || !changedFromSnapshot
 
   const statusText =
     state === 'saving'
@@ -415,11 +569,25 @@ function EditableNote({
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className={state === 'error' ? 'text-wrong' : 'text-muted'}>{statusText}</span>
         {state === 'error' && errorMessage && <span className="text-wrong">{errorMessage}</span>}
-        {state === 'error' && (
-          <button type="button" onClick={saveNow} className="rounded border border-border px-2 py-0.5 text-primary">
-            지금 저장
-          </button>
-        )}
+        {/* FB-2(stage-39 규약 A·B) — 상시 [저장]/[취소]. 종전 "실패 시에만 지금 저장" 조건부
+            버튼은 이 상시 [저장]으로 흡수됐다(문구·의미는 위 저장 상태 4종 그대로 병존). */}
+        <button
+          type="button"
+          onClick={() => saveNow({ explicit: true })}
+          disabled={saveDisabled}
+          className="rounded border border-accent px-2 py-0.5 text-accent disabled:cursor-not-allowed disabled:border-border disabled:text-muted"
+        >
+          저장
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirmCancel(true)}
+          disabled={cancelDisabled}
+          className="rounded border border-border px-2 py-0.5 text-primary disabled:cursor-not-allowed disabled:text-muted"
+        >
+          취소
+        </button>
+        {!snapshotOk && snapshotErrorMessage && <span className="text-wrong">{snapshotErrorMessage}</span>}
       </div>
 
       {(uploadQueue.status.active || uploadQueue.status.failures.length > 0) && (
@@ -522,6 +690,65 @@ function EditableNote({
           onConfirm={onDelete}
           onClose={() => setConfirmDelete(false)}
         />
+      )}
+
+      {/* 규약 C — [취소]는 확인 없이 폐기하지 않는다(파괴적 조작 관례). */}
+      {confirmCancel && (
+        <ConfirmDialog
+          title="편집 되돌리기"
+          message="편집 내용을 되돌릴까요? 이 노트를 열었을 때의 상태로 복원되고, 그 사이 자동 저장된 내용도 함께 되돌아갑니다."
+          confirmLabel="되돌리기"
+          danger
+          onConfirm={() => {
+            setConfirmCancel(false)
+            performCancel()
+          }}
+          onClose={() => setConfirmCancel(false)}
+        />
+      )}
+
+      {/* 규약 E — 재진입에서 미폐기 스냅샷을 발견했을 때만(예기치 못한 종료). 조용한 자동
+          선택은 없다 — 사용자가 둘 중 하나를 직접 고른다. */}
+      {recoveryPrompt && (
+        <Modal
+          title="이전 편집 복구"
+          onClose={() => {
+            // 경미 3 — 결정 없이 닫아도(X·Esc·오버레이) "이어서 편집"과 동일하게 결정 완료로
+            // 간주한다(비파괴 기본값). 이제부터는 정상 이탈에서 스냅샷을 지워도 된다.
+            recoveryPendingRef.current = false
+            setRecoveryPrompt(null)
+          }}
+        >
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-primary">
+              이전 편집이 정상적으로 종료되지 않았습니다. 자동 저장된 내용을 이어서 편집할까요,
+              편집을 시작하기 전 상태로 되돌릴까요?
+            </p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  recoveryPendingRef.current = false
+                  performCancel()
+                  setRecoveryPrompt(null)
+                }}
+                className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
+              >
+                원본으로 되돌리기
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  recoveryPendingRef.current = false
+                  setRecoveryPrompt(null)
+                }}
+                className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90"
+              >
+                이어서 편집
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )
