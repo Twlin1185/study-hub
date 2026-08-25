@@ -303,13 +303,27 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
    * `explicit` = 사용자가 명시적으로 명한 저장(상시 [저장] 버튼·Ctrl+S — 규약 B: 같은 flush
    * 경로). 자동 저장(디바운스·최대 대기·실패 재시도)은 항상 `explicit=false`. 성공한 명시
    * 저장·[취소] 복귀만 스냅샷 체크포인트를 그 시점으로 옮긴다(규약 E).
+   *
+   * `onSaved` = 검토 중요 1 — 문서 표면 상단 [취소] 버튼(`performCancel({close:true})`)의
+   * 닫기를 **저장 성공 후**로 미루기 위한 콜백. 정상 경로는 `onSuccess` 안(체크포인트 commit
+   * 뒤)에서 부른다. 미뤄진 경로(IME 조합 중·직전 저장 비행 중)와 실패 재시도 경로는 `opts`를
+   * 그대로 다음 `saveNow` 호출에 넘기므로 `onSaved`도 자연히 전파된다 — 재시도가 성공하는 순간
+   * 그제서야 닫힌다. 실패 상태로 남아 있는 동안은 편집기가 열린 채 "저장 실패" 표시를 보여준다
+   * (조용한 손실 경로 없음).
    */
   const saveNow = useCallback(
-    (opts?: { explicit?: boolean }) => {
+    (opts?: { explicit?: boolean; onSaved?: () => void }) => {
       clearTimers()
-      if (!dirtyRef.current) return
+      if (!dirtyRef.current) {
+        // 변경분이 없다 = 이미 저장된 상태(직전 저장이 방금 반영했거나 애초에 dirty가 아니었던
+        // 경우) — 새로 보낼 것이 없으므로 이 자리에서 바로 완료로 취급한다(닫기가 무기한 보류될
+        // 이유가 없다).
+        opts?.onSaved?.()
+        return
+      }
       // 표면과 화면의 문서가 어긋났으면 **어느 문서에도 쓰지 않는다**(D-1 가드). 편집분은 dirty로
-      // 남겨 두어 화면이 원래 문서로 돌아오면 다음 주기에 정상 저장된다.
+      // 남겨 두어 화면이 원래 문서로 돌아오면 다음 주기에 정상 저장된다. 이 경우 저장이 되지
+      // 않았으므로 `onSaved`는 부르지 않는다(닫기를 유예 — 드문 인스턴스 재사용 상황).
       if (saveBlocked()) return
       // IME 조합 중이거나 직전 저장이 비행 중이면 버리지 않고 뒤로 미룬다(규약 C).
       if (composingRef.current || inFlight.current) {
@@ -318,6 +332,12 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
       }
 
       const patch = buildPatch()
+      // 검토 경미 ⑤ — 체크포인트는 **이 저장이 실제로 실어 보낸 폼 값**이어야 한다.
+      // `formRef.current`를 `onSuccess`(응답 도착 시점)에서 다시 읽으면, 요청이 비행 중인 동안
+      // 사용자가 폼(제목·보기·정답·난이도)을 더 고친 경우 그 나중 값 — 즉 **이 요청으로 저장된
+      // 적 없는 값** — 이 체크포인트가 되어 버린다. `mutate` 호출 **전**에 지역 상수로 캡처해
+      // 클로저에 담아 둔다.
+      const form = formRef.current
       if (patch.content != null) setProjection(patch.content)
       dirtyRef.current = false
       inFlight.current = true
@@ -340,7 +360,6 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
             // 그 앱 블록(`patch.content_blocks`/`patch.explanation_blocks`)을 다시
             // `toBlockNoteBlocks`로 되읽어** 재진입과 완전히 같은 함수·같은 형태를 만든다(노트
             // 표면과 동일 수정 — `NoteEditPage.tsx` 참조).
-            const form = formRef.current
             if (patch.content_blocks !== undefined) {
               const reloadedContent = toBlockNoteBlocks(patch.content_blocks)
               // 해설: 이 저장에 해설 쌍이 없었으면(질문형이 아니거나 애초에 안 보냈으면) `undefined`
@@ -373,6 +392,8 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
               }
             }
           }
+          // 검토 중요 1 — 체크포인트 commit까지 끝난 뒤에만 완료를 알린다(닫기는 저장 성공 후).
+          opts?.onSaved?.()
         },
         onError: (error) => {
           inFlight.current = false
@@ -386,7 +407,10 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
                 : '문서를 저장하지 못했습니다',
           )
           setState('error')
-          maxTimer.current = window.setTimeout(saveNow, RETRY_MS)
+          // 검토 경미 ⑥ — `opts`(명시 저장 여부)를 재시도에도 그대로 넘긴다. `saveNow`만 넘기면
+          // 재시도가 성공해도 `opts?.explicit`가 사라져 명시 저장의 재시도 성공이 체크포인트를
+          // 옮기지 못한다.
+          maxTimer.current = window.setTimeout(() => saveNow(opts), RETRY_MS)
         },
       })
     },
@@ -495,44 +519,84 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
    * [취소](규약 C — ② 확정: 편집 세션 진입 시점 원본 스냅샷 복귀) — 체크포인트로 편집기
    * 문서(본문·해설)·제목·보기·정답·난이도를 되돌린 뒤 **저장**한다(자동저장이 이미 서버에
    * 쓴 분까지 물린다). IME 조합 중이면 본문이 다치지 않게 조합이 끝난 뒤로 미룬다.
+   *
+   * FB-12 — `opts.close`가 true면(문서 표면 상단 [취소] 버튼) 되돌리기가 **저장까지 성공한
+   * 뒤에만**(`saveNow`의 `onSaved` 콜백) `onClose()`를 불러 편집을 종료한다("취소했는데 편집이
+   * 안 끝난다"는 사용자 피드백 — 문서 표면에는 별도의 [편집 종료]가 있어 [취소]는 종전에
+   * 되돌리기만 하고 계속 편집 상태였다). **검토 중요 1** — 종전에는 `saveNow` 디스패치 직후
+   * 동기 `onClose()`를 불러 편집기가 곧바로 언마운트됐다. 이러면 저장이 실패해도(네트워크 오류
+   * 등) `useMutation`의 `hasListeners()` 게이트로 `onError`가 조용히 무시되고(TanStack Query
+   * 계약 — 구독자 없는 뮤테이션의 콜백은 호출되지 않는다), 언마운트 cleanup은
+   * `clearDocBlockSnapshot`으로 스냅샷까지 지워 재진입 [취소]로도 원본 복귀가 불가능했다(조용한
+   * 손실 경로). 지금은 저장이 실패하면 편집기가 열린 채 기존 "저장 실패" 표시 + 자동 재시도가
+   * 돌고, 재시도가 성공하는 순간에만 `onSaved`(=`onClose`)가 불린다 — 스냅샷은 그동안 보존된다.
+   * **복구 다이얼로그의 "원본으로 되돌리기"는 `close` 없이(`performCancel()`) 부른다** — 그쪽은
+   * 편집을 계속하는 게 맞다(재진입 직후라 아직 아무것도 손대지 않았고, 사용자가 이어서 작업할
+   * 자리다).
+   *
+   * 되돌리기는 `BlockSurface.restore`(→ `editor.replaceBlocks`)로 이뤄지며, BlockNote는
+   * `editor.transact`로 감싼 변경을 **단일 undo 스텝**으로 묶는다(엔진 실측 —
+   * `@blocknote/core` `BlockManager.replaceBlocks`가 `editor.transact(...)`를 거치고,
+   * `transact`의 JSDoc이 "그룹 변경 = 단일 undo step"임을 명시). **⑧ undo 범위 정정** — 이
+   * "취소의 취소"는 **복구 다이얼로그의 "원본으로 되돌리기" 경로(편집 유지·`close` 없음)에
+   * 한해서만** 성립한다. 문서 표면 상단 [취소] 버튼(`close: true`) 경로는 저장 성공 후 곧바로
+   * 편집기가 언마운트되므로(닫힘) Ctrl+Z를 받을 표면 자체가 사라져 이 경로에는 해당하지 않는다.
+   * 성립하는 경로에서도 undo 대상은 **포커스된 본문 표면(BlockSurface)의 블록뿐**이다 — 해설
+   * 표면은 별도의 BlockNote 인스턴스라 독립된 히스토리를 가지고, 제목·보기·정답·난이도는 React
+   * state라 애초에 BlockNote undo 스택 밖이다.
    */
-  const performCancel = useCallback(() => {
-    if (composingRef.current) {
-      // 검토 경미 4 — 추적 가능한 ref에 재시도 타이머를 담아 언마운트 cleanup이 정리할 수
-      // 있게 한다(추적 안 하면 죽은 편집기에 뒤늦게 restore·PATCH가 발사된다). **경미 B** —
-      // `clearTimers()`는 건드리지 않는다(자동저장이 이 재시도를 조용히 지우면 [취소]가
-      // 무시된다) — 이 ref는 여기(재무장)와 언마운트 cleanup(정리)에서만 손댄다.
-      cancelRetryTimer.current = window.setTimeout(performCancel, IDLE_MS)
-      return
-    }
-    cancelRetryTimer.current = null
-    const snap = liveSnapshotRef.current
-    if (!snap) return
-    contentRef.current?.restore(snap.content)
-    if (snap.explanation) explanationRef.current?.restore(snap.explanation)
-    setTitle(snap.title)
-    setChoices(snap.choices)
-    setAnswer(snap.answer)
-    setDifficulty(snap.difficulty)
-    // 검토 치명 1 — `formRef.current`는 렌더 중에만 갱신되므로, 위 setState 직후 같은
-    // 이벤트 핸들러 안에서 곧바로 `saveNow`(→ `buildPatch`)를 부르면 아직 **편집분(되돌리기
-    // 이전) 값**을 읽는다. 화면은 복귀돼 보여도 서버엔 편집분이 남고, 그 값으로
-    // commitLiveSnapshot이 체크포인트를 잡아 [취소]가 비활성되며 재진입 시 편집분이 부활한다.
-    // `saveNow` 호출 **전에** formRef를 직접 스냅샷 값으로 맞춘다(노트 표면의
-    // `titleRef.current = snap.title` 패턴과 동일).
-    formRef.current = {
-      title: snap.title,
-      choices: snap.choices,
-      answer: snap.answer,
-      difficulty: snap.difficulty,
-    }
-    dirtyRef.current = true
-    setState('dirty')
-    setChangedFromSnapshot(true)
-    // 명시 저장(규약 B — 상시 [저장]과 같은 flush)으로 복귀분을 즉시 서버에 반영하고,
-    // 성공하면 체크포인트도 이 복귀 시점으로 다시 잡는다(commitLiveSnapshot).
-    saveNow({ explicit: true })
-  }, [saveNow])
+  const performCancel = useCallback(
+    (opts?: { close?: boolean }) => {
+      if (composingRef.current) {
+        // 검토 경미 4 — 추적 가능한 ref에 재시도 타이머를 담아 언마운트 cleanup이 정리할 수
+        // 있게 한다(추적 안 하면 죽은 편집기에 뒤늦게 restore·PATCH가 발사된다). **경미 B** —
+        // `clearTimers()`는 건드리지 않는다(자동저장이 이 재시도를 조용히 지우면 [취소]가
+        // 무시된다) — 이 ref는 여기(재무장)와 언마운트 cleanup(정리)에서만 손댄다.
+        // FB-12 — `opts`(close 여부)를 재시도에도 그대로 넘긴다. **여기(early return)에서는
+        // 절대 닫지 않는다** — 닫으면 언마운트 cleanup이 이 재시도 타이머를 지워 되돌리기가
+        // 영영 일어나지 않는다.
+        cancelRetryTimer.current = window.setTimeout(() => performCancel(opts), IDLE_MS)
+        return
+      }
+      cancelRetryTimer.current = null
+      const snap = liveSnapshotRef.current
+      if (!snap) return
+      contentRef.current?.restore(snap.content)
+      if (snap.explanation) explanationRef.current?.restore(snap.explanation)
+      setTitle(snap.title)
+      setChoices(snap.choices)
+      setAnswer(snap.answer)
+      setDifficulty(snap.difficulty)
+      // 검토 치명 1 — `formRef.current`는 렌더 중에만 갱신되므로, 위 setState 직후 같은
+      // 이벤트 핸들러 안에서 곧바로 `saveNow`(→ `buildPatch`)를 부르면 아직 **편집분(되돌리기
+      // 이전) 값**을 읽는다. 화면은 복귀돼 보여도 서버엔 편집분이 남고, 그 값으로
+      // commitLiveSnapshot이 체크포인트를 잡아 [취소]가 비활성되며 재진입 시 편집분이 부활한다.
+      // `saveNow` 호출 **전에** formRef를 직접 스냅샷 값으로 맞춘다(노트 표면의
+      // `titleRef.current = snap.title` 패턴과 동일).
+      formRef.current = {
+        title: snap.title,
+        choices: snap.choices,
+        answer: snap.answer,
+        difficulty: snap.difficulty,
+      }
+      dirtyRef.current = true
+      setState('dirty')
+      setChangedFromSnapshot(true)
+      // 명시 저장(규약 B — 상시 [저장]과 같은 flush)으로 복귀분을 즉시 서버에 반영하고,
+      // 성공하면 체크포인트도 이 복귀 시점으로 다시 잡는다(commitLiveSnapshot).
+      // 검토 중요 1 — `opts.close`가 true면 **저장이 실제로 성공한 뒤에만**(`onSaved` 콜백)
+      // `onClose()`를 부른다. 종전에는 이 호출 직후 동기적으로 닫아 실패를 무음 처리하고
+      // 스냅샷까지 지워 버렸다(위 JSDoc 참조) — 이제는 `saveNow`가 미룸(IME/inFlight)·재시도
+      // (onError)에도 `opts`를 그대로 넘기므로, 재시도가 성공하는 순간까지 편집기가 열려 있고
+      // 그동안 스냅샷도 보존된다. `dirtyRef.current`가 false라 `saveNow`가 조기 return 하는
+      // 경우도 있는데(예: 되돌린 값이 이미 서버 상태와 같아 위에서 다시 dirty=true로 세팅하지
+      // 않았다면) — 바로 위에서 `dirtyRef.current = true`를 항상 세팅하므로 이 표면 상단 [취소]
+      // 경로에서는 그 조기 return이 발생하지 않는다(확인됨). 그래도 `saveNow` 쪽에 방어적으로
+      // 조기 return 시 `onSaved`를 호출하는 처리를 남겨 뒀다(이미 저장된 상태로 취급).
+      saveNow({ explicit: true, onSaved: opts?.close ? onClose : undefined })
+    },
+    [saveNow, onClose],
+  )
 
   const saveDisabled = state === 'clean' || state === 'saving'
   // 규약 C — 변경분(체크포인트 대비)이 없으면 비활성. 규약 E 상한 — 스냅샷 확보 실패 시 비활성.
@@ -570,7 +634,7 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
           <button
             type="button"
             onClick={() => (preview ? setPreview(false) : openPreview())}
-            className={`rounded border px-2 py-1 text-sm ${
+            className={`min-h-[36px] rounded border px-2 py-1 text-sm ${
               preview ? 'border-accent bg-accent-soft text-accent' : 'border-border text-primary hover:bg-bg'
             }`}
           >
@@ -582,7 +646,7 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
               saveNow()
               onClose()
             }}
-            className="rounded border border-border px-2 py-1 text-sm text-primary hover:bg-bg"
+            className="min-h-[36px] rounded border border-border px-2 py-1 text-sm text-primary hover:bg-bg"
           >
             편집 종료
           </button>
@@ -603,7 +667,7 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
           type="button"
           onClick={() => saveNow({ explicit: true })}
           disabled={saveDisabled}
-          className="rounded border border-accent px-2 py-0.5 text-accent disabled:cursor-not-allowed disabled:border-border disabled:text-muted"
+          className="min-h-[36px] rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           저장
         </button>
@@ -611,7 +675,7 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
           type="button"
           onClick={() => setConfirmCancel(true)}
           disabled={cancelDisabled}
-          className="rounded border border-border px-2 py-0.5 text-primary disabled:cursor-not-allowed disabled:text-muted"
+          className="min-h-[36px] rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg disabled:cursor-not-allowed disabled:text-muted"
         >
           취소
         </button>
@@ -715,12 +779,14 @@ function DocBlockEditorSurface({ doc, loadedDocId, content, explanation, convert
       {confirmCancel && (
         <ConfirmDialog
           title="편집 되돌리기"
-          message="편집 내용을 되돌릴까요? 이 문서를 열었을 때의 상태로 복원되고, 그 사이 자동 저장된 내용도 함께 되돌아갑니다."
+          message="편집 내용을 되돌리고 편집을 종료합니다. 이 문서를 열었을 때의 상태로 복원되고, 그 사이 자동 저장된 내용도 함께 되돌아갑니다."
           confirmLabel="되돌리기"
           danger
           onConfirm={() => {
             setConfirmCancel(false)
-            performCancel()
+            // FB-12 — 문서 표면의 [취소]는 되돌리기 + 편집 종료다(별도 [편집 종료]가 있으므로
+            // [취소]는 되돌린 뒤 계속 편집할 이유가 없다).
+            performCancel({ close: true })
           }}
           onClose={() => setConfirmCancel(false)}
         />

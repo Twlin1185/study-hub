@@ -199,14 +199,14 @@ export default function DocumentDetailPage() {
                   setEditing(true)
                 }
               }}
-              className="rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
+              className="min-h-[36px] rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
             >
               편집
             </button>
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="rounded border border-border px-3 py-1.5 text-sm text-wrong hover:bg-bg"
+              className="min-h-[36px] rounded border border-border px-3 py-1.5 text-sm text-wrong hover:bg-bg"
             >
               삭제
             </button>

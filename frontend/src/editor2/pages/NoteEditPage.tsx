@@ -365,7 +365,10 @@ function EditableNote({
             dirtyRef.current = true
             setErrorMessage(error instanceof Error ? error.message : '노트를 저장하지 못했습니다')
             setState('error')
-            maxTimer.current = window.setTimeout(saveNow, RETRY_MS)
+            // 검토 경미 ⑥ — `opts`(명시 저장 여부)를 재시도에도 그대로 넘긴다. `saveNow`만 넘기면
+            // 재시도가 성공해도 `opts?.explicit`가 사라져 명시 저장의 재시도 성공이 체크포인트를
+            // 옮기지 못한다.
+            maxTimer.current = window.setTimeout(() => saveNow(opts), RETRY_MS)
           },
         },
       )
@@ -474,6 +477,16 @@ function EditableNote({
    * [취소](규약 C — ② 확정: 편집 세션 진입 시점 원본 스냅샷 복귀) — 체크포인트로 편집기
    * 문서·제목·사이드카를 되돌린 뒤 **저장**한다(자동저장이 이미 서버에 쓴 분까지 물린다).
    * IME 조합 중이면 본문이 다치지 않게 조합이 끝난 뒤로 미룬다(규약 B의 조합 중 보류 계승).
+   *
+   * 되돌리기는 `editor.replaceBlocks`로 이뤄지며, BlockNote는 `editor.transact`로 감싼 변경을
+   * **단일 undo 스텝**으로 묶는다(엔진 실측 — `@blocknote/core` `BlockManager.replaceBlocks`가
+   * `editor.transact(...)`를 거치고, `transact`의 JSDoc이 "그룹 변경 = 단일 undo step"임을
+   * 명시). 즉 [취소] 복귀 직후 Ctrl+Z를 누르면 되돌리기 이전 내용이 그대로 돌아오며, 그 상태는
+   * dirty이므로 다시 자동저장된다(취소의 취소 — 조용한 손실 경로 없음). **⑧ undo 범위 정정** —
+   * 노트 표면의 [취소]는 문서 표면과 달리 항상 편집을 유지한다(닫기 변형이 없다 — 별도 이탈은
+   * 상단 [목록으로]/뒤로가기 몫). 이 "취소의 취소" 경로는 언제나 성립하되, undo 대상은 **본문
+   * BlockNote 인스턴스의 블록뿐**이다 — 제목은 별도의 `titleHistory`(전용 undo 스택, 위 U-2
+   * 주석 참조)를 쓰므로 본문 Ctrl+Z가 제목을 되돌리지 않는다.
    */
   const performCancel = useCallback(() => {
     if (composingRef.current) {
@@ -575,7 +588,7 @@ function EditableNote({
           type="button"
           onClick={() => saveNow({ explicit: true })}
           disabled={saveDisabled}
-          className="rounded border border-accent px-2 py-0.5 text-accent disabled:cursor-not-allowed disabled:border-border disabled:text-muted"
+          className="min-h-[36px] rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           저장
         </button>
@@ -583,7 +596,7 @@ function EditableNote({
           type="button"
           onClick={() => setConfirmCancel(true)}
           disabled={cancelDisabled}
-          className="rounded border border-border px-2 py-0.5 text-primary disabled:cursor-not-allowed disabled:text-muted"
+          className="min-h-[36px] rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg disabled:cursor-not-allowed disabled:text-muted"
         >
           취소
         </button>
