@@ -371,20 +371,29 @@
   position: sticky;
   top: 0;
   z-index: 5;
-  overflow-x: auto;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   padding: 4px 6px;
 }
 
-/* 도킹 전용 — 부유 `.bn-toolbar`의 stage-38 모바일 줄바꿈 규칙(D1·D6·D7, 위 267~285행)과
-   **분리**한다(규약 A ⑤ "부유 3줄 규칙 무변"). 도킹은 폭에 상관없이 **항상 1줄 가로 스크롤**
-   (상시 점유 높이 최소화 — 부유처럼 선택 시에만 뜨는 것이 아니라 늘 붙어 있으므로 줄바꿈으로
-   세로 공간을 계속 뺏으면 안 된다). 특이도가 같은 `.bn-mantine .bn-toolbar`보다 이 파일에서
-   더 뒤에 오므로(소스 순서) 이 규칙이 이긴다. */
+/* ---------------------------------------------------------------- 검토 반려 결함 1(치명) 수정 · 재실측 정정
+   최초 시도(`.editor2-docked-toolbar { overflow-x: auto }` + `.bn-toolbar { flex-wrap: nowrap }`)는
+   드롭다운(Mantine `Menu`·`ToolbarSelect`, `withinPortal: false` 하드코딩 — `document.body` 포털로
+   못 벗어나고 `.bn-toolbar` DOM 서브트리 안에 그려진다)이 래퍼의 `overflow: auto` 경계에서 잘렸다.
+   그래서 한때 두 겹 모두 `overflow: visible` + `flex-wrap: wrap`으로 물러났으나, 브라우저 재실측 결과
+   래퍼(`.editor2-docked-toolbar`, sticky) 쪽의 overflow 지정을 아예 없애고(기본값 visible 유지)
+   overflow-x 제어는 **안쪽** `.bn-toolbar`에만 두면 클리핑도 없고 1줄 가로 스크롤도 된다(데스크톱·
+   390px 모두 메뉴 비클리핑 확인, 390px 도킹 높이 1줄, `scrollWidth > clientWidth`로 스크롤 동작 확인).
+   원리(CSS Overflow 규격): 드롭다운은 `position: absolute`이고 그 포함 블록(containing block)은
+   가장 가까운 positioned 조상 — 여기서는 sticky인 `.editor2-docked-toolbar`이며, 이는 `.bn-toolbar`의
+   **조상**이지 `.bn-toolbar` 자신이 아니다. overflow는 자신이 포함 블록인 요소의 자손만 클리핑하므로,
+   포함 블록 체인에 없는 `.bn-toolbar`에 overflow를 줘도 그 안에서 절대배치된 드롭다운을 클리핑하지
+   못한다(같은 구조로 이미 동작 중인 부유 툴바가 이 원리의 실증). 반대로 **래퍼 자체**에 overflow를
+   두면 래퍼가 포함 블록이자 클리핑 요소를 겸하게 되어 드롭다운이 잘린다 — 이것이 최초 시도의 결함이었다. */
 .editor2-docked-toolbar .bn-toolbar {
   flex-wrap: nowrap;
-  max-width: none;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .editor2-docked-toolbar .mantine-Button-root,
@@ -408,16 +417,31 @@
    순서로 자식을 담는다 — select 래퍼를 우상단으로 옮기고 본문에 토큰 배경·테두리를 준다.
    토큰은 리더(`components/MarkdownView.tsx` — `[&_pre]:bg-bg [&_pre]:border-border`,
    `[&_code]:bg-bg`)를 그대로 따른다(편집 표면을 리더에 근접 — 리더 CSS 자체는 무접촉). */
+/* 검토 반려 결함 2 — 엔진 기본 CSS(`node_modules/@blocknote/core/dist/style.css`)
+   `.bn-block-content[data-content-type=codeBlock]`에 배경색과 글자색이 함께 리터럴로 박혀
+   있다(엔진 다크 팔레트 고정값 — 이 파일 규칙의 대상이 아니다). 종전 규칙은 배경만 덮어써
+   글자색 리터럴이 그대로 남아 라이트 모드에서 대비가 깨졌다(밝은 배경 위 밝은 글자). 우리 선택자
+   `.note-editor-frame [data-content-type='codeBlock']`는 엔진 선택자와 특이도가 (0,2,0)으로
+   같지만(클래스+속성 1개씩) 이 파일이 나중에 로드돼 배경은 이미 이겼으므로, 같은 규칙에
+   `color`만 추가하면 같은 승리가 적용된다(신규 선택자 불필요). */
 .note-editor-frame [data-content-type='codeBlock'] {
   position: relative;
   background: var(--bg);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 32px 12px 12px;
 }
 
+/* 검토 반려 결함 4 — 엔진 `.bn-block-content[data-content-type=codeBlock]>pre{padding:24px}`가
+   위 블록 자체 padding(32px 12px 12px)과 이중 계상되어 상단 56px(다른 변도 24+12)이 됐다.
+   특이도는 엔진과 동률(0,2,1 — descendant/child 결합자는 특이도에 차이 없음)이라 소스 순서(이 파일이
+   나중에 로드)로 이미 이겨 왔으니(margin:0이 기존에도 먹었다) padding만 0으로 눌러 블록 자체의
+   padding 값 하나로 정리한다 — select 자리(우상단, top:6px)와 겹치지 않는 최소 여백은 위 블록의
+   32px 상단 padding이 그대로 맡는다. */
 .note-editor-frame [data-content-type='codeBlock'] pre {
   margin: 0;
+  padding: 0;
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -434,7 +458,18 @@
   right: 8px;
 }
 
-.note-editor-frame [data-content-type='codeBlock'] select {
+/* 검토 반려 결함 3 — 엔진 규칙 `.bn-block-content[data-content-type=codeBlock]>div>select`
+   (글자색 리터럴·opacity:0·position:absolute;top:8px;left:18px를 함께 지정)의 특이도는
+   (0,2,2)(class+attr=2, div+select 요소=2)로 종전 선택자
+   `.note-editor-frame [data-content-type='codeBlock'] select`
+   (0,2,1)를 이겨 미적용이었다. 게다가 select 자신의 `position:absolute`가, 위에서 이미 positioned로
+   만든 래퍼 div(`top:6px;right:8px`)를 컨테이닝 블록 삼아 `top:8px;left:18px`만큼 더 밀려나고,
+   래퍼는 절대위치 자식만 있어 스스로 0×0으로 접혀 select가 블록 바깥으로 시각적으로 빠졌다.
+   선택자에 `> div[contenteditable='false'] >`를 끼워 특이도를 (0,3,2)로 올려 이기고,
+   `opacity:1`·`position:static`으로 엔진의 숨김·이탈 두 가지를 함께 무효화한다. */
+.note-editor-frame [data-content-type='codeBlock'] > div[contenteditable='false'] > select {
+  opacity: 1;
+  position: static;
   background: var(--surface);
   color: var(--text-muted);
   border: 1px solid var(--border);
@@ -442,6 +477,15 @@
   font-size: 11px;
   line-height: 1.4;
   padding: 1px 4px;
+}
+
+/* 엔진의 hover/focus 규칙(`:hover>div>select{opacity:.5}`, 특이도 (0,3,2))도 같은 방식으로 덮는다
+   — 우리 쪽 특이도 (0,4,2)가 항상 이긴다(class+attr 4개: note-editor-frame·data-content-type·
+   :hover·contenteditable). opacity는 항상 1로 고정(드롭다운을 상시 보이게 두는 편이 발견성에 낫다
+   — 규약 D가 요구하는 "정돈"의 일부, 엔진의 0.3초 지연 페이드는 이 프로젝트에서 불필요). */
+.note-editor-frame [data-content-type='codeBlock']:hover > div[contenteditable='false'] > select,
+.note-editor-frame [data-content-type='codeBlock'] > div[contenteditable='false'] > select:focus {
+  opacity: 1;
 }
 
 /* 인라인 코드 칩 — 코드 블록 내부의 `<code>`(위에서 이미 배경을 준 `pre` 안)는 제외한다

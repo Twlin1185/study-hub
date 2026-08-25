@@ -31,7 +31,7 @@ const jiti = require('jiti')(path.join(FRONT, 'scripts/_loader.cjs'), {
   extensions: ['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.json'],
 })
 
-const { shouldShowTextFormattingGroup, ATOM_MEDIA_BLOCK_TYPES, CODE_BLOCK_TYPES } = jiti(
+const { shouldShowTextFormattingGroup, computeSelectedBlockTypes, ATOM_MEDIA_BLOCK_TYPES, CODE_BLOCK_TYPES } = jiti(
   path.join(SRC, 'editor2/blocknote/toolbar/blockFilter.ts'),
 )
 
@@ -89,10 +89,50 @@ eq(
   shouldShowTextFormattingGroup(['codeBlock', 'paragraph']),
   true,
 )
+// ---------------------------------------------------------------- 검토 반려 결함 6 — 규칙 일반화
+// 종전에는 원자·코드 각 군을 따로 "every"로만 검사해 `['image','codeBlock']`(텍스트 블록 0개지만
+// 두 군이 섞여 "전부 원자"도 "전부 코드"도 아님)이 표시로 새 나갔다. "텍스트를 실을 수 있는 블록이
+// 하나도 없으면 숨김"으로 일반화한 뒤에는 이 조합도 숨겨야 한다.
 eq(
-  '규칙3 — 원자 + 코드 블록 혼합(둘 다 텍스트 서식 불가군이지만 서로 다른 군이라 "전부 원자"도 "전부 코드"도 아님) → 표시',
+  '규칙1 일반화 — 원자 + 코드 블록 혼합(텍스트 블록 0개 — 둘 다 텍스트 서식 불가군) → 숨김',
   shouldShowTextFormattingGroup(['image', 'codeBlock']),
-  true,
+  false,
+)
+eq(
+  '규칙1 일반화 — 원자 여럿 + 코드 블록 혼합 → 숨김',
+  shouldShowTextFormattingGroup(['image', 'divider', 'codeBlock']),
+  false,
+)
+
+// ---------------------------------------------------------------- 검토 반려 결함 5 — 재현 케이스
+// 실제 결함은 이 순수 함수가 아니라 입력 갱신 타이밍(훅 구독 이벤트 — 자세한 근거는
+// `blockFilter.ts`의 `useSelectedBlockTypes` 주석)이었다. 이 스크립트는 React 훅을 실행할 수
+// 없으므로(렌더 불가), 결함 체인의 나머지 절반인 `computeSelectedBlockTypes`의 입력 정규화만
+// 여기서 고정한다: 코드 블록 커서(collapsed selection)에서 `editor.getSelection()`이 `undefined`를
+// 반환해도 커서 블록으로 항상 폴백해야 한다(빈 배열로 새면 규칙3 "빈 집합→표시"가 오발동한다).
+const fakeCollapsedSelectionEditor = {
+  getSelection: () => undefined,
+  getTextCursorPosition: () => ({ block: { type: 'codeBlock' } }),
+}
+eq(
+  '항목5 재현 — collapsed 선택(getSelection=undefined)도 커서 블록 1개로 폴백',
+  computeSelectedBlockTypes(fakeCollapsedSelectionEditor).length,
+  1,
+)
+eq(
+  '항목5 재현 — 폴백된 블록 타입 = codeBlock',
+  computeSelectedBlockTypes(fakeCollapsedSelectionEditor)[0],
+  'codeBlock',
+)
+const fakeThrowingEditor = {
+  getSelection: () => {
+    throw new Error('편집기 미마운트 — 드문 경우')
+  },
+}
+eq(
+  '규칙3 안전망 — 판정 중 예외 → 빈 배열(빈 집합 취급, 규칙3 표시로 안전하게 물러남)',
+  computeSelectedBlockTypes(fakeThrowingEditor).length,
+  0,
 )
 
 // ----------------------------------------------------------------
