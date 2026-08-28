@@ -95,6 +95,34 @@
 - **§4.24** `DELETE /api/llm/jobs/{job_id}` — 종료 잡만 목록에서 제거(`{status:'dismissed'}`) · running/queued 409 · 미존재 404. [분할 반입] 시작 시 프론트가 원 실패 잡에 호출. `_job_ref`(convert) += `split_id?`.
 - **§4.25** 조각 라벨에 `/` 금지(`n-m` 표기) · 위저드 조각 접미 기본 빈값(공통 경로 하나로 모임) · 원 항목 `categoryPath` = 공통 경로 초기값 · `enqueue` `category_paths` 선검증 · 조각 preview 병합은 §4.3 merge 사용(ImportQueue [합쳐서 검토]).
 
+## 후속 B5 — Claude Code CLI [설치] 버튼 (2026-08-29 사용자 지시 "claude code도 설치 버튼을 추가해줘")
+
+> 상태: **편성·구현 착수 (2026-08-29)**. 범위: `claude-cli` 엔진을 codex-cli와 같은 `installable:true`로 — 앱이 공식 배포
+> 채널에서 Windows x64 단일 바이너리를 내려받아 `tools/claude/`에 격리 설치(PATH 불변·git·백업 제외). DDL 0 · settings 0 ·
+> 신규 의존 0. 로그인은 여전히 사용자 몫(구독 자격증명은 전역 `~/.claude` 공유 — 격리 설치본도 재로그인 불필요, 실측).
+
+**실측(2026-08-29 메인 대화)** — 공식 `https://claude.ai/install.ps1`의 로직: `GET https://downloads.claude.ai/claude-code-releases/latest`
+→ 버전 문자열(예 `2.1.250`) → `GET …/{version}/manifest.json` → `platforms["win32-x64"].checksum`(sha256 hex)·`size` →
+`GET …/{version}/win32-x64/claude.exe`(216MB) → sha256 검증. 공식 설치기는 이어서 `claude.exe install`(~/.local/bin 복사·PATH
+편집)을 실행하지만 **그 단계 없이 바이너리를 직접 실행해도 동작**한다: `--version` = `2.1.250 (Claude Code)` · `-p … --output-format
+json --max-turns 1` 정상 응답(기존 `~/.claude` 자격증명 사용). 체크섬 일치 확인.
+
+### 체크리스트
+
+#### 백엔드 (`backend-dev`)
+- [ ] 신규 `services/claude_cli_adapter.py`(codex_adapter 설치부 대칭): `TOOLS_DIR = BASE_DIR/"tools"/"claude"` · `CLAUDE_EXE_PATH` · `find_executable()`(격리본 우선 → PATH `claude`/`claude.exe`/`claude.cmd`) · `_read_version(exe)`(`--version` 첫 토큰) · `install()`: latest → manifest(win32-x64 checksum·size) → `.part` 임시 파일로 다운로드(`net_safety.ssl_context()`·타임아웃 300s) → sha256 검증(불일치 = `ClaudeInstallError`) → 원자적 교체(`os.replace`) → `{installed: True, version}`. 이미 감지된 실행 파일이 있으면 다운로드 없이 채택(codex 관례). 재시도 2회. `install_or_raise_upstream()` → `UpstreamError`(502). 다운로드 진행은 동기(프론트 스피너 — codex 계약 그대로; 216MB라 수십 초 걸릴 수 있음 → 라우터 docstring·프론트 문구에 명시)
+- [ ] `llm_engine_service`: `ENGINE_REGISTRY["claude-cli"]["installable"] = True` · `install_engine()`이 engine_id로 어댑터 분기 · `_find_claude_executable()` → `claude_cli_adapter.find_executable()` 위임. `convert_service._find_claude_executable()`도 같은 finder 위임(격리본 우선 — 두 곳의 탐색 순서 불일치 금지). 미설치 안내 문구는 "[설치] 버튼" 언급으로 갱신
+- [ ] `.gitignore` `tools/claude/` 추가(주석은 codex 항목 대칭)
+- [ ] 테스트 `tests/test_claude_cli_install.py`: urlopen 모킹으로 latest/manifest/binary 3단 → 설치 성공·버전 · 체크섬 불일치 → 실패·파일 미생성 · 격리본 우선 탐색 · 기존 PATH 감지 시 다운로드 0. `test_llm_engine_registry`·`test_engine_controls`의 `installable` 단언 갱신
+
+#### 프론트 (`frontend-dev`)
+- [ ] `LlmEngineSection.tsx` `CliDiagnosis`: codex 전용 문구를 **engine.id 분기**로 — 미로그인 안내(claude-cli: 터미널에서 `tools\claude\claude.exe`(격리 설치본) 또는 PATH의 `claude` 실행 → 로그인 → [다시 확인]; codex: `codex login`) · 프라이버시 고지(`~/.codex` vs `~/.claude` 세션 기록) · 설치 안내 문구에 "Claude Code는 약 220MB — 수십 초 걸릴 수 있습니다". 기존 "설치 안내 링크" 분기는 installable 엔진에는 더 이상 도달하지 않으므로 정리
+- [ ] `npm run build` 성공
+
+#### 문서
+- [ ] 설계 api §4.17 ④ S42-B5 추기(claude-cli 설치 계약 — 위 실측 URL·검증·격리 경로) · 매뉴얼 "Claude Code로 시작하기"(설치 버튼) 추가 · 기존 "Codex로 시작하기" 유지
+- [ ] stage-reviewer 검토 · 빈 PC 실측(설치 버튼 → 다운로드 → 진단 installed)
+
 ## 완료 기록
 
 - **2026-08-28** 편성·B1 선수정(`6120764`) → 백엔드(sonnet)·프론트(sonnet) 병렬 구현(`f64fa6a`) — 백엔드 577 passed · 빌드 성공(메인 청크 +9.2KB raw/+2.1KB gzip) · invariant PASS.
