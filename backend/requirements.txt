@@ -3,6 +3,10 @@ annotated-doc==0.0.4
 annotated-types==0.7.0
 anthropic==0.119.0
 anyio==4.14.2
+# stage-42(B1) — 아웃바운드 HTTPS(Codex 설치·URL 반입·웹 임베드·사이트 반입)의 CA 번들.
+# anthropic→httpx 간접 의존으로도 들어오지만, 빠지면 임베디드 파이썬에서 CERTIFICATE_VERIFY_FAILED가
+# 간헐 재발하므로 직접 의존으로 고정한다(services/net_safety.ssl_context).
+certifi==2026.7.22
 cffi==2.1.0
 click==8.4.2
 colorama==0.4.6

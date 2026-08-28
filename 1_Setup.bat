@@ -72,7 +72,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-"%PYEXE%" -c "import fastapi, uvicorn, sqlalchemy, alembic, anthropic"
+"%PYEXE%" -c "import fastapi, uvicorn, sqlalchemy, alembic, anthropic, certifi"
 if errorlevel 1 (
     echo [ERROR] Packages did not install correctly.
     pause
