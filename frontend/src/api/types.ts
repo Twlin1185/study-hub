@@ -1006,8 +1006,8 @@ export interface LlmStatusResponse {
   fallback_policy: LlmFallbackPolicy
 }
 
-// S15(설계 §4.17④) — POST /api/llm/engines/{id}/install 응답. installable:true 엔진(현재
-// codex-cli)만 유효 — 그 외는 422.
+// S15(설계 §4.17④) — POST /api/llm/engines/{id}/install 응답. installable 엔진(codex-cli·
+// claude-cli)만 유효 — 그 외는 422.
 export interface InstallEngineResponse {
   installed: boolean
   version?: string

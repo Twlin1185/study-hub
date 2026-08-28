@@ -51,8 +51,9 @@ def remove_api_key() -> None:
 
 @router.post("/engines/{engine_id}/install", response_model=InstallEngineResponse)
 def install_engine(engine_id: str) -> InstallEngineResponse:
-    """`installable:true` 엔진만(현재 codex-cli) — 그 외는 422(설계 §4.17 ④). 동기 처리,
-    실패는 §3 포맷(다운로드 실패 = 502)."""
+    """`installable:true` 엔진만(codex-cli·claude-cli) — 그 외는 422(설계 §4.17 ④). 동기 처리,
+    실패는 §3 포맷(다운로드 실패 = 502). claude-cli 다운로드는 약 220MB이며 동기(블로킹)로
+    처리된다 — 호출부는 응답 지연을 감안해야 한다."""
     normalized = llm_engine_service.normalize_engine_id(engine_id)
     meta = llm_engine_service.ENGINE_REGISTRY.get(normalized)
     if meta is None or not meta["installable"]:

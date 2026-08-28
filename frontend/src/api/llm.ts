@@ -116,7 +116,7 @@ export function useDeleteApiKey() {
   })
 }
 
-// S15(설계 §4.17④) — installable:true 엔진(현재 codex-cli)만 유효, 그 외는 백엔드가 422.
+// S15(설계 §4.17④) — installable 엔진(codex-cli·claude-cli)만 유효, 그 외는 백엔드가 422.
 // 동기 처리(PoC 실측 4.4초) — 버튼 스피너로 충분, 별도 잡 큐 폴링 없음.
 export function useInstallEngine() {
   const qc = useQueryClient()
