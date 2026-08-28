@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   llmKeys,
@@ -410,6 +410,9 @@ function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
   const [loginTimedOut, setLoginTimedOut] = useState(false)
   // 서버가 "로그인 프로세스 종료·미로그인"을 알려온 상태(창을 닫았거나 CLI가 곧바로 실패) — 검토 중2.
   const [loginClosed, setLoginClosed] = useState(false)
+  // 서버 응답 한 건 안에서 force 진단(옛 logged_in)과 login_pending(새 값)이 어긋나는 짧은 경합창 오탐
+  // 방지 — 두 번 연속 "종료·미로그인"일 때만 닫힘으로 판정(재검토 경미 A).
+  const closedStreakRef = useRef(0)
 
   // 서버가 로그인 프로세스 생존을 알려오면(초기 로드·다른 경로에서 시작된 로그인 포함) 로컬
   // 상태가 없어도 폴링 단계로 이어받는다.
@@ -448,7 +451,12 @@ function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
         onSuccess: (fresh) => {
           const mine = fresh.engines.find((e) => e.id === engine.id)
           // 프로세스가 끝났는데 로그인이 안 됐다 = 창을 닫았거나 CLI가 실패 → 즉시 안내로 전환.
-          if (mine && !mine.logged_in && mine.login_pending === false) setLoginClosed(true)
+          if (mine && !mine.logged_in && mine.login_pending === false) {
+            closedStreakRef.current += 1
+            if (closedStreakRef.current >= 2) setLoginClosed(true)
+          } else {
+            closedStreakRef.current = 0
+          }
         },
       })
     }, LOGIN_POLL_MS)
@@ -489,6 +497,7 @@ function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
         setLoginStartedAt(Date.now())
         setLoginTimedOut(false)
         setLoginClosed(false)
+        closedStreakRef.current = 0
       },
       onError: (e) => {
         if (e instanceof ApiError && e.status === 422 && isNotInstalledReason(e.detail)) {
