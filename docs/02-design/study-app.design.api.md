@@ -509,7 +509,7 @@ backend/services/fetchers/
 
 | 메서드/경로 | 설명 |
 |---|---|
-| `POST /api/llm/engines/claude-cli/install` | 공식 배포 채널(`https://downloads.claude.ai/claude-code-releases` — `claude.ai/install.ps1`의 로직과 동일)에서 **`latest` → 버전 문자열 → `{version}/manifest.json`의 `platforms["win32-x64"].checksum`(sha256) → `{version}/win32-x64/claude.exe`(약 220MB)** 를 내려받아 sha256 검증 후 루트 `tools/claude/claude.exe`에 격리 설치(**PATH 불변**, git·백업 제외 — codex 관례 대칭). PATH 등 기존 설치본이 감지되면 다운로드 없이 채택. **동기 처리**(코덱스보다 큰 파일 — 실측 다운로드 4초·회선에 따라 수십 초, 프론트는 스피너 + 용량 안내). 응답 `{installed: true, version}`, 실패(다운로드·체크섬 불일치) = 502 |
+| `POST /api/llm/engines/claude-cli/install` | 공식 배포 채널(`https://downloads.claude.ai/claude-code-releases` — `claude.ai/install.ps1`의 로직과 동일)에서 **`latest` → 버전 문자열 → `{version}/manifest.json`의 `platforms["win32-x64"].checksum`(sha256) → `{version}/win32-x64/claude.exe`(약 220MB)** 를 내려받아 sha256 검증 후 루트 `tools/claude/claude.exe`에 격리 설치(**PATH 불변**, git·백업 제외 — codex 관례 대칭). PATH 등 기존 설치본이 감지되면 다운로드 없이 채택. **동기 처리**(코덱스보다 큰 파일 — 이 회선 실측 4~6초(2026-08-29, 216MB)·회선에 따라 수십 초, 프론트는 스피너 + 용량 안내). 응답 `{installed: true, version}`, 실패(다운로드·체크섬 불일치) = 502 |
 
 - **실행**: 공식 설치기의 후속 단계(`claude.exe install` — `~/.local/bin` 복사·PATH 편집·버전 디렉터리)는 **수행하지 않는다** — 단일 바이너리를 직접 실행해도 동작함을 실측(`--version` = `2.1.250 (Claude Code)` · `-p … --output-format json` 정상). Node·Git for Windows 불필요(Git 없으면 CLI가 PowerShell 폴백 — 변환 경로는 셸 도구를 쓰지 않아 무관).
 - **탐색 순서**: 격리본(`tools/claude/claude.exe`) → PATH(`claude`/`claude.exe`/`claude.cmd`). 진단(`llm_engine_service`)·변환 호출(`convert_service`)이 **같은 finder 1개**를 쓴다(불일치 금지).

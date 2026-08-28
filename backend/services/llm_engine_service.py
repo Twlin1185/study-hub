@@ -346,10 +346,12 @@ def install_engine(engine_id: str) -> Dict[str, Any]:
         from services import codex_adapter
 
         result = codex_adapter.install_or_raise_upstream()
-    else:
+    elif engine_id == ENGINE_CLAUDE_CLI:
         from services import claude_cli_adapter
 
         result = claude_cli_adapter.install_or_raise_upstream()
+    else:  # installable:true인데 어댑터 분기가 없는 엔진 — 조용한 오설치 금지(검토 경미 4)
+        raise ValidationAppError("설치 어댑터가 없는 엔진입니다", detail={"engine": engine_id})
     with _diag_lock:
         _diag_cache.pop(engine_id, None)  # 설치 직후 진단 캐시 무효화
     return result

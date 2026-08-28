@@ -18,6 +18,8 @@ import logging
 import os
 import re
 import shutil
+import tempfile
+import threading
 import subprocess
 import time
 import urllib.request
@@ -38,6 +40,8 @@ PLATFORM = "win32-x64"
 USER_AGENT = "study-hub-claude-install/1.0"
 INSTALL_MAX_ATTEMPTS = 2
 DOWNLOAD_TIMEOUT_SECONDS = 300
+
+_INSTALL_LOCK = threading.Lock()
 VERSION_CHECK_TIMEOUT_SECONDS = 30
 
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(-[^\s]+)?$")
@@ -143,17 +147,35 @@ def install() -> Dict[str, Any]:
     if existing:
         return {"installed": True, "version": _read_version(existing)}
 
+    # 동시 [설치] 요청(새로고침 후 재클릭 등)이 같은 임시 파일에 겹쳐 쓰지 않도록 직렬화 +
+    # 시도마다 유니크한 .part 이름(검토 경미 1). 락을 잡은 뒤 다시 감지 — 앞선 요청이 방금
+    # 설치를 끝냈으면 다운로드 없이 채택.
+    with _INSTALL_LOCK:
+        existing = find_executable()
+        if existing:
+            return {"installed": True, "version": _read_version(existing)}
+        return _install_locked()
+
+
+def _install_locked() -> Dict[str, Any]:
     TOOLS_DIR.mkdir(parents=True, exist_ok=True)
-    part_path = CLAUDE_EXE_PATH.with_suffix(".part")
     last_error = ""
     for attempt in range(1, INSTALL_MAX_ATTEMPTS + 1):
+        fd, tmp_name = tempfile.mkstemp(dir=TOOLS_DIR, prefix="claude-", suffix=".part")
+        os.close(fd)
+        part_path = Path(tmp_name)
         try:
             version = _fetch_latest_version()
             manifest = _fetch_manifest(version)
             asset = _pick_platform_asset(manifest)
             _download_binary(version, part_path)
+            expected_size = asset.get("size")
+            if isinstance(expected_size, int) and part_path.stat().st_size != expected_size:
+                raise ClaudeInstallError(
+                    f"다운로드 크기 불일치({part_path.stat().st_size} != {expected_size})"
+                )
             digest = _sha256_file(part_path)
-            if digest != asset["checksum"]:
+            if digest != str(asset["checksum"]).strip().lower():
                 raise ClaudeInstallError("체크섬 불일치")
             os.replace(part_path, CLAUDE_EXE_PATH)
             return {"installed": True, "version": _read_version(str(CLAUDE_EXE_PATH))}

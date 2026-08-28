@@ -88,7 +88,7 @@ def test_install_success_writes_exe_and_returns_version(monkeypatch):
     assert result == {"installed": True, "version": FAKE_VERSION}
     assert claude_cli_adapter.CLAUDE_EXE_PATH.exists()
     assert claude_cli_adapter.CLAUDE_EXE_PATH.read_bytes() == FAKE_BINARY
-    assert not claude_cli_adapter.CLAUDE_EXE_PATH.with_suffix(".part").exists()
+    assert list(claude_cli_adapter.TOOLS_DIR.glob("*.part")) == []
 
 
 # --- (b) 체크섬 불일치 → ClaudeInstallError, claude.exe·.part 잔존 없음 ---------------
@@ -107,7 +107,7 @@ def test_install_checksum_mismatch_raises_and_leaves_no_files(monkeypatch):
         claude_cli_adapter.install()
 
     assert not claude_cli_adapter.CLAUDE_EXE_PATH.exists()
-    assert not claude_cli_adapter.CLAUDE_EXE_PATH.with_suffix(".part").exists()
+    assert list(claude_cli_adapter.TOOLS_DIR.glob("*.part")) == []
 
 
 # --- (c) latest 응답이 버전 형식이 아니면(HTML 등) manifest를 조회하지 않는다 -----------
@@ -191,3 +191,73 @@ def test_install_or_raise_upstream_wraps_install_error(monkeypatch):
 
     with pytest.raises(UpstreamError):
         claude_cli_adapter.install_or_raise_upstream()
+
+
+# --- 검토 경미 5 보강: 재시도·크기 검증·체크섬 표기·installable 잠금 ---------------------
+def _std_setup(monkeypatch, fake_urlopen):
+    monkeypatch.setattr(claude_cli_adapter.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(claude_cli_adapter, "_read_version", lambda exe: FAKE_VERSION)
+    monkeypatch.setattr(claude_cli_adapter.shutil, "which", lambda name: None)
+
+
+def test_install_retries_after_transient_network_error(monkeypatch):
+    import urllib.error
+
+    checksum = hashlib.sha256(FAKE_BINARY).hexdigest()
+    calls: list = []
+    inner = _make_fake_urlopen(
+        latest=f"{FAKE_VERSION}\n".encode("utf-8"),
+        manifest=_manifest_bytes(checksum, len(FAKE_BINARY)),
+        binary=FAKE_BINARY,
+        calls=calls,
+    )
+    state = {"failed_once": False}
+
+    def flaky(req, timeout=None, context=None):  # noqa: ANN001
+        if req.full_url.endswith("/claude.exe") and not state["failed_once"]:
+            state["failed_once"] = True
+            calls.append(req.full_url)  # inner가 기록하기 전에 실패하므로 직접 기록
+            raise urllib.error.URLError("connection reset")
+        return inner(req, timeout=timeout, context=context)
+
+    _std_setup(monkeypatch, flaky)
+    result = claude_cli_adapter.install()
+    assert result == {"installed": True, "version": FAKE_VERSION}
+    assert claude_cli_adapter.CLAUDE_EXE_PATH.read_bytes() == FAKE_BINARY
+    assert list(claude_cli_adapter.TOOLS_DIR.glob("*.part")) == []
+    assert sum(1 for u in calls if u.endswith("/claude.exe")) == 2
+
+
+def test_install_size_mismatch_fails_before_checksum(monkeypatch):
+    checksum = hashlib.sha256(FAKE_BINARY).hexdigest()
+    fake = _make_fake_urlopen(
+        latest=f"{FAKE_VERSION}\n".encode("utf-8"),
+        manifest=_manifest_bytes(checksum, len(FAKE_BINARY) + 1),
+        binary=FAKE_BINARY,
+        calls=[],
+    )
+    _std_setup(monkeypatch, fake)
+    monkeypatch.setattr(claude_cli_adapter, "_sha256_file", lambda p: (_ for _ in ()).throw(AssertionError("해싱 전에 실패해야 함")))
+    with pytest.raises(claude_cli_adapter.ClaudeInstallError) as excinfo:
+        claude_cli_adapter.install()
+    assert "크기 불일치" in str(excinfo.value)
+    assert not claude_cli_adapter.CLAUDE_EXE_PATH.exists()
+    assert list(claude_cli_adapter.TOOLS_DIR.glob("*.part")) == []
+
+
+def test_install_accepts_uppercase_checksum_with_whitespace(monkeypatch):
+    checksum = "  " + hashlib.sha256(FAKE_BINARY).hexdigest().upper() + "\n"
+    fake = _make_fake_urlopen(
+        latest=f"{FAKE_VERSION}\n".encode("utf-8"),
+        manifest=_manifest_bytes(checksum, len(FAKE_BINARY)),
+        binary=FAKE_BINARY,
+        calls=[],
+    )
+    _std_setup(monkeypatch, fake)
+    assert claude_cli_adapter.install()["installed"] is True
+
+
+def test_claude_cli_registry_is_installable():
+    assert engine_svc.ENGINE_REGISTRY["claude-cli"]["installable"] is True
+    assert engine_svc.ENGINE_REGISTRY["codex-cli"]["installable"] is True
+    assert engine_svc.ENGINE_REGISTRY["claude-api"]["installable"] is False
