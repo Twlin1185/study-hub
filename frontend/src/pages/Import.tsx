@@ -1053,7 +1053,10 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
   const [manualCategoryPath, setManualCategoryPath] = useState('')
   const [pathFieldKey, setPathFieldKey] = useState(0)
 
-  const hasOverride = Boolean(state?.override && Object.keys(state.override).length > 0)
+  // merge 액션은 본문 불변(override 미반영)이므로 배지도 숨긴다(재검토 경미 ⓑ).
+  const hasOverride = Boolean(
+    state?.action !== 'merge' && state?.override && Object.keys(state.override).length > 0,
+  )
   const effectiveTitle = state?.override?.title ?? item.title
   const effectiveContent = state?.override?.content ?? item.content ?? null
   const effectiveAnswer = state?.override?.answer ?? item.answer ?? null
@@ -1203,7 +1206,10 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
             </button>
             <button
               type="button"
-              disabled={draftTitle.trim().length === 0}
+              disabled={
+                draftTitle.trim().length === 0 ||
+                (draftContent !== (item.content ?? '') && draftContent.trim().length === 0)
+              }
               onClick={saveEdit}
               className="rounded bg-accent px-3 py-1 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
             >

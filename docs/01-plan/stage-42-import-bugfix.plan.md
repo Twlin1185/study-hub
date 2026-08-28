@@ -1,6 +1,7 @@
 # Stage 42 — 반입 파이프라인 결함 4건: Codex 설치 SSL · 분할 반입 정리·병합 · 검토 본문 열람·편집 · LLM 분류 누락 (v2.0.x 후속 · 버그 최우선)
 
-> 상태: **편성 완료 · 구현 착수 (2026-08-28 생성 — 사용자 지시 "버그 발견 최우선 진행")**.
+> 상태: **구현·검토 완료 (2026-08-29) — Opus 1차 반려(치명 1·중요 2·경미 10) → 전건 수정 → 재검토 통과(잔여 경미 ⓐⓑ도 수정). 잔여 = DoD 8(사용자 실사용 1회 "치명 없음")**. 커밋 `6120764`(B1)·`f64fa6a`(구현)·`8f9314b`(검토 수정) · 브랜치 `stage-42-import-bugfix`.
+> (편성 시 상태 — 이력: 편성 완료 · 구현 착수 (2026-08-28 생성 — 사용자 지시 "버그 발견 최우선 진행")).
 > 진척은 이 줄 + 말미 "완료 기록"이 정본.
 > (생성 경위: 2026-08-28 사용자 실사용 결함 보고 4건. 사용자 지시(2026-08-24) "중간에 추가 수정사항이 나오면 그
 > 수정이 먼저"에 따라 stage-41(흐름형 다단)보다 **먼저 착수**. 종전 "stage-42 = 구 편집기 퇴역(조건부)"는
@@ -97,4 +98,4 @@
 ## 완료 기록
 
 - **2026-08-28** 편성·B1 선수정(`6120764`) → 백엔드(sonnet)·프론트(sonnet) 병렬 구현(`f64fa6a`) — 백엔드 577 passed · 빌드 성공(메인 청크 +9.2KB raw/+2.1KB gzip) · invariant PASS.
-- **2026-08-29** stage-reviewer(Opus) 1차 **반려**: 치명 ①(조각 항목에 splitId를 심자 `split_in_progress` 판정이 조각까지 삼켜 진행바·[취소] 소실 + [분할안 열기] 오클릭 시 조각 잡 중복 등록) · 중요 ②(딥링크 앵커가 조각을 앵커로 오인) ③([경로 추가] 후 입력 미초기화) · 경미 ④~⑬. **전건 수정**: ① `useConvertQueue` 상태 판정에 `sourceKind !== 'split'` 조건 · ② 앵커 탐색 동일 조건 · ③ `CategoryPathField` key 리마운트 · ④ merge 항목 [편집] 숨김 + §4.3 명기 · ⑤ error 항목 본문 토글 숨김 · ⑥ §4.11 사용자 경로 관대 폐기 명기 · ⑦ §4.3 병합 제외/422/409/sources 미연결 문장 · ⑧ screens §5.9 배치 정정 · ⑨ 체크리스트 실측 정정 · ⑩ 체크박스 · ⑪ `fetchers/registry.py` https_handler 적용(4번째 아웃바운드 경로) · ⑫ 조각 항목 `categoryPath` 보존(위저드 → addJobs) · ⑬ content 빈 문자열 override 422. 추가: `tests/test_import_override.py` 5건. 재검증 582 passed · 빌드 성공 · invariant PASS.
+- **2026-08-29** stage-reviewer(Opus) 1차 **반려**: 치명 ①(조각 항목에 splitId를 심자 `split_in_progress` 판정이 조각까지 삼켜 진행바·[취소] 소실 + [분할안 열기] 오클릭 시 조각 잡 중복 등록) · 중요 ②(딥링크 앵커가 조각을 앵커로 오인) ③([경로 추가] 후 입력 미초기화) · 경미 ④~⑬. **전건 수정**: ① `useConvertQueue` 상태 판정에 `sourceKind !== 'split'` 조건 · ② 앵커 탐색 동일 조건 · ③ `CategoryPathField` key 리마운트 · ④ merge 항목 [편집] 숨김 + §4.3 명기 · ⑤ error 항목 본문 토글 숨김 · ⑥ §4.11 사용자 경로 관대 폐기 명기 · ⑦ §4.3 병합 제외/422/409/sources 미연결 문장 · ⑧ screens §5.9 배치 정정 · ⑨ 체크리스트 실측 정정 · ⑩ 체크박스 · ⑪ `fetchers/registry.py` https_handler 적용(4번째 아웃바운드 경로) · ⑫ 조각 항목 `categoryPath` 보존(위저드 → addJobs) · ⑬ content 빈 문자열 override 422. 추가: `tests/test_import_override.py` 5건. 재검증 582 passed · 빌드 성공 · invariant PASS. **재검토(Opus) 통과** — 잔여 경미 ⓐ(빈 본문 저장 선차단) ⓑ(merge 전환 시 편집됨 배지 잔존)도 같은 날 수정.
