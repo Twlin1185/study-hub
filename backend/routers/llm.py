@@ -15,6 +15,7 @@ from schemas.llm import (
     JobDismissResult,
     JobListResponse,
     LlmStatus,
+    LoginEngineResponse,
     QueuePauseResult,
 )
 from services import convert_service, llm_engine_service
@@ -60,6 +61,16 @@ def install_engine(engine_id: str) -> InstallEngineResponse:
         raise ValidationAppError("설치를 지원하지 않는 엔진입니다", detail={"engine": engine_id})
     result = llm_engine_service.install_engine(normalized)
     return InstallEngineResponse(**result)
+
+
+@router.post("/engines/{engine_id}/login", response_model=LoginEngineResponse)
+def login_engine(engine_id: str) -> LoginEngineResponse:
+    """CLI형·installable 엔진만(그 외 422). 로그인 창은 서버가 실행 중인 PC에 열린다
+    (설계 §4.17 ④-3, 후속 B6) — `claude auth login`/`codex login`을 새 콘솔 창으로 띄우고
+    CLI가 스스로 브라우저를 연다. 이미 로그인돼 있으면 `already_logged_in`, 같은 엔진의
+    로그인 프로세스가 아직 살아 있으면 `in_progress`."""
+    result = llm_engine_service.start_login(engine_id)
+    return LoginEngineResponse(**result)
 
 
 # ---------------------------------------------------------------------------

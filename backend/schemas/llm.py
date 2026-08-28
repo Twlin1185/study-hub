@@ -42,6 +42,8 @@ class EngineStatus(BaseModel):
     logged_in: Optional[bool] = None
     key_registered: Optional[bool] = None
     key_suffix: Optional[str] = None
+    # 로그인 프로세스 생존 여부(후속 B6) — CLI형만 bool, API형은 null(순수 추가).
+    login_pending: Optional[bool] = None
     last_success_at: Optional[str] = None
     last_error_kind: Optional[str] = None
     models: List[EngineModel] = Field(default_factory=list)
@@ -74,6 +76,12 @@ class InstallEngineResponse(BaseModel):
 
     installed: bool
     version: Optional[str] = None
+
+
+class LoginEngineResponse(BaseModel):
+    """`POST /api/llm/engines/{id}/login` 응답(설계 §4.17 ④-3, 후속 B6)."""
+
+    status: Literal["started", "in_progress", "already_logged_in"]
 
 
 # ---------------------------------------------------------------------------

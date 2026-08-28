@@ -9,6 +9,7 @@ import type {
   LlmJobsResponse,
   LlmQueuePauseResponse,
   LlmStatusResponse,
+  LoginEngineResponse,
 } from './types'
 
 // 설계 §4.11 (S8) — 엔진 진단·API 키 관리.
@@ -123,5 +124,14 @@ export function useInstallEngine() {
   return useMutation({
     mutationFn: (engineId: LlmEngineId) => api.post<InstallEngineResponse>(`/llm/engines/${engineId}/install`),
     onSuccess: () => qc.invalidateQueries({ queryKey: llmKeys.status }),
+  })
+}
+
+// 후속 B6 — installable 엔진(codex-cli·claude-cli)만 유효. 서버가 새 콘솔 창으로 `claude auth
+// login`/`codex login`을 띄운다(CLI가 자체적으로 브라우저를 연다). 캐시 갱신은 호출부가
+// refreshStatus로 직접 처리(즉시 시작 상태만 알려주는 응답이라 여기서 invalidate해도 의미 없음).
+export function useStartCliLogin() {
+  return useMutation({
+    mutationFn: (engineId: LlmEngineId) => api.post<LoginEngineResponse>(`/llm/engines/${engineId}/login`),
   })
 }

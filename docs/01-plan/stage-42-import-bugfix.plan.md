@@ -140,13 +140,13 @@ pm`)
 
 #### 백엔드
 - [x] `services/exe_locate.py` + `claude_cli_adapter`/`codex_adapter.find_executable()` 연결(메인 대화 선구현)
-- [ ] `POST /api/llm/engines/{id}/login` → `llm_engine_service.start_login(engine_id)`: CLI형·installable만(그 외 422) · 실행 파일 미발견 = 422("먼저 [설치]") · 강제 진단으로 이미 로그인 = `{status:'already_logged_in'}` · 같은 엔진의 로그인 프로세스가 아직 살아 있으면 `{status:'in_progress'}` · 아니면 **새 콘솔 창**(Windows `CREATE_NEW_CONSOLE`)으로 `claude auth login` / `codex login`을 띄운다(CLI가 브라우저를 스스로 연다 · cwd=BASE_DIR) → `{status:'started'}`. 프로세스 핸들은 엔진별 인메모리 보관, 감시 스레드가 종료 시 진단 캐시 무효화
-- [ ] `GET /api/llm/status` `engines[]` += `login_pending: bool`(로그인 프로세스 생존 여부 — 순수 추가)
-- [ ] 테스트: `tests/test_exe_locate.py`(레지스트리 PATH·잘 알려진 폴더·격리본 우선 — 레지스트리 읽기 모킹) · `tests/test_cli_login.py`(Popen 모킹 — started/in_progress/already_logged_in/422 3종·종료 시 캐시 무효화) · 기존 설치 테스트는 `exe_locate`(레지스트리·잘 알려진 폴더)를 격리해 "미설치" 가정을 유지
+- [x] `POST /api/llm/engines/{id}/login` → `llm_engine_service.start_login(engine_id)`: CLI형·installable만(그 외 422) · 실행 파일 미발견 = 422("먼저 [설치]") · 강제 진단으로 이미 로그인 = `{status:'already_logged_in'}` · 같은 엔진의 로그인 프로세스가 아직 살아 있으면 `{status:'in_progress'}` · 아니면 **새 콘솔 창**(Windows `CREATE_NEW_CONSOLE`)으로 `claude auth login` / `codex login`을 띄운다(CLI가 브라우저를 스스로 연다 · cwd=BASE_DIR) → `{status:'started'}`. 프로세스 핸들은 엔진별 인메모리 보관, 감시 스레드가 종료 시 진단 캐시 무효화
+- [x] `GET /api/llm/status` `engines[]` += `login_pending: bool`(로그인 프로세스 생존 여부 — 순수 추가)
+- [x] 테스트: `tests/test_exe_locate.py`(레지스트리 PATH·잘 알려진 폴더·격리본 우선 — 레지스트리 읽기 모킹) · `tests/test_cli_login.py`(Popen 모킹 — started/in_progress/already_logged_in/422 3종·종료 시 캐시 무효화) · 기존 설치 테스트는 `exe_locate`(레지스트리·잘 알려진 폴더)를 격리해 "미설치" 가정을 유지
 
 #### 프론트
-- [ ] `LlmEngineSection.tsx` `CliDiagnosis` → **온보딩 스테퍼** "① 설치 → ② 로그인 → ③ 완료": [설치] 클릭 → "다운로드·설치 중…(Claude 약 220MB)" → 성공 시 상태 재조회(`?refresh=1`) → 미로그인이면 **자동으로 `POST …/login`** → "이 PC에 로그인 창이 열렸습니다. 브라우저에서 로그인을 마치면 자동으로 이어집니다" + 4초 폴링(`?refresh=1`, 최대 5분) + [로그인 창 다시 열기] + 접이식 수동 안내(터미널 명령) → 로그인 확인 시 "✓ 설정 완료 — 바로 변환에 쓸 수 있습니다". 이미 설치·미로그인 상태에서도 같은 흐름의 [로그인] 버튼. "로그인 창은 서버가 실행 중인 PC에 열립니다(폰에서는 PC에서 진행)" 1줄
-- [ ] `api/llm.ts` `useStartCliLogin()` · `types.ts` `login_pending` · 빌드 성공
+- [x] `LlmEngineSection.tsx` `CliDiagnosis` → **온보딩 스테퍼** "① 설치 → ② 로그인 → ③ 완료": [설치] 클릭 → "다운로드·설치 중…(Claude 약 220MB)" → 성공 시 상태 재조회(`?refresh=1`) → 미로그인이면 **자동으로 `POST …/login`** → "이 PC에 로그인 창이 열렸습니다. 브라우저에서 로그인을 마치면 자동으로 이어집니다" + 4초 폴링(`?refresh=1`, 최대 5분) + [로그인 창 다시 열기] + 접이식 수동 안내(터미널 명령) → 로그인 확인 시 "✓ 설정 완료 — 바로 변환에 쓸 수 있습니다". 이미 설치·미로그인 상태에서도 같은 흐름의 [로그인] 버튼. "로그인 창은 서버가 실행 중인 PC에 열립니다(폰에서는 PC에서 진행)" 1줄
+- [x] `api/llm.ts` `useStartCliLogin()` · `types.ts` `login_pending` · 빌드 성공
 
 #### 문서
 - [ ] 설계 api §4.17 ④-3(로그인 계약·탐색 순서 개정) · screens §5.11 LLM 엔진 카드 온보딩 3단계 · 매뉴얼 15장(Claude/Codex 시작하기 절을 "버튼 한 번" 흐름으로) · FAQ "설치했는데 인식 안 됨 → 이제 재시작 불필요"
