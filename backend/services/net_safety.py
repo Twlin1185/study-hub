@@ -7,9 +7,13 @@ URL 다운로드/크롤링을 하는 곳(F35-1 convert URL 반입, F35-2 사이�
 from __future__ import annotations
 
 import ipaddress
+import logging
 import socket
+import ssl
 import urllib.request
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class UnsafeHostError(Exception):
@@ -39,6 +43,34 @@ class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 # 리다이렉트로 간주하는 상태 코드(공통).
 REDIRECT_CODES = (301, 302, 303, 307, 308)
+
+
+_ssl_context: Optional[ssl.SSLContext] = None
+
+
+def ssl_context() -> ssl.SSLContext:
+    """아웃바운드 HTTPS 공용 SSL 컨텍스트 — OS 신뢰 저장소(Windows CertStore) 위에 `certifi`
+    번들을 **추가로** 얹는다. 임베디드 파이썬은 OpenSSL이 Windows의 AIA 중간 인증서 자동
+    조회를 쓰지 못해, 아직 캐시되지 않은 CA 체인(GitHub 릴리스 등)에서
+    `CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`가 간헐적으로 난다.
+    certifi 번들을 함께 신뢰하면 두 저장소 중 하나만 체인을 알아도 검증이 통과한다.
+    certifi 미설치면 기본 컨텍스트 그대로(동작 저하 없음)."""
+    global _ssl_context
+    if _ssl_context is None:
+        ctx = ssl.create_default_context()
+        try:
+            import certifi  # noqa: WPS433 - 선택 의존
+
+            ctx.load_verify_locations(cafile=certifi.where())
+        except Exception as exc:  # noqa: BLE001 - certifi 부재/손상은 OS 저장소만으로 진행
+            logger.warning("certifi 번들 로드 실패 — OS 신뢰 저장소만 사용: %s", exc)
+        _ssl_context = ctx
+    return _ssl_context
+
+
+def https_handler() -> urllib.request.HTTPSHandler:
+    """`urllib.request.build_opener(...)`에 끼울 HTTPS 핸들러 — `ssl_context()` 적용."""
+    return urllib.request.HTTPSHandler(context=ssl_context())
 
 
 def is_blocked_ip(ip_str: str) -> bool:

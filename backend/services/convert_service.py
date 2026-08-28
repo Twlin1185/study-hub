@@ -173,7 +173,7 @@ def _download_source_url(url: str, *, on_activity=None) -> Tuple[str, bytes, str
     """안전장치: http/https만 허용, 매 리다이렉트 hop마다 호스트 DNS 재검증, 사설/루프백/
     링크로컬 IP 차단, content-type 화이트리스트(pdf/html/이미지/md), 크기 상한(50MB), 타임아웃."""
     current_url = url
-    opener = urllib.request.build_opener(net_safety.NoRedirectHandler())
+    opener = urllib.request.build_opener(net_safety.NoRedirectHandler(), net_safety.https_handler())
 
     for _hop in range(MAX_REDIRECTS + 1):
         parsed = urllib.parse.urlparse(current_url)
