@@ -1168,6 +1168,10 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
                         )
                     doc["title"] = override.title.strip()
                 if override.content is not None:
+                    if not override.content.strip():
+                        raise ValidationAppError(
+                            "본문은 비울 수 없습니다", detail={"index": idx}
+                        )
                     doc["content"] = override.content
                 if override.answer is not None:
                     doc["answer"] = override.answer

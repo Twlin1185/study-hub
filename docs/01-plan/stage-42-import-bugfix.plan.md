@@ -45,10 +45,10 @@
 - [x] **B2-2** `enqueue_split`: `category_paths` 전부를 잡 등록 **루프 이전에** `normalize_category_path`로 검증(부분 등록 후 422 방지)
 - [x] **B2-2** `POST /api/import/preview/merge` (`routers/imports.py`) body `{preview_ids: [str,…]}`(2개 이상 · 각각 `_PREVIEW_CACHE` 존재 또는 보존본 복구 가능) → 각 preview의 정규화 문서(`items[i]["doc"]`)를 **주어진 순서로 연결**한 `{"documents":[…]}`로 `create_preview(preserve=True, warnings_override=<재인덱스한 조각 경고>, source_filename="<첫 조각 파일명> (분할 병합 N조각)")` 호출 → `PreviewResponse` 그대로 응답. 누락·만료 preview = 404(어느 id인지 detail). 원 조각 preview는 삭제하지 않는다(TTL 자연 만료)
 - [x] **B3** `schemas/import_schema.py` `PreviewItem`에 `content: Optional[str]`, `choices: Optional[list]`, `answer: Optional[str]`, `explanation: Optional[str]` (모두 기본 None) → `create_preview`에서 `norm`으로 채움(정규화 문서의 키 이름은 `import_service` 정규화 결과 기준 — 없는 키는 None)
-- [x] **B3** `ImportDecision.override: Optional[ItemOverride]` (`title?`, `content?`, `answer?`, `explanation?` — 모두 Optional str) → `commit_import`에서 해당 항목 `doc`에 **얕은 덮어쓰기 후** 기존 new/merge 경로 진행. 빈 문자열 title은 422("제목은 비울 수 없습니다")
+- [x] **B3** `ImportDecision.override: Optional[ItemOverride]` (`title?`, `content?`, `answer?`, `explanation?` — 모두 Optional str) → `commit_import`에서 해당 항목 `doc`에 **얕은 덮어쓰기 후** 기존 new/merge 경로 진행. 빈 문자열 title·content는 422 · merge 액션은 본문 불변(override 미반영 — 프론트가 [편집] 숨김) · 테스트 `tests/test_import_override.py` 5건(검토 1차 후 추가)
 - [x] **B4-S4/S6** `convert_service.normalize_category_path`의 본체를 **관대 정규화기**로 분리(`normalize_category_path_lenient(path) -> Optional[str]`: `>`·`＞`·`»`·`≫`·`\`·`::` → `/` 치환 → 세그먼트 strip·NFC → 빈 세그먼트 제거 → 5단·60자 초과면 None) — 기존 엄격 함수는 동작 불변(사용자 입력 422 유지)
 - [x] **B4-S7/S1** `import_service._validate_item`: `suggest_categories`가 list가 아니거나 원소가 str이 아니면 **항목 error가 아니라** str 원소만 회수(dict면 `path` 키) + warning `'category_malformed'`; 각 경로는 관대 정규화기 통과(None이면 버림). 제안이 0개면 warning `'no_category'`
-- [x] **B4-S5** `import_service._find_child`·`_path_names`: 이름 비교를 `unicodedata.normalize('NFC', name).strip()` 기준 + 대소문자 무시(`func.lower`)로 — 생성 시에는 원문(정규화·strip) 그대로 저장. 커밋 `_apply_categories`의 문자열 경로도 관대 정규화기 통과
+- [x] **B4-S5** `import_service._find_child`: 형제 노드를 파이썬 측 NFC·strip·`casefold` 전수 비교(SQLite `lower()`는 비ASCII 폴딩을 보장하지 않아 `func.lower` 대신 — 구현 실측 정정 · `_path_names`는 무변경) — 생성 시에는 원문(정규화·strip) 그대로 저장. 커밋 `_apply_categories`의 문자열 경로도 관대 정규화기 통과
 - [x] **B4-S2/S3** `improve_service.load_convert_prompt_with_casebook`: `prompts/taxonomy.md` 첨부("## 부속 분류 정책"). `convert_service._category_directive_lines`: "이 지시가 분류 정책의 2경로 규칙보다 우선한다 — 다른 경로를 추가하지 말 것" 1줄 추가
 - [x] 테스트: `tests/test_import_categories_lenient.py`(신규 — S4·S5·S7·no_category 경고) · `tests/test_preview_merge.py`(신규 — 2 preview 병합 재인덱스·경고 승계·404) · `tests/test_job_center.py`에 dismiss 3케이스 추가 · 기존 전체 `run-tests.ps1` 통과(577 passed · applied_exam 2건은 Claude CLI 미탐지 환경 사유 — 회귀 아님)
 
@@ -63,10 +63,10 @@
 
 ### 문서·검증 (메인 대화)
 
-- [ ] 설계 api §4.3·§4.11·§4.24·§4.25 추기(말미 초안 반영) · screens §5 반입 ② "배지 표"에 본문·편집 문장 추가
-- [ ] `docs/manual/user-manual.html` 반입 절: 본문 보기·편집, 분할 [합쳐서 검토], 작업 센터 [목록에서 지우기] 반영
-- [ ] `scripts/invariant-scan.ps1` PASS · `run-tests.ps1` 전체 통과 · `stage-reviewer`(Opus) 검토 통과
-- [ ] CLAUDE.md: stage-42 = 본 단계 · 구 편집기 퇴역 = stage-43으로 이월 표기
+- [x] 설계 api §4.3·§4.11·§4.24·§4.25 추기(말미 초안 반영 + 검토 1차 ⑥⑦ 문장) · screens §5.9 ①(그룹 헤더·[합쳐서 검토])·②(본문·편집) 문장 추가
+- [x] `docs/manual/user-manual.html` 반입 절: 본문 보기·편집, 분할 [합쳐서 검토], 작업 센터 [목록에서 지우기] 반영
+- [x] `scripts/invariant-scan.ps1` PASS · `run-tests.ps1` 전체 통과(582 passed · applied_exam 2건 환경 사유) · `stage-reviewer`(Opus) 1차 반려(치명 1·중요 2·경미 10) → 전건 수정 → 재검토(아래 완료 기록)
+- [x] CLAUDE.md: stage-42 = 본 단계 · 구 편집기 퇴역 = stage-43으로 이월 표기
 
 ## DoD
 
@@ -96,4 +96,5 @@
 
 ## 완료 기록
 
-(구현·검토 후 기입)
+- **2026-08-28** 편성·B1 선수정(`6120764`) → 백엔드(sonnet)·프론트(sonnet) 병렬 구현(`f64fa6a`) — 백엔드 577 passed · 빌드 성공(메인 청크 +9.2KB raw/+2.1KB gzip) · invariant PASS.
+- **2026-08-29** stage-reviewer(Opus) 1차 **반려**: 치명 ①(조각 항목에 splitId를 심자 `split_in_progress` 판정이 조각까지 삼켜 진행바·[취소] 소실 + [분할안 열기] 오클릭 시 조각 잡 중복 등록) · 중요 ②(딥링크 앵커가 조각을 앵커로 오인) ③([경로 추가] 후 입력 미초기화) · 경미 ④~⑬. **전건 수정**: ① `useConvertQueue` 상태 판정에 `sourceKind !== 'split'` 조건 · ② 앵커 탐색 동일 조건 · ③ `CategoryPathField` key 리마운트 · ④ merge 항목 [편집] 숨김 + §4.3 명기 · ⑤ error 항목 본문 토글 숨김 · ⑥ §4.11 사용자 경로 관대 폐기 명기 · ⑦ §4.3 병합 제외/422/409/sources 미연결 문장 · ⑧ screens §5.9 배치 정정 · ⑨ 체크리스트 실측 정정 · ⑩ 체크박스 · ⑪ `fetchers/registry.py` https_handler 적용(4번째 아웃바운드 경로) · ⑫ 조각 항목 `categoryPath` 보존(위저드 → addJobs) · ⑬ content 빈 문자열 override 422. 추가: `tests/test_import_override.py` 5건. 재검증 582 passed · 빌드 성공 · invariant PASS.

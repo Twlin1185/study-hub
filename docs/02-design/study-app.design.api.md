@@ -98,8 +98,8 @@
 **S42 추기 (2026-08-28 — `stage-42-import-bugfix.plan.md` B3·B2-2·B4. 순수 추가 — 기존 필드·동작 불변)**
 
 - `PreviewItem` += `content?`·`choices?`·`answer?`·`explanation?`(정규화 본문 그대로 — 검토 단계 **열람용**, 기본 `null`. 서버 preview 캐시의 `doc`을 응답에 투영한 것뿐 — 재계산 없음). 검토 화면 ②는 항목별 [본문 보기]로 이를 렌더한다(공용 MarkdownView).
-- `ImportDecision` += `override?: {title?, content?, answer?, explanation?}` — 검토 단계 **편집분**. commit이 해당 항목의 정규화 문서에 **얕은 덮어쓰기** 후 기존 new/merge 경로를 그대로 진행한다. `title`이 빈 문자열이면 422. `choices` 구조 편집은 계약에 없다(반입 후 문서 편집기에서).
-- **`POST /api/import/preview/merge`** body `{preview_ids: [str, …]}`(**2개 이상**, 각각 캐시 존재 또는 보존본 복구 가능) → 새 `preview_id`의 `PreviewResponse`. 문서 = 주어진 순서로 연결·**재인덱스**, 항목 `warnings`는 원 preview의 판정을 **승계**(재판정 없음 — S15 원칙), 보존(F40-①) O, 원 preview는 **불변**(TTL 자연 만료). 누락·만료 id = 404(detail에 id). 용도: 분할 반입(§4.25) 조각 미리보기를 한 번에 검토·반입(ImportQueue [합쳐서 검토]).
+- `ImportDecision` += `override?: {title?, content?, answer?, explanation?}` — 검토 단계 **편집분**. commit이 해당 항목의 정규화 문서에 **얕은 덮어쓰기** 후 기존 new/merge 경로를 그대로 진행한다. `title`·`content`가 빈 문자열이면 422. **`action:'merge'` 항목은 본문 불변(기존 문서에 병합)이므로 `override`가 반영되지 않는다 — 프론트는 merge 선택 시 [편집]을 숨긴다.** `choices` 구조 편집은 계약에 없다(반입 후 문서 편집기에서).
+- **`POST /api/import/preview/merge`** body `{preview_ids: [str, …]}`(**2개 이상**, 각각 캐시 존재 또는 보존본 복구 가능) → 새 `preview_id`의 `PreviewResponse`. 문서 = 주어진 순서로 연결·**재인덱스**, 항목 `warnings`는 원 preview의 판정을 **승계**(재판정 없음 — S15 원칙), 보존(F40-①) O, 원 preview는 **불변**(TTL 자연 만료). 누락·만료 id = 404(detail에 id). 오류 항목은 정규화 문서가 없어 병합 결과에서 **제외**된다(그 오류는 원 조각 preview에서 이미 표면화됐다). 유효 문서가 0건이면 **422**, 이미 커밋된 `preview_id`가 섞이면 **409**. 병합 preview는 원본 바이트가 없어 `sources/` 연결 없이 커밋된다(조각 잡이 애초에 `skip_source_save` — §4.25 stage-23 (C) 공백 그대로). 용도: 분할 반입(§4.25) 조각 미리보기를 한 번에 검토·반입(ImportQueue [합쳐서 검토]).
 - 항목 `warnings` 값 += `'no_category'`(LLM이 분류 제안을 내지 않음) · `'category_malformed'`(`suggest_categories` 형식 오류 — 회수 가능한 문자열만 채택). 둘 다 **배지·안내만**(반입 제외 아님). 종전 "형식 오류 = 항목 error"는 폐지 — 선택 필드의 오류가 문서를 누락시키지 않는다.
 - 분류 제안 경로의 정규화는 §4.11 S42 추기 참조.
 
@@ -235,7 +235,7 @@
 **S42 추기 (2026-08-28 — 분류 제안 정합성. `stage-42-import-bugfix.plan.md` B4)**
 
 - `category_path` 고정 지시는 `prompts/taxonomy.md`의 "기출 = 회차·과목 2경로" 규칙보다 **우선**한다고 프롬프트에 명기한다(종전에는 두 지시가 충돌해 항목별로 비결정적으로 따랐다). `prompts/taxonomy.md`는 convert·fetch 프롬프트에 **"부속 분류 정책" 절로 첨부**된다(종전 "단일 출처" 선언만 있고 미첨부).
-- LLM이 낸 `suggest_categories` 경로는 사용자 `category_path`와 **같은 규칙(5단·60자·빈 세그먼트 금지)** 으로 검증하되 **관대 정규화**를 먼저 적용한다: `>`·`＞`·`»`·`≫`·`\`·`::` → `/`, 세그먼트 strip·NFC. 규칙 위반 경로는 **그 경로만 버린다**(항목 error 아님). 기존 분류와의 매칭은 NFC·strip·대소문자 무시(생성 시 저장 이름은 정규화·strip 원문).
+- LLM이 낸 `suggest_categories` 경로는 사용자 `category_path`와 **같은 규칙(5단·60자·빈 세그먼트 금지)** 으로 검증하되 **관대 정규화**를 먼저 적용한다: `>`·`＞`·`»`·`≫`·`\`·`::` → `/`, 세그먼트 strip·NFC. 규칙 위반 경로는 **그 경로만 버린다**(항목 error 아님). commit의 `approve_categories` 문자열(사용자 승인·직접 입력 경로)도 같은 관대 정규화를 거치며 위반분은 **메시지 없이 버려진다**(프론트 `categoryPathError` 선검증이 1차 방어). 기존 분류와의 매칭은 NFC·strip·대소문자 무시(생성 시 저장 이름은 정규화·strip 원문).
 
 ### 4.12 일상 다듬기 (S9 — F36 · F37 · F38 + M6 이월 2건)
 

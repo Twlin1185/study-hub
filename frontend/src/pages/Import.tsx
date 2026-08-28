@@ -165,7 +165,9 @@ export default function ImportPage() {
   // 잡는다(엔트리를 몰라도 재진입 경로가 일관되게 동작 — enqueue 시 제거·만료 시 복귀).
   useEffect(() => {
     if (!splitIdParam || splitAnchorEntryId) return
-    const match = queue.items.find((it) => it.entry.splitId === splitIdParam)
+    const match = queue.items.find(
+      (it) => it.entry.splitId === splitIdParam && it.entry.sourceKind !== 'split',
+    )
     if (match) setSplitAnchorEntryId(match.entry.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [splitIdParam, queue.items])
@@ -517,14 +519,24 @@ export default function ImportPage() {
                 setSplitInitialCommonPath(null)
                 setEntryMode('convert')
               }}
-              onEnqueued={(jobs, splitId) => {
+              onEnqueued={(jobs, splitId, categoryPaths) => {
                 // 4단계(조각별 미리보기 승인)는 신규 진행 UI 없이 기존 ImportQueue 화면이
                 // 그대로 이어받는다(체크리스트 — 신규 진행 UI 없음). 이 split_id를 가진 재진입
                 // 앵커 항목은(재사용으로 앵커가 둘 이상 생겼더라도 전부) 조각들이 이미
                 // 합류했으니 큐에서 제거한다(원본이 두 번 남아 혼란스럽다는 피드백 반영 —
                 // stage-reviewer 표적 확인 [관찰 (a)] 재수정: entryId 1개가 아니라 split_id
                 // 기준 전체 제거).
-                queue.addJobs(jobs.map((j) => ({ job_id: j.job_id, label: j.label })), splitId)
+                // 조각 카드의 "분류 경로 제안" 표시·병합 항목 경로 계산용(검토 1차 경미 ⑫) —
+                // 위저드가 보낸 category_paths(대표 chunk_id 키)를 잡의 chunk_ids로 되찾는다.
+                queue.addJobs(
+                  jobs.map((j) => ({
+                    job_id: j.job_id,
+                    label: j.label,
+                    categoryPath:
+                      j.chunk_ids.map((id) => categoryPaths?.[id]).find((p) => !!p) ?? null,
+                  })),
+                  splitId,
+                )
                 setSplitInitialSource(null)
                 setSplitResumeId(null)
                 setSplitAnchorEntryId(null)
@@ -1039,6 +1051,7 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
   const [draftExplanation, setDraftExplanation] = useState(item.explanation ?? '')
   // stage-42(B4-S12) — 항목별 분류 경로 직접 추가.
   const [manualCategoryPath, setManualCategoryPath] = useState('')
+  const [pathFieldKey, setPathFieldKey] = useState(0)
 
   const hasOverride = Boolean(state?.override && Object.keys(state.override).length > 0)
   const effectiveTitle = state?.override?.title ?? item.title
@@ -1090,8 +1103,10 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
         <WarningBadges warnings={item.warnings} />
       </div>
 
-      {/* stage-42(B3) — 본문·선택지·정답·해설 열람·편집(오류 항목도 원문 확인은 가능해야 하므로
-          error 여부와 무관하게 렌더). */}
+      {/* stage-42(B3) — 본문·선택지·정답·해설 열람·편집. error 항목은 서버가 정규화 본문을 싣지
+          않으므로(§4.3) 토글을 숨긴다(검토 1차 경미 ⑤). merge 선택 항목은 본문 불변(기존 문서에
+          병합 — override 미반영)이라 [편집]을 숨긴다(경미 ④). */}
+      {item.status !== 'error' && (
       <div className="mb-2 flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -1100,12 +1115,16 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
         >
           {bodyOpen ? '본문 접기 ▾' : '본문 보기 ▸'}
         </button>
-        {!editing && item.status !== 'error' && (
+        {!editing && state?.action !== 'merge' && (
           <button type="button" onClick={startEditing} className="text-xs font-medium text-accent hover:underline">
             편집
           </button>
         )}
+        {state?.action === 'merge' && (
+          <span className="text-xs text-muted">병합 항목은 기존 문서 본문을 유지합니다 — 편집 불가</span>
+        )}
       </div>
+      )}
 
       {bodyOpen && !editing && (
         <div className="mb-3 flex flex-col gap-2 rounded border border-border bg-bg p-2">
@@ -1330,7 +1349,9 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
             )}
 
             <div className="mt-1 flex flex-col gap-1">
-              <CategoryPathField value={manualCategoryPath} onChange={setManualCategoryPath} />
+              {/* CategoryPathField는 내부 상태(basePath·extra)만 쓰고 value를 읽지 않으므로 추가 후
+                  key를 바꿔 리마운트해야 입력이 비워진다(검토 1차 중요 ③). */}
+              <CategoryPathField key={pathFieldKey} value={manualCategoryPath} onChange={setManualCategoryPath} />
               <div className="flex justify-end">
                 <button
                   type="button"
@@ -1345,6 +1366,7 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
                       approvedCategoryIds: [...state.approvedCategoryIds, manualCategoryPath],
                     })
                     setManualCategoryPath('')
+                    setPathFieldKey((k) => k + 1)
                   }}
                   className="rounded border border-border px-2 py-1 text-xs text-primary hover:bg-surface disabled:opacity-50"
                 >

@@ -94,7 +94,11 @@ interface SplitImportWizardProps {
   // splitId(두 번째 인자, stage-reviewer 표적 확인 [관찰 (a)]) — 호출부가 이 split_id를 가진
   // 큐 항목 "전부"를 정리할 수 있게 함께 넘긴다(같은 split을 재사용한 두 앵커가 남아 같은
   // 조각을 중복 투입하는 엣지 차단 — 단일 anchorEntryId 제거로는 못 막는다).
-  onEnqueued: (jobs: SplitEnqueueJobItem[], splitId: string) => void
+  onEnqueued: (
+    jobs: SplitEnqueueJobItem[],
+    splitId: string,
+    categoryPaths?: Record<string, string>,
+  ) => void
   // 재진입 앵커(사용자 실사용 피드백 반영) — split_id를 확보(POST 성공·재사용 선택 포함)할
   // 때마다 알려 호출부가 출발점이 된 too_large 항목에 이 id를 심게 한다("분할 진행 중" 전환).
   onSplitStarted?: (splitId: string) => void
@@ -302,7 +306,7 @@ export default function SplitImportWizard({
         selections,
         categoryPaths: Object.keys(categoryPaths).length > 0 ? categoryPaths : undefined,
       },
-      { onSuccess: (data) => onEnqueued(data.jobs, splitId) },
+      { onSuccess: (data) => onEnqueued(data.jobs, splitId, categoryPaths) },
     )
   }
 

@@ -98,7 +98,7 @@ def _single_hop_request(url: str, host: str, headers: dict):
     """반환: ('ok', response) | ('redirect', location_url). HTTP/네트워크 오류는
     ParseFailedError(detail에 http_code 있으면 HTTP 오류)로 올린다."""
     url = _ascii_safe_url(url)
-    opener = urllib.request.build_opener(net_safety.NoRedirectHandler())
+    opener = urllib.request.build_opener(net_safety.NoRedirectHandler(), net_safety.https_handler())
     lock = _domain_lock(host)
     with lock:  # 병렬 금지 — 도메인당 한 요청씩
         last = _LAST_REQUEST_AT.get(host)

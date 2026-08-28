@@ -145,7 +145,9 @@ export function useConvertQueue() {
       // 이미 시작됐다는 뜻이다(사용자 실사용 피드백 반영) — 여전히 startError는 남아 있지만
       // (원래 convert 잡은 실패한 채) 오류가 아닌 "분할 진행 중" 중립 상태로 덮어쓴다. enqueue가
       // 끝나면 이 항목 자체가 큐에서 제거되므로(addJobs) 이 분기에 계속 머무르지 않는다.
-      else if (entry.splitId) status = 'split_in_progress'
+      // 조각 항목(sourceKind 'split')도 splitId를 갖지만(stage-42 B2-2 그룹 근거) 앵커가 아니므로
+      // 이 분기에서 제외한다 — 조각은 아래 잡 상태 판정을 그대로 탄다(검토 1차 치명 ①).
+      else if (entry.splitId && entry.sourceKind !== 'split') status = 'split_in_progress'
       else if (entry.startError) status = 'error'
       else if (lost) status = 'error'
       // 취소됨(S22, §4.24 ②) — 오류가 아닌 중립 종료 상태. [취소]는 처리 중 1건에만 노출하므로
@@ -345,7 +347,7 @@ export function useConvertQueue() {
   // 이상 생긴 엣지에서 나머지 앵커가 남아 같은 조각을 다시 투입할 수 있다 — split_id 기준으로
   // 매칭되는 항목 전부를 지운다.
   const addJobs = useCallback(
-    (jobs: { job_id: string; label: string }[], splitId?: string | null) => {
+    (jobs: { job_id: string; label: string; categoryPath?: string | null }[], splitId?: string | null) => {
       if (jobs.length === 0) return
       // stage-42(B2-2) 정정 — 조각 항목도 자신의 splitId·splitTotal을 보존한다(종전
       // `splitId: null`은 ImportQueue.tsx가 조각을 그룹으로 묶을 근거를 잃게 만드는 결함이었다).
@@ -354,7 +356,7 @@ export function useConvertQueue() {
         jobId: j.job_id,
         sourceKind: 'split',
         fileName: j.label,
-        categoryPath: null,
+        categoryPath: j.categoryPath ?? null,
         committed: false,
         startError: null,
         startErrorInfo: null,
