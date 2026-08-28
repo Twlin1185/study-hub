@@ -28,6 +28,9 @@ export default function TagManager() {
 
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('usage')
+  // 검색어가 없을 때 전체 목록은 기본 접힘(사용자 피드백 2026-08-29 — 태그가 많아 화면을 덮는다).
+  // 컴포넌트 로컬 상태라 다른 화면에 갔다 오면 다시 접힌 상태가 기본이다(저장하지 않는다).
+  const [expanded, setExpanded] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   // 유사쌍 "무시" — 세션 내 숨김만(저장 안 함, 과설계 방지).
   const [ignoredPairs, setIgnoredPairs] = useState<Set<string>>(new Set())
@@ -46,6 +49,8 @@ export default function TagManager() {
   }, [tags, search, sort])
 
   const visiblePairs = (similarQuery.data ?? []).filter((p) => !ignoredPairs.has(pairKey(p)))
+  const searching = search.trim() !== ''
+  const showList = searching || expanded
 
   function handleRename(tag: Tag, name: string, onDone: (err: string | null) => void) {
     const trimmed = name.trim()
@@ -131,19 +136,50 @@ export default function TagManager() {
 
       {tagsQuery.isLoading && <p className="text-sm text-muted">불러오는 중…</p>}
       {tagsQuery.isError && <p className="text-sm text-wrong">태그를 불러오지 못했습니다.</p>}
-      {tagsQuery.data && filtered.length === 0 && <p className="text-sm text-muted">태그가 없습니다.</p>}
 
-      <ul className="flex flex-col divide-y divide-border">
-        {filtered.map((tag) => (
-          <TagRow
-            key={tag.id}
-            tag={tag}
-            onRename={handleRename}
-            onMerge={() => setMergeTarget(tag)}
-            onDelete={() => setDeleteTarget(tag)}
-          />
-        ))}
-      </ul>
+      {/* 검색어 없음 + 접힘 = 개수 요약 한 줄만. 검색하면 즉시 결과가 펼쳐진다. */}
+      {tagsQuery.data && !showList && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-bg px-3 py-2 text-sm">
+          <span className="text-muted">
+            태그 {tags.length}개 — 검색하거나 목록을 펼쳐서 관리하세요.
+          </span>
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="rounded border border-border px-2.5 py-1 text-xs text-primary hover:bg-surface"
+          >
+            전체 펼치기
+          </button>
+        </div>
+      )}
+
+      {tagsQuery.data && showList && (
+        <>
+          {!searching && (
+            <div className="mb-1 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                className="rounded border border-border px-2.5 py-1 text-xs text-primary hover:bg-bg"
+              >
+                접기
+              </button>
+            </div>
+          )}
+          {filtered.length === 0 && <p className="text-sm text-muted">태그가 없습니다.</p>}
+          <ul className="flex flex-col divide-y divide-border">
+            {filtered.map((tag) => (
+              <TagRow
+                key={tag.id}
+                tag={tag}
+                onRename={handleRename}
+                onMerge={() => setMergeTarget(tag)}
+                onDelete={() => setDeleteTarget(tag)}
+              />
+            ))}
+          </ul>
+        </>
+      )}
 
       {mergeTarget && (
         <MergeTargetModal
