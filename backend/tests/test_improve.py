@@ -44,12 +44,16 @@ def isolated_dirs(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def isolated_prompt(tmp_path, monkeypatch):
-    """`convert.md`·`convert.cases.md`를 임시 사본으로 격리(실제 프롬프트 파일 무변경)."""
+    """`convert.md`·`convert.cases.md`·`taxonomy.md`를 임시 사본으로 격리(실제 프롬프트
+    파일 무변경). taxonomy는 이 파일이 없는 상태(=미첨부)로 시작한다 — 실제 저장소의
+    `prompts/taxonomy.md`가 섞여 들어와 정확 일치 검증을 흐리지 않도록(B4-S2/S3 추기)."""
     convert_md = tmp_path / "convert.md"
     casebook = tmp_path / "convert.cases.md"
+    taxonomy = tmp_path / "taxonomy.md"
     convert_md.write_text(SAMPLE_CONVERT_MD, encoding="utf-8")
     monkeypatch.setattr(improve_service, "CONVERT_PROMPT_PATH", convert_md)
     monkeypatch.setattr(improve_service, "CASEBOOK_PATH", casebook)
+    monkeypatch.setattr(improve_service, "TAXONOMY_PATH", taxonomy)
     return convert_md, casebook
 
 
@@ -418,6 +422,28 @@ def test_load_convert_prompt_with_casebook_injects_section(isolated_prompt):
 def test_load_convert_prompt_with_casebook_empty_file_not_injected(isolated_prompt):
     convert_md, casebook = isolated_prompt
     casebook.write_text("   \n", encoding="utf-8")  # 공백뿐 — "비어 있음"
+    assert improve_service.load_convert_prompt_with_casebook() == SAMPLE_CONVERT_MD
+
+
+def test_load_convert_prompt_with_casebook_injects_taxonomy_section(isolated_prompt):
+    """B4-S2/S3(설계 §4.11 추기) — taxonomy.md가 있고 비어있지 않으면 "부속 분류 정책"
+    섹션으로 첨부된다(케이스북과 같은 첨부 방식)."""
+    from services import improve_service as svc
+
+    taxonomy_path = svc.TAXONOMY_PATH
+    assert improve_service.load_convert_prompt_with_casebook() == SAMPLE_CONVERT_MD
+
+    taxonomy_path.write_text("## 분류 정책 본문 — 회차+과목 2경로", encoding="utf-8")
+    injected = improve_service.load_convert_prompt_with_casebook()
+    assert injected.startswith(SAMPLE_CONVERT_MD)
+    assert "부속 분류 정책" in injected
+    assert "회차+과목 2경로" in injected
+
+
+def test_load_convert_prompt_with_casebook_empty_taxonomy_not_injected(isolated_prompt):
+    from services import improve_service as svc
+
+    svc.TAXONOMY_PATH.write_text("   \n", encoding="utf-8")  # 공백뿐 — "비어 있음"
     assert improve_service.load_convert_prompt_with_casebook() == SAMPLE_CONVERT_MD
 
 

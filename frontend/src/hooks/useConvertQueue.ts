@@ -137,13 +137,17 @@ export function useConvertQueue() {
       let status: QueueItemStatus
       if (entry.committed) status = 'committed'
       // preview_id를 확보한 뒤에는 잡이 사라져도(404) 검토를 계속할 수 있다 — 서버가 보존본에서
-      // 미리보기를 복구한다(F40-①, §4.3). 그래서 'ready' 판정이 오류 판정보다 우선한다.
+      // 미리보기를 복구한다(F40-①, §4.3). 그래서 'ready' 판정이 오류 판정보다 우선한다. 이 분기가
+      // splitId·startError 판정보다 먼저이므로 stage-42(B2-2) 병합 항목(jobId:null·previewId만
+      // 있는 신규 항목)도 잡을 두드리지 않고 곧장 'ready'로 표시된다(확인·보정 완료).
       else if (previewId) status = 'ready'
       // split_id가 심어졌다는 것은 사용자가 이 too_large 실패 항목에서 [분할 반입]을 눌러 분할이
       // 이미 시작됐다는 뜻이다(사용자 실사용 피드백 반영) — 여전히 startError는 남아 있지만
       // (원래 convert 잡은 실패한 채) 오류가 아닌 "분할 진행 중" 중립 상태로 덮어쓴다. enqueue가
       // 끝나면 이 항목 자체가 큐에서 제거되므로(addJobs) 이 분기에 계속 머무르지 않는다.
-      else if (entry.splitId) status = 'split_in_progress'
+      // 조각 항목(sourceKind 'split')도 splitId를 갖지만(stage-42 B2-2 그룹 근거) 앵커가 아니므로
+      // 이 분기에서 제외한다 — 조각은 아래 잡 상태 판정을 그대로 탄다(검토 1차 치명 ①).
+      else if (entry.splitId && entry.sourceKind !== 'split') status = 'split_in_progress'
       else if (entry.startError) status = 'error'
       else if (lost) status = 'error'
       // 취소됨(S22, §4.24 ②) — 오류가 아닌 중립 종료 상태. [취소]는 처리 중 1건에만 노출하므로
@@ -343,22 +347,30 @@ export function useConvertQueue() {
   // 이상 생긴 엣지에서 나머지 앵커가 남아 같은 조각을 다시 투입할 수 있다 — split_id 기준으로
   // 매칭되는 항목 전부를 지운다.
   const addJobs = useCallback(
-    (jobs: { job_id: string; label: string }[], splitId?: string | null) => {
+    (jobs: { job_id: string; label: string; categoryPath?: string | null }[], splitId?: string | null) => {
       if (jobs.length === 0) return
+      // stage-42(B2-2) 정정 — 조각 항목도 자신의 splitId·splitTotal을 보존한다(종전
+      // `splitId: null`은 ImportQueue.tsx가 조각을 그룹으로 묶을 근거를 잃게 만드는 결함이었다).
       const created: StoredQueueEntry[] = jobs.map((j) => ({
         id: newEntryId(),
         jobId: j.job_id,
         sourceKind: 'split',
         fileName: j.label,
-        categoryPath: null,
+        categoryPath: j.categoryPath ?? null,
         committed: false,
         startError: null,
         startErrorInfo: null,
         createdAt: Date.now(),
-        splitId: null,
+        splitId: splitId ?? null,
+        splitTotal: jobs.length,
       }))
       setEntriesState((prev) => {
-        const removedIds = splitId ? prev.filter((e) => e.splitId === splitId).map((e) => e.id) : []
+        // 앵커(sourceKind !== 'split')만 제거 대상으로 좁힌다 — 이미 큐에 합류한 조각
+        // 항목(sourceKind === 'split')은 같은 splitId를 갖고 있어도 지우지 않는다(종전
+        // 조건은 앵커와 조각을 구분하지 않아 재호출 시 방금 합류한 조각까지 지울 위험이 있었다).
+        const removedIds = splitId
+          ? prev.filter((e) => e.splitId === splitId && e.sourceKind !== 'split').map((e) => e.id)
+          : []
         for (const id of removedIds) filesRef.current.delete(id)
         const withoutAnchors = removedIds.length > 0 ? prev.filter((e) => !removedIds.includes(e.id)) : prev
         const next = [...withoutAnchors, ...created]
@@ -368,6 +380,36 @@ export function useConvertQueue() {
       qc.invalidateQueries({ queryKey: llmJobsKey })
     },
     [qc],
+  )
+
+  // stage-42(B2-2, §4.25) — [합쳐서 검토](ImportQueue.tsx)가 만든 병합 preview를 큐에 새 항목
+  // 1개로 편입하고, 병합된 조각 항목들은 큐에서 제거한다(원 조각 preview는 서버가 보존 —
+  // TTL 자연 만료, 여기서는 큐 표시만 정리). 새 항목의 id를 돌려줘 호출부가 곧장 [검토] 흐름을
+  // 이어갈 수 있게 한다.
+  const mergeSplitEntries = useCallback(
+    (entryIds: string[], merged: { previewId: string; fileName: string; categoryPath: string | null }) => {
+      const newEntry: StoredQueueEntry = {
+        id: newEntryId(),
+        jobId: null,
+        sourceKind: 'split',
+        fileName: merged.fileName,
+        categoryPath: merged.categoryPath,
+        previewId: merged.previewId,
+        committed: false,
+        startError: null,
+        startErrorInfo: null,
+        createdAt: Date.now(),
+        splitId: null,
+      }
+      setEntriesState((prev) => {
+        const next = [...prev.filter((e) => !entryIds.includes(e.id)), newEntry]
+        writeQueue(next)
+        return next
+      })
+      for (const id of entryIds) filesRef.current.delete(id)
+      return newEntry.id
+    },
+    [],
   )
 
   // 재진입 앵커 관리(사용자 실사용 피드백 반영, §4.25) — [분할 반입]으로 분할이 시작되면(POST
@@ -434,6 +476,7 @@ export function useConvertQueue() {
     startFiles,
     startUrl,
     addJobs,
+    mergeSplitEntries,
     setEntrySplitId,
     getFile,
     retryEntry,

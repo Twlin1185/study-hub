@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import re
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -148,17 +149,30 @@ def save_source_file(original_name: str, data: bytes) -> str:
 # ---------------------------------------------------------------------------
 # 유틸: 분류 경로 매칭 / 생성
 # ---------------------------------------------------------------------------
+def _category_name_key(name: str) -> str:
+    """B4-S5(설계 §4.11 추기) — 분류명 비교 키: NFC 정규화·strip·대소문자 무시.
+    공백·유니코드 결합형·대소문자만 다른 형제 분류가 중복 생성되는 것을 막는다.
+    저장은 이 키가 아니라 원문(정규화·strip)을 그대로 쓴다 — 표시 형태는 바꾸지 않는다."""
+    return unicodedata.normalize("NFC", name).strip().casefold()
+
+
 def _find_child(
     db: Session, parent_id: Optional[int], name: str
 ) -> Optional[models.Category]:
+    """B4-S5 — 정확 일치(`==`) 대신 NFC·strip·대소문자 무시 비교(파이썬 쪽에서 수행 —
+    SQLite `lower()`는 비ASCII 폴딩을 보장하지 않는다). 같은 부모 아래 자식 수는 적어
+    전수 비교 비용이 무시할 만하다."""
     cond = (
         models.Category.parent_id.is_(None)
         if parent_id is None
         else models.Category.parent_id == parent_id
     )
-    return db.execute(
-        select(models.Category).where(cond, models.Category.name == name)
-    ).scalars().first()
+    siblings = db.execute(select(models.Category).where(cond)).scalars().all()
+    key = _category_name_key(name)
+    for sibling in siblings:
+        if _category_name_key(sibling.name) == key:
+            return sibling
+    return None
 
 
 def _path_names(path: str) -> List[str]:
@@ -288,6 +302,51 @@ def _normalize_choice_answer(
     return text
 
 
+def _normalize_suggest_categories(raw_value: object) -> Tuple[List[str], List[str]]:
+    """B4-S7/S1(설계 §4.11 추기) — `suggest_categories` 관대 회수.
+
+    list가 아니거나 원소가 str이 아니어도 항목 전체를 error로 만들지 않는다(§4.17 ⑤
+    부분 반입 정신). str 원소만 회수하고(dict면 `path` 키 문자열도 회수), 각 경로는
+    사용자 입력과 같은 관대 정규화기(`convert_service.normalize_category_path_lenient` —
+    구분자 통일·NFC·5단·60자)를 통과한 것만 채택한다. 형식 자체가 틀렸거나 정규화에
+    실패한 원소가 하나라도 있으면 `'category_malformed'`, 최종 채택 경로가 0개면
+    `'no_category'`를 반환한다(둘 다 항목 warning — errors 아님)."""
+    # 순환 임포트 회피(convert_service가 import_service를 임포트한다) — 지연 임포트.
+    from services import convert_service
+
+    warnings: List[str] = []
+    malformed = False
+    if raw_value is None:
+        raw_list: List[object] = []
+    elif isinstance(raw_value, list):
+        raw_list = raw_value
+    else:
+        raw_list = []
+        malformed = True
+
+    paths: List[str] = []
+    for item in raw_list:
+        candidate: Optional[str] = None
+        if isinstance(item, str):
+            candidate = item
+        elif isinstance(item, dict) and isinstance(item.get("path"), str):
+            candidate = item["path"]
+        else:
+            malformed = True
+            continue
+        normalized_path = convert_service.normalize_category_path_lenient(candidate)
+        if normalized_path is None:
+            malformed = True
+            continue
+        paths.append(normalized_path)
+
+    if malformed:
+        warnings.append("category_malformed")
+    if not paths:
+        warnings.append("no_category")
+    return paths, warnings
+
+
 def _validate_item(raw: object, *, strict: bool = False) -> Tuple[Optional[dict], List[str]]:
     """반입 문서 1건을 검증. (정규화 dict, errors) 반환. errors 있으면 dict=None.
 
@@ -371,12 +430,12 @@ def _validate_item(raw: object, *, strict: bool = False) -> Tuple[Optional[dict]
         errors.append("'tags'는 문자열 배열이어야 합니다")
         tags = []
 
-    suggest_categories = raw.get("suggest_categories") or []
-    if not isinstance(suggest_categories, list) or not all(
-        isinstance(s, str) for s in suggest_categories
-    ):
-        errors.append("'suggest_categories'는 문자열 배열이어야 합니다")
-        suggest_categories = []
+    # B4-S7/S1(설계 §4.11 추기) — 형식이 어긋나도 항목 전체를 error로 만들지 않는다
+    # (§4.17 ⑤ 부분 반입 정신). 회수 가능한 경로만 관대 정규화기로 채택하고, 문제가
+    # 있으면 항목 warning으로 강등한다(errors에는 절대 담지 않는다).
+    suggest_categories, category_warnings = _normalize_suggest_categories(
+        raw.get("suggest_categories")
+    )
 
     suggest_relations = raw.get("suggest_relations") or []
     if not isinstance(suggest_relations, list) or not all(
@@ -409,8 +468,11 @@ def _validate_item(raw: object, *, strict: bool = False) -> Tuple[Optional[dict]
         "difficulty": difficulty,
         "tags": norm_tags,
         "source_detail": raw.get("source_detail"),
-        "suggest_categories": [s.strip() for s in suggest_categories if s.strip()],
+        "suggest_categories": suggest_categories,
         "suggest_relations": [s.strip() for s in suggest_relations if s.strip()],
+        # B4-S7/S1 — 'category_malformed'|'no_category'(내부 전달용, DB 미저장 —
+        # create_preview가 PreviewItem.warnings로 옮긴다).
+        "_category_warnings": category_warnings,
     }
     return normalized, []
 
@@ -628,6 +690,18 @@ def create_preview(
         saved_item_warnings = (
             warnings_override.get(idx) if warnings_override is not None else None
         )
+        base_warnings = (
+            list(saved_item_warnings)
+            if saved_item_warnings is not None
+            # 사이드카에 **키가 있으면**(빈 배열 포함) 최초 판정이 정본, **키가 없으면**
+            # 최초에 판정되지 않은 항목(당시 error)이므로 지금 판정한다.
+            else _item_warnings(norm, matcher=matcher, gate=gate)
+        )
+        # B4-S7/S1(설계 §4.11 추기) — 'category_malformed'|'no_category'는 게이트
+        # (gate·warnings_override)와 무관하게 항상 현재 doc 기준으로 얹는다(신뢰 게이트
+        # 사이드카가 담당하는 신호가 아니다).
+        category_warnings = norm.get("_category_warnings") or []
+        item_warnings = base_warnings + [w for w in category_warnings if w not in base_warnings]
         items.append(
             PreviewItem(
                 index=idx,
@@ -640,13 +714,12 @@ def create_preview(
                 suggest_categories=sc_results,
                 suggest_relations=sr_results,
                 errors=[],
-                # 사이드카에 **키가 있으면**(빈 배열 포함) 최초 판정이 정본, **키가 없으면**
-                # 최초에 판정되지 않은 항목(당시 error)이므로 지금 판정한다.
-                warnings=(
-                    list(saved_item_warnings)
-                    if saved_item_warnings is not None
-                    else _item_warnings(norm, matcher=matcher, gate=gate)
-                ),
+                warnings=item_warnings,
+                # B3(설계 §4.3 추기) — 검토 단계 본문 열람용 정규화 본문(기본 None).
+                content=norm.get("content"),
+                choices=norm.get("choices"),
+                answer=norm.get("answer"),
+                explanation=norm.get("explanation"),
             )
         )
         cache_items.append(
@@ -819,6 +892,75 @@ def get_preview(db: Session, preview_id: str) -> PreviewResponse:
 
 
 # ---------------------------------------------------------------------------
+# 조각 미리보기 병합 (B2-2 — 설계 §4.3·§4.25 추기)
+# ---------------------------------------------------------------------------
+def _preview_state_or_404(db: Session, preview_id: str) -> dict:
+    """`merge_previews` 전용 내부 조회 — `get_preview`와 같은 캐시 미스 복구 규칙(§4.3)을
+    쓰되, `PreviewResponse`가 아니라 정규화 doc을 담은 내부 캐시 dict(state) 자체를
+    반환한다(병합은 항목별 `doc`이 필요하다)."""
+    _purge_expired()
+    _ensure_not_committed(preview_id)
+    state = _PREVIEW_CACHE.get(preview_id)
+    if state is not None:
+        return state
+    if recover_preview(db, preview_id) is None:
+        raise NotFoundError(
+            "미리보기를 찾을 수 없습니다(만료되었을 수 있습니다)",
+            detail={"preview_id": preview_id},
+        )
+    # recover_preview 성공 시 create_preview가 같은 preview_id로 캐시를 다시 채운다.
+    return _PREVIEW_CACHE[preview_id]
+
+
+def merge_previews(db: Session, preview_ids: List[str]) -> PreviewResponse:
+    """`POST /api/import/preview/merge`(B2-2, 설계 §4.3·§4.25 추기) — 분할 반입 조각
+    preview N개(≥2)의 정규화 문서(`items[i]["doc"]`)를 **주어진 순서로 연결**한 새 preview
+    1개를 만든다(항목 재인덱스·경고 승계·보존 O). 원 조각 preview는 삭제하지 않는다
+    (TTL 자연 만료).
+
+    각 조각의 error 항목은 애초에 정규화 doc이 없어(이어 붙일 원문 자체가 없음) 병합
+    결과에서 빠진다 — 그 오류는 이미 원 조각 preview에서 표면화됐다."""
+    if not preview_ids or len(preview_ids) < 2:
+        raise ValidationAppError(
+            "preview_ids는 2개 이상이어야 합니다", detail={"preview_ids": preview_ids}
+        )
+
+    states = [_preview_state_or_404(db, pid) for pid in preview_ids]
+
+    documents: List[dict] = []
+    warnings_override: Dict[int, List[str]] = {}
+    for state in states:
+        response: PreviewResponse = state["response"]
+        warnings_by_index = {item.index: item.warnings for item in response.items}
+        for citem in state["items"]:
+            if citem.get("status") == "error" or "doc" not in citem:
+                continue
+            # 내부 전용 키(`_`로 시작 — 예: `_category_warnings`)는 재이어붙임 원문에서
+            # 제외한다(재검증 시 자체적으로 다시 계산된다).
+            doc = {k: v for k, v in citem["doc"].items() if not k.startswith("_")}
+            new_index = len(documents)
+            documents.append(doc)
+            warnings_override[new_index] = list(warnings_by_index.get(citem["index"]) or [])
+
+    if not documents:
+        raise ValidationAppError("병합할 유효한 문서가 없습니다(모든 조각이 오류 항목뿐입니다)")
+
+    first_filename = states[0]["response"].source.filename or "분할 병합 원본"
+    merged_json = json.dumps(
+        {"format_version": 1, "source": {}, "documents": documents}, ensure_ascii=False
+    ).encode("utf-8")
+
+    return create_preview(
+        db,
+        json_bytes=merged_json,
+        source_filename=f"{first_filename} (분할 병합 {len(states)}조각)",
+        source_bytes=None,
+        preserve=True,
+        warnings_override=warnings_override,
+    )
+
+
+# ---------------------------------------------------------------------------
 # commit
 # ---------------------------------------------------------------------------
 def _create_document(db: Session, doc: dict, source_id: Optional[int]) -> models.Document:
@@ -903,7 +1045,12 @@ def _apply_categories(
                 )
             _link_category(db, approval, document_id)
         elif isinstance(approval, str):
-            path = approval.strip()
+            # B4-S4/S6(설계 §4.11 추기) — 커밋 시점에도 관대 정규화기를 한 번 더 통과시킨다
+            # (LLM 제안 경로가 그대로 승인됐을 수 있는 경로 — `>`·`\` 등 구분자 이형이나
+            # 5단·60자 위반이 남아 있으면 조용히 건너뛴다. 커밋 트랜잭션 전체를 막지 않는다).
+            from services import convert_service
+
+            path = convert_service.normalize_category_path_lenient(approval)
             if not path:
                 continue
             existed_id, existed = _resolve_category_path(db, path)
@@ -1005,8 +1152,34 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
                 skipped += 1
                 continue
 
+            # B3(설계 §4.3 추기) — 검토 단계 편집분(override)을 정규화 doc에 얕은
+            # 덮어쓰기한다(원본 citem["doc"]은 그대로 두고 사본에만 적용 — 같은 preview를
+            # 다시 조회할 때 편집 전 상태가 보이게). merge에서는 `_merge_document`가
+            # content/answer/explanation을 애초에 쓰지 않으므로(본문 불변 — 위 주석) title
+            # 덮어쓰기도 영향이 없다(merge는 target.title을 바꾸지 않는다).
+            doc = citem["doc"]
+            if decision.override is not None:
+                doc = dict(doc)
+                override = decision.override
+                if override.title is not None:
+                    if not override.title.strip():
+                        raise ValidationAppError(
+                            "제목은 비울 수 없습니다", detail={"index": idx}
+                        )
+                    doc["title"] = override.title.strip()
+                if override.content is not None:
+                    if not override.content.strip():
+                        raise ValidationAppError(
+                            "본문은 비울 수 없습니다", detail={"index": idx}
+                        )
+                    doc["content"] = override.content
+                if override.answer is not None:
+                    doc["answer"] = override.answer
+                if override.explanation is not None:
+                    doc["explanation"] = override.explanation
+
             if decision.action == "new":
-                document = _create_document(db, citem["doc"], source_id)
+                document = _create_document(db, doc, source_id)
                 created += 1
                 new_docs.append(
                     NewDocumentRef(
@@ -1028,7 +1201,7 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
                         "병합 대상 문서를 찾을 수 없습니다",
                         detail={"merge_into": merge_into},
                     )
-                _merge_document(db, target, citem["doc"], source_id)
+                _merge_document(db, target, doc, source_id)
                 merged += 1
                 target_id = target.id
                 target_document = target

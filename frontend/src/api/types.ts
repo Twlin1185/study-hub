@@ -200,7 +200,15 @@ export interface ImportSummary {
 // 항목에만 존재하고, 직접 업로드 JSON에는 필드 자체가 없다(비적용). 모르는 값은 무시(전방 호환,
 // alternatives 관례). solved_answer·fabrication_suspect는 프론트가 기본 반입 제외로 렌더하고,
 // match_unavailable은 배지·안내만(기본 포함 유지) — 판정 규칙은 §4.17이 단일 출처.
-export type ImportItemWarning = 'solved_answer' | 'fabrication_suspect' | 'match_unavailable'
+// stage-42(B4-S7/S1) 추가 — 'no_category'(분류 제안 0건) · 'category_malformed'(제안 형식
+// 오류를 항목 error가 아니라 경고로 강등, 회수 가능분은 그대로 반영). 배지·안내 문구만이고
+// 반입 자체를 막지 않는다.
+export type ImportItemWarning =
+  | 'solved_answer'
+  | 'fabrication_suspect'
+  | 'match_unavailable'
+  | 'no_category'
+  | 'category_malformed'
 
 export interface ImportDuplicateOf {
   id: number
@@ -234,6 +242,22 @@ export interface ImportItem {
   errors: string[]
   // S15(설계 §4.17 ⑤) — 기본 []. 필드 부재(구버전 응답·직접 업로드 JSON)는 경고 없음으로 처리.
   warnings?: ImportItemWarning[]
+  // stage-42(B3, §4.3) — 검토 단계 본문 열람·편집용 정규화 문서. 기본 null(구버전 응답 호환 —
+  // 필드 자체가 없을 수도 있어 optional). choices는 문자열 배열 또는 객체 배열(text/content/label
+  // 키 중 하나) 둘 다 올 수 있어 unknown[]로 받고 렌더 시점에 방어적으로 해석한다.
+  content?: string | null
+  choices?: unknown[] | null
+  answer?: string | null
+  explanation?: string | null
+}
+
+// stage-42(B3, §4.3) — 검토 단계 편집분. 선택지(choices) 구조 편집은 제외(반입 후 문서
+// 편집기에서). 값을 넣은 필드만 전송 — 빈 title은 서버가 422.
+export interface ImportItemOverride {
+  title?: string
+  content?: string
+  answer?: string
+  explanation?: string
 }
 
 export interface ImportPreviewResponse {
@@ -253,6 +277,8 @@ export interface ImportDecision {
   // number = 기존 분류 category_id(exists:true) · string = 생성 승인할 경로(exists:false)
   approve_categories?: (number | string)[]
   approve_relations?: number[]
+  // stage-42(B3, §4.3) — 검토 단계에서 편집한 항목만 채워 보낸다(미편집 = 생략).
+  override?: ImportItemOverride
 }
 
 export interface ImportCommitRequest {
@@ -1579,6 +1605,12 @@ export interface LlmJobsResponse {
 export interface LlmJobCancelResponse {
   status: 'cancelled'
   usage?: JobUsage | null
+}
+
+// stage-42(B2-1, §4.24) — DELETE /api/llm/jobs/{id}. 종료(done·error·cancelled) 잡만 목록에서
+// 제거된다 — running/queued=409(진행 중은 취소 후 지울 수 있음), 미존재·TTL 만료=404.
+export interface LlmJobDismissResponse {
+  status: 'dismissed'
 }
 
 // POST /api/llm/queue/pause·resume 응답 — 멱등, 인메모리(서버 재시작 시 해제).

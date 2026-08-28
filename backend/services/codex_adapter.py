@@ -38,7 +38,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from database import BASE_DIR
 from exceptions import UpstreamError, ValidationAppError
-from services import source_match
+from services import net_safety, source_match
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +138,7 @@ def _fetch_latest_release() -> dict:
         GITHUB_RELEASE_API,
         headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=30, context=net_safety.ssl_context()) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -184,7 +184,9 @@ def _pick_windows_x64_asset(release: dict) -> dict:
 def _download_asset(asset: dict, dest: Path) -> None:
     url = asset["browser_download_url"]
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT_SECONDS) as resp, open(dest, "wb") as f:
+    with urllib.request.urlopen(
+        req, timeout=DOWNLOAD_TIMEOUT_SECONDS, context=net_safety.ssl_context()
+    ) as resp, open(dest, "wb") as f:
         shutil.copyfileobj(resp, f)
 
 

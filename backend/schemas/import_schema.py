@@ -65,10 +65,17 @@ class PreviewItem(BaseModel):
     suggest_relations: List[SuggestRelationResult] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)
     # S15(F41 — 변환 신뢰 게이트, 설계 §4.17 ⑤·⑥): 'solved_answer' | 'fabrication_suspect'
-    # | 'match_unavailable'. 기본 []. 변환 파이프라인(convert·fetch) preview에서만 채워지며
-    # (직접 업로드 JSON은 원본이 서버에 없어 비적용), 앞 두 값은 프론트가 **기본 반입 제외**로,
-    # 셋째는 배지·안내만 렌더한다. 서버는 신호만 싣는다(이중 구현 금지).
+    # | 'match_unavailable' | 'category_malformed' | 'no_category'(B4-S7/S1 추가). 기본 [].
+    # 앞 두 값은 프론트가 **기본 반입 제외**로, 나머지는 배지·안내만 렌더한다. 서버는
+    # 신호만 싣는다(이중 구현 금지).
     warnings: List[str] = Field(default_factory=list)
+    # B3(설계 §4.3 추기) — 검토 단계 열람·편집용 정규화 본문(기본 None — error 항목,
+    # flashcard 등 content 없는 타입은 그대로 null). 정답·해설은 채점 결과가 아니라
+    # 반입 원문 그대로다(불변 규칙 1과 무관 — 채점은 quiz/session에만 적용).
+    content: Optional[str] = None
+    choices: Optional[List[str]] = None
+    answer: Optional[str] = None
+    explanation: Optional[str] = None
 
 
 class PreviewSource(BaseModel):
@@ -95,9 +102,25 @@ class PreviewResponse(BaseModel):
     recovered: bool = False
 
 
+class PreviewMergeRequest(BaseModel):
+    """`POST /api/import/preview/merge`(B2-2, 설계 §4.3·§4.25 추기) 요청."""
+
+    preview_ids: List[str] = Field(min_length=2)
+
+
 # ---------------------------------------------------------------------------
 # commit 요청 (설계 §4.3)
 # ---------------------------------------------------------------------------
+class ItemOverride(BaseModel):
+    """B3(설계 §4.3 추기) — 검토 단계 편집분. 값이 있는 필드만 commit 시 얕은 덮어쓰기
+    (None = 미변경). 선택지(choices) 구조 편집은 이 단계 범위 밖(§8.3 제외)."""
+
+    title: Optional[str] = None
+    content: Optional[str] = None
+    answer: Optional[str] = None
+    explanation: Optional[str] = None
+
+
 class ImportDecision(BaseModel):
     index: int
     action: str  # 'new' | 'skip' | 'merge'
@@ -108,6 +131,8 @@ class ImportDecision(BaseModel):
     approve_categories: List[Union[int, str]] = Field(default_factory=list)
     # approve_relations: 승인한 관계 제안의 기존 문서 document_id 목록
     approve_relations: List[int] = Field(default_factory=list)
+    # B3(설계 §4.3 추기) — 검토 단계 편집분(제목·본문·정답·해설). 기본 None(미편집).
+    override: Optional[ItemOverride] = None
 
 
 class CommitRequest(BaseModel):

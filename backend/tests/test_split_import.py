@@ -183,7 +183,8 @@ def test_start_split_sample_five_rounds_sixty_questions_yields_five_chunks():
 
 def test_start_split_no_structural_signal_uses_explicit_even_split_fallback():
     """[경미-5, 2026-08-04 오케스트레이터 결정] 구조 신호가 전혀 없으면 "조용히" 균등
-    분할하지 않고 명시적으로 표시한다: 라벨 = "구조 미탐지 — 임시 균등 i/n", confidence는
+    분할하지 않고 명시적으로 표시한다: 라벨 = "구조 미탐지 — 임시 균등 i-n"(B2-2, 설계
+    §4.25 정정 — `/`는 분류 접미 초안에 경로 구분자로 오인되므로 `-`), confidence는
     'uncertain' 유지, 응답에 `fallback: 'even_split'`."""
     text = "그냥 평범한 본문입니다. " * 20_000  # 구조 신호 0건, 20만 자 초과
     assert len(text) > split_service.CHUNK_MAX_CHARS
@@ -192,7 +193,8 @@ def test_start_split_no_structural_signal_uses_explicit_even_split_fallback():
     assert result["fallback"] == "even_split"
     assert len(result["chunks"]) >= 2
     for i, chunk in enumerate(result["chunks"], start=1):
-        assert chunk["label"] == f"구조 미탐지 — 임시 균등 {i}/{len(result['chunks'])}"
+        assert chunk["label"] == f"구조 미탐지 — 임시 균등 {i}-{len(result['chunks'])}"
+        assert "/" not in chunk["label"]
 
 
 # ---------------------------------------------------------------------------

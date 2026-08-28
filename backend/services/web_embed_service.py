@@ -132,7 +132,7 @@ def fetch_preview(url: str) -> dict:
     """§4.30 ① 계약 — 성공 시 부분 성공(필드별 null) 허용, 가드 위반·조회 실패는 422로
     던진다(라우터가 그대로 전파 → main.py AppError 핸들러가 §3 포맷으로 변환)."""
     current_url = url
-    opener = urllib.request.build_opener(net_safety.NoRedirectHandler())
+    opener = urllib.request.build_opener(net_safety.NoRedirectHandler(), net_safety.https_handler())
 
     for _hop in range(MAX_REDIRECTS + 1):  # 최초 1회 + 리다이렉트 최대 5회
         parsed = urllib.parse.urlparse(current_url)

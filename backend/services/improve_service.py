@@ -51,6 +51,9 @@ PROPOSALS_DIR = IMPROVE_DIR / "proposals"
 PROMPTS_DIR = BASE_DIR / "prompts"
 CONVERT_PROMPT_PATH = PROMPTS_DIR / "convert.md"
 CASEBOOK_PATH = PROMPTS_DIR / "convert.cases.md"
+# B4-S2/S3(설계 §4.11 추기) — 분류 정책 단일 출처. 종전에는 "단일 출처"로 문서에만
+# 선언돼 있고 실제 프롬프트에는 첨부되지 않아 LLM이 taxonomy 규칙을 몰랐다.
+TAXONOMY_PATH = PROMPTS_DIR / "taxonomy.md"
 
 KEEP_MAX = 50  # cases·proposals 각 최근 50건 (결정 ②, R18 상수 관례)
 
@@ -704,13 +707,21 @@ def reject_proposal(proposal_id: str) -> dict:
 # 사례집 주입 (convert 변환 프롬프트 조립 공통 경로 1곳 — convert_service가 호출)
 # ---------------------------------------------------------------------------
 def load_convert_prompt_with_casebook() -> str:
-    """`convert.md` 전문 + (사례집이 있고 비어있지 않으면) "부속 사례집" 섹션 첨부.
+    """`convert.md` 전문 + (사례집이 있고 비어있지 않으면) "부속 사례집" 섹션 +
+    (taxonomy.md가 있고 비어있지 않으면) "부속 분류 정책" 섹션 첨부.
     convert·fetch 공통 — 호출부가 각자 다시 읽지 않는다(중복 구현 금지)."""
     convert_md = CONVERT_PROMPT_PATH.read_text(encoding="utf-8") if CONVERT_PROMPT_PATH.exists() else ""
     if CASEBOOK_PATH.exists():
         casebook = CASEBOOK_PATH.read_text(encoding="utf-8").strip()
         if casebook:
             convert_md = f"{convert_md}\n\n---\n\n## 부속 사례집\n\n{casebook}\n"
+    # B4-S2/S3(설계 §4.11 추기) — taxonomy.md(분류 정책 단일 출처)를 케이스북과 같은
+    # 방식으로 첨부한다. 개별 반입의 `category_path` 고정 지시(있으면)는
+    # `_category_directive_lines`가 이 정책보다 우선한다고 명시한다(§4.11 결정 ⑤).
+    if TAXONOMY_PATH.exists():
+        taxonomy = TAXONOMY_PATH.read_text(encoding="utf-8").strip()
+        if taxonomy:
+            convert_md = f"{convert_md}\n\n---\n\n## 부속 분류 정책\n\n{taxonomy}\n"
     return convert_md
 
 

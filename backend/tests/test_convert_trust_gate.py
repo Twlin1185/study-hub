@@ -109,6 +109,10 @@ def _question(**overrides) -> dict:
         ],
         "answer": "1",
         "answer_source": "original",
+        # B4(§4.11 추기) — 이 파일은 신뢰 게이트 신호(solved_answer·fabrication_suspect·
+        # match_unavailable)만 검증한다. 분류를 비워두면 'no_category' 경고가 섞여 들어와
+        # 그 검증을 흐리므로, 관련 없는 잡음을 피하려고 기본 경로를 하나 채워 둔다.
+        "suggest_categories": ["품질경영기사/필기/2022년 2회"],
     }
     doc.update(overrides)
     return doc
@@ -218,6 +222,7 @@ def test_concept_documents_are_not_matched(db):
         "type": "concept",
         "title": "정규화 개요",
         "content": "정규화는 이상현상을 제거하기 위해 릴레이션을 분해하는 과정이다(원본에 없는 재구성 문장).",
+        "suggest_categories": ["품질경영기사/필기/2022년 2회"],
     }
     preview = _preview(db, [concept])
     assert preview.items[0].status == "ok"

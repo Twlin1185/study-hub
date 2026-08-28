@@ -191,6 +191,47 @@ def test_cancel_terminal_job_raises_409(terminal_status):
 
 
 # ---------------------------------------------------------------------------
+# ①-보충 B2-1(설계 §4.24 추기) — `dismiss_job` 목록에서 지우기: 종료 잡만 제거·
+# 진행 중 409·미존재 404
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("terminal_status", ["done", "error", "cancelled"])
+def test_dismiss_terminal_job_removes_it_from_jobs(terminal_status):
+    job_id = f"cvt_dismiss_terminal_{terminal_status}"
+    job = _fake_job("convert", _label="종료된 잡", status=terminal_status)
+    _register_job(job_id, job)
+    try:
+        result = cs.dismiss_job(job_id)
+        assert result == {"status": "dismissed"}
+        with cs._JOBS_LOCK:
+            assert job_id not in cs._JOBS
+    finally:
+        _drop_jobs(job_id)
+
+
+@pytest.mark.parametrize("in_progress_status", ["queued", "running"])
+def test_dismiss_in_progress_job_raises_409_and_keeps_it(in_progress_status, clean_current_job):
+    job_id = f"cvt_dismiss_in_progress_{in_progress_status}"
+    job = _fake_job("convert", _label="진행 중인 잡", status="running")  # 내부 literal은 항상 'running'
+    _register_job(job_id, job)
+    if in_progress_status == "running":
+        with cs._JOBS_LOCK:
+            cs._CURRENT_JOB_ID = job_id
+    try:
+        with pytest.raises(ConflictError) as excinfo:
+            cs.dismiss_job(job_id)
+        assert "취소 후 지울 수 있습니다" in str(excinfo.value)
+        with cs._JOBS_LOCK:
+            assert job_id in cs._JOBS  # 지워지지 않는다
+    finally:
+        _drop_jobs(job_id)
+
+
+def test_dismiss_missing_job_raises_404():
+    with pytest.raises(NotFoundError):
+        cs.dismiss_job("does-not-exist-job-id")
+
+
+# ---------------------------------------------------------------------------
 # ② 레이스 — 완료 선착 = 409 + 결과 보존 · 취소 선착 = 후착 산출물 폐기
 # ---------------------------------------------------------------------------
 def test_race_completion_wins_when_done_reaches_lock_first():
@@ -558,7 +599,9 @@ def test_list_jobs_derives_status_ref_and_label_per_kind(clean_current_job):
         overview = cs.list_jobs_overview()
         by_id = {it["job_id"]: it for it in overview["items"] if it["job_id"] in created}
 
-        assert by_id["j_convert"]["ref"] == {"preview_id": "prev_1"}
+        # B2-1(설계 §4.24 추기) — convert 잡 ref에 `split_id`가 순수 추가된다(분할 조각이
+        # 아니면 null).
+        assert by_id["j_convert"]["ref"] == {"preview_id": "prev_1", "split_id": None}
         assert by_id["j_convert"]["status"] == "done"
         assert by_id["j_convert"]["label"] == "『a.pdf』 변환"
 

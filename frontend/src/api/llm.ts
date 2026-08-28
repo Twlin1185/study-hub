@@ -5,6 +5,7 @@ import type {
   InstallEngineResponse,
   LlmEngineId,
   LlmJobCancelResponse,
+  LlmJobDismissResponse,
   LlmJobsResponse,
   LlmQueuePauseResponse,
   LlmStatusResponse,
@@ -49,6 +50,18 @@ export function useCancelLlmJob() {
   return useMutation({
     mutationFn: (jobId: string) => api.post<LlmJobCancelResponse>(`/llm/jobs/${jobId}/cancel`),
     onSettled: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
+  })
+}
+
+// stage-42(B2-1, §4.24) — DELETE /api/llm/jobs/{id}. 종료 잡 카드의 [목록에서 지우기](일반화 —
+// JobCenterPanel)와, [분할 반입] 시작 직후 원 실패 잡 자동 정리(Import.tsx onSplitStarted) 둘 다
+// 이 훅을 쓴다. running/queued=409·미존재=404는 호출부가 message를 그대로 렌더/무시하는 것이
+// 책임(§3 에러 규약) — 여기서는 성공 시 목록만 무효화한다.
+export function useDismissLlmJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: string) => api.delete<LlmJobDismissResponse>(`/llm/jobs/${jobId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
   })
 }
 
