@@ -505,6 +505,17 @@ backend/services/fetchers/
 - **진단**: `codex --version`(설치) + `codex login status` **텍스트 파싱**(`--json` 없음 — rc=0 && "logged in" 포함, PoC `check_login_status()` 이식). 자격증명은 **전역 `~/.codex` 공유**(격리 설치본도 재로그인 불필요 — PoC T1) — secrets.json에 codex 항목을 만들지 않는다.
 - **오류 분류기(`classify_codex_failure`)**: 미설치/미로그인/타임아웃/기타 구조화. **429·한도 메시지 형식은 미실측**(PoC 미조우) — 실측 전에는 `kind:'other'` + "Codex 사용량 한도일 수 있습니다" 보수 안내, 실측 후 `rate_limit` 분류·한도 기억을 채운다(구현 단계 과제로 이월 — 계약은 이 문장으로 고정).
 
+**④-2 claude-cli 설치 계약 (S42-B5 추기 — 2026-08-29. `installable` = **codex-cli·claude-cli 둘 다 true**로 개정; ② 예시의 claude-cli `installable:false`는 이 추기가 개정)**
+
+| 메서드/경로 | 설명 |
+|---|---|
+| `POST /api/llm/engines/claude-cli/install` | 공식 배포 채널(`https://downloads.claude.ai/claude-code-releases` — `claude.ai/install.ps1`의 로직과 동일)에서 **`latest` → 버전 문자열 → `{version}/manifest.json`의 `platforms["win32-x64"].checksum`(sha256) → `{version}/win32-x64/claude.exe`(약 220MB)** 를 내려받아 sha256 검증 후 루트 `tools/claude/claude.exe`에 격리 설치(**PATH 불변**, git·백업 제외 — codex 관례 대칭). PATH 등 기존 설치본이 감지되면 다운로드 없이 채택. **동기 처리**(코덱스보다 큰 파일 — 실측 다운로드 4초·회선에 따라 수십 초, 프론트는 스피너 + 용량 안내). 응답 `{installed: true, version}`, 실패(다운로드·체크섬 불일치) = 502 |
+
+- **실행**: 공식 설치기의 후속 단계(`claude.exe install` — `~/.local/bin` 복사·PATH 편집·버전 디렉터리)는 **수행하지 않는다** — 단일 바이너리를 직접 실행해도 동작함을 실측(`--version` = `2.1.250 (Claude Code)` · `-p … --output-format json` 정상). Node·Git for Windows 불필요(Git 없으면 CLI가 PowerShell 폴백 — 변환 경로는 셸 도구를 쓰지 않아 무관).
+- **탐색 순서**: 격리본(`tools/claude/claude.exe`) → PATH(`claude`/`claude.exe`/`claude.cmd`). 진단(`llm_engine_service`)·변환 호출(`convert_service`)이 **같은 finder 1개**를 쓴다(불일치 금지).
+- **로그인**: 자격증명은 전역 `~/.claude`(`.credentials.json`) 공유 — 다른 곳에서 로그인했으면 격리본도 즉시 통과(실측). 미로그인이면 사용자가 터미널에서 격리본(`tools\claude\claude.exe`) 또는 PATH의 `claude`를 실행해 로그인 → [다시 확인]. 앱이 로그인을 대행하지 않는다(codex와 동일 원칙).
+- **프라이버시 고지**: 변환 원문이 `~/.claude` 세션 기록에 남는다 — 카드에 고정 노출(codex `~/.codex` 고지와 대칭).
+
 **⑤ 변환 신뢰 게이트 — 계획서 §8.2 v1.1 개정 연동 (전 엔진 공통, R7 보강)**
 
 > 규격 원문은 계획서 §8.2(단일 출처 — v1.1로 개정). 여기는 파이프라인 계약만 확정한다. **경로 구분이 핵심**: 아래 강제 규칙은 **LLM 변환 파이프라인(convert·fetch 잡) 산출물에만** 적용하고, **사용자가 직접 올린 반입 JSON은 기존 파일 호환을 유지**한다(사람이 만든 파일 — 검증 책임은 R7 미리보기 승인).

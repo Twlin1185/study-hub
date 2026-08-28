@@ -25,6 +25,7 @@
                       "backend/services/improve_service.py":  5,
                       "backend/services/codex_adapter.py":  1,
                       "backend/services/preview_store.py":  1,
+                      "backend/services/claude_cli_adapter.py":  1,
                       "backend/services/backup_service.py":  1
                   },
     "answer-leak-schema":  {

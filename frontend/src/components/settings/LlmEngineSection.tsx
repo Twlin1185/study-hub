@@ -50,7 +50,7 @@ const FALLBACK_OPTIONS: { value: LlmFallbackPolicy; label: string; hint: string 
 const RANK_LABEL = ['1순위', '2순위', '3순위', '4순위', '5순위']
 
 // S15(설계 §4.17①·⑦) — 엔진 카드 2개 고정 → status.engines 배열 렌더로 일반화(F34 이항 가정
-// 해체). 우선순위는 드래그가 아니라 ▲▼ 버튼(설계 확정). Codex 같은 installable:true 엔진은
+// 해체). 우선순위는 드래그가 아니라 ▲▼ 버튼(설계 확정). installable 엔진(codex-cli·claude-cli)은
 // 카드 안에 설치→로그인→진단 3단계 온보딩이 함께 들어간다(별도 라우트 없음).
 export default function LlmEngineSection() {
   const statusQuery = useLlmStatus()
@@ -331,8 +331,8 @@ function EngineCard({
   )
 }
 
-// CLI형 진단 — 기존 Claude CLI 카드(F34) 패턴을 그대로 유지하되, installable:true(현재
-// codex-cli)인 경우 설치 단계가 로그인 단계 앞에 추가된다(설계 §4.17④·⑦ 3단계 온보딩).
+// CLI형 진단 — 기존 Claude CLI 카드(F34) 패턴을 그대로 유지하되, installable:true(codex-cli·
+// claude-cli)인 경우 설치 단계가 로그인 단계 앞에 추가된다(설계 §4.17④·⑦ 3단계 온보딩).
 function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
   const refreshStatus = useRefreshLlmStatus()
   const installEngine = useInstallEngine()
@@ -357,6 +357,9 @@ function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
           <p className="mt-1 mb-2 text-muted">
             [설치]를 누르면 자동으로 다운로드해 앱 전용 폴더에 격리 설치합니다(시스템 PATH는
             변경되지 않습니다). 이미 PATH에 설치되어 있으면 그것을 그대로 사용합니다.
+            {engine.id === 'claude-cli'
+              ? ' Claude Code는 약 220MB를 내려받으므로 수십 초 걸릴 수 있습니다.'
+              : ' 몇 초 안에 끝납니다.'}
           </p>
           <button
             type="button"
@@ -372,45 +375,41 @@ function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
         <>
           {installVersion && <p className="mb-1 text-correct">✓ 설치됨 (v{installVersion})</p>}
 
+          {/* installable 엔진(codex-cli·claude-cli)은 needsInstallStep 분기로 항상 먼저
+              걸러지므로 이 분기는 실질적으로 도달하지 않는다 — 향후 installable:false인 CLI
+              엔진이 추가될 때를 위한 범용 폴백만 남긴다(엔진별 안내 링크 없음). */}
           {!engine.installed && (
             <div>
               <p className="font-medium text-wrong">미설치</p>
-              {engine.id === 'claude-cli' ? (
-                <p className="mt-1 text-muted">
-                  Claude Code CLI가 설치되어 있지 않습니다.{' '}
-                  <a
-                    href="https://docs.claude.com/ko/docs/claude-code"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-accent hover:underline"
-                  >
-                    설치 안내
-                  </a>
-                  를 참고하세요.
-                </p>
-              ) : (
-                <p className="mt-1 text-muted">설치되어 있지 않습니다.</p>
-              )}
+              <p className="mt-1 text-muted">설치되어 있지 않습니다.</p>
             </div>
           )}
 
           {engine.installed && !engine.logged_in && (
             <div>
               <p className="font-medium text-warning">미로그인</p>
-              {engine.installable ? (
+              {engine.id === 'codex-cli' ? (
                 <p className="mt-1 text-muted">
                   터미널에서 <code className="rounded bg-surface px-1">codex login</code>을 실행해
                   브라우저로 로그인하세요.
                 </p>
               ) : (
-                <ol className="mt-1 list-decimal pl-4 text-muted">
-                  <li>PC 터미널을 엽니다.</li>
-                  <li>
-                    <code className="rounded bg-surface px-1">claude</code> 명령을 실행합니다.
-                  </li>
-                  <li>안내에 따라 로그인을 완료합니다.</li>
-                  <li>이 화면에서 [다시 확인]을 누릅니다.</li>
-                </ol>
+                <>
+                  <ol className="mt-1 list-decimal pl-4 text-muted">
+                    <li>PC 터미널을 엽니다.</li>
+                    <li>
+                      앱 폴더의{' '}
+                      <code className="rounded bg-surface px-1">tools\claude\claude.exe</code>를
+                      실행합니다(PC에 이미 Claude Code가 설치되어 PATH에 있으면 그냥{' '}
+                      <code className="rounded bg-surface px-1">claude</code>).
+                    </li>
+                    <li>안내에 따라 로그인을 완료합니다.</li>
+                    <li>이 화면에서 [다시 확인]을 누릅니다.</li>
+                  </ol>
+                  <p className="mt-1 text-muted">
+                    다른 곳에서 이미 Claude Code에 로그인했다면 이 단계는 자동으로 통과됩니다.
+                  </p>
+                </>
               )}
               <button
                 type="button"
@@ -447,12 +446,15 @@ function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
         </>
       )}
 
-      {/* 프라이버시 고지(설계 §4.17⑦ — 온보딩 말미 1줄, PoC E2) — installable 엔진(현재
-          codex-cli) 카드에 항상 고정 노출한다. */}
+      {/* 프라이버시 고지(설계 §4.17⑦ — 온보딩 말미 1줄, PoC E2) — installable 엔진(codex-cli·
+          claude-cli) 카드에 항상 고정 노출한다. */}
       {engine.installable && (
         <p className="mt-2 rounded border border-border bg-surface px-2 py-1.5 text-[11px] text-muted">
           {engine.label} 실행 시 변환 원문이 이 PC의{' '}
-          <code className="rounded bg-bg px-1">~/.codex</code> 로그·세션 기록에 남습니다.
+          <code className="rounded bg-bg px-1">
+            {engine.id === 'claude-cli' ? '~/.claude' : '~/.codex'}
+          </code>{' '}
+          {engine.id === 'claude-cli' ? 'Claude Code 세션 기록' : '로그·세션 기록'}에 남습니다.
         </p>
       )}
     </div>

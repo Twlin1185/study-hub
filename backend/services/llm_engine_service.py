@@ -26,7 +26,6 @@ import datetime as dt
 import json
 import logging
 import re
-import shutil
 import subprocess
 import threading
 from typing import Any, Dict, List, Optional
@@ -67,7 +66,7 @@ ENGINE_REGISTRY: Dict[str, Dict[str, Any]] = {
     ENGINE_CLAUDE_CLI: {
         "label": "Claude CLI",
         "billing": "subscription",
-        "installable": False,
+        "installable": True,
         "kind": "cli",
         "models": [{"id": "sonnet", "label": "Sonnet"}, {"id": "opus", "label": "Opus"}],
         "default_model": None,
@@ -232,11 +231,9 @@ def delete_api_key() -> None:
 # CLI 진단 — 설치(`claude --version`) + 로그인/호출 가능(초경량 호출)
 # ---------------------------------------------------------------------------
 def _find_claude_executable() -> Optional[str]:
-    for name in ("claude", "claude.exe", "claude.cmd"):
-        path = shutil.which(name)
-        if path:
-            return path
-    return None
+    from services import claude_cli_adapter
+
+    return claude_cli_adapter.find_executable()
 
 
 def _check_claude_cli_login() -> tuple[bool, Optional[str]]:
@@ -337,7 +334,7 @@ def diagnose_cli(*, force: bool = False) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 엔진 설치 (installable 엔진만 — 현재 codex-cli)
+# 엔진 설치 (installable 엔진만 — codex-cli·claude-cli)
 # ---------------------------------------------------------------------------
 def install_engine(engine_id: str) -> Dict[str, Any]:
     engine_id = normalize_engine_id(engine_id) or engine_id
@@ -345,9 +342,14 @@ def install_engine(engine_id: str) -> Dict[str, Any]:
     if meta is None or not meta["installable"]:
         raise ValidationAppError("설치를 지원하지 않는 엔진입니다", detail={"engine": engine_id})
 
-    from services import codex_adapter
+    if engine_id == ENGINE_CODEX_CLI:
+        from services import codex_adapter
 
-    result = codex_adapter.install_or_raise_upstream()
+        result = codex_adapter.install_or_raise_upstream()
+    else:
+        from services import claude_cli_adapter
+
+        result = claude_cli_adapter.install_or_raise_upstream()
     with _diag_lock:
         _diag_cache.pop(engine_id, None)  # 설치 직후 진단 캐시 무효화
     return result

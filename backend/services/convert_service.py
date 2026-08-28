@@ -22,7 +22,6 @@ import logging
 import os
 import queue
 import re
-import shutil
 import subprocess
 import threading
 import unicodedata
@@ -42,6 +41,7 @@ from database import BASE_DIR, SessionLocal
 from exceptions import AppError, ConflictError, NotFoundError, ValidationAppError
 from schemas.import_schema import PreviewResponse
 from services import (
+    claude_cli_adapter,
     codex_adapter,
     doc_extract,
     document_service,
@@ -558,13 +558,13 @@ def _detection_input_size(detected: ImportDetection, fallback_bytes: int) -> int
 # claude CLI 실행 — stream-json (S8, 잡 진행 가시화)
 # ---------------------------------------------------------------------------
 def _find_claude_executable() -> str:
-    for name in ("claude", "claude.exe", "claude.cmd"):
-        path = shutil.which(name)
-        if path:
-            return path
+    exe = claude_cli_adapter.find_executable()
+    if exe:
+        return exe
     raise ClaudeCliError(
-        "claude CLI를 찾을 수 없습니다. Claude Code가 설치되어 PATH에 등록돼 있는지 확인하세요. "
-        "설치 전까지는 API 엔진으로 전환하거나, 반입 화면에서 JSON을 직접 만들어 수동으로 반입해 주세요(A방식)."
+        "claude CLI를 찾을 수 없습니다. 설정 > LLM 엔진의 [설치] 버튼으로 설치하거나 PATH에 "
+        "등록하세요. 설치 전까지는 API 엔진으로 전환하거나, 반입 화면에서 JSON을 직접 만들어 "
+        "수동으로 반입해 주세요(A방식)."
     )
 
 
