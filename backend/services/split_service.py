@@ -278,7 +278,10 @@ def _normalize_chunks(cuts: List[Tuple[int, str]], total_len: int) -> List[dict]
     seen: Dict[int, str] = {}
     for offset, label in cuts:
         if 0 <= offset < total_len:
-            seen[offset] = label
+            # B2-2(§4.25 정정) — 휴리스틱 스캔·정밀 분석(LLM) 라벨 모두 여기를 거친다.
+            # 원문 그대로면 `/`가 섞여 들어올 수 있어(예: "2024/1회") 분류 접미 초안으로
+            # 쓰일 때 경로가 엉뚱하게 쪼개진다 — 여기서 한 번에 치환한다.
+            seen[offset] = label.replace("/", "-")
     offsets = sorted(seen)
     if 0 not in seen:
         offsets = [0] + offsets
@@ -307,8 +310,10 @@ def _normalize_chunks(cuts: List[Tuple[int, str]], total_len: int) -> List[dict]
         cursor = chunk["start"]
         for idx in range(pieces):
             piece_end = chunk["end"] if idx == pieces - 1 else min(cursor + piece_len, chunk["end"])
+            # B2-2(§4.25 정정) — 라벨은 분할 위저드의 분류 접미 초안으로 쓰이므로 경로
+            # 구분자(`/`)를 포함하면 안 된다("n-m" 표기로 정정).
             capped.append(
-                {"start": cursor, "end": piece_end, "label": f'{chunk["label"]} ({idx + 1}/{pieces})'}
+                {"start": cursor, "end": piece_end, "label": f'{chunk["label"]} ({idx + 1}-{pieces})'}
             )
             cursor = piece_end
 
@@ -356,7 +361,7 @@ def _even_split_fallback_chunks(total_len: int) -> List[dict]:
     for idx in range(pieces):
         end = total_len if idx == pieces - 1 else min(cursor + piece_len, total_len)
         chunks.append(
-            {"start": cursor, "end": end, "label": f"{_EVEN_SPLIT_LABEL_PREFIX} {idx + 1}/{pieces}"}
+            {"start": cursor, "end": end, "label": f"{_EVEN_SPLIT_LABEL_PREFIX} {idx + 1}-{pieces}"}
         )
         cursor = end
     _assert_full_coverage(chunks, total_len)
@@ -676,7 +681,9 @@ def apply_analyze_result(split_id: str, payload: Any) -> List[dict]:
             raise convert_service.InvalidLlmOutputError(
                 "분할 정밀 분석 결과에 후보 범위 밖 오프셋이 있습니다(창작 의심)", truncated=False
             )
-        cuts.append((offset, label.strip()))
+        # B2-2(§4.25 정정) — LLM 정제 라벨도 `/` → `-` 치환(`_normalize_chunks`도 같은 치환을
+        # 하지만 이중 방어 — 이 값은 상태에 그대로도 남는 원본이라 여기서 먼저 정리한다).
+        cuts.append((offset, label.strip().replace("/", "-")))
 
     chunks = _normalize_chunks(cuts, total_len)
     if len(chunks) > MAX_CHUNKS:
@@ -721,6 +728,11 @@ def enqueue_split(
     )
     if not selections:
         raise ValidationAppError("selections가 비어 있습니다")
+
+    # B2-2(§4.25) — 잡 등록 루프를 시작하기 전에 category_paths 전부를 검증한다. 루프
+    # 도중 422가 나면 이미 등록된 앞쪽 조각 잡들이 반쪽짜리 상태로 남는다(부분 등록 방지).
+    for cat_path in (category_paths or {}).values():
+        convert_service.normalize_category_path(cat_path)
 
     order = [c["chunk_id"] for c in chunks]
     index_of = {cid: i for i, cid in enumerate(order)}

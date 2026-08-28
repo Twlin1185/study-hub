@@ -16,7 +16,12 @@ from schemas.answer_key import (
     AnswerKeyStatus,
     AnswerKeyUploadResult,
 )
-from schemas.import_schema import CommitRequest, CommitResult, PreviewResponse
+from schemas.import_schema import (
+    CommitRequest,
+    CommitResult,
+    PreviewMergeRequest,
+    PreviewResponse,
+)
 from services import answer_key_service, import_service
 
 router = APIRouter(prefix="/api/import", tags=["import"])
@@ -47,6 +52,14 @@ async def preview(
 @router.post("/commit", response_model=CommitResult)
 def commit(req: CommitRequest, db: Session = Depends(get_db)) -> CommitResult:
     return import_service.commit_import(db, req)
+
+
+@router.post("/preview/merge", response_model=PreviewResponse)
+def merge_preview(req: PreviewMergeRequest, db: Session = Depends(get_db)) -> PreviewResponse:
+    """분할 반입 조각 preview 병합(B2-2, 설계 §4.3·§4.25 추기) — 정적 경로이므로
+    `GET /preview/{preview_id}`보다 먼저 선언해 경로 충돌을 피한다(메서드가 달라 실제
+    충돌은 없지만 관례로 고정)."""
+    return import_service.merge_previews(db, req.preview_ids)
 
 
 @router.get("/preview/{preview_id}", response_model=PreviewResponse)

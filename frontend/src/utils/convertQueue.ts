@@ -44,6 +44,10 @@ export interface StoredQueueEntry {
   // enqueue 성공(조각들이 새 convert 잡으로 큐에 합류) 시 이 항목 자체를 큐에서 제거해
   // 중복 앵커가 남지 않게 한다(handleSplitImport/addJobs 호출부 책임).
   splitId?: string | null
+  // stage-42(B2-2, §4.25) — 이 splitId를 가진 조각의 원래 총 개수(addJobs 호출 시점의
+  // jobs.length). ImportQueue.tsx가 "분할 조각 k/N 검토 대기" 헤더에 쓴다. 구버전 저장분(필드
+  // 부재)은 undefined — 그룹 항목 수로 대체된다.
+  splitTotal?: number
 }
 
 function isValidKind(v: unknown): v is QueueSourceKind {
@@ -73,6 +77,7 @@ function sanitize(raw: unknown): StoredQueueEntry | null {
     startErrorInfo: e.startErrorInfo ?? null,
     createdAt: typeof e.createdAt === 'number' ? e.createdAt : Date.now(),
     splitId: typeof e.splitId === 'string' ? e.splitId : null,
+    splitTotal: typeof e.splitTotal === 'number' ? e.splitTotal : undefined,
   }
 }
 

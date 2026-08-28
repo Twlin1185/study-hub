@@ -94,6 +94,15 @@
 - `approve_categories` 원소: **int = 기존 분류의 category_id** (`exists:true` 제안 승인) / **str = 생성 승인할 경로 문자열** (`exists:false` 제안 — commit이 누락 노드 생성 후 연결).
 - `commit` 응답: `{ "created": N, "merged": N, "skipped": N, "new_documents": [{id, doc_no, title}], "categories_created": ["경로", ...], "relations_created": N }`.
 
+
+**S42 추기 (2026-08-28 — `stage-42-import-bugfix.plan.md` B3·B2-2·B4. 순수 추가 — 기존 필드·동작 불변)**
+
+- `PreviewItem` += `content?`·`choices?`·`answer?`·`explanation?`(정규화 본문 그대로 — 검토 단계 **열람용**, 기본 `null`. 서버 preview 캐시의 `doc`을 응답에 투영한 것뿐 — 재계산 없음). 검토 화면 ②는 항목별 [본문 보기]로 이를 렌더한다(공용 MarkdownView).
+- `ImportDecision` += `override?: {title?, content?, answer?, explanation?}` — 검토 단계 **편집분**. commit이 해당 항목의 정규화 문서에 **얕은 덮어쓰기** 후 기존 new/merge 경로를 그대로 진행한다. `title`이 빈 문자열이면 422. `choices` 구조 편집은 계약에 없다(반입 후 문서 편집기에서).
+- **`POST /api/import/preview/merge`** body `{preview_ids: [str, …]}`(**2개 이상**, 각각 캐시 존재 또는 보존본 복구 가능) → 새 `preview_id`의 `PreviewResponse`. 문서 = 주어진 순서로 연결·**재인덱스**, 항목 `warnings`는 원 preview의 판정을 **승계**(재판정 없음 — S15 원칙), 보존(F40-①) O, 원 preview는 **불변**(TTL 자연 만료). 누락·만료 id = 404(detail에 id). 용도: 분할 반입(§4.25) 조각 미리보기를 한 번에 검토·반입(ImportQueue [합쳐서 검토]).
+- 항목 `warnings` 값 += `'no_category'`(LLM이 분류 제안을 내지 않음) · `'category_malformed'`(`suggest_categories` 형식 오류 — 회수 가능한 문자열만 채택). 둘 다 **배지·안내만**(반입 제외 아님). 종전 "형식 오류 = 항목 error"는 폐지 — 선택 필드의 오류가 문서를 누락시키지 않는다.
+- 분류 제안 경로의 정규화는 §4.11 S42 추기 참조.
+
 ### 4.4 학습 Study (진도·이어하기)
 
 | 메서드/경로 | 설명 | 단계 |
@@ -221,6 +230,12 @@
   - `columns`: `'auto' | 1 | 2 | 3`. `widgets[].id`: §5.1 위젯 레지스트리 9종. `col`: 다열일 때 열 배정(0부터, 생략 시 0).
   - 전방 호환: 서버는 값을 검증 없이 문자열로 저장(키-값 원칙 유지). 프론트가 파싱 시 **알 수 없는 id 무시, 누락 id는 기본값(표시·마지막 순서)으로 보충**, 키 부재 = 기본 레이아웃.
   - 서버 저장이므로 홈 레이아웃은 **전 기기 공통**. (기기별 선호인 사이드바 접힘·테마는 localStorage — §5 도입부·§6.)
+
+
+**S42 추기 (2026-08-28 — 분류 제안 정합성. `stage-42-import-bugfix.plan.md` B4)**
+
+- `category_path` 고정 지시는 `prompts/taxonomy.md`의 "기출 = 회차·과목 2경로" 규칙보다 **우선**한다고 프롬프트에 명기한다(종전에는 두 지시가 충돌해 항목별로 비결정적으로 따랐다). `prompts/taxonomy.md`는 convert·fetch 프롬프트에 **"부속 분류 정책" 절로 첨부**된다(종전 "단일 출처" 선언만 있고 미첨부).
+- LLM이 낸 `suggest_categories` 경로는 사용자 `category_path`와 **같은 규칙(5단·60자·빈 세그먼트 금지)** 으로 검증하되 **관대 정규화**를 먼저 적용한다: `>`·`＞`·`»`·`≫`·`\`·`::` → `/`, 세그먼트 strip·NFC. 규칙 위반 경로는 **그 경로만 버린다**(항목 error 아님). 기존 분류와의 매칭은 NFC·strip·대소문자 무시(생성 시 저장 이름은 정규화·strip 원문).
 
 ### 4.12 일상 다듬기 (S9 — F36 · F37 · F38 + M6 이월 2건)
 
@@ -1060,6 +1075,16 @@ backend/services/fetchers/
 - 백엔드: `backend/services/convert_service.py`(잡 레코드·큐·워커가 수렴된 파일 — 목록 파생·취소 전이·paused 플래그·label 합성이 여기 얹힌다. `_JOBS` 구조는 구현 실측) · `backend/services/llm_engine_service.py`(`assert_engine_selectable` 확장 — model 규칙 (a)(b)) · `backend/routers/llm.py`(신규 4 엔드포인트) · 각 시작 라우터 8곳(`model?` 파라미터 통과만 — 개별 검증 금지).
 - 프론트: 신설 `components/JobCenterPanel.tsx`(이름 구현 재량 — 전역 패널·배지 버튼) · 공용 복원 훅 1개(`api/` 훅 — 이름 구현 재량) + 적용 화면 6곳(ⓓ 표) · `components/EngineSelect.tsx`(모델 소목록 select 확장 — 사용처 7곳 자동 반영) · `api/types.ts`(잡 목록 타입·`'cancelled'` 상태 값).
 
+
+**S42 추기 (2026-08-28 — 종료 잡 삭제. `stage-42-import-bugfix.plan.md` B2-1)**
+
+| 엔드포인트 | 설명 |
+|---|---|
+| `DELETE /api/llm/jobs/{job_id}` | **종료(done·error·cancelled) 잡을 목록에서 제거** — 응답 `{status:'dismissed'}`. running·queued = 409 CONFLICT("진행 중인 작업은 취소 후 지울 수 있습니다") · 미존재·TTL 만료 = 404. 인메모리 레코드 pop뿐(영속 없음 — ① 계약 그대로) |
+
+- 호출 지점: 작업 센터 종료 잡 카드 [목록에서 지우기] · **§5.9 [분할 반입] 시작 성공 직후 원 `too_large` convert 잡**(프론트가 자동 호출 — 같은 원본이 "실패"와 "분할 조각"으로 두 번 보이는 혼란 제거. 실패 시 무시).
+- ⓓ 표 `convert` ref += `split_id?`(조각 잡이면 출발 split — 순수 추가).
+
 ### 4.25 대용량 원본 LLM 분할 반입 — 구조 분석·분할안 확인·조각 투입 (S23 — F49. **계약 확정 2026-08-04, 착수 전 결정 전건(컨셉 + ㉮~㉳) 해소분**)
 
 > 근거: 계획서 §14 F49(단일 출처 — 배경 실사례(98.9만 자 URL `too_large`)·확정 컨셉 5단계·결정 ㉮~㉳·R25). 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-23 DoD).
@@ -1110,6 +1135,14 @@ backend/services/fetchers/
 
 - 백엔드: 신설 `backend/services/split_service.py`(휴리스틱 스캔·오프셋 검증·재절단·`import/split/` 관리) + `backend/routers/split.py`(신규 4 엔드포인트) · `backend/services/doc_extract.py`(추출 재사용 — 무변경이 정상) · `backend/services/convert_service.py`(잡 kind `'split_analyze'` 등록·label·ref·조각 convert 잡 등록 지점·`alternatives` 값) · `backend/services/llm_engine_service.py`(검증 지점 9번째 — 헬퍼 호출만).
 - 프론트: 신설 분할 위저드(`components/SplitImportWizard.tsx` — 이름 구현 재량: 분석→분할안 확인(체크박스·[합치기])→비용 확인→투입, Stepper·EngineSelect·LlmJobProgress 재사용) · `pages/Import.tsx`(too_large 실패 렌더에 [분할 반입] 버튼 — `alternatives` 값) · `utils/jobRoutes.ts`(kind 매핑 추가) · `api/types.ts`(split 타입·kind 유니온).
+
+
+**S42 추기 (2026-08-28 — 조각이 한곳에 모이도록. `stage-42-import-bugfix.plan.md` B2-2)**
+
+- 조각 **라벨에 `/` 금지** — 상한 초과·균등 분할 표기는 `(n-m)`(종전 `n/m`이 분류 2단으로 쪼개져 조각마다 엉뚱한 분류가 생겼다). LLM 정제 라벨의 `/`도 `-`로 치환.
+- 위저드 ② 조각 접미(`pathSuffix`) 기본값 = **빈 문자열**(종전 라벨) — 기본 투입이면 모든 조각의 `category_path`가 **공통 경로 하나**가 된다(라벨은 표시·접미 입력 힌트로만). 공통 경로 초기값 = 원 `too_large` 항목의 `categoryPath`(전달 누락 정정).
+- `enqueue`의 `category_paths`는 잡 등록 **이전에 전부 검증**(부분 등록 후 422 방지).
+- 조각 preview 병합 = §4.3 `POST /api/import/preview/merge`. ImportQueue는 같은 split의 조각을 한 그룹으로 묶고, 전 조각 종료·ready ≥ 2면 [합쳐서 검토] 제공(조각별 개별 [검토]도 그대로). 병합 항목 = `jobId` 없이 `preview_id`만 가진 큐 항목(`ready`).
 
 ### 4.26 디자인 커스터마이즈 2계층 — 문서별 스타일·전역 테마 (S28 — F53. **계약 확정 2026-08-09, 착수 문서화 2026-08-13 — stage-28 착수 전 결정 ①~⑤·②-1~②-3 전건 해소분**)
 

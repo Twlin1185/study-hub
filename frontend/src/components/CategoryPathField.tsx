@@ -85,7 +85,7 @@ export default function CategoryPathField({ value, onChange, sharedNotice = fals
       {open && (
         <div className="flex flex-col gap-3 border-t border-border px-3 py-3">
           <p className="text-xs text-muted">
-            지정하면 모든 문항의 분류 제안이 이 경로 하나로 고정됩니다. 미리보기에서 해제·수정할 수 있고,
+            지정하면 모든 문항의 분류 제안이 이 경로 하나로 고정됩니다. 미리보기에서 해제·추가할 수 있고,
             없는 분류는 반입을 승인할 때 만들어집니다.
             {sharedNotice && ' 여기서 정한 경로는 모든 파일에 같은 상위 경로로 적용됩니다.'}
           </p>

@@ -21,9 +21,11 @@ import json
 import logging
 import os
 import queue
+import re
 import shutil
 import subprocess
 import threading
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1495,6 +1497,30 @@ def cancel_job(job_id: str) -> dict:
     return {"status": "cancelled", "usage": usage_snapshot}
 
 
+def dismiss_job(job_id: str) -> dict:
+    """`DELETE /api/llm/jobs/{job_id}`(B2-1, 설계 §4.24 추기) — 목록에서 완전히 제거.
+
+    **종료(done·error·cancelled) 잡만** 지울 수 있다 — running/queued을 지우면 진행 중인
+    작업의 진행률·결과 연결(`ref`)을 잃어버리게 되므로 409. 미존재·TTL 만료는 404.
+    잡은 애초에 인메모리뿐이라(§4.24 ① — 서버 재시작 시 소실) 이 삭제도 영속화하지
+    않는다(이 단계 "하지 않는 것" — 잡 삭제의 서버 영속화)."""
+    _purge_expired_jobs()
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            raise NotFoundError(
+                "작업을 찾을 수 없습니다(만료되었을 수 있습니다)", detail={"job_id": job_id}
+            )
+        current_status = job.get("status")
+        if current_status not in ("done", "error", "cancelled"):
+            raise ConflictError(
+                "진행 중인 작업은 취소 후 지울 수 있습니다",
+                detail={"job_id": job_id, "status": current_status},
+            )
+        _JOBS.pop(job_id, None)
+    return {"status": "dismissed"}
+
+
 def pause_queue() -> bool:
     """`POST /api/llm/queue/pause`(멱등) — 다음 잡 시작만 보류(running 잡은 무영향).
     인메모리 플래그(서버 재시작 시 해제 — settings 저장 없음, 결정 ③)."""
@@ -1535,7 +1561,9 @@ def _job_ref(job: dict) -> dict:
     kind = job.get("kind")
     result = job.get("result") or {}
     if kind in ("convert", "fetch"):
-        return {"preview_id": result.get("result_preview_id")}
+        # B2-1(§4.24 추기) — convert 잡은 분할 조각 투입(§4.25)이면 `split_id`를 함께
+        # 싣는다(순수 추가 — fetch·비분할 convert는 항상 null).
+        return {"preview_id": result.get("result_preview_id"), "split_id": job.get("_split_id")}
     if kind in ("regenerate", "explain"):
         return {"document_id": job.get("document_id")}
     if kind == "answer_key":
@@ -1903,6 +1931,12 @@ def _category_directive_lines(
             f"- 모든 문항의 `suggest_categories`는 정확히 "
             f"{json.dumps([category_path], ensure_ascii=False)}로 고정하라(다른 경로 추가 금지)."
         )
+        # B4-S2/S3(설계 §4.11 추기) — taxonomy.md의 "회차+과목 2경로" 규칙과 이 고정
+        # 지시가 충돌할 때는 이 지시가 우선한다는 것을 명시한다(2경로로 쪼개 만들지 않게).
+        lines.append(
+            "- 이 지시는 위 부속 분류 정책의 2경로 규칙보다 우선한다 — 다른 경로를 추가로 "
+            "만들지 마라."
+        )
     label = (source_label or "").strip()
     lines.append(
         '- 각 문항의 `source_detail`은 "'
@@ -1972,6 +2006,37 @@ def normalize_category_path(raw: Optional[str]) -> Optional[str]:
             f"분류 경로는 최대 {CATEGORY_PATH_MAX_DEPTH}단계까지 지정할 수 있습니다",
             detail={"category_path": raw, "depth": len(segments)},
         )
+    return "/".join(segments)
+
+
+# B4-S4/S6(설계 §4.11 추기) — 구분자 이형(`>`·`＞`·`»`·`≫`·`\`·`::`) → `/` 치환.
+_LENIENT_CATEGORY_SEPARATOR_RE = re.compile(r"::|[>＞»≫\\]")
+
+
+def normalize_category_path_lenient(path: Optional[str]) -> Optional[str]:
+    """LLM `suggest_categories` 제안 경로의 **관대** 정규화(B4-S4/S6, 설계 §4.11 추기).
+
+    사용자가 직접 입력한 `category_path`를 검증하는 `normalize_category_path`(엄격·422)와
+    달리, 여기서는 위반해도 예외를 올리지 않고 `None`을 반환한다 — 호출부(`import_service`)가
+    실패분만 조용히 버리고 그 항목을 통째로 error로 만들지 않게 하기 위해서다(§4.17 ⑤
+    "부분 반입" 정신 — 분류 하나가 이상하다고 문서 전체를 반입에서 빠뜨리지 않는다).
+
+    `>`·`＞`·`»`·`≫`·`\\`·`::` 같은 구분자 이형을 전부 `/`로 통일한 뒤, 각 세그먼트를
+    NFC 정규화·strip하고 빈 세그먼트는 제거한다. 5단·60자 상한은 엄격 버전과 동일하게
+    적용하되, 위반은 예외 대신 None이다."""
+    if not path:
+        return None
+    text = _LENIENT_CATEGORY_SEPARATOR_RE.sub("/", path)
+    segments: List[str] = []
+    for seg in text.split("/"):
+        clean = unicodedata.normalize("NFC", seg).strip()
+        if not clean:
+            continue
+        if len(clean) > CATEGORY_PATH_MAX_SEGMENT:
+            return None
+        segments.append(clean)
+    if not segments or len(segments) > CATEGORY_PATH_MAX_DEPTH:
+        return None
     return "/".join(segments)
 
 

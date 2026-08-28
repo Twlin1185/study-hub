@@ -116,5 +116,11 @@ class JobCancelResult(BaseModel):
     usage: Optional[JobUsage] = None  # 취소 시점 마지막 진행 usage(부분 과금 정직 표기)
 
 
+class JobDismissResult(BaseModel):
+    """`DELETE /api/llm/jobs/{job_id}`(B2-1, 설계 §4.24 추기) — 종료 잡 목록 제거."""
+
+    status: Literal["dismissed"]
+
+
 class QueuePauseResult(BaseModel):
     paused: bool

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useCancelLlmJob, useLlmJobs, usePauseLlmQueue, useResumeLlmQueue } from '../api/llm'
+import { useCancelLlmJob, useDismissLlmJob, useLlmJobs, usePauseLlmQueue, useResumeLlmQueue } from '../api/llm'
 import { ApiError } from '../api/client'
 import { jobCenterRoute } from '../utils/jobRoutes'
 import ConfirmDialog from './ConfirmDialog'
@@ -60,6 +60,7 @@ interface JobCenterPanelProps {
 export default function JobCenterPanel({ open, onClose }: JobCenterPanelProps) {
   const jobsQuery = useLlmJobs()
   const cancelMutation = useCancelLlmJob()
+  const dismissMutation = useDismissLlmJob()
   const pauseMutation = usePauseLlmQueue()
   const resumeMutation = useResumeLlmQueue()
 
@@ -88,6 +89,15 @@ export default function JobCenterPanel({ open, onClose }: JobCenterPanelProps) {
     cancelMutation.mutate(confirmTarget.job_id, {
       onError: (e) => setActionError(errMsg(e, '취소에 실패했습니다.')),
       onSettled: () => setConfirmTarget(null),
+    })
+  }
+
+  // stage-42(B2-1, §4.24) — 종료(done·error·cancelled) 잡만 지울 수 있다(진행 중은 409 —
+  // 이 버튼 자체가 종료 잡에만 노출되므로 정상 경로에서는 도달하지 않는다).
+  function requestDismiss(jobId: string) {
+    setActionError(null)
+    dismissMutation.mutate(jobId, {
+      onError: (e) => setActionError(errMsg(e, '목록에서 지우지 못했습니다.')),
     })
   }
 
@@ -162,6 +172,7 @@ export default function JobCenterPanel({ open, onClose }: JobCenterPanelProps) {
               if (item.status === 'queued') queuedIndex += 1
               const route = jobCenterRoute(item)
               const cancellable = item.status === 'running' || item.status === 'queued'
+              const dismissible = item.status === 'done' || item.status === 'error' || item.status === 'cancelled'
               return (
                 <li key={item.job_id} className="rounded-lg border border-border bg-surface p-3">
                   <div className="mb-1.5 flex flex-wrap items-center gap-2">
@@ -204,6 +215,18 @@ export default function JobCenterPanel({ open, onClose }: JobCenterPanelProps) {
                         className="rounded border border-border px-2.5 py-1 text-xs text-wrong hover:bg-bg disabled:opacity-50"
                       >
                         취소
+                      </button>
+                    )}
+                    {/* stage-42(B2-1, §4.24) — 종료 잡 일반화: [분할 반입]이 자동으로 정리하지
+                        못한 실패·완료·취소 잡도 사용자가 직접 목록에서 지울 수 있다. */}
+                    {dismissible && (
+                      <button
+                        type="button"
+                        onClick={() => requestDismiss(item.job_id)}
+                        disabled={dismissMutation.isPending}
+                        className="rounded border border-border px-2.5 py-1 text-xs text-primary hover:bg-bg disabled:opacity-50"
+                      >
+                        목록에서 지우기
                       </button>
                     )}
                   </div>

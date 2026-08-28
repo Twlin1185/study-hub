@@ -3,6 +3,7 @@ import type { ChangeEvent, ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useImportCommit, useImportPreview } from '../api/import'
 import { previewJsonUrl, useConvertedPreview } from '../api/convert'
+import { useDismissLlmJob } from '../api/llm'
 import { ApiError } from '../api/client'
 import { readQueue } from '../utils/convertQueue'
 import { useConvertQueue, MAX_QUEUE_BATCH } from '../hooks/useConvertQueue'
@@ -16,6 +17,7 @@ import AnswerKeyImportWizard from '../components/AnswerKeyImportWizard'
 import SplitImportWizard from '../components/SplitImportWizard'
 import type { SplitInitialSource } from '../components/SplitImportWizard'
 import ImportQueueList, { ImportQueueSummary } from '../components/ImportQueue'
+import MarkdownView from '../components/MarkdownView'
 import CategoryPathField, { categoryPathError, normalizeCategoryPath } from '../components/CategoryPathField'
 import type { StepperStep } from '../components/Stepper'
 import type {
@@ -23,6 +25,7 @@ import type {
   ImportCommitResult,
   ImportDecision,
   ImportItem,
+  ImportItemOverride,
   ImportItemWarning,
   ImportPreviewResponse,
   LlmEngine,
@@ -43,6 +46,8 @@ interface ItemDecisionState {
   // number = 기존 분류 category_id(exists:true) · string = 생성 승인할 경로(exists:false)
   approvedCategoryIds: (number | string)[]
   approvedRelationIds: number[]
+  // stage-42(B3, §4.3) — 검토 단계 편집분. 값을 가진 필드만 채워진다(전체 undefined = 미편집).
+  override?: ImportItemOverride
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -58,6 +63,22 @@ function errMsg(e: unknown, fallback: string) {
 
 function toggleValue<T>(values: T[], value: T): T[] {
   return values.includes(value) ? values.filter((v) => v !== value) : [...values, value]
+}
+
+// stage-42(B3, §4.3) — choices는 문자열 배열 또는 객체 배열(text/content/label 중 하나) 둘 다
+// 올 수 있어 방어적으로 해석한다. 알 수 없는 형태는 JSON 문자열로 표시(조용한 누락 금지).
+function choiceLabel(choice: unknown): string {
+  if (typeof choice === 'string') return choice
+  if (choice && typeof choice === 'object') {
+    const obj = choice as Record<string, unknown>
+    const val = obj.text ?? obj.content ?? obj.label
+    if (typeof val === 'string') return val
+  }
+  try {
+    return JSON.stringify(choice)
+  } catch {
+    return String(choice)
+  }
 }
 
 // 분류 제안 승인 식별키 — 기존 분류면 category_id, 생성 제안이면 path 문자열
@@ -78,8 +99,11 @@ function buildInitialDecisions(items: ImportItem[]): Record<number, ItemDecision
     if (item.status === 'error') continue
     initial[item.index] = {
       action: item.status === 'duplicate_suspect' || hasExclusionWarning(item.warnings) ? 'skip' : 'new',
-      // 분류 제안은 기존/생성 제안 모두 기본 체크
-      approvedCategoryIds: item.suggest_categories.map(categoryApprovalKey),
+      // 분류 제안은 기존/생성 제안 모두 기본 체크 — 단, 컨테이너(자식이 있는 중간 노드) 제안은
+      // stage-42(B4-S8) 기본 미체크(하위 분류에 연결하는 편이 나아 강제하지 않되 유도).
+      approvedCategoryIds: item.suggest_categories
+        .filter((sc) => !sc.container)
+        .map(categoryApprovalKey),
       approvedRelationIds: item.suggest_relations
         .filter((r) => r.found && r.document_id != null)
         .map((r) => r.document_id as number),
@@ -132,6 +156,10 @@ export default function ImportPage() {
   // (onSplitExpired)가 전부 이 id를 갱신 대상으로 삼는다.
   const [splitAnchorEntryId, setSplitAnchorEntryId] = useState<string | null>(null)
   const [splitExpiredNotice, setSplitExpiredNotice] = useState<string | null>(null)
+  // stage-42(B2-2, §4.25 ②) — 원 항목의 categoryPath를 위저드의 공통 경로 초기값으로 넘긴다.
+  const [splitInitialCommonPath, setSplitInitialCommonPath] = useState<string | null>(null)
+  // stage-42(B2-1, §4.24) — [분할 반입] 시작(split_id 확보) 직후 원 실패 잡을 정리한다(결정 ①).
+  const dismissJobMutation = useDismissLlmJob()
 
   // 작업 센터 딥링크(?split_id=)로 들어온 경우도 큐에 같은 split_id를 든 항목이 있으면 앵커로
   // 잡는다(엔트리를 몰라도 재진입 경로가 일관되게 동작 — enqueue 시 제거·만료 시 복귀).
@@ -250,6 +278,7 @@ export default function ImportPage() {
   function handleSplitImport(item: QueueItem) {
     setSplitAnchorEntryId(item.entry.id)
     setSplitExpiredNotice(null)
+    setSplitInitialCommonPath(item.entry.categoryPath ?? null)
     if (item.entry.splitId) {
       setSplitInitialSource(null)
       setSplitResumeId(item.entry.splitId)
@@ -305,6 +334,8 @@ export default function ImportPage() {
       if (state.action === 'merge' && item?.duplicate_of) {
         decision.merge_into = item.duplicate_of.id
       }
+      // stage-42(B3, §4.3) — 편집한 항목만 override를 실어 보낸다.
+      if (state.override) decision.override = state.override
       return decision
     })
 
@@ -437,6 +468,7 @@ export default function ImportPage() {
                   window.scrollTo({ top: 0, behavior: 'smooth' })
                 }}
                 onSplitImport={handleSplitImport}
+                onMergeSplitEntries={queue.mergeSplitEntries}
                 onClearFinished={queue.clearFinished}
                 onCancel={queue.cancelEntry}
                 cancelling={queue.cancelling}
@@ -477,10 +509,12 @@ export default function ImportPage() {
               key={(splitResumeId ?? splitIdParam) ?? 'new'}
               initialSource={splitInitialSource}
               resumeSplitId={splitResumeId ?? splitIdParam}
+              initialCommonPath={splitInitialCommonPath}
               onCancel={() => {
                 setSplitInitialSource(null)
                 setSplitResumeId(null)
                 setSplitAnchorEntryId(null)
+                setSplitInitialCommonPath(null)
                 setEntryMode('convert')
               }}
               onEnqueued={(jobs, splitId) => {
@@ -494,13 +528,25 @@ export default function ImportPage() {
                 setSplitInitialSource(null)
                 setSplitResumeId(null)
                 setSplitAnchorEntryId(null)
+                setSplitInitialCommonPath(null)
                 setEntryMode('convert')
               }}
               onSplitStarted={(splitId) => {
                 // 재진입 앵커(사용자 실사용 피드백 반영) — split_id를 확보하면 앵커 항목을
                 // "분할 진행 중"으로 전환해, 위저드를 닫거나 다른 화면에 갔다 와도 [분할안
                 // 열기]로 이어서 열 수 있게 한다.
-                if (splitAnchorEntryId) queue.setEntrySplitId(splitAnchorEntryId, splitId)
+                if (splitAnchorEntryId) {
+                  queue.setEntrySplitId(splitAnchorEntryId, splitId)
+                  // stage-42(B2-1, 결정 ①) — [분할 반입]이 성공적으로 시작됐으니(이 too_large
+                  // 실패 항목의) 원 convert 잡을 작업 센터 목록에서 지운다. 실패해도(이미 지워짐
+                  // 등) 분할 진행 자체를 막을 이유는 아니므로 콘솔 경고만 남긴다.
+                  const anchorJobId = queue.items.find((it) => it.entry.id === splitAnchorEntryId)?.entry.jobId
+                  if (anchorJobId) {
+                    dismissJobMutation.mutate(anchorJobId, {
+                      onError: (e) => console.warn('실패 잡 정리에 실패했습니다(무시):', e),
+                    })
+                  }
+                }
               }}
               onSplitExpired={() => {
                 // split이 서버에서 만료(404 — TTL 1h·디스크 최근 20건 초과)됐다 — 앵커를
@@ -950,6 +996,10 @@ const WARNING_BADGE: Record<ImportItemWarning, { label: string; className: strin
   solved_answer: { label: 'AI가 정답을 직접 채움', className: 'bg-warning text-on-accent' },
   fabrication_suspect: { label: '원문과 불일치 (창작 의심)', className: 'bg-wrong text-on-accent' },
   match_unavailable: { label: '원문 대조 불가', className: 'border border-border text-muted' },
+  // stage-42(B4-S1/S7) — 분류 제안 0건·형식 오류. 반입 자체는 막지 않고 아래 분류 블록에서
+  // 경로를 직접 입력해 분류할 수 있다(항상 렌더).
+  no_category: { label: '분류 제안 없음', className: 'border border-border text-muted' },
+  category_malformed: { label: '분류 제안 형식 오류 — 일부만 반영됨', className: 'bg-warning text-on-accent' },
 }
 
 function WarningBadges({ warnings }: { warnings: ImportItemWarning[] | undefined }) {
@@ -977,6 +1027,52 @@ interface ItemRowProps {
 
 function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
   const isSkipped = state?.action === 'skip'
+  const isQuestionType = item.type === 'question' || item.type === 'past_question'
+
+  // stage-42(B3, §4.3) — 검토 단계 본문 열람·편집(구 편집기 재사용 금지 — 제목 input · 본문/정답/
+  // 해설 textarea만). 편집분은 decisions[index].override에 보관, commit에 그대로 실린다.
+  const [bodyOpen, setBodyOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draftTitle, setDraftTitle] = useState(item.title)
+  const [draftContent, setDraftContent] = useState(item.content ?? '')
+  const [draftAnswer, setDraftAnswer] = useState(item.answer ?? '')
+  const [draftExplanation, setDraftExplanation] = useState(item.explanation ?? '')
+  // stage-42(B4-S12) — 항목별 분류 경로 직접 추가.
+  const [manualCategoryPath, setManualCategoryPath] = useState('')
+
+  const hasOverride = Boolean(state?.override && Object.keys(state.override).length > 0)
+  const effectiveTitle = state?.override?.title ?? item.title
+  const effectiveContent = state?.override?.content ?? item.content ?? null
+  const effectiveAnswer = state?.override?.answer ?? item.answer ?? null
+  const effectiveExplanation = state?.override?.explanation ?? item.explanation ?? null
+
+  function startEditing() {
+    setDraftTitle(effectiveTitle)
+    setDraftContent(effectiveContent ?? '')
+    setDraftAnswer(effectiveAnswer ?? '')
+    setDraftExplanation(effectiveExplanation ?? '')
+    setEditing(true)
+    setBodyOpen(true)
+  }
+
+  function saveEdit() {
+    if (!state) return
+    const override: ImportItemOverride = {}
+    if (draftTitle !== item.title) override.title = draftTitle
+    if (draftContent !== (item.content ?? '')) override.content = draftContent
+    if (isQuestionType) {
+      if (draftAnswer !== (item.answer ?? '')) override.answer = draftAnswer
+      if (draftExplanation !== (item.explanation ?? '')) override.explanation = draftExplanation
+    }
+    onUpdateDecision(item.index, { override: Object.keys(override).length > 0 ? override : undefined })
+    setEditing(false)
+  }
+
+  // 수동으로 추가한 분류 경로(문자열) — LLM 제안(item.suggest_categories)에 없는 문자열 승인만
+  // 골라내면 "추가분" 칩으로 다시 렌더할 수 있다(별도 상태 없이 approvedCategoryIds가 단일 출처).
+  const manualApprovedPaths = (state?.approvedCategoryIds ?? []).filter(
+    (id): id is string => typeof id === 'string' && !item.suggest_categories.some((sc) => sc.path === id),
+  )
 
   return (
     <div className="rounded-lg border border-border bg-surface p-3">
@@ -986,10 +1082,117 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
           {TYPE_LABEL[item.type] ?? item.type}
         </span>
         <span className="text-sm font-medium text-primary">
-          #{item.index} {item.title}
+          #{item.index} {effectiveTitle}
         </span>
+        {hasOverride && (
+          <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium text-accent">편집됨</span>
+        )}
         <WarningBadges warnings={item.warnings} />
       </div>
+
+      {/* stage-42(B3) — 본문·선택지·정답·해설 열람·편집(오류 항목도 원문 확인은 가능해야 하므로
+          error 여부와 무관하게 렌더). */}
+      <div className="mb-2 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setBodyOpen((v) => !v)}
+          className="text-xs font-medium text-accent hover:underline"
+        >
+          {bodyOpen ? '본문 접기 ▾' : '본문 보기 ▸'}
+        </button>
+        {!editing && item.status !== 'error' && (
+          <button type="button" onClick={startEditing} className="text-xs font-medium text-accent hover:underline">
+            편집
+          </button>
+        )}
+      </div>
+
+      {bodyOpen && !editing && (
+        <div className="mb-3 flex flex-col gap-2 rounded border border-border bg-bg p-2">
+          <MarkdownView content={effectiveContent} />
+          {item.choices && item.choices.length > 0 && (
+            <ol className="ml-4 list-decimal text-sm text-primary">
+              {item.choices.map((c, i) => (
+                <li key={i}>{choiceLabel(c)}</li>
+              ))}
+            </ol>
+          )}
+          {isQuestionType && (
+            <div>
+              <p className="text-xs font-semibold text-muted">정답</p>
+              <p className="whitespace-pre-wrap text-sm text-primary">{effectiveAnswer || '(없음)'}</p>
+            </div>
+          )}
+          {isQuestionType && effectiveExplanation && (
+            <div>
+              <p className="mb-1 text-xs font-semibold text-muted">해설</p>
+              <MarkdownView content={effectiveExplanation} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {editing && (
+        <div className="mb-3 flex flex-col gap-2 rounded border border-accent bg-bg p-2">
+          <label className="flex flex-col gap-1 text-xs text-primary">
+            제목
+            <input
+              type="text"
+              value={draftTitle}
+              onChange={(e) => setDraftTitle(e.target.value)}
+              className="rounded border border-border bg-surface px-2 py-1 text-sm text-primary outline-none focus:border-accent"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-primary">
+            본문(마크다운 원문)
+            <textarea
+              value={draftContent}
+              onChange={(e) => setDraftContent(e.target.value)}
+              rows={8}
+              className="rounded border border-border bg-surface px-2 py-1 font-mono text-xs text-primary outline-none focus:border-accent"
+            />
+          </label>
+          {isQuestionType && (
+            <>
+              <label className="flex flex-col gap-1 text-xs text-primary">
+                정답
+                <textarea
+                  value={draftAnswer}
+                  onChange={(e) => setDraftAnswer(e.target.value)}
+                  rows={2}
+                  className="rounded border border-border bg-surface px-2 py-1 text-sm text-primary outline-none focus:border-accent"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-primary">
+                해설(마크다운 원문)
+                <textarea
+                  value={draftExplanation}
+                  onChange={(e) => setDraftExplanation(e.target.value)}
+                  rows={4}
+                  className="rounded border border-border bg-surface px-2 py-1 font-mono text-xs text-primary outline-none focus:border-accent"
+                />
+              </label>
+            </>
+          )}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="rounded border border-border px-3 py-1 text-xs text-primary hover:bg-surface"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              disabled={draftTitle.trim().length === 0}
+              onClick={saveEdit}
+              className="rounded bg-accent px-3 py-1 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
+            >
+              저장
+            </button>
+          </div>
+        </div>
+      )}
 
       {item.status !== 'error' && hasExclusionWarning(item.warnings) && (
         <p className="mb-2 text-[11px] text-warning">
@@ -1046,10 +1249,15 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
             </label>
           )}
 
-          {item.suggest_categories.length > 0 && (
-            <div>
-              <p className="mb-1 text-xs font-semibold text-muted">분류 제안</p>
-              <div className="flex flex-wrap gap-2">
+          {/* stage-42(B4-S1/S8/S12) — 제안이 비어도 항상 렌더(무분류 반입 방지). */}
+          <div>
+            <p className="mb-1 text-xs font-semibold text-muted">분류</p>
+            {item.suggest_categories.length === 0 ? (
+              <p className="mb-2 text-xs text-muted">
+                분류 제안 없음 — 아래에 경로를 입력하면 생성·연결합니다.
+              </p>
+            ) : (
+              <div className="mb-1 flex flex-wrap gap-2">
                 {item.suggest_categories.map((sc) => {
                   const key = categoryApprovalKey(sc)
                   const checked = state.approvedCategoryIds.includes(key)
@@ -1086,14 +1294,65 @@ function ItemRow({ item, state, onUpdateDecision }: ItemRowProps) {
                   )
                 })}
               </div>
-              {item.suggest_categories.some((sc) => sc.container) && (
-                <p className="mt-1 text-[11px] text-warning">
-                  ⚠ 선택한 분류 중 일부는 자식이 있는 중간 노드입니다. 하위 분류(회차·과목)에 연결하는
-                  편이 커리큘럼·모의고사·인쇄에서 다루기 쉽습니다(막지는 않습니다).
-                </p>
-              )}
+            )}
+            {item.suggest_categories.some((sc) => sc.container) && (
+              <p className="mb-1 text-[11px] text-warning">
+                ⚠ 자식이 있는 중간 노드 제안은 기본 미체크입니다. 하위 분류(회차·과목)에 연결하는
+                편이 커리큘럼·모의고사·인쇄에서 다루기 쉽습니다(막지는 않습니다).
+              </p>
+            )}
+
+            {manualApprovedPaths.length > 0 && (
+              <div className="mb-1 flex flex-wrap gap-2">
+                {manualApprovedPaths.map((path) => (
+                  <span
+                    key={path}
+                    className="flex items-center gap-1 rounded border border-accent bg-accent-soft px-2 py-1 text-xs text-accent"
+                  >
+                    {path}
+                    <span className="rounded bg-accent-soft px-1">직접 추가</span>
+                    <button
+                      type="button"
+                      disabled={isSkipped}
+                      onClick={() =>
+                        onUpdateDecision(item.index, {
+                          approvedCategoryIds: toggleValue(state.approvedCategoryIds, path),
+                        })
+                      }
+                      className="text-accent hover:opacity-70 disabled:opacity-50"
+                      aria-label={`${path} 분류 추가 취소`}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-1 flex flex-col gap-1">
+              <CategoryPathField value={manualCategoryPath} onChange={setManualCategoryPath} />
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  disabled={
+                    isSkipped ||
+                    !manualCategoryPath ||
+                    categoryPathError(manualCategoryPath) != null ||
+                    state.approvedCategoryIds.includes(manualCategoryPath)
+                  }
+                  onClick={() => {
+                    onUpdateDecision(item.index, {
+                      approvedCategoryIds: [...state.approvedCategoryIds, manualCategoryPath],
+                    })
+                    setManualCategoryPath('')
+                  }}
+                  className="rounded border border-border px-2 py-1 text-xs text-primary hover:bg-surface disabled:opacity-50"
+                >
+                  경로 추가
+                </button>
+              </div>
             </div>
-          )}
+          </div>
 
           {item.suggest_relations.length > 0 && (
             <div>

@@ -58,7 +58,10 @@ function toGroups(chunks: SplitChunk[]): ChunkGroup[] {
     approxTokens: c.estimate.approx_input_tokens,
     assumed: c.estimate.assumed,
     selected: true,
-    pathSuffix: c.label,
+    // stage-42(B2-2, §4.25 ②) — 접미 기본값은 빈 문자열(모든 조각이 공통 경로 하나로 모인다).
+    // 종전 `c.label`은 조각 라벨(예: "… 1/2")의 `/`가 분류 2단으로 쪼개져 조각마다 엉뚱한
+    // 분류를 만드는 결함이었다 — "접미 추가" 입력은 그대로 두되 비우면 공통 경로만 쓰인다.
+    pathSuffix: '',
   }))
 }
 
@@ -74,11 +77,19 @@ const STEP_LABELS: Record<Step, string> = {
 
 export type SplitInitialSource = { kind: 'file'; file: File } | { kind: 'url'; url: string }
 
+// stage-42(B2-2, §4.25 ②) — 라벨·접미의 경로 구분자(`/`)는 분류 2단으로 잘못 쪼개진다.
+function sanitizePathSuffix(s: string): string {
+  return s.replace(/\//g, '-')
+}
+
 interface SplitImportWizardProps {
   // too_large 오류에서 곧장 넘어온 경우(§4.25 진입점) — 있으면 마운트 즉시 분할 시작을 시도한다.
   initialSource?: SplitInitialSource | null
   // 작업 센터 딥링크·새로고침 복원(§4.24 ⑤, §4.25 ㉳) — 이미 만들어진 분할안을 이어서 연다.
   resumeSplitId?: string | null
+  // stage-42(B2-2, §4.25 ②) — 원 항목의 categoryPath를 공통 상위 경로 초기값으로 넘긴다(분할
+  // 조각이 기본값 그대로도 원 항목과 같은 분류 경로 하나로 모이게).
+  initialCommonPath?: string | null
   onCancel: () => void
   // splitId(두 번째 인자, stage-reviewer 표적 확인 [관찰 (a)]) — 호출부가 이 split_id를 가진
   // 큐 항목 "전부"를 정리할 수 있게 함께 넘긴다(같은 split을 재사용한 두 앵커가 남아 같은
@@ -95,6 +106,7 @@ interface SplitImportWizardProps {
 export default function SplitImportWizard({
   initialSource,
   resumeSplitId,
+  initialCommonPath,
   onCancel,
   onEnqueued,
   onSplitStarted,
@@ -111,7 +123,7 @@ export default function SplitImportWizard({
   const [agreedAnalyze, setAgreedAnalyze] = useState(false)
   const [recoveredNotice, setRecoveredNotice] = useState(false)
   const [groups, setGroups] = useState<ChunkGroup[]>([])
-  const [commonPath, setCommonPath] = useState('')
+  const [commonPath, setCommonPath] = useState(initialCommonPath ?? '')
   const [agreedCost, setAgreedCost] = useState(false)
 
   const startMutation = useStartSplit()
@@ -233,7 +245,9 @@ export default function SplitImportWizard({
   }
 
   function updateSuffix(index: number, value: string) {
-    setGroups((prev) => prev.map((g, i) => (i === index ? { ...g, pathSuffix: value } : g)))
+    setGroups((prev) =>
+      prev.map((g, i) => (i === index ? { ...g, pathSuffix: sanitizePathSuffix(value) } : g)),
+    )
   }
 
   // [합치기] — 인접한 두 그룹만 하나로 합친다(경계 문자 편집 없음, 과설계 기각 확정). 병합 결과가
@@ -246,13 +260,14 @@ export default function SplitImportWizard({
       if (a.chars + b.chars > MAX_CHUNK_CHARS) return prev
       const merged: ChunkGroup = {
         ids: [...a.ids, ...b.ids],
-        label: `${a.label} + ${b.label}`,
+        label: sanitizePathSuffix(`${a.label} + ${b.label}`),
         head: a.head,
         chars: a.chars + b.chars,
         approxTokens: a.approxTokens + b.approxTokens,
         assumed: a.assumed || b.assumed,
+        // [합치기]는 pathSuffix를 그대로 두라는 세칙(§4.25) — a쪽 값을 유지한다.
         selected: a.selected || b.selected,
-        pathSuffix: a.pathSuffix || b.pathSuffix,
+        pathSuffix: a.pathSuffix,
       }
       const next = [...prev]
       next.splice(index, 2, merged)

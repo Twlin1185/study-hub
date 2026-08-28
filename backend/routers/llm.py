@@ -12,6 +12,7 @@ from schemas.llm import (
     ApiKeySaved,
     InstallEngineResponse,
     JobCancelResult,
+    JobDismissResult,
     JobListResponse,
     LlmStatus,
     QueuePauseResult,
@@ -76,6 +77,13 @@ def cancel_job(job_id: str) -> JobCancelResult:
     """취소 — queued=큐 제거(비용 0) / running=실행 중단(부분 과금 가능 — 마지막 usage
     표기). 이미 종료된 작업은 409, 미존재·TTL 만료는 404(설계 §4.24 ⓐⓑ)."""
     return JobCancelResult(**convert_service.cancel_job(job_id))
+
+
+@router.delete("/jobs/{job_id}", response_model=JobDismissResult)
+def dismiss_job(job_id: str) -> JobDismissResult:
+    """목록에서 지우기(B2-1, 설계 §4.24 추기) — 종료(done·error·cancelled) 잡만 대상.
+    진행 중(running·queued)은 409(먼저 취소 필요), 미존재·TTL 만료는 404."""
+    return JobDismissResult(**convert_service.dismiss_job(job_id))
 
 
 @router.post("/queue/pause", response_model=QueuePauseResult)
