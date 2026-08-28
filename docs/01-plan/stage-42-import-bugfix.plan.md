@@ -123,6 +123,35 @@ json --max-turns 1` 정상 응답(기존 `~/.claude` 자격증명 사용). 체�
 - [x] 설계 api §4.17 ④ S42-B5 추기(claude-cli 설치 계약 — 위 실측 URL·검증·격리 경로) · 매뉴얼 "Claude Code로 시작하기"(설치 버튼) 추가 · 기존 "Codex로 시작하기" 유지
 - [x] stage-reviewer 검토(통과) · 실측: PATH 미탐지 상황에서 어댑터 `install()` 실행 → 216MB 다운로드·sha256 일치·5.5초·`.part` 잔존 0(메인 대화, 2026-08-29). UI 버튼 경로는 사용자 실사용으로 확인
 
+## 후속 B6 — CLI 원클릭 온보딩: 설치 인식(재시작 불필요) + [로그인] 자동 진행 (2026-08-29 사용자 지시 2건)
+
+> 상태: **편성·구현 착수 (2026-08-29)**. 사용자 보고 ① "CLI 설치 후 사이트가 인식 못 해 서버를 껐다 켜야 한다" ·
+> 지시 ② "로그인도 버튼으로(브라우저 자동) — 사용자가 헷갈리지 않게, [설치]를 누른 순간부터 생각·행동 없이
+> 쭈욱 세팅이 완료되게". 범위: 백엔드 탐색기·로그인 엔드포인트 + 설정 카드 온보딩 스테퍼. DDL 0 · settings 0 · 의존 0.
+
+**원인 실측(①)**: Windows 프로세스의 PATH는 시작 시점 값으로 고정 — 공식 설치기가 `%USERPROFILE%\.localin`에
+넣고 사용자 PATH를 갱신해도 실행 중인 서버의 `shutil.which`는 못 본다(이 PC 실측: `claude.exe`가 `.localin`에
+있으나 프로세스 PATH·레지스트리 PATH 모두 미포함 → 종전 finder는 None). **조치**: 공용 `services/exe_locate.py` —
+격리본 → 프로세스 PATH → **레지스트리 현재 PATH(HKCU·HKLM)** → **잘 알려진 설치 폴더**(`~/.local/bin`, `%APPDATA%
+pm`)
+순으로 매 진단마다 신선하게 탐색(캐시 없음 — 진단이 60초 TTL). 두 어댑터의 `find_executable()`이 이를 사용.
+
+### 체크리스트
+
+#### 백엔드
+- [x] `services/exe_locate.py` + `claude_cli_adapter`/`codex_adapter.find_executable()` 연결(메인 대화 선구현)
+- [ ] `POST /api/llm/engines/{id}/login` → `llm_engine_service.start_login(engine_id)`: CLI형·installable만(그 외 422) · 실행 파일 미발견 = 422("먼저 [설치]") · 강제 진단으로 이미 로그인 = `{status:'already_logged_in'}` · 같은 엔진의 로그인 프로세스가 아직 살아 있으면 `{status:'in_progress'}` · 아니면 **새 콘솔 창**(Windows `CREATE_NEW_CONSOLE`)으로 `claude auth login` / `codex login`을 띄운다(CLI가 브라우저를 스스로 연다 · cwd=BASE_DIR) → `{status:'started'}`. 프로세스 핸들은 엔진별 인메모리 보관, 감시 스레드가 종료 시 진단 캐시 무효화
+- [ ] `GET /api/llm/status` `engines[]` += `login_pending: bool`(로그인 프로세스 생존 여부 — 순수 추가)
+- [ ] 테스트: `tests/test_exe_locate.py`(레지스트리 PATH·잘 알려진 폴더·격리본 우선 — 레지스트리 읽기 모킹) · `tests/test_cli_login.py`(Popen 모킹 — started/in_progress/already_logged_in/422 3종·종료 시 캐시 무효화) · 기존 설치 테스트는 `exe_locate`(레지스트리·잘 알려진 폴더)를 격리해 "미설치" 가정을 유지
+
+#### 프론트
+- [ ] `LlmEngineSection.tsx` `CliDiagnosis` → **온보딩 스테퍼** "① 설치 → ② 로그인 → ③ 완료": [설치] 클릭 → "다운로드·설치 중…(Claude 약 220MB)" → 성공 시 상태 재조회(`?refresh=1`) → 미로그인이면 **자동으로 `POST …/login`** → "이 PC에 로그인 창이 열렸습니다. 브라우저에서 로그인을 마치면 자동으로 이어집니다" + 4초 폴링(`?refresh=1`, 최대 5분) + [로그인 창 다시 열기] + 접이식 수동 안내(터미널 명령) → 로그인 확인 시 "✓ 설정 완료 — 바로 변환에 쓸 수 있습니다". 이미 설치·미로그인 상태에서도 같은 흐름의 [로그인] 버튼. "로그인 창은 서버가 실행 중인 PC에 열립니다(폰에서는 PC에서 진행)" 1줄
+- [ ] `api/llm.ts` `useStartCliLogin()` · `types.ts` `login_pending` · 빌드 성공
+
+#### 문서
+- [ ] 설계 api §4.17 ④-3(로그인 계약·탐색 순서 개정) · screens §5.11 LLM 엔진 카드 온보딩 3단계 · 매뉴얼 15장(Claude/Codex 시작하기 절을 "버튼 한 번" 흐름으로) · FAQ "설치했는데 인식 안 됨 → 이제 재시작 불필요"
+- [ ] stage-reviewer 검토 · 실측(격리 클론 서버에서 설치→로그인 창→상태 자동 전환)
+
 ## 완료 기록
 
 - **2026-08-28** 편성·B1 선수정(`6120764`) → 백엔드(sonnet)·프론트(sonnet) 병렬 구현(`f64fa6a`) — 백엔드 577 passed · 빌드 성공(메인 청크 +9.2KB raw/+2.1KB gzip) · invariant PASS.
