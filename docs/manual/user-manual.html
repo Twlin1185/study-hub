@@ -1739,7 +1739,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <li><strong>로그인 (자동으로 이어집니다)</strong> <span class="badge new">v2.0.x</span> — PC에 이미 Codex 로그인 기록이 있으면
       바로 완료로 넘어가고, 없으면 <strong>이 PC에 로그인 창이 자동으로 열려</strong> 브라우저에서 ChatGPT 계정으로 로그인합니다.
       마치면 카드가 스스로 "✓ 설정 완료"로 바뀝니다. 창이 안 보이면 <strong>[로그인 창 다시 열기]</strong>, 수동은 <code>codex login</code>.</li>
-    <li><strong>진단</strong> — 카드에 설치·로그인 상태가 그대로 표시됩니다. 정상이면 다른 엔진처럼 변환·재생성에 바로 쓸 수 있습니다.</li>
+    <li><strong>완료</strong> — 카드가 "✓ 설정 완료"면 다른 엔진처럼 변환·재생성에 바로 쓸 수 있습니다.</li>
   </ol>
   <div class="note">
     <span class="label">개인정보 고지</span>
@@ -1920,6 +1920,11 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
   <h3>"포트가 이미 사용 중" 오류</h3>
   <p>이전 서버가 아직 떠 있는 경우입니다. 기존 창을 <kbd>Ctrl</kbd>+<kbd>C</kbd>로 끄거나, 다른 포트로 켜세요:
   <code>uvicorn main:app --host 0.0.0.0 --port 8001</code> (접속 주소도 8001로).</p>
+
+  <h3>CLI를 설치했는데 카드가 계속 "미설치"예요</h3>
+  <p>이제는 <strong>서버를 껐다 켤 필요가 없습니다</strong> — 카드가 앱 전용 폴더, 현재 PATH, 방금 바뀐 사용자 PATH,
+  공식 설치기의 기본 폴더(<code>~/.local/bin</code>)와 npm 전역 폴더를 매번 새로 찾습니다. 그래도 미설치로 보이면 카드의
+  <strong>[다시 확인]</strong>을 누르고, 다른 폴더에 직접 설치했다면 그 폴더를 PATH에 넣거나 카드의 [설치]로 앱 전용 설치본을 받으세요.</p>
 
   <h3>변환(원본 파일로 시작)이 실패해요</h3>
   <p>설정 &gt; LLM 엔진의 <strong>Claude CLI</strong> 카드에서 설치·로그인 상태를 확인하세요 — 미설치면 카드의 <strong>[설치]</strong>

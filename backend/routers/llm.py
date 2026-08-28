@@ -1,6 +1,8 @@
 """LLM 엔진 관리 라우터 (F34→F41, 설계 §4.17) — 레지스트리 진단·API 키 등록/삭제·설치."""
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from starlette import status
@@ -26,11 +28,16 @@ router = APIRouter(prefix="/api/llm", tags=["llm"])
 @router.get("/status", response_model=LlmStatus)
 def get_status(
     refresh: bool = Query(default=False, description="CLI형 엔진 진단 캐시를 무시하고 다시 확인"),
+    engine: Optional[str] = Query(
+        default=None,
+        description="refresh 대상 엔진 1개로 한정(로그인 폴링용 — 다른 CLI 엔진의 실호출 진단을 피한다)",
+    ),
     db: Session = Depends(get_db),
 ) -> LlmStatus:
     if refresh:
+        target = llm_engine_service.normalize_engine_id(engine) if engine else None
         for engine_id, meta in llm_engine_service.ENGINE_REGISTRY.items():
-            if meta["kind"] == "cli":
+            if meta["kind"] == "cli" and (target is None or engine_id == target):
                 llm_engine_service.diagnose_engine(engine_id, force=True)
     return LlmStatus(**llm_engine_service.get_status(db))
 

@@ -228,3 +228,22 @@ def test_get_status_includes_login_pending_for_cli_engines(db, monkeypatch, fake
     status2 = engine_svc.get_status(db)
     by_id2 = {e["id"]: e for e in status2["engines"]}
     assert by_id2["claude-cli"]["login_pending"] is True
+
+
+# --- 검토 중1: ?refresh=1&engine=<id>는 그 CLI 엔진 하나만 강제 진단한다 ----------------
+def test_status_refresh_can_target_single_engine(db, monkeypatch):
+    from routers import llm as llm_router
+
+    calls: list = []
+
+    def fake_diag(eid, force=False):
+        calls.append((eid, force))
+        return {"installed": False, "logged_in": False}
+
+    monkeypatch.setattr(engine_svc, "diagnose_engine", fake_diag)
+    llm_router.get_status(refresh=True, engine="codex-cli", db=db)
+    assert [c[0] for c in calls if c[1]] == ["codex-cli"]
+
+    calls.clear()
+    llm_router.get_status(refresh=True, engine=None, db=db)
+    assert {c[0] for c in calls if c[1]} == {"claude-cli", "codex-cli"}

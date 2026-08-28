@@ -408,6 +408,8 @@ function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
     engine.login_pending === true ? Date.now() : null,
   )
   const [loginTimedOut, setLoginTimedOut] = useState(false)
+  // 서버가 "로그인 프로세스 종료·미로그인"을 알려온 상태(창을 닫았거나 CLI가 곧바로 실패) — 검토 중2.
+  const [loginClosed, setLoginClosed] = useState(false)
 
   // 서버가 로그인 프로세스 생존을 알려오면(초기 로드·다른 경로에서 시작된 로그인 포함) 로컬
   // 상태가 없어도 폴링 단계로 이어받는다.
@@ -425,6 +427,7 @@ function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
       setLoginActive(false)
       setLoginStartedAt(null)
       setLoginTimedOut(false)
+      setLoginClosed(false)
       setLoginNotice(null)
     }
   }, [engine.logged_in])
@@ -432,17 +435,26 @@ function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
   // 로그인 대기 중에는 4초마다 강제 진단(?refresh=1)으로 로그인 완료 여부를 확인. 5분 지나면
   // 폴링을 멈추고 [로그인 창 다시 열기] 안내로 전환.
   useEffect(() => {
-    if (!loginActive || engine.logged_in || loginTimedOut) return
+    if (!loginActive || engine.logged_in || loginTimedOut || loginClosed) return
     const id = window.setInterval(() => {
       if (loginStartedAt != null && Date.now() - loginStartedAt > LOGIN_TIMEOUT_MS) {
         setLoginTimedOut(true)
         return
       }
-      refreshStatus.mutate()
+      // 직전 요청이 아직 진행 중이면 겹쳐 쏘지 않는다(응답 역전으로 상태가 튕기는 것 방지 — 검토 중1).
+      if (refreshStatus.isPending) return
+      // 이 엔진 하나만 강제 진단(다른 CLI 엔진의 실호출 진단 방지).
+      refreshStatus.mutate(engine.id, {
+        onSuccess: (fresh) => {
+          const mine = fresh.engines.find((e) => e.id === engine.id)
+          // 프로세스가 끝났는데 로그인이 안 됐다 = 창을 닫았거나 CLI가 실패 → 즉시 안내로 전환.
+          if (mine && !mine.logged_in && mine.login_pending === false) setLoginClosed(true)
+        },
+      })
     }, LOGIN_POLL_MS)
     return () => window.clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshStatus는 매 렌더 새 mutate 참조지만 호출부만 쓴다.
-  }, [loginActive, engine.logged_in, loginTimedOut, loginStartedAt])
+  }, [loginActive, engine.logged_in, loginTimedOut, loginClosed, loginStartedAt, engine.id])
 
   function handleInstall() {
     setInstallError(null)
@@ -476,6 +488,7 @@ function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
         setLoginActive(true)
         setLoginStartedAt(Date.now())
         setLoginTimedOut(false)
+        setLoginClosed(false)
       },
       onError: (e) => {
         if (e instanceof ApiError && e.status === 422 && isNotInstalledReason(e.detail)) {
@@ -585,6 +598,11 @@ function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
             <>
               {loginTimedOut ? (
                 <p className="mt-1 mb-2 text-wrong">시간이 지났습니다 — 로그인 창을 다시 열어주세요.</p>
+              ) : loginClosed ? (
+                <p className="mt-1 mb-2 text-wrong">
+                  로그인 창이 닫혔지만 로그인이 확인되지 않았습니다 — [로그인 창 다시 열기]로 다시
+                  시도하거나 아래 "수동으로 하기"를 참고하세요.
+                </p>
               ) : (
                 <p className="mt-1 mb-2 flex items-center gap-1.5 text-muted">
                   <Spinner />

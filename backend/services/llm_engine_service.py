@@ -364,6 +364,7 @@ def install_engine(engine_id: str) -> Dict[str, Any]:
 # 종료 시 진단 캐시를 무효화해 다음 `GET /status`가 최신 로그인 여부를 반영하게 한다.
 # ---------------------------------------------------------------------------
 _LOGIN_LOCK = threading.Lock()
+_LOGIN_START_LOCK = threading.Lock()
 _LOGIN_PROCS: Dict[str, subprocess.Popen] = {}
 
 
@@ -421,27 +422,30 @@ def start_login(engine_id: str) -> Dict[str, Any]:
             detail={"engine": engine_id, "reason": "not_installed"},
         )
 
-    if login_pending(engine_id):
-        return {"status": "in_progress"}
+    # 확인→실행→등록을 한 락 안에서(두 탭 동시 클릭 시 창 2개·핸들 유실 방지 — 검토 경미 6).
+    # `_LOGIN_START_LOCK`은 `_LOGIN_LOCK`(핸들 사전 보호)과 별개라 login_pending() 재진입 무해.
+    with _LOGIN_START_LOCK:
+        if login_pending(engine_id):
+            return {"status": "in_progress"}
 
-    diag = diagnose_engine(engine_id, force=True)
-    if diag.get("logged_in"):
-        return {"status": "already_logged_in"}
+        diag = diagnose_engine(engine_id, force=True)
+        if diag.get("logged_in"):
+            return {"status": "already_logged_in"}
 
-    argv = _login_argv(engine_id, exe)
-    kwargs: Dict[str, Any] = {"cwd": str(BASE_DIR)}
-    if os.name == "nt":
-        kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
-    try:
-        proc = subprocess.Popen(argv, **kwargs)
-    except OSError as exc:
-        raise UpstreamError(f"로그인 창을 열지 못했습니다: {exc}") from exc
+        argv = _login_argv(engine_id, exe)
+        kwargs: Dict[str, Any] = {"cwd": str(BASE_DIR)}
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+        try:
+            proc = subprocess.Popen(argv, **kwargs)
+        except OSError as exc:
+            raise UpstreamError(f"로그인 창을 열지 못했습니다: {exc}") from exc
 
-    with _LOGIN_LOCK:
-        _LOGIN_PROCS[engine_id] = proc
-    watcher = threading.Thread(target=_watch_login_process, args=(engine_id, proc), daemon=True)
-    watcher.start()
-    return {"status": "started"}
+        with _LOGIN_LOCK:
+            _LOGIN_PROCS[engine_id] = proc
+        watcher = threading.Thread(target=_watch_login_process, args=(engine_id, proc), daemon=True)
+        watcher.start()
+        return {"status": "started"}
 
 
 # ---------------------------------------------------------------------------

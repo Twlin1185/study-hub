@@ -72,6 +72,7 @@ def _isolate_install(monkeypatch, tmp_path):
     monkeypatch.setattr(claude_cli_adapter, "CLAUDE_EXE_PATH", tmp_path / "claude.exe")
     monkeypatch.setattr(claude_cli_adapter.time, "sleep", lambda *_: None)
     monkeypatch.setattr(exe_locate, "_registry_path_dirs", lambda: [])
+    monkeypatch.setattr(exe_locate.shutil, "which", lambda *a, **k: None)
     monkeypatch.setattr(exe_locate, "user_home", lambda: tmp_path / "home")
     monkeypatch.setattr(exe_locate, "npm_global_bin", lambda: tmp_path / "npm")
 
