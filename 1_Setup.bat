@@ -13,6 +13,18 @@ echo  Internet connection is required (first run only)
 echo ================================================
 echo.
 
+rem Windows MAX_PATH(260) guard - pip fails with "No such file or directory" when this folder is
+rem deep (site-packagesnthropic	ypeseta\... alone is ~140 chars). Measured 2026-08-29 on a
+rem fresh clone in a long temp path. Refuse early with guidance instead of a confusing pip error.
+for /f %%L in ('powershell -NoProfile -Command "('%~dp0').Length"') do set "PLEN=%%L"
+if %PLEN% GTR 110 (
+    echo [ERROR] This folder path is too long ^(%PLEN% chars^). Windows limits paths to 260 chars and
+    echo         the Python packages need about 150 more. Move this folder to a short path such as
+    echo         C:\StudyHub  and run this again.
+    pause
+    exit /b 1
+)
+
 if exist "%PYEXE%" (
     echo [1/4] Portable Python already installed - skipping download.
     goto :PIP
