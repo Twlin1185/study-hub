@@ -25,6 +25,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 import re
 import subprocess
 import threading
@@ -33,7 +34,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from database import BASE_DIR
-from exceptions import ConflictError, ValidationAppError
+from exceptions import ConflictError, UpstreamError, ValidationAppError
 from services import secrets_store, settings_service
 
 logger = logging.getLogger(__name__)
@@ -355,6 +356,96 @@ def install_engine(engine_id: str) -> Dict[str, Any]:
     with _diag_lock:
         _diag_cache.pop(engine_id, None)  # 설치 직후 진단 캐시 무효화
     return result
+
+
+# ---------------------------------------------------------------------------
+# 엔진 로그인 (후속 B6) — installable CLI형만. 새 콘솔 창으로 `<exe> auth login`/`login`을
+# 띄운다(CLI가 브라우저를 스스로 연다). 프로세스 핸들은 엔진별 인메모리 보관, 감시 스레드가
+# 종료 시 진단 캐시를 무효화해 다음 `GET /status`가 최신 로그인 여부를 반영하게 한다.
+# ---------------------------------------------------------------------------
+_LOGIN_LOCK = threading.Lock()
+_LOGIN_START_LOCK = threading.Lock()
+_LOGIN_PROCS: Dict[str, subprocess.Popen] = {}
+
+
+def login_pending(engine_id: str) -> bool:
+    """엔진의 로그인 프로세스가 아직 살아 있는지 — 끝난 프로세스는 여기서 정리한다."""
+    engine_id = normalize_engine_id(engine_id) or engine_id
+    with _LOGIN_LOCK:
+        proc = _LOGIN_PROCS.get(engine_id)
+        if proc is None:
+            return False
+        if proc.poll() is None:
+            return True
+        _LOGIN_PROCS.pop(engine_id, None)
+        return False
+
+
+def _find_login_executable(engine_id: str) -> Optional[str]:
+    if engine_id == ENGINE_CLAUDE_CLI:
+        from services import claude_cli_adapter
+
+        return claude_cli_adapter.find_executable()
+    if engine_id == ENGINE_CODEX_CLI:
+        from services import codex_adapter
+
+        return codex_adapter.find_executable()
+    return None
+
+
+def _login_argv(engine_id: str, exe: str) -> List[str]:
+    if engine_id == ENGINE_CLAUDE_CLI:
+        return [exe, "auth", "login"]
+    return [exe, "login"]
+
+
+def _watch_login_process(engine_id: str, proc: subprocess.Popen) -> None:
+    proc.wait()
+    with _diag_lock:
+        _diag_cache.pop(engine_id, None)
+    with _LOGIN_LOCK:
+        if _LOGIN_PROCS.get(engine_id) is proc:
+            _LOGIN_PROCS.pop(engine_id, None)
+
+
+def start_login(engine_id: str) -> Dict[str, Any]:
+    """CLI형·installable 엔진의 로그인 창을 이 PC에 연다(설계 §4.17 ④-3, 후속 B6)."""
+    engine_id = normalize_engine_id(engine_id) or engine_id
+    meta = ENGINE_REGISTRY.get(engine_id)
+    if meta is None or meta["kind"] != "cli" or not meta["installable"]:
+        raise ValidationAppError("로그인 실행을 지원하지 않는 엔진입니다", detail={"engine": engine_id})
+
+    exe = _find_login_executable(engine_id)
+    if exe is None:
+        raise ValidationAppError(
+            "먼저 [설치]를 눌러 CLI를 설치하세요",
+            detail={"engine": engine_id, "reason": "not_installed"},
+        )
+
+    # 확인→실행→등록을 한 락 안에서(두 탭 동시 클릭 시 창 2개·핸들 유실 방지 — 검토 경미 6).
+    # `_LOGIN_START_LOCK`은 `_LOGIN_LOCK`(핸들 사전 보호)과 별개라 login_pending() 재진입 무해.
+    with _LOGIN_START_LOCK:
+        if login_pending(engine_id):
+            return {"status": "in_progress"}
+
+        diag = diagnose_engine(engine_id, force=True)
+        if diag.get("logged_in"):
+            return {"status": "already_logged_in"}
+
+        argv = _login_argv(engine_id, exe)
+        kwargs: Dict[str, Any] = {"cwd": str(BASE_DIR)}
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+        try:
+            proc = subprocess.Popen(argv, **kwargs)
+        except OSError as exc:
+            raise UpstreamError(f"로그인 창을 열지 못했습니다: {exc}") from exc
+
+        with _LOGIN_LOCK:
+            _LOGIN_PROCS[engine_id] = proc
+        watcher = threading.Thread(target=_watch_login_process, args=(engine_id, proc), daemon=True)
+        watcher.start()
+        return {"status": "started"}
 
 
 # ---------------------------------------------------------------------------
@@ -899,6 +990,7 @@ def _engine_status(db: Session, engine_id: str) -> Dict[str, Any]:
         "logged_in": None,
         "key_registered": None,
         "key_suffix": None,
+        "login_pending": None,
         "last_success_at": _iso(health.get("last_success_at")),
         "last_error_kind": health.get("last_error_kind"),
     }
@@ -906,6 +998,7 @@ def _engine_status(db: Session, engine_id: str) -> Dict[str, Any]:
         diag = diagnose_engine(engine_id)
         entry["installed"] = diag.get("installed")
         entry["logged_in"] = diag.get("logged_in")
+        entry["login_pending"] = login_pending(engine_id)
     else:
         info = api_key_status()
         entry["key_registered"] = info["key_registered"]

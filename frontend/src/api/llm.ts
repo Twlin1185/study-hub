@@ -9,6 +9,7 @@ import type {
   LlmJobsResponse,
   LlmQueuePauseResponse,
   LlmStatusResponse,
+  LoginEngineResponse,
 } from './types'
 
 // 설계 §4.11 (S8) — 엔진 진단·API 키 관리.
@@ -88,13 +89,15 @@ export function useLlmStatus() {
   })
 }
 
-// [다시 확인] 전용 — 서버의 60초 CLI 진단 캐시를 `?refresh=1`로 강제 우회한다. 일반 최초 로드나
-// (있다면) 폴링은 이 경로를 타지 않는다 — 초경량 호출이라도 매번 강제 진단하면 안 되기 때문.
+// [다시 확인] + 로그인 폴링(S42-B6) 전용 — 서버의 60초 CLI 진단 캐시를 `?refresh=1`로 강제 우회한다.
+// 일반 최초 로드는 이 경로를 타지 않는다(강제 진단 = 실제 CLI 호출). 로그인 폴링은 `engineId`를
+// 넘겨 **그 엔진 하나만** 강제 진단한다(다른 CLI 엔진의 `claude -p ping` 실호출 방지).
 // 성공 시 결과를 useLlmStatus와 같은 쿼리 캐시에 반영해 화면이 즉시 갱신되게 한다.
 export function useRefreshLlmStatus() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => api.get<LlmStatusResponse>('/llm/status?refresh=1'),
+    mutationFn: (engineId: LlmEngineId | void) =>
+      api.get<LlmStatusResponse>(`/llm/status?refresh=1${engineId ? `&engine=${engineId}` : ''}`),
     onSuccess: (data) => qc.setQueryData(llmKeys.status, data),
   })
 }
@@ -123,5 +126,14 @@ export function useInstallEngine() {
   return useMutation({
     mutationFn: (engineId: LlmEngineId) => api.post<InstallEngineResponse>(`/llm/engines/${engineId}/install`),
     onSuccess: () => qc.invalidateQueries({ queryKey: llmKeys.status }),
+  })
+}
+
+// 후속 B6 — installable 엔진(codex-cli·claude-cli)만 유효. 서버가 새 콘솔 창으로 `claude auth
+// login`/`codex login`을 띄운다(CLI가 자체적으로 브라우저를 연다). 캐시 갱신은 호출부가
+// refreshStatus로 직접 처리(즉시 시작 상태만 알려주는 응답이라 여기서 invalidate해도 의미 없음).
+export function useStartCliLogin() {
+  return useMutation({
+    mutationFn: (engineId: LlmEngineId) => api.post<LoginEngineResponse>(`/llm/engines/${engineId}/login`),
   })
 }

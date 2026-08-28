@@ -13,7 +13,7 @@ import json
 import pytest
 
 from exceptions import UpstreamError, ValidationAppError
-from services import claude_cli_adapter, llm_engine_service as engine_svc
+from services import claude_cli_adapter, exe_locate, llm_engine_service as engine_svc
 
 BASE = claude_cli_adapter.DOWNLOAD_BASE_URL
 PLATFORM = claude_cli_adapter.PLATFORM
@@ -63,10 +63,18 @@ def _make_fake_urlopen(*, latest: bytes, manifest: bytes, binary: bytes, calls: 
 
 @pytest.fixture(autouse=True)
 def _isolate_install(monkeypatch, tmp_path):
-    """모든 테스트 공통: tools 디렉터리를 tmp_path로 격리하고 재시도 sleep을 없앤다."""
+    """모든 테스트 공통: tools 디렉터리를 tmp_path로 격리하고 재시도 sleep을 없앤다.
+
+    `exe_locate`의 레지스트리 PATH·잘 알려진 폴더 탐색도 격리한다 — 이 개발 머신에는
+    실제 `claude.exe`가 `~/.local/bin`에 있어(후속 B6 원인 실측), 격리 없이는 아래
+    "미설치" 가정 테스트들이 실제로 그 경로를 찾아내 깨진다."""
     monkeypatch.setattr(claude_cli_adapter, "TOOLS_DIR", tmp_path)
     monkeypatch.setattr(claude_cli_adapter, "CLAUDE_EXE_PATH", tmp_path / "claude.exe")
     monkeypatch.setattr(claude_cli_adapter.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(exe_locate, "_registry_path_dirs", lambda: [])
+    monkeypatch.setattr(exe_locate.shutil, "which", lambda *a, **k: None)
+    monkeypatch.setattr(exe_locate, "user_home", lambda: tmp_path / "home")
+    monkeypatch.setattr(exe_locate, "npm_global_bin", lambda: tmp_path / "npm")
 
 
 # --- (a) 성공: claude.exe가 정확한 바이트로 생성되고 버전이 반환된다 -----------------

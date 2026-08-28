@@ -28,7 +28,7 @@ from typing import Any, Dict, Optional
 
 from database import BASE_DIR
 from exceptions import UpstreamError
-from services import net_safety
+from services import exe_locate, net_safety
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +56,14 @@ class ClaudeInstallError(Exception):
 # 실행 파일 탐색 — 격리 설치본(tools/claude/) 우선, 없으면 PATH
 # ---------------------------------------------------------------------------
 def find_executable() -> Optional[str]:
+    """격리본 → 프로세스 PATH → 레지스트리 최신 PATH → 잘 알려진 설치 폴더(공식 설치기의
+    `~/.local/bin`, npm 전역 bin). 서버 재시작 없이 방금 설치된 CLI를 인식한다(`exe_locate`)."""
     if CLAUDE_EXE_PATH.exists():
         return str(CLAUDE_EXE_PATH)
-    for name in ("claude", "claude.exe", "claude.cmd"):
-        path = shutil.which(name)
-        if path:
-            return path
-    return None
+    return exe_locate.find_executable(
+        ("claude", "claude.exe", "claude.cmd"),
+        well_known_dirs=(exe_locate.user_home() / ".local" / "bin", exe_locate.npm_global_bin()),
+    )
 
 
 def _read_version(exe: str) -> Optional[str]:

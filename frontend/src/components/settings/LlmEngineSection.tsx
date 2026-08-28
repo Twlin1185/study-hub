@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   llmKeys,
@@ -7,6 +7,7 @@ import {
   useLlmStatus,
   useRefreshLlmStatus,
   useSetApiKey,
+  useStartCliLogin,
 } from '../../api/llm'
 import { useSettings, useUpdateSettings } from '../../api/settings'
 import { ApiError } from '../../api/client'
@@ -331,132 +332,376 @@ function EngineCard({
   )
 }
 
-// CLI형 진단 — 기존 Claude CLI 카드(F34) 패턴을 그대로 유지하되, installable:true(codex-cli·
-// claude-cli)인 경우 설치 단계가 로그인 단계 앞에 추가된다(설계 §4.17④·⑦ 3단계 온보딩).
+// 스피너 — 로그인 대기·설치 중 등 진행 표시 공용(색은 accent 토큰만).
+function Spinner() {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent border-t-transparent align-[-1px]"
+    />
+  )
+}
+
+type OnboardingStep = 'install' | 'login' | 'done'
+
+const STEP_ITEMS: { key: OnboardingStep; label: string }[] = [
+  { key: 'install', label: '설치' },
+  { key: 'login', label: '로그인' },
+  { key: 'done', label: '완료' },
+]
+
+// 온보딩 3단계 표시줄 — 현재 단계는 accent 강조, 지난 단계는 체크(설계 §4.17④ 3단계 온보딩).
+function StepIndicator({ step }: { step: OnboardingStep }) {
+  const currentIdx = STEP_ITEMS.findIndex((it) => it.key === step)
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1 text-[11px]">
+      {STEP_ITEMS.map((it, idx) => {
+        const isDone = idx < currentIdx
+        const isCurrent = idx === currentIdx
+        return (
+          <span key={it.key} className="flex items-center gap-1">
+            <span
+              className={
+                isCurrent
+                  ? 'rounded-full bg-accent px-2 py-0.5 font-semibold text-on-accent'
+                  : isDone
+                    ? 'rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent'
+                    : 'rounded-full border border-border px-2 py-0.5 text-muted'
+              }
+            >
+              {isDone ? '✓' : `${idx + 1}`} {it.label}
+            </span>
+            {idx < STEP_ITEMS.length - 1 && <span className="text-muted">→</span>}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+function isNotInstalledReason(detail: unknown): boolean {
+  return (
+    typeof detail === 'object' &&
+    detail !== null &&
+    (detail as { reason?: unknown }).reason === 'not_installed'
+  )
+}
+
+const LOGIN_TIMEOUT_MS = 5 * 60 * 1000
+const LOGIN_POLL_MS = 4000
+
+// CLI형 진단 — installable 엔진(codex-cli·claude-cli)은 [설치]를 누른 순간부터 사용자 개입 없이
+// 설치→로그인→완료로 이어지는 온보딩 스테퍼(설계 §4.17④·⑦, 후속 B6). 단계는 engine.installed/
+// logged_in에서 파생하고(서버가 유일한 진실 출처), 로컬 상태는 "로그인 창을 지금 띄웠는가"만
+// 보조로 들고 있는다 — engine.login_pending이 true로 오면(새로고침 등으로 로컬 상태가 날아간
+// 경우) 그 값을 그대로 이어받아 폴링을 재개한다.
 function CliDiagnosis({ engine }: { engine: LlmEngineStatus }) {
   const refreshStatus = useRefreshLlmStatus()
   const installEngine = useInstallEngine()
-  const [installVersion, setInstallVersion] = useState<string | null>(null)
+  const startLogin = useStartCliLogin()
+
   const [installError, setInstallError] = useState<string | null>(null)
+  const [loginError, setLoginError] = useState<string | null>(null)
+  const [loginNotice, setLoginNotice] = useState<string | null>(null)
+  const [loginActive, setLoginActive] = useState<boolean>(() => engine.login_pending === true)
+  const [loginStartedAt, setLoginStartedAt] = useState<number | null>(() =>
+    engine.login_pending === true ? Date.now() : null,
+  )
+  const [loginTimedOut, setLoginTimedOut] = useState(false)
+  // 서버가 "로그인 프로세스 종료·미로그인"을 알려온 상태(창을 닫았거나 CLI가 곧바로 실패) — 검토 중2.
+  const [loginClosed, setLoginClosed] = useState(false)
+  // 서버 응답 한 건 안에서 force 진단(옛 logged_in)과 login_pending(새 값)이 어긋나는 짧은 경합창 오탐
+  // 방지 — 두 번 연속 "종료·미로그인"일 때만 닫힘으로 판정(재검토 경미 A).
+  const closedStreakRef = useRef(0)
+
+  // 서버가 로그인 프로세스 생존을 알려오면(초기 로드·다른 경로에서 시작된 로그인 포함) 로컬
+  // 상태가 없어도 폴링 단계로 이어받는다.
+  useEffect(() => {
+    if (engine.login_pending && !loginActive) {
+      setLoginActive(true)
+      setLoginStartedAt(Date.now())
+      setLoginTimedOut(false)
+    }
+  }, [engine.login_pending, loginActive])
+
+  // 로그인 확인되면 로컬 추적 상태를 정리(다음 재로그인 시나리오를 위해).
+  useEffect(() => {
+    if (engine.logged_in) {
+      setLoginActive(false)
+      setLoginStartedAt(null)
+      setLoginTimedOut(false)
+      setLoginClosed(false)
+      setLoginNotice(null)
+    }
+  }, [engine.logged_in])
+
+  // 로그인 대기 중에는 4초마다 강제 진단(?refresh=1)으로 로그인 완료 여부를 확인. 5분 지나면
+  // 폴링을 멈추고 [로그인 창 다시 열기] 안내로 전환.
+  useEffect(() => {
+    if (!loginActive || engine.logged_in || loginTimedOut || loginClosed) return
+    const id = window.setInterval(() => {
+      if (loginStartedAt != null && Date.now() - loginStartedAt > LOGIN_TIMEOUT_MS) {
+        setLoginTimedOut(true)
+        return
+      }
+      // 직전 요청이 아직 진행 중이면 겹쳐 쏘지 않는다(응답 역전으로 상태가 튕기는 것 방지 — 검토 중1).
+      if (refreshStatus.isPending) return
+      // 이 엔진 하나만 강제 진단(다른 CLI 엔진의 실호출 진단 방지).
+      refreshStatus.mutate(engine.id, {
+        onSuccess: (fresh) => {
+          const mine = fresh.engines.find((e) => e.id === engine.id)
+          // 프로세스가 끝났는데 로그인이 안 됐다 = 창을 닫았거나 CLI가 실패 → 즉시 안내로 전환.
+          if (mine && !mine.logged_in && mine.login_pending === false) {
+            closedStreakRef.current += 1
+            if (closedStreakRef.current >= 2) setLoginClosed(true)
+          } else {
+            closedStreakRef.current = 0
+          }
+        },
+      })
+    }, LOGIN_POLL_MS)
+    return () => window.clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshStatus는 매 렌더 새 mutate 참조지만 호출부만 쓴다.
+  }, [loginActive, engine.logged_in, loginTimedOut, loginClosed, loginStartedAt, engine.id])
 
   function handleInstall() {
     setInstallError(null)
     installEngine.mutate(engine.id, {
-      onSuccess: (data) => setInstallVersion(data.version ?? null),
+      onSuccess: () => {
+        refreshStatus.mutate(undefined, {
+          onSuccess: (fresh) => {
+            const freshEngine = fresh.engines.find((e) => e.id === engine.id)
+            if (!freshEngine?.logged_in) {
+              triggerLogin()
+            }
+          },
+        })
+      },
       onError: (e) => setInstallError(errMsg(e, '설치에 실패했습니다.')),
     })
   }
 
-  const needsInstallStep = engine.installable && !engine.installed
+  function triggerLogin() {
+    setLoginError(null)
+    setLoginNotice(null)
+    startLogin.mutate(engine.id, {
+      onSuccess: (data) => {
+        if (data.status === 'already_logged_in') {
+          refreshStatus.mutate()
+          return
+        }
+        if (data.status === 'in_progress') {
+          setLoginNotice('로그인 창이 이미 열려 있습니다 — 그 창에서 진행하세요.')
+        }
+        setLoginActive(true)
+        setLoginStartedAt(Date.now())
+        setLoginTimedOut(false)
+        setLoginClosed(false)
+        closedStreakRef.current = 0
+      },
+      onError: (e) => {
+        if (e instanceof ApiError && e.status === 422 && isNotInstalledReason(e.detail)) {
+          setLoginActive(false)
+          setLoginError('설치가 확인되지 않았습니다 — 먼저 설치를 진행해 주세요.')
+          refreshStatus.mutate()
+          return
+        }
+        setLoginError(errMsg(e, '로그인 시작에 실패했습니다.'))
+      },
+    })
+  }
+
+  const privacyNotice = engine.installable && (
+    <p className="mt-2 rounded border border-border bg-surface px-2 py-1.5 text-[11px] text-muted">
+      {engine.label} 실행 시 변환 원문이 이 PC의{' '}
+      <code className="rounded bg-bg px-1">{engine.id === 'claude-cli' ? '~/.claude' : '~/.codex'}</code>{' '}
+      {engine.id === 'claude-cli' ? 'Claude Code 세션 기록' : '로그·세션 기록'}에 남습니다.
+    </p>
+  )
+
+  // installable:false인 CLI 엔진(현재 미존재 — 향후 대비 최소 폴백). 스테퍼가 없는 대신 상태
+  // 문구 + [다시 확인]만 제공한다.
+  if (!engine.installable) {
+    return (
+      <div className="text-xs">
+        {!engine.installed ? (
+          <p className="font-medium text-wrong">설치되어 있지 않습니다.</p>
+        ) : !engine.logged_in ? (
+          <div>
+            <p className="font-medium text-warning">미로그인</p>
+            <button
+              type="button"
+              onClick={() => refreshStatus.mutate()}
+              disabled={refreshStatus.isPending}
+              className="mt-2 rounded border border-border px-2 py-1 text-xs text-primary hover:bg-surface disabled:opacity-50"
+            >
+              {refreshStatus.isPending ? '확인 중…' : '다시 확인'}
+            </button>
+          </div>
+        ) : (
+          <DoneStep engine={engine} refreshStatus={refreshStatus} />
+        )}
+        {privacyNotice}
+      </div>
+    )
+  }
+
+  const step: OnboardingStep = !engine.installed ? 'install' : !engine.logged_in ? 'login' : 'done'
 
   return (
     <div className="text-xs">
-      {needsInstallStep ? (
+      <StepIndicator step={step} />
+
+      {step === 'install' && (
         <div>
-          <p className="font-medium text-warning">미설치</p>
-          <p className="mt-1 mb-2 text-muted">
-            [설치]를 누르면 자동으로 다운로드해 앱 전용 폴더에 격리 설치합니다(시스템 PATH는
-            변경되지 않습니다). 이미 PATH에 설치되어 있으면 그것을 그대로 사용합니다.
-            {engine.id === 'claude-cli'
-              ? ' Claude Code는 약 220MB를 내려받으므로 수십 초 걸릴 수 있습니다.'
-              : ' 몇 초 안에 끝납니다.'}
-          </p>
-          <button
-            type="button"
-            onClick={handleInstall}
-            disabled={installEngine.isPending}
-            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
-          >
-            {installEngine.isPending ? '설치 중…' : '설치'}
-          </button>
+          {installEngine.isPending ? (
+            <p className="flex items-center gap-1.5 text-muted">
+              <Spinner />
+              다운로드·설치 중…
+              {engine.id === 'claude-cli'
+                ? ' Claude Code는 약 220MB — 수십 초 걸릴 수 있습니다.'
+                : ' 몇 초 안에 끝납니다.'}
+            </p>
+          ) : (
+            <>
+              <p className="mb-2 text-muted">
+                [설치]를 누르면 자동으로 다운로드해 앱 전용 폴더에 격리 설치합니다(시스템 PATH는
+                변경되지 않습니다). 이미 PATH에 설치되어 있으면 그것을 그대로 사용합니다. 설치가
+                끝나면 이어서 로그인 창이 자동으로 열립니다 — 따로 서버를 재시작할 필요가
+                없습니다.
+              </p>
+              <button
+                type="button"
+                onClick={handleInstall}
+                disabled={installEngine.isPending}
+                className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
+              >
+                설치
+              </button>
+            </>
+          )}
           {installError && <p className="mt-1 text-wrong">{installError}</p>}
         </div>
-      ) : (
-        <>
-          {installVersion && <p className="mb-1 text-correct">✓ 설치됨 (v{installVersion})</p>}
+      )}
 
-          {/* installable 엔진(codex-cli·claude-cli)은 needsInstallStep 분기로 항상 먼저
-              걸러지므로 이 분기는 실질적으로 도달하지 않는다 — 향후 installable:false인 CLI
-              엔진이 추가될 때를 위한 범용 폴백만 남긴다(엔진별 안내 링크 없음). */}
-          {!engine.installed && (
-            <div>
-              <p className="font-medium text-wrong">미설치</p>
-              <p className="mt-1 text-muted">설치되어 있지 않습니다.</p>
-            </div>
+      {step === 'login' && (
+        <div>
+          <p className="font-medium text-warning">미로그인</p>
+
+          {!loginActive ? (
+            <>
+              <p className="mt-1 mb-2 text-muted">
+                [로그인]을 누르면 이 PC에 로그인 창이 열립니다. 브라우저에서 로그인을 마치면
+                자동으로 이어집니다.
+              </p>
+              <button
+                type="button"
+                onClick={triggerLogin}
+                disabled={startLogin.isPending}
+                className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
+              >
+                {startLogin.isPending ? '여는 중…' : '로그인'}
+              </button>
+            </>
+          ) : (
+            <>
+              {loginTimedOut ? (
+                <p className="mt-1 mb-2 text-wrong">시간이 지났습니다 — 로그인 창을 다시 열어주세요.</p>
+              ) : loginClosed ? (
+                <p className="mt-1 mb-2 text-wrong">
+                  로그인 창이 닫혔지만 로그인이 확인되지 않았습니다 — [로그인 창 다시 열기]로 다시
+                  시도하거나 아래 "수동으로 하기"를 참고하세요.
+                </p>
+              ) : (
+                <p className="mt-1 mb-2 flex items-center gap-1.5 text-muted">
+                  <Spinner />
+                  이 PC에 로그인 창이 열렸습니다. 브라우저에서 로그인을 마치면 자동으로
+                  이어집니다.
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={triggerLogin}
+                  disabled={startLogin.isPending}
+                  className="rounded border border-border px-2 py-1 text-xs text-primary hover:bg-surface disabled:opacity-50"
+                >
+                  로그인 창 다시 열기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => refreshStatus.mutate()}
+                  disabled={refreshStatus.isPending}
+                  className="rounded border border-border px-2 py-1 text-xs text-primary hover:bg-surface disabled:opacity-50"
+                >
+                  {refreshStatus.isPending ? '확인 중…' : '다시 확인'}
+                </button>
+              </div>
+            </>
           )}
 
-          {engine.installed && !engine.logged_in && (
-            <div>
-              <p className="font-medium text-warning">미로그인</p>
+          {loginNotice && <p className="mt-1 text-muted">{loginNotice}</p>}
+          {loginError && <p className="mt-1 text-wrong">{loginError}</p>}
+
+          <p className="mt-2 text-muted">
+            로그인 창은 서버가 실행 중인 PC에 열립니다 — 폰에서 보고 있다면 PC에서 진행하세요.
+          </p>
+
+          <details className="mt-2 rounded border border-border bg-surface p-2 text-muted">
+            <summary className="cursor-pointer select-none font-medium text-primary">
+              수동으로 하기
+            </summary>
+            <div className="mt-1.5">
               {engine.id === 'codex-cli' ? (
-                <p className="mt-1 text-muted">
-                  터미널에서 <code className="rounded bg-surface px-1">codex login</code>을 실행해
+                <p>
+                  터미널에서 <code className="rounded bg-bg px-1">codex login</code>을 실행해
                   브라우저로 로그인하세요.
                 </p>
               ) : (
-                <>
-                  <ol className="mt-1 list-decimal pl-4 text-muted">
-                    <li>PC 터미널을 엽니다.</li>
-                    <li>
-                      앱 폴더의{' '}
-                      <code className="rounded bg-surface px-1">tools\claude\claude.exe</code>를
-                      실행합니다(PC에 이미 Claude Code가 설치되어 PATH에 있으면 그냥{' '}
-                      <code className="rounded bg-surface px-1">claude</code>).
-                    </li>
-                    <li>안내에 따라 로그인을 완료합니다.</li>
-                    <li>이 화면에서 [다시 확인]을 누릅니다.</li>
-                  </ol>
-                  <p className="mt-1 text-muted">
-                    다른 곳에서 이미 Claude Code에 로그인했다면 이 단계는 자동으로 통과됩니다.
-                  </p>
-                </>
-              )}
-              <button
-                type="button"
-                onClick={() => refreshStatus.mutate()}
-                disabled={refreshStatus.isPending}
-                className="mt-2 rounded border border-border px-2 py-1 text-xs text-primary hover:bg-surface disabled:opacity-50"
-              >
-                {refreshStatus.isPending ? '확인 중…' : '다시 확인'}
-              </button>
-              {refreshStatus.isError && (
-                <p className="mt-1 text-wrong">{errMsg(refreshStatus.error, '다시 확인에 실패했습니다.')}</p>
+                <p>
+                  터미널에서{' '}
+                  <code className="rounded bg-bg px-1">tools\claude\claude.exe auth login</code>을
+                  실행하거나(PC에 이미 Claude Code가 PATH에 있으면{' '}
+                  <code className="rounded bg-bg px-1">claude auth login</code>) 안내에 따라
+                  로그인을 완료한 뒤 [다시 확인]을 누르세요.
+                </p>
               )}
             </div>
-          )}
-
-          {engine.installed && engine.logged_in && (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="font-medium text-correct">✓ 정상</p>
-                {formatDateTime(engine.last_success_at) && (
-                  <p className="mt-1 text-muted">마지막 성공: {formatDateTime(engine.last_success_at)}</p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => refreshStatus.mutate()}
-                disabled={refreshStatus.isPending}
-                className="rounded border border-border px-2 py-1 text-xs text-primary hover:bg-surface disabled:opacity-50"
-              >
-                {refreshStatus.isPending ? '확인 중…' : '다시 확인'}
-              </button>
-            </div>
-          )}
-        </>
+          </details>
+        </div>
       )}
 
-      {/* 프라이버시 고지(설계 §4.17⑦ — 온보딩 말미 1줄, PoC E2) — installable 엔진(codex-cli·
-          claude-cli) 카드에 항상 고정 노출한다. */}
-      {engine.installable && (
-        <p className="mt-2 rounded border border-border bg-surface px-2 py-1.5 text-[11px] text-muted">
-          {engine.label} 실행 시 변환 원문이 이 PC의{' '}
-          <code className="rounded bg-bg px-1">
-            {engine.id === 'claude-cli' ? '~/.claude' : '~/.codex'}
-          </code>{' '}
-          {engine.id === 'claude-cli' ? 'Claude Code 세션 기록' : '로그·세션 기록'}에 남습니다.
-        </p>
-      )}
+      {step === 'done' && <DoneStep engine={engine} refreshStatus={refreshStatus} />}
+
+      {privacyNotice}
+    </div>
+  )
+}
+
+// 완료 단계 — 설치·CLI 진단 모두 정상. installable:false 폴백 분기와도 공유.
+function DoneStep({
+  engine,
+  refreshStatus,
+}: {
+  engine: LlmEngineStatus
+  refreshStatus: ReturnType<typeof useRefreshLlmStatus>
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <p className="font-medium text-correct">✓ 설정 완료 — 바로 변환·재생성에 쓸 수 있습니다</p>
+        {formatDateTime(engine.last_success_at) && (
+          <p className="mt-1 text-muted">마지막 성공: {formatDateTime(engine.last_success_at)}</p>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => refreshStatus.mutate()}
+        disabled={refreshStatus.isPending}
+        className="rounded border border-border px-2 py-1 text-xs text-primary hover:bg-surface disabled:opacity-50"
+      >
+        {refreshStatus.isPending ? '확인 중…' : '다시 확인'}
+      </button>
     </div>
   )
 }

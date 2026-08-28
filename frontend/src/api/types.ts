@@ -988,6 +988,9 @@ export interface LlmEngineStatus {
   models: LlmEngineModelOption[]
   default_model: string | null
   selected_model: string | null
+  // 후속 B6 — 로그인 프로세스(서버 PC에 띄운 콘솔 창) 생존 여부. true면 온보딩 스테퍼가 로그인
+  // 단계로 자동 진입한다(페이지 새로고침 등으로 로컬 phase 상태가 날아간 경우 복구용).
+  login_pending?: boolean | null
 }
 
 // 최근 429 한도 기억 — resets_at 이전이면 재시도 전 경고 배너 대상 (설계 §4.11 "한도 기억").
@@ -1011,6 +1014,12 @@ export interface LlmStatusResponse {
 export interface InstallEngineResponse {
   installed: boolean
   version?: string
+}
+
+// 후속 B6 — POST /api/llm/engines/{id}/login 응답. installable 엔진(codex-cli·claude-cli)만
+// 유효 — 그 외/미설치는 422({error:{code,message,detail:{reason:'not_installed'}}}).
+export interface LoginEngineResponse {
+  status: 'started' | 'in_progress' | 'already_logged_in'
 }
 
 export interface ApiKeyRequest {

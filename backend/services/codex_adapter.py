@@ -38,7 +38,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from database import BASE_DIR
 from exceptions import UpstreamError, ValidationAppError
-from services import net_safety, source_match
+from services import exe_locate, net_safety, source_match
 
 logger = logging.getLogger(__name__)
 
@@ -70,13 +70,13 @@ class CodexInstallError(Exception):
 # 실행 파일 탐색 — 격리 설치본(tools/codex/) 우선, 없으면 PATH
 # ---------------------------------------------------------------------------
 def find_executable() -> Optional[str]:
+    """격리본 → 프로세스 PATH → 레지스트리 최신 PATH → npm 전역 bin(`codex.cmd`). 서버 재시작
+    없이 방금 설치된 CLI를 인식한다(`exe_locate` — claude_cli_adapter와 같은 순서)."""
     if CODEX_EXE_PATH.exists():
         return str(CODEX_EXE_PATH)
-    for name in ("codex", "codex.exe"):
-        path = shutil.which(name)
-        if path:
-            return path
-    return None
+    return exe_locate.find_executable(
+        ("codex", "codex.exe", "codex.cmd"), well_known_dirs=(exe_locate.npm_global_bin(),)
+    )
 
 
 def _read_version(exe: str) -> Optional[str]:
