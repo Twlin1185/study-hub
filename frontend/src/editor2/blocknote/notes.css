@@ -505,14 +505,30 @@
    그룹(엔진이 그리는 `.bn-block-group`)이 콜아웃과 같은 형제 구조다. 여기서는 그 **자식 그룹**에만
    `column-*`을 준다 — 컨트롤 띠 자체는 위 클래스 유틸(Tailwind, 토큰 색)로 이미 마감됐다. */
 
-/* 기본(=클램프된 2단 — prop 기본값 2와 일치하지만, 값 밖 범위는 스펙 렌더가 `--columns-count`를
-   조상 `.bn-block`에 얹어 이 var()로 흘러든다 — `specs/blocks.tsx` 상단 주석 참고). `column-rule`은
-   토큰(`--border`)만 — 리터럴 색 0(불변 규칙 5). `column-gap`은 색이 아니라 간격이라 토큰 대상이
-   아니다(이 파일에 간격 전용 토큰이 없어 기존 관례대로 리터럴 px). */
-.note-editor-frame [data-content-type='columns'] + .bn-block-group {
-  column-count: var(--columns-count, 2);
+/* 단 수는 **`:has()`로 형제 자식 그룹을 잡는다**(브라우저 실측 결함 수정 — 예전에는 스펙 render의
+   `useEffect`가 `closest('.bn-block')`(PM이 관리하는 blockContainer DOM)에 `style.setProperty`로
+   커스텀 프로퍼티를 직접 얹었는데, PM DOMObserver가 그 변이를 외부 DOM 변경으로 읽어
+   `markDirty → updateState` → 노드뷰 재마운트 → 이펙트 재실행 → 재변이 …로 마이크로태스크 무한
+   루프에 빠져 탭이 완전히 멎었다 — 원인은 "PM 관리 DOM을 명령형으로 변이"였다). 지금은 render가
+   **자기 렌더 루트**(엔진이 그린 `.bn-block-content[data-content-type='columns']`의 바로 안쪽
+   자식 div)에 `data-columns-view`를 선언적으로만 찍고, 여기서 `:has(> [data-columns-view=…])`로
+   그 값을 읽어 형제 `.bn-block-group`에 적용한다 — PM DOM에는 손대지 않는다(Chrome/Edge `:has()`
+   지원 — 개인용 홈 네트워크 앱이라 허용). `column-rule`은 토큰(`--border`)만 — 리터럴 색 0(불변
+   규칙 5). `column-gap`은 색이 아니라 간격이라 토큰 대상이 아니다(이 파일에 간격 전용 토큰이 없어
+   기존 관례대로 리터럴 px). */
+.note-editor-frame [data-content-type='columns']:has(> [data-columns-view='2']) + .bn-block-group {
+  column-count: 2;
   column-gap: 24px;
   column-rule: 1px solid var(--border);
+}
+.note-editor-frame [data-content-type='columns']:has(> [data-columns-view='3']) + .bn-block-group {
+  column-count: 3;
+  column-gap: 24px;
+  column-rule: 1px solid var(--border);
+}
+.note-editor-frame [data-content-type='columns']:has(> [data-columns-view='1']) + .bn-block-group {
+  column-count: 1;
+  column-rule: none;
 }
 
 /* 단 안의 **원자·비문단 블록**은 단을 넘어 쪼개지지 않는다(착수 전 결정 ④) — 표·이미지·코드·
@@ -528,17 +544,22 @@
 }
 
 /* 중첩된 안쪽 columns(착수 전 결정 ③ — 유입 데이터의 중첩은 보존하되 안쪽은 1단으로만 표시)는
-   자기 `--columns-count`와 무관하게 1단으로 강등한다. 이 선택자(속성 2개·클래스 2개 = 특이도
-   (0,4,0))가 위 기본 규칙(특이도 (0,2,0))보다 항상 높아 자연히 이긴다 — `!important` 불필요. */
+   자기 표시 단 수와 무관하게 1단으로 강등한다. 이 선택자(속성 2개·클래스 2개 = 특이도 (0,4,0))가
+   위 값별 규칙(특이도 (0,3,0) — attr 2개 + class 1개, `:has()`는 안의 셀렉터 특이도를 그대로
+   더한다)보다 항상 높아 자연히 이긴다 — `!important` 불필요. */
 .note-editor-frame [data-content-type='columns'] + .bn-block-group [data-content-type='columns'] + .bn-block-group {
   column-count: 1;
   column-rule: none;
 }
 
-/* 모바일(<768px) — 단을 접어 1단으로(가로 폭이 부족해 다단이 의미가 없다). 위 기본 규칙과 특이도가
-   같으므로(0,2,0) 소스 순서(이 규칙이 나중)로 이긴다 — stage-38 D4 등 기존 관례와 동일 기법. */
+/* 모바일(<768px) — 단을 접어 1단으로(가로 폭이 부족해 다단이 의미가 없다). 2단·3단 규칙과 **같은
+   특이도**(0,3,0)로 맞춰(`:has()` 형태를 그대로 반복) 소스 순서(이 규칙이 나중)로 이기게 한다 —
+   특이도가 더 낮은 셀렉터로 쓰면(예: 형태를 안 맞추면) 미디어 쿼리 안이라도 값별 규칙에 밀린다
+   (CSS는 특이도가 소스 순서보다 우선한다). `[data-columns-view='1']` 규칙은 이미 1단이라 손댈
+   필요가 없다. */
 @media (max-width: 767px) {
-  .note-editor-frame [data-content-type='columns'] + .bn-block-group {
+  .note-editor-frame [data-content-type='columns']:has(> [data-columns-view='2']) + .bn-block-group,
+  .note-editor-frame [data-content-type='columns']:has(> [data-columns-view='3']) + .bn-block-group {
     column-count: 1;
     column-rule: none;
   }

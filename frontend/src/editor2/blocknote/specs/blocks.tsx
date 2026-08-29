@@ -5,7 +5,7 @@
 // 여기 render는 머리(라벨)와 테두리만 그리고, 자식 블록은 편집기가 중첩 그룹으로 렌더한다
 // (`notes.css`가 그 그룹에 콜아웃 여백을 준다).
 import { createReactBlockSpec } from '@blocknote/react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { CALLOUT_VARIANTS } from '../../adapter'
 import { unwrapColumns } from '../refPicker/insert'
@@ -181,9 +181,18 @@ export const createSourceFallbackBlockSpec = createReactBlockSpec(
 // **`count` 클램프(착수 전 결정 ②)**: 유입 데이터의 범위 밖 값(4 이상·2 미만)은 prop 값 자체는
 // **보존**하고 표시만 3단 상한/1단으로 강등한다. 엔진은 prop 값이 기본과 다르면 그 값 그대로
 // `data-count`로 싣는데(`BlockContentWrapper` 실측 — 값 화이트리스트 없음), CSS 속성 선택자로는
-// 임의 정수를 다 열거할 수 없다. 그래서 클램프된 값을 **CSS 커스텀 프로퍼티**로 조상 `.bn-block`에
-// 얹어(형제인 `.bn-block-group`이 상속) `notes.css`가 `var(--columns-count)`로 읽게 한다 — 일반
-// DOM 조작이라 엔진 PM 노드에는 손대지 않는다(R33 불변).
+// 임의 정수를 다 열거할 수 없다. 그래서 클램프된 값을 render가 **자기 렌더 루트에 선언적 속성**
+// (`data-columns-view`)으로 낸다 — `notes.css`가 `:has(> [data-columns-view=…])`로 형제인
+// `.bn-block-group`을 잡는다.
+//
+// **브라우저 실측 결함(치명, 수정 완료)**: 처음에는 `useEffect`로 `closest('.bn-block')`(PM이
+// 관리하는 blockContainer DOM)에 `style.setProperty('--columns-count', …)`를 직접 얹었는데,
+// PM DOMObserver가 그 변이를 외부 DOM 변경으로 읽어 `markDirty → updateState`(재그리기) → 노드뷰
+// 재마운트 → 이펙트 재실행 → 재변이 … 로 마이크로태스크 무한 루프에 빠져 탭이 완전히 멎었다(콜아웃
+// `+ .bn-block-group` 형제 선택자 전례를 CSS 커스텀 프로퍼티로 확장하려던 시도였으나, **PM 관리
+// DOM을 명령형으로 건드리는 것 자체가 원인**이었다 — R33 "엔진 내부 패치 금지"의 실전 사례). 지금은
+// PM DOM에 손대지 않는다 — 값은 React 렌더 트리 안의 속성 하나뿐이라 tiptap ReactNodeView의
+// `ignoreMutation`이 그 서브트리 변화를 무시한다.
 const clampColumnsCount = (raw: unknown): 1 | 2 | 3 => {
   const n = typeof raw === 'number' && Number.isFinite(raw) ? raw : 2
   if (n < 2) return 1
@@ -200,9 +209,11 @@ const clampColumnsCount = (raw: unknown): 1 | 2 | 3 => {
  * 서브트리가 사라진 것은 이 노드 자체의 변경이 아니므로 tiptap이 update()를 호출하지 않는다. 실측).
  * 그래서 **편집기 전체의 변경 이벤트**(`editor.onChange`)를 한 번만 구독해 두고(에디터 인스턴스당
  * 1개 — 안 그러면 columns 블록이 여러 개일 때 각자 지우려다 두 번째부터 "이미 없는 블록" 에러가
- * 난다), 매 변경 후 문서를 훑어 자식 0인 columns를 찾아 통째로 지운다. 최초 로드 시점에 이미 빈
- * 채로 들어온 경우(예: 유입 데이터)는 각 블록의 마운트 이펙트가 자기 자신만 확인해 잡는다
- * (아래 render 참고).
+ * 난다), 매 변경 후 문서를 훑어 자식 0인 columns를 찾아 통째로 지운다(재진입 dispatch를 피하려고
+ * 한 틱 미룬 뒤 `getBlock`으로 재확인 — 아래 구현 참고). 최초 로드 시점에 이미 빈 채로 들어온
+ * 경우(예: 유입 데이터)는 **자기 마운트 시점에 스스로 지우지 않는다**(브라우저 실측 결함 —
+ * `view.updateState`가 노드뷰를 만드는 도중 같은 이펙트에서 `removeBlocks`를 부르면 중첩 dispatch가
+ * 될 수 있었다) — 대신 **첫 편집**에서 이 onChange 정리가 걷어낸다.
  */
 const columnsCleanupRegistered = new WeakSet<object>()
 function ensureColumnsEmptyCleanup(editor: any): void {
@@ -220,7 +231,18 @@ function ensureColumnsEmptyCleanup(editor: any): void {
       }
     }
     walk(ed.document)
-    if (empties.length > 0) ed.removeBlocks(empties)
+    if (empties.length === 0) return
+    // 재진입 dispatch 방지(브라우저 실측 결함과 같은 계열 — 이 콜백은 `onChange`라 트랜잭션이 이미
+    // 끝난 뒤 실행되지만, 그래도 `view.updateState`의 같은 흐름 안일 여지를 없애려고 다음 태스크로
+    // 한 틱 미룬다. 실행 시점에 그 사이 다른 편집으로 이미 사라졌거나 더 이상 비어 있지 않은 id는
+    // `getBlock`으로 재확인해 건너뛴다 — 없는 id로 `removeBlocks`를 부르면 던진다).
+    setTimeout(() => {
+      const stillEmpty = empties.filter((id) => {
+        const b = ed.getBlock(id)
+        return b && b.type === 'columns' && (!b.children || b.children.length === 0)
+      })
+      if (stillEmpty.length > 0) ed.removeBlocks(stillEmpty)
+    }, 0)
   })
 }
 
@@ -239,31 +261,24 @@ export const createColumnsBlockSpec = createReactBlockSpec(
     render: function ColumnsRender({ block, editor }) {
       const raw = block.props.count as number
       const clamped = clampColumnsCount(raw)
-      const rootRef = useRef<HTMLDivElement>(null)
 
-      // 클램프된 단 수를 조상 `.bn-block`에 커스텀 프로퍼티로 얹는다(위 주석 참고) — 중첩된
-      // columns는 `notes.css`의 더 특이도 높은 규칙이 항상 1단으로 덮어쓴다(규약 A ③).
-      useEffect(() => {
-        const bnBlock = rootRef.current?.closest('.bn-block') as HTMLElement | null
-        bnBlock?.style.setProperty('--columns-count', String(clamped))
-      }, [clamped])
-
-      // 편집기당 1회 — 이후의 모든 "자식이 0이 됨" 변화를 잡는다.
+      // 편집기당 1회 — "자식이 0이 됨" 변화를 잡는다(브라우저 실측 결함 수정 후속 — 마운트 시
+      // 자기 초기 상태를 직접 지우던 이펙트는 **제거했다**: `view.updateState`가 노드뷰를 만드는
+      // 도중 같은 이펙트에서 `editor.removeBlocks`를 부르면 중첩 dispatch가 될 수 있었다. 유입
+      // 데이터로 이미 비어 있는 columns는 이 onChange 정리가 **첫 편집 때** 걷어낸다).
       useEffect(() => {
         ensureColumnsEmptyCleanup(editor)
       }, [editor])
 
-      // 최초 마운트 시점에 이미 자식이 0인 경우(유입 데이터) — 그 이후의 변화는 위 전역 정리가 담당.
-      useEffect(() => {
-        if (!block.children || block.children.length === 0) {
-          editor.removeBlocks([block.id])
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [])
-
       return (
         <div
-          ref={rootRef}
+          // 클램프된 단 수는 **선언적 속성**으로만 낸다(브라우저 실측 결함 — 예전에는 `useEffect`가
+          // `closest('.bn-block')`으로 PM이 관리하는 DOM(blockContainer)의 style을 직접 변이했고,
+          // PM DOMObserver가 그 변이를 외부 변경으로 읽어 `markDirty → updateState` → 노드뷰 재마운트
+          // → 이펙트 재실행 → 재변이 …로 무한 루프에 빠져 탭이 완전히 멎었다. 이 값은 React 렌더
+          // 트리 **안**이라 tiptap ReactNodeView의 `ignoreMutation`이 무시하므로 안전하다. `notes.css`가
+          // `:has(> [data-columns-view=…])`로 형제 자식 그룹을 잡는다 — PM DOM에는 손대지 않는다).
+          data-columns-view={clamped}
           className="my-1 flex w-full items-center gap-1 rounded-t-lg border border-b-0 border-border bg-surface-raised px-2 py-1"
         >
           {([2, 3] as const).map((n) => (
