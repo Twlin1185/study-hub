@@ -37,6 +37,8 @@ import type {
   AttrPair,
   Block,
   BlockDocument,
+  BlockMeta,
+  ColumnsBlock,
   InlineNode,
   InlineStyles,
   WebEmbedBlock,
@@ -85,6 +87,19 @@ function encodeAttrPairs(pairs: AttrPair[] | undefined): string {
  */
 function encodeWebEmbedMeta(meta: WebEmbedBlock['meta']): string {
   return meta === undefined ? '' : JSON.stringify(meta)
+}
+
+/**
+ * 다단 컨테이너의 부수 정보(미지 속성 쌍 + 공통 provenance) → prop 문자열. `''` ⇔ 실을 값 없음.
+ * `count`만 전용 prop이고 나머지는 이 주머니 하나로 완전 왕복한다(webEmbed `meta` 전례 —
+ * 사이드카 불요). 키가 하나도 없으면 `''`로 접어 "값 없음"과 `'{}'`를 구분하지 않는다
+ * (columns에는 webEmbed와 달리 "빈 객체"라는 의미 있는 상태가 없다).
+ */
+function encodeColumnsMeta(block: ColumnsBlock): string {
+  const out: { attrs?: AttrPair[]; meta?: BlockMeta } = {}
+  if (block.attrs && block.attrs.length > 0) out.attrs = block.attrs
+  if (block.meta) out.meta = block.meta
+  return Object.keys(out).length === 0 ? '' : JSON.stringify(out)
 }
 
 function mapStyles(styles: InlineStyles | undefined, extra?: BnStyles): BnStyles {
@@ -247,7 +262,8 @@ function blockToBnInner(ctx: Ctx, at: string, block: Block): BnBlock | null {
   // 규약 I 흡수 ④ — 블록 메타(provenance)는 편집 표면에 자리가 없으므로 사이드카로 왕복한다.
   // **예외 = webEmbed**(stage-37 F-2): 이 블록의 meta는 §4.30 캐시까지 담는 **자기 prop**이라
   // 사이드카를 거치지 않는다(사이드카 불요 — 편집 세션이 사이드카를 흘려도 캐시가 살아남는다).
-  if (block.meta && block.type !== 'webEmbed') sidecarEntry(ctx).meta = block.meta
+  // (columns도 같은 예외 — 자기 `meta` prop이 attrs와 함께 provenance까지 싣는다.)
+  if (block.meta && block.type !== 'webEmbed' && block.type !== 'columns') sidecarEntry(ctx).meta = block.meta
   const id = block.id
 
   switch (block.type) {
@@ -386,6 +402,19 @@ function blockToBnInner(ctx: Ctx, at: string, block: Block): BnBlock | null {
           variant: block.variant,
           title: block.title ?? '',
           attrs: encodeAttrPairs(block.attrs),
+        },
+        children: blocksToBn(ctx, `${at}.children`, block.children),
+      }
+
+    case 'columns':
+      // 콜아웃과 정확히 대칭인 컨테이너 — 자식 블록이 곧 내용이다(content 'none').
+      // `count`는 **정규화하지 않는다**(범위 밖 값도 그대로 — 표시 강등은 렌더 몫).
+      return {
+        id,
+        type: 'columns',
+        props: {
+          count: block.count,
+          meta: encodeColumnsMeta(block),
         },
         children: blocksToBn(ctx, `${at}.children`, block.children),
       }

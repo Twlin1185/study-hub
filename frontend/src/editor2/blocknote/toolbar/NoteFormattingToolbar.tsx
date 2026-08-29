@@ -37,7 +37,7 @@ import {
 import { CALLOUT_VARIANTS } from '../../adapter'
 import { isSafeRefText, normalizeRefText, refTextRejection } from '../../schema/refDomain'
 import type { NotePartialBlock } from '../schema'
-import { insertCalloutBlock } from '../refPicker/insert'
+import { columnsInsertBlocked, insertCalloutBlock, insertColumnsBlock } from '../refPicker/insert'
 import { useRefPickerCommands } from '../refPicker/RefUiProvider'
 import { ATOM_GUARD_TOOLTIP, selectionHasAtomInline } from './atoms'
 import { shouldShowTextFormattingGroup, useSelectedBlockTypes } from './blockFilter'
@@ -123,6 +123,9 @@ function defaultToolbarItems(blocked: boolean) {
       ),
     )
 }
+
+/** 다단 중첩 차단 사유(착수 전 결정 ③) — 원자 가드와 같은 "비활성 + 사유" 관례. */
+const COLUMNS_GUARD_TOOLTIP = '다단 안·콜아웃 안에는 다단을 넣을 수 없습니다'
 
 const CALLOUT_LABEL: Record<string, string> = {
   note: '참고',
@@ -458,6 +461,44 @@ function CalloutMenu() {
   )
 }
 
+/**
+ * [다단] — 선택 블록이 있으면 감싸고(`wrapInColumns`), 없으면 빈 컨테이너를 커서 자리에 넣는다
+ * (stage-41 규약 B). 커서/선택이 columns·콜아웃 **안**이거나 선택에 columns 블록 자신이 포함돼
+ * 있으면 중첩이 되므로 메뉴를 비활성 + 사유 툴팁으로 막는다(원자 가드와 같은 결 — `isDisabled`를
+ * 받을 자리가 있는 **우리 버튼**이라 `AtomGuardShield` 덮개 없이 바로 지원된다).
+ */
+function ColumnsMenu() {
+  const Components = useComponentsContext()!
+  const editor = useNoteEditor()
+  const [blocked, setBlocked] = useState(() => columnsInsertBlocked(editor))
+  useEditorSelectionChange(() => setBlocked(columnsInsertBlocked(editor)))
+
+  const insert = (count: 2 | 3) => {
+    if (blocked) return
+    insertColumnsBlock(editor, count)
+    refocus(() => editor.focus())
+  }
+
+  return (
+    <Components.Generic.Menu.Root>
+      <Components.Generic.Menu.Trigger>
+        <Components.FormattingToolbar.Button
+          label="다단"
+          mainTooltip={blocked ? COLUMNS_GUARD_TOOLTIP : '다단(단 나누기) 넣기'}
+          isDisabled={blocked}
+        >
+          다단
+        </Components.FormattingToolbar.Button>
+      </Components.Generic.Menu.Trigger>
+      <Components.Generic.Menu.Dropdown className="bn-menu-dropdown">
+        <Components.Generic.Menu.Label>다단</Components.Generic.Menu.Label>
+        <Components.Generic.Menu.Item onClick={() => insert(2)}>2단</Components.Generic.Menu.Item>
+        <Components.Generic.Menu.Item onClick={() => insert(3)}>3단</Components.Generic.Menu.Item>
+      </Components.Generic.Menu.Dropdown>
+    </Components.Generic.Menu.Root>
+  )
+}
+
 // ---------------------------------------------------------------- 이미지 자르기(stage-37 F-6, 규약 C)
 
 /**
@@ -546,6 +587,7 @@ export function buildFormattingToolbarItems({
     { key: 'textSize', group: 'text', node: <SizeMenu key="textSize" blocked={blocked} /> },
     { key: 'refChip', group: 'text', node: <RefButton key="refChip" /> },
     { key: 'callout', group: 'block', node: <CalloutMenu key="callout" /> },
+    { key: 'columns', group: 'block', node: <ColumnsMenu key="columns" /> },
     { key: 'imageCrop', group: 'block', node: <CropButton key="imageCrop" /> },
   ]
 

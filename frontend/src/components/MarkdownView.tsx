@@ -20,7 +20,7 @@ import rehypeSourcePos from './markdown/rehypeSourcePos'
 import { FOLD_DEFAULT_LABEL, HIDE_DEFAULT_LABEL } from './markdown/refSyntax'
 import EmbedCard from './markdown/EmbedCard'
 import { DocLinkChip, HeadingAnchorChip } from './markdown/RefChips'
-import { CalloutBlock, FoldSection, HideSection, InlineSpoiler } from './markdown/DirectiveBlocks'
+import { CalloutBlock, ColumnsSection, FoldSection, HideSection, InlineSpoiler } from './markdown/DirectiveBlocks'
 import { TocBlockReader, WebEmbedCardReader } from './markdown/CustomBlockReaders'
 import {
   HEX_INK_CLASS,
@@ -217,6 +217,17 @@ export default function MarkdownView({
         // 콜아웃 3종(F52) — note=accent·warn=warning·tip=correct(기존 토큰 재사용, 콜아웃 신규 토큰 0).
         if (directive === 'note' || directive === 'warn' || directive === 'tip') {
           return <CalloutBlock kind={directive} label={attr(node, 'data-directive-label')}>{children}</CalloutBlock>
+        }
+        // 흐름형 다단(:::columns{n=2}) — stage-41 규약 C. 단 수는 remarkStudy가 실어 둔
+        // `data-directive-n`(원문 문자열)을 여기서 정수로 읽는다. 정수가 아니거나 없으면 기본 2 —
+        // 변환기(mdastToBlocks)의 `n` 흡수 규칙과 같은 결론이어야 두 표면이 일치한다.
+        // **라벨 동반(`:::columns[제목]`)은 columns로 그리지 않는다**: 담을 자리가 없어 라벨이
+        // 조용히 사라지므로, 블록 변환이 원문 보존(sourceFallback)으로 보내는 것과 짝을 맞춰
+        // 여기서도 아래 미지 directive 폴백(내용만 렌더)으로 흘려보낸다.
+        if (directive === 'columns' && !attr(node, 'data-directive-label')) {
+          const raw = attr(node, 'data-directive-n').trim()
+          const count = /^-?\d+$/.test(raw) ? Number(raw) : 2
+          return <ColumnsSection count={count}>{children}</ColumnsSection>
         }
         // 목차(::toc)·웹 임베드(::web) — stage-37 규약 A·B. 비정규형(속성 동반 toc·url 부재·
         // 미지 속성 동반 web)은 원문 그대로 노출한다(기존 미지 directive 폴백 관례와 동일 취지 —

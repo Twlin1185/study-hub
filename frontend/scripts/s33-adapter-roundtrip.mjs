@@ -800,9 +800,9 @@ console.log(`  BN 출발 표본 실제 스키마 왕복: ${schemaBnPass}/${BN_OR
   const styleTypes = Object.keys(noteSchema.styleSchema).sort().join(',')
   const inlineTypes = Object.keys(noteSchema.inlineContentSchema).sort().join(',')
   check(
-    '[스키마팔레트] 블록 16종 고정(코어 10 + 방언 6 — stage-37 toc·webEmbed 가산)',
+    '[스키마팔레트] 블록 17종 고정(코어 10 + 방언 7 — stage-37 toc·webEmbed · stage-41 columns 가산)',
     blockTypes ===
-      'bulletListItem,callout,checkListItem,codeBlock,divider,docEmbed,heading,image,mathBlock,numberedListItem,paragraph,quote,sourceFallback,table,toc,webEmbed',
+      'bulletListItem,callout,checkListItem,codeBlock,columns,divider,docEmbed,heading,image,mathBlock,numberedListItem,paragraph,quote,sourceFallback,table,toc,webEmbed',
     `실제=${blockTypes}`,
   )
   check(

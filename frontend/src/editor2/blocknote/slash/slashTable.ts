@@ -13,7 +13,7 @@
 // 업그레이드가 조용히 기능을 지우지 않게 하는 안전판이다.
 import type { DefaultReactSuggestionItem } from '@blocknote/react'
 import { CALLOUT_VARIANTS } from '../../adapter'
-import { insertCalloutBlock } from '../refPicker/insert'
+import { columnsInsertBlocked, insertCalloutBlock, insertColumnsBlock } from '../refPicker/insert'
 import type { RefKind } from '../refPicker/RefTitleContext'
 import type { NoteBlockNoteEditor } from '../schema'
 import { insertTocBlock } from '../toc/insert'
@@ -36,6 +36,7 @@ type SlashRow =
   | { source: 'ref'; mode: RefKind; group: string }
   | { source: 'toc'; group: string }
   | { source: 'webEmbed'; group: string }
+  | { source: 'columns'; count: 2 | 3; group: string }
 
 /**
  * ---------------------------------------------------------------- 슬래시 메뉴 전수표
@@ -62,6 +63,10 @@ const SLASH_TABLE: SlashRow[] = [
   { source: 'core', key: 'heading_6', group: GROUP.heading },
   // --- 고급
   { source: 'core', key: 'table', group: GROUP.advanced, aliases: ['table', '테이블', '격자'] },
+  // 다단(방언 · stage-41 규약 A·B) — 항목 2개(2단·3단)가 같은 5별칭을 공유한다(착수 전 결정 ②·
+  // 규약 B — "/2단"·"/3단"으로도 잡히고 "/단나누기"·"/columns"·"/다단"으로도 둘 다 잡힌다).
+  { source: 'columns', count: 2, group: GROUP.advanced },
+  { source: 'columns', count: 3, group: GROUP.advanced },
   // 목차(방언 · stage-37 규약 A) — 저장 데이터 0 · 자기 표면 헤딩에서 렌더 시점 파생.
   { source: 'toc', group: GROUP.advanced },
   { source: 'math', slot: 'block', group: GROUP.advanced, aliases: ['수식', '수학', '라텍스'] },
@@ -88,6 +93,13 @@ const CALLOUT_ITEM: Record<string, { title: string; subtext: string; aliases: st
   fold: { title: '콜아웃 · 더 보기', subtext: '접어 두는 상자', aliases: ['callout', '콜아웃', 'fold', '접기', '더보기'] },
   hide: { title: '콜아웃 · 숨김', subtext: '숨겨 두는 상자', aliases: ['callout', '콜아웃', 'hide', '숨김', '가리기'] },
 }
+
+/** 다단 2종의 5별칭 계약(규약 B) — 두 항목이 이 목록을 **그대로 공유**한다(각자 다른 별칭 아님). */
+const COLUMNS_ALIASES = ['단나누기', 'columns', '2단', '3단', '다단']
+
+/** 슬래시 메뉴는 항목 비활성(disabled)을 지원하지 않는다(`DefaultSuggestionItem`에 그 필드가
+ * 없다 — 실측). 그래서 중첩 차단은 "실행 시 안내 후 무동작"으로 처리한다(규약 B). */
+const COLUMNS_NEST_NOTICE = '다단 안·콜아웃 안에는 다단을 넣을 수 없습니다.'
 
 /** 참조 3종(규약 A ①) — stage-34 `refSlashItems`의 내용을 전수표로 옮겨 온 것이다. */
 const REF_ITEM: Record<RefKind, { title: string; subtext: string; aliases: string[] }> = {
@@ -185,6 +197,23 @@ export function composeSlashItems(
         aliases: ['toc', '목차', '차례', 'contents'],
         group: row.group,
         onItemClick: () => insertTocBlock(editor),
+      })
+      continue
+    }
+    if (row.source === 'columns') {
+      // 슬래시 메뉴는 항목 비활성(disabled)을 지원하지 않는다(`DefaultSuggestionItem`에 그 필드가
+      // 없다 — 실측, 위 COLUMNS_NEST_NOTICE 선언부 참고). 그래서 **항목을 만드는 시점**에
+      // `columnsInsertBlocked`를 평가해 title/subtext로 "비활성 + 사유"를 표시하고(숨기지 않는다 —
+      // 원자 가드와 같은 관례), 막힌 상태의 `onItemClick`은 무동작으로 둔다(모달 없음 — 자동화·
+      // 모바일 모두에 나쁘다는 지적 반영).
+      const blocked = columnsInsertBlocked(editor)
+      out.push({
+        key: `columns_${row.count}`,
+        title: blocked ? `⛔ 다단 · ${row.count}단` : `다단 · ${row.count}단`,
+        subtext: blocked ? COLUMNS_NEST_NOTICE : `본문을 ${row.count}개 단으로 나눕니다`,
+        aliases: COLUMNS_ALIASES,
+        group: row.group,
+        onItemClick: blocked ? () => undefined : () => insertColumnsBlock(editor, row.count),
       })
       continue
     }

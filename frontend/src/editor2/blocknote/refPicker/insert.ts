@@ -75,3 +75,96 @@ export function insertCalloutBlock(editor: NoteBlockNoteEditor, variant: string,
   if (child) editor.setTextCursorPosition(child.id, 'start')
   editor.focus()
 }
+
+// ---------------------------------------------------------------- 다단(columns · stage-41 규약 B)
+//
+// "커서/선택이 columns 또는 콜아웃 **안**인지" 판정(원자 가드 관례와 같은 결 — 숨기지 않고 비활성
+// + 사유). `getParentBlock`은 바로 위 1단계만 주므로 뿌리까지 반복해서 걷는다.
+function blockHasColumnsOrCalloutAncestor(editor: NoteBlockNoteEditor, blockId: string): boolean {
+  let current = blockId
+  for (;;) {
+    const parent = editor.getParentBlock(current)
+    if (!parent) return false
+    if (parent.type === 'columns' || parent.type === 'callout') return true
+    current = parent.id
+  }
+}
+
+/**
+ * "다단 넣기" 차단 판정(착수 전 결정 ③) — 커서/선택이 columns·콜아웃 **안**이거나, 선택에 columns
+ * 블록 자신이 최상위로 포함돼 있으면(그대로 감싸면 columns-안-columns가 된다) 막는다. 콜아웃을
+ * 감싸는 것은 허용된다(콜아웃 안 columns만 금지 — columns 안 콜아웃은 허용, 자식 제한 0).
+ */
+export function columnsInsertBlocked(editor: NoteBlockNoteEditor): boolean {
+  try {
+    const blocks = editor.getSelection()?.blocks ?? [editor.getTextCursorPosition().block]
+    return blocks.some(
+      (block) => block.type === 'columns' || blockHasColumnsOrCalloutAncestor(editor, block.id),
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 다단(columns) 삽입 — 선택 블록이 있으면 그 블록들을 자식으로 감싸고(`wrapInColumns`), 없으면
+ * 빈 문단 1개를 자식으로 하는 빈 컨테이너를 커서 자리에 넣는다. **중첩 차단은 호출자 책임**
+ * (슬래시·툴바가 `columnsInsertBlocked`로 각자 가드한다 — 이 함수 자체는 방어하지 않는다,
+ * `insertCalloutBlock`과 같은 관례).
+ */
+export function insertColumnsBlock(editor: NoteBlockNoteEditor, count: 2 | 3): void {
+  const selection = editor.getSelection()
+  const selected = selection?.blocks
+  if (selected && selected.length > 0) {
+    wrapInColumns(editor, selected, count)
+    return
+  }
+  const current = editor.getTextCursorPosition().block
+  const block = {
+    type: 'columns' as const,
+    props: { count, meta: '' },
+    children: [{ type: 'paragraph' as const }],
+  }
+  const inserted = cursorBlockIsEmptyParagraph(editor)
+    ? editor.replaceBlocks([current.id], [block]).insertedBlocks
+    : editor.insertBlocks([block], current.id, 'after')
+  const child = inserted[0]?.children?.[0]
+  if (child) editor.setTextCursorPosition(child.id, 'start')
+  editor.focus()
+}
+
+/**
+ * 선택된 최상위 블록들을 columns 컨테이너의 자식으로 감싼다 — 원래 블록(id 포함)을 그대로
+ * `children`으로 넘기고 `replaceBlocks`로 제자리 치환한다(엔진이 같은 트랜잭션 안에서 id를
+ * 재사용해도 안전 — `removeAndInsertBlocks` 실측: 삽입이 먼저, 원본 삭제는 그 뒤라 일시적으로
+ * id가 겹쳐도 최종 문서에서는 하나만 남는다). id를 보존하므로 감싸진 블록(예: 제목)을 가리키는
+ * 앵커 칩이 깨지지 않는다. 한 번의 `replaceBlocks` = undo 1단위.
+ */
+export function wrapInColumns(
+  editor: NoteBlockNoteEditor,
+  blocks: readonly { id: string }[],
+  count: 2 | 3,
+): void {
+  if (blocks.length === 0) return
+  const ids = blocks.map((b) => b.id)
+  const container = {
+    type: 'columns' as const,
+    props: { count, meta: '' },
+    children: blocks as any,
+  }
+  editor.replaceBlocks(ids, [container])
+  editor.focus()
+}
+
+/**
+ * [단 해제] — 컨테이너 자리에 자식 블록을 순서대로 승격한다(`replaceBlocks` 1콜 = undo 1단위,
+ * 조용한 손실 0). 자식이 0이면(이론상 — 빈 컨테이너는 편집기 쪽 정리가 상시 없앤다) 빈 문단
+ * 1개로 대체한다.
+ */
+export function unwrapColumns(editor: NoteBlockNoteEditor, containerId: string): void {
+  const current = editor.getBlock(containerId)
+  if (!current) return
+  const children = current.children && current.children.length > 0 ? current.children : [{ type: 'paragraph' as const }]
+  editor.replaceBlocks([containerId], children as any)
+  editor.focus()
+}

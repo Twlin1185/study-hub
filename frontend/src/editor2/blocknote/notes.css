@@ -499,3 +499,55 @@
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
 }
+
+/* ================================================================== stage-41 규약 A 다단(columns)
+   흐름형 CSS 다단(Word 스타일 단) — 컨테이너 블록(`specs/blocks.tsx`의 머리 컨트롤 띠)과 자식
+   그룹(엔진이 그리는 `.bn-block-group`)이 콜아웃과 같은 형제 구조다. 여기서는 그 **자식 그룹**에만
+   `column-*`을 준다 — 컨트롤 띠 자체는 위 클래스 유틸(Tailwind, 토큰 색)로 이미 마감됐다. */
+
+/* 기본(=클램프된 2단 — prop 기본값 2와 일치하지만, 값 밖 범위는 스펙 렌더가 `--columns-count`를
+   조상 `.bn-block`에 얹어 이 var()로 흘러든다 — `specs/blocks.tsx` 상단 주석 참고). `column-rule`은
+   토큰(`--border`)만 — 리터럴 색 0(불변 규칙 5). `column-gap`은 색이 아니라 간격이라 토큰 대상이
+   아니다(이 파일에 간격 전용 토큰이 없어 기존 관례대로 리터럴 px). */
+.note-editor-frame [data-content-type='columns'] + .bn-block-group {
+  column-count: var(--columns-count, 2);
+  column-gap: 24px;
+  column-rule: 1px solid var(--border);
+}
+
+/* 단 안의 **원자·비문단 블록**은 단을 넘어 쪼개지지 않는다(착수 전 결정 ④) — 표·이미지·코드·
+   콜아웃·수식·구분선 등. 문단은 일부러 뺀다(문단은 단을 넘어 흘러야 한다 — `break-inside` 미지정).
+   `[data-content-type]`가 있는 모든 블록 콘텐츠가 대상이고, 문단(`paragraph`)만 `:not()`으로 뺀다. */
+.note-editor-frame [data-content-type='columns'] + .bn-block-group [data-content-type]:not([data-content-type='paragraph']) {
+  break-inside: avoid;
+}
+
+/* 자식은 단 폭을 넘지 않는다(표는 기존 가로 스크롤 규칙을 그대로 유지 — 강제 축소 없음, 위 D2 참고). */
+.note-editor-frame [data-content-type='columns'] + .bn-block-group .bn-block-content {
+  max-width: 100%;
+}
+
+/* 중첩된 안쪽 columns(착수 전 결정 ③ — 유입 데이터의 중첩은 보존하되 안쪽은 1단으로만 표시)는
+   자기 `--columns-count`와 무관하게 1단으로 강등한다. 이 선택자(속성 2개·클래스 2개 = 특이도
+   (0,4,0))가 위 기본 규칙(특이도 (0,2,0))보다 항상 높아 자연히 이긴다 — `!important` 불필요. */
+.note-editor-frame [data-content-type='columns'] + .bn-block-group [data-content-type='columns'] + .bn-block-group {
+  column-count: 1;
+  column-rule: none;
+}
+
+/* 모바일(<768px) — 단을 접어 1단으로(가로 폭이 부족해 다단이 의미가 없다). 위 기본 규칙과 특이도가
+   같으므로(0,2,0) 소스 순서(이 규칙이 나중)로 이긴다 — stage-38 D4 등 기존 관례와 동일 기법. */
+@media (max-width: 767px) {
+  .note-editor-frame [data-content-type='columns'] + .bn-block-group {
+    column-count: 1;
+    column-rule: none;
+  }
+}
+
+/* 실측 준비(규약 E ⓑ) — 드래그 핸들이 columns 자식 그룹에서 오작동할 경우를 대비한 스위치
+   (기본 = 꺼짐, 이 속성이 없으면 무영향). devtools로 `.note-editor-frame`에
+   `data-disable-side-menu` 속성을 수동으로 부여하면 사이드 메뉴(＋ 추가·드래그 핸들)를 통째로
+   숨겨 그 없이도 편집이 되는지 실측할 수 있다 — 상시 코드 경로가 아니다. */
+.note-editor-frame[data-disable-side-menu] .bn-side-menu {
+  display: none;
+}

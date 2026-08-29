@@ -229,6 +229,24 @@ export interface BnCallout extends BnBlockCommon {
   props: { variant: string; title: string; attrs: string }
 }
 
+/**
+ * `:::columns{n=2} … :::` — 흐름형 다단(stage-41). content `'none'` + **children으로 본문 블록**
+ * (`BnCallout`과 정확히 대칭 — 자식 블록이 곧 내용이다).
+ *
+ * `count`는 **number**로 싣는다(스펙 propSchema의 default가 `2` = number라 문자열로 실으면
+ * 적재에서 형이 어긋난다). 값은 어댑터가 정규화하지 않는다 — 범위 밖 값도 그대로 왕복시키고
+ * 표시 강등은 렌더 몫이다(`callout.variant`가 고정 목록 밖 값을 보존하는 것과 같은 규약 E 전례).
+ *
+ * `meta` = `attrs`(미지 속성 쌍) + 블록 공통 메타(provenance)를 **통짜 JSON 문자열**로 싣는다
+ * (`callout.attrs`·`webEmbed.meta` 전례 — 자유 편집 UI가 없어 prop을 쪼갤 이유가 없다).
+ * prop 하나로 완전 왕복하므로 이 블록도 **사이드카를 쓰지 않는다**(webEmbed와 같은 예외).
+ * `''` ⇔ "실을 값 없음".
+ */
+export interface BnColumns extends BnBlockCommon {
+  type: 'columns'
+  props: { count: number; meta: string }
+}
+
 /** `![[DOC-0007]]` — 원자·읽기 전용 카드. `label:''` ⇔ undefined(규약 C). */
 export interface BnDocEmbed extends BnBlockCommon {
   type: 'docEmbed'
@@ -277,6 +295,7 @@ export type BnBlock =
   | BnDivider
   | BnMathBlock
   | BnCallout
+  | BnColumns
   | BnDocEmbed
   | BnToc
   | BnWebEmbed
@@ -300,6 +319,7 @@ export const BN_BLOCK_TYPES = [
   'divider',
   'mathBlock',
   'callout',
+  'columns',
   'docEmbed',
   'toc',
   'webEmbed',

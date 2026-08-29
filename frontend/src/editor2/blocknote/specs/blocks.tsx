@@ -5,9 +5,10 @@
 // 여기 render는 머리(라벨)와 테두리만 그리고, 자식 블록은 편집기가 중첩 그룹으로 렌더한다
 // (`notes.css`가 그 그룹에 콜아웃 여백을 준다).
 import { createReactBlockSpec } from '@blocknote/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { CALLOUT_VARIANTS } from '../../adapter'
+import { unwrapColumns } from '../refPicker/insert'
 import { describeRef, useRefUi } from '../refPicker/RefTitleContext'
 import DocEmbedReadCard from './DocEmbedReadCard'
 
@@ -167,6 +168,136 @@ export const createSourceFallbackBlockSpec = createReactBlockSpec(
         </pre>
       </div>
     ),
+  },
+)
+
+// ---------------------------------------------------------------- 다단(columns · stage-41 규약 A)
+//
+// 흐름형 CSS 다단(Word 스타일 단 — Notion 고정 열이 아니다) — 컨테이너 블록(`content: 'none'`)이고
+// **자식 블록이 내용**이다(콜아웃과 같은 구조 — 자식은 BlockNote 중첩 그룹(`.bn-block-group`)으로
+// 렌더되고, `notes.css`가 그 그룹에 `column-count`를 준다). 여기 render는 머리의 **얇은 컨트롤
+// 띠**(2단/3단 토글 + [단 해제])만 그린다 — 자식 내용은 엔진이 그대로 그린다.
+//
+// **`count` 클램프(착수 전 결정 ②)**: 유입 데이터의 범위 밖 값(4 이상·2 미만)은 prop 값 자체는
+// **보존**하고 표시만 3단 상한/1단으로 강등한다. 엔진은 prop 값이 기본과 다르면 그 값 그대로
+// `data-count`로 싣는데(`BlockContentWrapper` 실측 — 값 화이트리스트 없음), CSS 속성 선택자로는
+// 임의 정수를 다 열거할 수 없다. 그래서 클램프된 값을 **CSS 커스텀 프로퍼티**로 조상 `.bn-block`에
+// 얹어(형제인 `.bn-block-group`이 상속) `notes.css`가 `var(--columns-count)`로 읽게 한다 — 일반
+// DOM 조작이라 엔진 PM 노드에는 손대지 않는다(R33 불변).
+const clampColumnsCount = (raw: unknown): 1 | 2 | 3 => {
+  const n = typeof raw === 'number' && Number.isFinite(raw) ? raw : 2
+  if (n < 2) return 1
+  if (n > 3) return 3
+  return n === 3 ? 3 : 2
+}
+
+/**
+ * 빈 컨테이너 정리(규약 B 계약 — "빈 columns가 저장되는 경로 0").
+ *
+ * 렌더 기반 감지만으로는 불충분하다: 자식 그룹(`.bn-block-group`)은 columns 블록 자신과 **형제**인
+ * PM 노드라, 마지막 자식이 지워져도 이 블록의 리액트 노드뷰는 갱신 신호를 받지 않는다
+ * (`@blocknote/react`의 `useNodeViewBlock`이 `getPos()` 기준으로 자기 노드만 다시 읽는다 — 형제
+ * 서브트리가 사라진 것은 이 노드 자체의 변경이 아니므로 tiptap이 update()를 호출하지 않는다. 실측).
+ * 그래서 **편집기 전체의 변경 이벤트**(`editor.onChange`)를 한 번만 구독해 두고(에디터 인스턴스당
+ * 1개 — 안 그러면 columns 블록이 여러 개일 때 각자 지우려다 두 번째부터 "이미 없는 블록" 에러가
+ * 난다), 매 변경 후 문서를 훑어 자식 0인 columns를 찾아 통째로 지운다. 최초 로드 시점에 이미 빈
+ * 채로 들어온 경우(예: 유입 데이터)는 각 블록의 마운트 이펙트가 자기 자신만 확인해 잡는다
+ * (아래 render 참고).
+ */
+const columnsCleanupRegistered = new WeakSet<object>()
+function ensureColumnsEmptyCleanup(editor: any): void {
+  if (columnsCleanupRegistered.has(editor)) return
+  columnsCleanupRegistered.add(editor)
+  editor.onChange((ed: any) => {
+    const empties: string[] = []
+    const walk = (blocks: any[]) => {
+      for (const b of blocks) {
+        if (b.type === 'columns' && (!b.children || b.children.length === 0)) {
+          empties.push(b.id)
+        } else if (b.children?.length) {
+          walk(b.children)
+        }
+      }
+    }
+    walk(ed.document)
+    if (empties.length > 0) ed.removeBlocks(empties)
+  })
+}
+
+export const createColumnsBlockSpec = createReactBlockSpec(
+  {
+    type: 'columns',
+    propSchema: {
+      count: { default: 2 },
+      // 콜아웃 `attrs`와 같은 역할(위 참조) — `{key=value}` 속성 쌍 통짜 보존. 어댑터가 채우고
+      // 스펙은 보존만 한다(규약 E — 자유 편집 UI 없음).
+      meta: { default: '' as string },
+    },
+    content: 'none',
+  },
+  {
+    render: function ColumnsRender({ block, editor }) {
+      const raw = block.props.count as number
+      const clamped = clampColumnsCount(raw)
+      const rootRef = useRef<HTMLDivElement>(null)
+
+      // 클램프된 단 수를 조상 `.bn-block`에 커스텀 프로퍼티로 얹는다(위 주석 참고) — 중첩된
+      // columns는 `notes.css`의 더 특이도 높은 규칙이 항상 1단으로 덮어쓴다(규약 A ③).
+      useEffect(() => {
+        const bnBlock = rootRef.current?.closest('.bn-block') as HTMLElement | null
+        bnBlock?.style.setProperty('--columns-count', String(clamped))
+      }, [clamped])
+
+      // 편집기당 1회 — 이후의 모든 "자식이 0이 됨" 변화를 잡는다.
+      useEffect(() => {
+        ensureColumnsEmptyCleanup(editor)
+      }, [editor])
+
+      // 최초 마운트 시점에 이미 자식이 0인 경우(유입 데이터) — 그 이후의 변화는 위 전역 정리가 담당.
+      useEffect(() => {
+        if (!block.children || block.children.length === 0) {
+          editor.removeBlocks([block.id])
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [])
+
+      return (
+        <div
+          ref={rootRef}
+          className="my-1 flex w-full items-center gap-1 rounded-t-lg border border-b-0 border-border bg-surface-raised px-2 py-1"
+        >
+          {([2, 3] as const).map((n) => (
+            <button
+              key={n}
+              type="button"
+              aria-label={`${n}단으로 표시`}
+              aria-pressed={raw === n}
+              onClick={() => editor.updateBlock(block, { type: 'columns', props: { count: n } })}
+              className={`min-h-9 rounded border px-2 text-xs font-medium ${
+                raw === n
+                  ? 'border-accent bg-accent-soft text-accent'
+                  : 'border-border text-muted hover:bg-bg'
+              }`}
+            >
+              {n}단
+            </button>
+          ))}
+          <button
+            type="button"
+            aria-label="다단 해제 — 자식 블록을 그대로 꺼냅니다"
+            // `editor`는 이 스펙의 render 시그니처상 "columns 하나만 아는" 좁은 제네릭 타입이라
+            // (다른 스펙 파일들이 `NoteBlockNoteEditor`를 여기서 import하지 않는 것과 같은 이유),
+            // 전체 스키마를 요구하는 `unwrapColumns`에 넘기려면 경계에서 한 번 캐스트한다
+            // (`schema.ts`의 "어댑터 ↔ 편집기 경계 캐스트" 관례와 같은 지점 — 실제 런타임 형태는
+            // 동일한 BlockNoteEditor 인스턴스라 안전하다).
+            onClick={() => unwrapColumns(editor as any, block.id)}
+            className="ml-auto min-h-9 rounded border border-border px-2 text-xs text-muted hover:bg-bg hover:text-primary"
+          >
+            단 해제
+          </button>
+        </div>
+      )
+    },
   },
 )
 
