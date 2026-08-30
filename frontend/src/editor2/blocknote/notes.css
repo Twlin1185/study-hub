@@ -596,6 +596,19 @@
   }
 }
 
+/* 2차 후속(2026-08-30 사용자 피드백 "편집 중 세로줄이 이상") — 실측 2건:
+   ⓐ 코어 `.bn-block-content { padding: 3px 0 }`가 컨트롤 띠(columns 콘텐츠)와 셀 상자(자식 그룹) 사이에
+      3px 틈을 만들어 좌우 테두리가 접합부에서 끊긴다 → columns 콘텐츠 패딩 0.
+   ⓑ 코어 trailing-block 위젯(`bn-trailing-block` · content 'none' 블록 아래를 클릭하기 위한 30px)이
+      `column` 블록 맨 위에 빈 띠를 만들어 구분선이 텍스트보다 33px 위로 뻗는다 — 단의 내용은 자식
+      그룹이 갖고 있어 이 위젯은 쓸모가 없으므로 숨긴다(위젯 데코레이션 = 비콘텐츠 DOM, PM 위치 매핑 무영향). */
+.note-editor-frame .bn-block-content[data-content-type='columns'] {
+  padding: 0;
+}
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-content-type='column']) > .bn-trailing-block {
+  display: none;
+}
+
 /* 실측 준비(규약 E ⓑ) — 드래그 핸들이 columns 자식 그룹에서 오작동할 경우를 대비한 스위치
    (기본 = 꺼짐, 이 속성이 없으면 무영향). devtools로 `.note-editor-frame`에
    `data-disable-side-menu` 속성을 수동으로 부여하면 사이드 메뉴(＋ 추가·드래그 핸들)를 통째로

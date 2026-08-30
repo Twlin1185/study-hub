@@ -980,12 +980,28 @@ if (surfaces.length === 0) {
     const md1 = blocksToMarkdown(doc)
     if (md1 === blocksToMarkdown(markdownToBlocks(md1))) fixedPoint += 1
   }
+  // 2026-08-30 후속: 기능 출시 후 실문서에 다단이 쓰이기 시작하면(같은 날 사용자 문서 1건) 표본 수는
+  // 0이 아니게 된다 — "표본 0"은 출시 전 레거시 검사였으므로 **정보로만 출력**하고, 대신 발견된 표본이
+  // 전부 2차 정규형(columns 자식 = column · count = 단 수)으로 파싱되고 고정점 왕복하는지를 검사한다.
+  let nonNormative = 0
+  for (const surface of surfaces) {
+    if ((directiveNameCounts(surface.md).get('columns') ?? 0) === 0) continue
+    walkBlocks(markdownToBlocks(surface.md).blocks, (b) => {
+      if (b.type !== 'columns') return
+      const ok = b.children.length > 0 && b.children.every((k) => k.type === 'column') && b.count === b.children.length
+      if (!ok) nonNormative += 1
+    })
+  }
   check(
-    '[실문서] directive 이름 `columns`·`column` 기존 표본 0',
-    columnsDirectiveCount === 0 && columnDirectiveCount === 0,
-    `columns=${columnsDirectiveCount} · column=${columnDirectiveCount} / ${dialectSurfaces}표면`,
+    '[실문서] 발견된 columns 표본 전건 2차 정규형(자식 = column · count = 단 수)',
+    nonNormative === 0,
+    `비정규 ${nonNormative} / directive columns=${columnsDirectiveCount} · column=${columnDirectiveCount} / ${dialectSurfaces}표면`,
   )
-  check('[실문서] columns/column 블록 산출 0 (= 기존 문서 변환 diff 0)', dialectBlocks === 0, `산출=${dialectBlocks}`)
+  check(
+    '[실문서] directive 표본 수 = 산출 블록 수(폴백 0)',
+    dialectBlocks === columnsDirectiveCount + columnDirectiveCount,
+    `directive ${columnsDirectiveCount + columnDirectiveCount} · 블록 ${dialectBlocks}`,
+  )
   check('[실문서] 프로젝션 고정점 전건', fixedPoint === surfaces.length, `${fixedPoint}/${surfaces.length}`)
   const tally = [...nameTally.entries()]
     .sort((a, b) => b[1] - a[1])

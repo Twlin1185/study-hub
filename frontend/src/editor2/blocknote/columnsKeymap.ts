@@ -8,7 +8,7 @@
 // 정규화만으로는 ⓑ의 변형을 원상 복구할 수 없고(되돌림 자체가 또 한 번의 조작이다) ⓐ는 아예
 // 되돌릴 근거가 없다. 그래서 **그 두 키만** 단 경계에서 no-op으로 막는다 — 규약 E가 예고한
 // 강등 경로이며, 엔진 내부 패치가 아니라 **공식 확장 API**(`createExtension({ keyboardShortcuts })`)
-// 수준의 개입이다(R33 유지). 그 밖의 키(Enter·Tab·방향키·문자)는 전혀 손대지 않는다.
+// 수준의 개입이다(R33 유지). **2차 후속(2026-08-30 사용자 피드백)**: ⓒ 단 안 **빈 문단 Enter** = 코어가 "빈 중첩 블록 → 부모 밖 승격"을 시도하고 정규화가 되돌려 결과 무동작이던 것을 **아래에 새 문단 삽입**으로 · ⓓ **블록 끝 →** = 다음 단 첫 블록 시작으로, **블록 시작 ←** = 이전 단 마지막 잎 끝으로(단 사이 커서 이동). 그 밖의 키(Tab·↑↓·문자)는 손대지 않는다.
 //
 // **우선순위**: BlockNote 확장의 `keyboardShortcuts`는 tiptap 확장으로 감싸질 때
 // `util/topo-sort.ts`가 부여하는 우선순위 `91 + (idx + r) * 10`(**≥ 91** — dist 실측 · 검토 2026-08-30. 소스 주석의
@@ -37,6 +37,10 @@ export type ColumnEdgeFacts = {
   atBlockEnd: boolean
   /** 커서 블록의 콘텐츠가 **문단**인가(목록·헤딩·코드·인용이면 false). */
   isParagraph: boolean
+  /** 커서가 `column` 안(깊이 무관)에 있는가 — 표 안이면 false(가드 전부 해제). */
+  inColumn: boolean
+  /** 커서 블록의 텍스트가 비었는가(빈 문단 Enter 판정). */
+  isEmptyBlock: boolean
   /** 커서 블록의 **부모 블록**이 `column`인가(= 단의 최상위 자식). */
   parentIsColumn: boolean
   /** 커서 블록이 그 단의 **첫 최상위 자식**인가. */
@@ -50,6 +54,8 @@ const NO_COLUMN: ColumnEdgeFacts = {
   atBlockStart: false,
   atBlockEnd: false,
   isParagraph: false,
+  inColumn: false,
+  isEmptyBlock: false,
   parentIsColumn: false,
   isFirstTopChildOfColumn: false,
   isLastLeafOfColumn: false,
@@ -125,6 +131,7 @@ export function readColumnEdgeFacts(state: EditorState): ColumnEdgeFacts {
 
   const parent = $from.parent
   const isParagraph = $from.node(blockDepth).firstChild?.type.name === 'paragraph'
+  const isEmptyBlock = parent.isTextblock ? parent.content.size === 0 : false
   const atBlockStart = parent.isTextblock ? $from.parentOffset === 0 : false
   const atBlockEnd = parent.isTextblock ? $from.parentOffset === parent.content.size : false
 
@@ -148,10 +155,93 @@ export function readColumnEdgeFacts(state: EditorState): ColumnEdgeFacts {
     atBlockStart,
     atBlockEnd,
     isParagraph,
+    inColumn: true,
+    isEmptyBlock,
     parentIsColumn,
     isFirstTopChildOfColumn,
     isLastLeafOfColumn,
   }
+}
+
+/** 단 안 빈 문단 Enter = 아래에 새 문단(코어의 "빈 중첩 블록 승격" 대신). 문단이고 단의 최상위 자식일 때만. */
+export function shouldInsertParagraphOnEnter(facts: ColumnEdgeFacts): boolean {
+  return facts.collapsed && facts.parentIsColumn && facts.isParagraph && facts.isEmptyBlock
+}
+
+/** 블록 끝 → = 다음 단으로 건너뛸 조건(다음 단 존재 여부는 호출자가 문서에서 확인). */
+export function shouldJumpRight(facts: ColumnEdgeFacts): boolean {
+  return facts.collapsed && facts.inColumn && facts.atBlockEnd
+}
+
+/** 블록 시작 ← = 이전 단으로 건너뛸 조건. */
+export function shouldJumpLeft(facts: ColumnEdgeFacts): boolean {
+  return facts.collapsed && facts.inColumn && facts.atBlockStart
+}
+
+type AnyBlock = { id: string; type: string; children?: AnyBlock[] }
+
+/**
+ * 커서 블록을 감싸는 가장 가까운 `column`과 그 `columns`를 문서에서 찾는다(편집기 API만 — PM 무접촉).
+ * 중첩 columns라면 **가장 안쪽** 단이 기준이다.
+ */
+export function locateColumnOfBlock(doc: AnyBlock[], blockId: string): { columns: AnyBlock; columnIndex: number } | null {
+  let found: { columns: AnyBlock; columnIndex: number } | null = null
+  const walk = (blocks: AnyBlock[], stack: AnyBlock[]): boolean => {
+    for (const b of blocks) {
+      if (b.id === blockId) {
+        for (let i = stack.length - 1; i >= 1; i -= 1) {
+          if (stack[i].type === 'column' && stack[i - 1].type === 'columns') {
+            found = { columns: stack[i - 1], columnIndex: (stack[i - 1].children ?? []).indexOf(stack[i]) }
+            break
+          }
+        }
+        return true
+      }
+      if (b.children?.length && walk(b.children, [...stack, b])) return true
+    }
+    return false
+  }
+  walk(doc, [])
+  return found
+}
+
+/** 단의 마지막 잎(자식이 있으면 끝까지 내려간다). */
+function lastLeaf(block: AnyBlock): AnyBlock {
+  let cur = block
+  while (cur.children?.length) cur = cur.children[cur.children.length - 1]
+  return cur
+}
+
+type BnEditorLike = {
+  prosemirrorState: EditorState
+  document: AnyBlock[]
+  getTextCursorPosition: () => { block: AnyBlock }
+  setTextCursorPosition: (block: AnyBlock | string, placement?: 'start' | 'end') => void
+  insertBlocks: (blocks: Array<{ type: string }>, ref: AnyBlock | string, placement?: 'before' | 'after') => AnyBlock[]
+}
+
+/** 빈 문단 Enter — 같은 단 안, 커서 블록 바로 아래에 새 문단을 만들고 커서를 옮긴다. */
+export function handleEnterInColumn(editor: BnEditorLike): boolean {
+  if (!shouldInsertParagraphOnEnter(readColumnEdgeFacts(editor.prosemirrorState))) return false
+  const current = editor.getTextCursorPosition().block
+  const inserted = editor.insertBlocks([{ type: 'paragraph' }], current, 'after')
+  if (inserted[0]) editor.setTextCursorPosition(inserted[0], 'start')
+  return true
+}
+
+/** 방향키 단 이동 — → 는 다음 단 첫 블록 시작, ← 는 이전 단 마지막 잎 끝. 이동할 단이 없으면 코어 기본(문서 순서). */
+export function handleArrowAcrossColumns(editor: BnEditorLike, dir: 'left' | 'right'): boolean {
+  const facts = readColumnEdgeFacts(editor.prosemirrorState)
+  if (!(dir === 'right' ? shouldJumpRight(facts) : shouldJumpLeft(facts))) return false
+  const current = editor.getTextCursorPosition().block
+  const loc = locateColumnOfBlock(editor.document, current.id)
+  if (!loc) return false
+  const cells = loc.columns.children ?? []
+  const target = cells[loc.columnIndex + (dir === 'right' ? 1 : -1)]
+  if (!target || !target.children?.length) return false
+  if (dir === 'right') editor.setTextCursorPosition(target.children[0], 'start')
+  else editor.setTextCursorPosition(lastLeaf(target), 'end')
+  return true
 }
 
 /** 확장에 그대로 꽂는 단축키 표(테스트에서도 이 객체를 직접 부른다). */
@@ -162,6 +252,9 @@ export const columnsEdgeShortcuts = {
     shouldBlockDelete(readColumnEdgeFacts(editor.prosemirrorState)),
   'Shift-Tab': ({ editor }: { editor: { prosemirrorState: EditorState } }) =>
     shouldBlockShiftTab(readColumnEdgeFacts(editor.prosemirrorState)),
+  Enter: ({ editor }: { editor: BnEditorLike }) => handleEnterInColumn(editor),
+  ArrowRight: ({ editor }: { editor: BnEditorLike }) => handleArrowAcrossColumns(editor, 'right'),
+  ArrowLeft: ({ editor }: { editor: BnEditorLike }) => handleArrowAcrossColumns(editor, 'left'),
 }
 
 /** 두 편집 표면 공용 확장(`extensions.ts`가 묶어서 넘긴다). */

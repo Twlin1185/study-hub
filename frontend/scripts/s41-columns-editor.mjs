@@ -324,6 +324,8 @@ const cols = (count, ...kids) => ({ t: 'columns', count, kids })
     isFirstTopChildOfColumn: false,
     isLastLeafOfColumn: false,
     isParagraph: true,
+    inColumn: true,
+    isEmptyBlock: false,
     ...over,
   })
   check(
@@ -466,6 +468,30 @@ const cols = (count, ...kids) => ({ t: 'columns', count, kids })
   editor.updateBlock(nFirst.id, { type: 'paragraph' })
   editor.setTextCursorPosition(nFirst.id, 'start')
   check('④-29 문단으로 되돌리면 다시 차단', keymap.columnsEdgeShortcuts.Backspace({ editor }) === true)
+
+  // 2차 후속(사용자 피드백): 빈 문단 Enter = 아래 새 문단 · 블록 끝 → / 시작 ← = 단 사이 이동
+  check('④-30 순수: 빈 문단 Enter 판정', keymap.shouldInsertParagraphOnEnter(facts({ parentIsColumn: true, isEmptyBlock: true })) === true)
+  check('④-31 순수: 내용 있는 문단 Enter 통과', keymap.shouldInsertParagraphOnEnter(facts({ parentIsColumn: true })) === false)
+  check('④-32 순수: 단 안 목록 항목 Enter 통과', keymap.shouldInsertParagraphOnEnter(facts({ parentIsColumn: true, isEmptyBlock: true, isParagraph: false })) === false)
+  load([cols(2, col(p('a'), p('')), col(p('c'), p('d')))].map(toBn))
+  const eCont = editor.document.find((b) => b.type === 'columns')
+  const emptyPara = eCont.children[0].children[1]
+  editor.setTextCursorPosition(emptyPara.id, 'start')
+  const enterHandled = keymap.columnsEdgeShortcuts.Enter({ editor })
+  const eAfter = editor.document.find((b) => b.type === 'columns')
+  check('④-33 빈 문단 Enter = 같은 단에 새 문단 + 커서 이동', enterHandled === true && eAfter.children[0].children.length === 3 && editor.getTextCursorPosition().block.id === eAfter.children[0].children[2].id, JSON.stringify(tree(editor.document)))
+  editor.setTextCursorPosition(eAfter.children[0].children[0].id, 'end')
+  const rightHandled = keymap.columnsEdgeShortcuts.ArrowRight({ editor })
+  check('④-34 1단 블록 끝 → = 2단 첫 블록 시작', rightHandled === true && editor.getTextCursorPosition().block.id === eAfter.children[1].children[0].id)
+  const leftHandled = keymap.columnsEdgeShortcuts.ArrowLeft({ editor })
+  check('④-35 2단 첫 블록 시작 ← = 1단 마지막 잎 끝', leftHandled === true && editor.getTextCursorPosition().block.id === eAfter.children[0].children[2].id)
+  editor.setTextCursorPosition(eAfter.children[1].children[1].id, 'end')
+  check('④-36 마지막 단 끝 → = 통과(코어 기본)', keymap.columnsEdgeShortcuts.ArrowRight({ editor }) === false)
+  editor.setTextCursorPosition(eAfter.children[0].children[0].id, 'start')
+  check('④-37 첫 단 시작 ← = 통과', keymap.columnsEdgeShortcuts.ArrowLeft({ editor }) === false)
+  load([{ type: 'paragraph', content: '' }])
+  editor.setTextCursorPosition(editor.document[0].id, 'start')
+  check('④-38 단 밖 빈 문단 Enter 통과', keymap.columnsEdgeShortcuts.Enter({ editor }) === false)
 }
 
 console.log(`총 ${pass + fail}건 · 통과 ${pass} · 실패 ${fail}`)
