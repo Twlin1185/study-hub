@@ -82,7 +82,7 @@ UI 결함 재현은 **사용자가 띄운 서버** `http://localhost:8000`에 �
   띄우되(8000 금지), **작업이 끝나면 반드시 자신이 띄운 모든 서버를 종료하고 포트 리스너 부재까지 확인**한다.
   서브에이전트에 서버 검증을 시킬 때도 이 종료 의무를 프롬프트에 명시할 것.
 - 백엔드: `uvicorn main:app --host 0.0.0.0 --port 8000` (backend/에서 — 사용자 실행 기준)
-- 프론트 개발: `npm run dev` (frontend/에서) / 배포 빌드는 `npm run build` → FastAPI가 dist 서빙
+- 프론트 개발: `npm run dev` (frontend/에서) / 배포 빌드는 `npm run build` → FastAPI가 dist 서빙 · **최신 여부 자동 판정**: 시작 스크립트 3종(`1_Setup`·`2_StartServer`·`Dev_StartServer.bat`)이 `scripts/ensure-frontend-build.ps1`을 호출 — `frontend/scripts/source-hash.mjs`가 소스 내용 해시를 `dist/.source-hash`(`npm run build`의 `postbuild`가 기록)와 비교해 다르면 빌드(Node 없으면 건너뜀 · mtime 비교 아님 — 2026-08-30)
 - 테스트: `powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1` (요약만 출력 · `-Path tests/test_sm2.py` 부분 실행 · `-Full` 전체 로그)
   — 임베디드 파이썬(`python-embed/`, `_pth`)이라 `python -m pytest`는 임포트 실패한다. 래퍼가 sys.path를 주입한다.
 - 불변 규칙 검사: `powershell -ExecutionPolicy Bypass -File scripts/invariant-scan.ps1` (기준선 대비 신규 위반만 보고 · 정당한 변화면 `-UpdateBaseline`)
