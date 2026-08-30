@@ -185,12 +185,20 @@ function applyDirectives(node: MdNode, opts: StudyCtx): void {
         if (classNames.length) hProperties.className = classNames
       }
       if (name === 'columns') {
-        // 흐름형 다단(stage-41) — 리더가 단 수를 읽을 수 있게 `n` **원문 문자열만** 넘긴다.
-        // 값 검증·범위 강등은 렌더 몫이고(MarkdownView.ColumnsSection), 여기서는 node의
+        // 고정 열 다단(stage-41 2차) — 리더가 **레거시(단 없는 columns)** 표기의 단 수를 읽을 수
+        // 있게 `n` **원문 문자열만** 넘긴다(정규 표기의 열 수는 `:::column` 자식 수가 정본이다).
+        // 값 검증·범위 계산은 렌더 몫이고(MarkdownView·ColumnsSection), 여기서는 node의
         // type/name/attributes/children을 일절 건드리지 않는다(toc·web 주석과 같은 이유 —
         // 이 플러그인은 editor2 변환 파이프라인도 공유한다).
         const n = (child.attributes ?? {}).n
         if (n) hProperties['data-directive-n'] = n
+      }
+      if (name === 'column') {
+        // 단 하나(stage-41 2차) — 실을 값이 없다(속성·라벨을 두지 않는 방언). 리더가 셀로 그릴지
+        // 판정할 수 있게 **정규 표기 여부만** 넘긴다: 라벨·속성 동반은 변환기(mdastToBlocks)가
+        // 원문 보존(sourceFallback)으로 보내므로 리더도 셀로 그리지 않아야 두 표면이 일치한다.
+        const normative = !label && Object.keys(child.attributes ?? {}).length === 0
+        hProperties['data-directive-normative'] = normative ? 'true' : 'false'
       }
       if (name === 'toc' || name === 'web') {
         // stage-37 규약 A·B(리더 렌더 전용 부가 정보) — **hProperties 신규 키만 추가**하고

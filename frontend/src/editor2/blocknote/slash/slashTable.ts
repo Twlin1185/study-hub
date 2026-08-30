@@ -63,7 +63,7 @@ const SLASH_TABLE: SlashRow[] = [
   { source: 'core', key: 'heading_6', group: GROUP.heading },
   // --- 고급
   { source: 'core', key: 'table', group: GROUP.advanced, aliases: ['table', '테이블', '격자'] },
-  // 다단(방언 · stage-41 규약 A·B) — 항목 2개(2단·3단). 공통 별칭 `/단나누기`·`/columns`·`/다단`은
+  // 다단(방언 · stage-41 규약 A·B **2차 고정 열**) — 항목 2개(2단·3단). 공통 별칭 `/단나누기`·`/columns`·`/다단`은
   // 둘 다 잡고, `/2단`·`/3단`은 **그 단 수 항목만** 잡는다(규약 B "단 수 지정 삽입" — 검토 경-4 2026-08-30).
   { source: 'columns', count: 2, group: GROUP.advanced },
   { source: 'columns', count: 3, group: GROUP.advanced },
@@ -210,7 +210,8 @@ export function composeSlashItems(
       out.push({
         key: `columns_${row.count}`,
         title: blocked ? `⛔ 다단 · ${row.count}단` : `다단 · ${row.count}단`,
-        subtext: blocked ? COLUMNS_NEST_NOTICE : `본문을 ${row.count}개 단으로 나눕니다`,
+        // 2차(고정 열) — 삽입하면 곧바로 **빈 단 n개**가 서고 커서는 1단으로 간다(규약 B).
+        subtext: blocked ? COLUMNS_NEST_NOTICE : `단 ${row.count}개짜리 다단 상자를 넣습니다`,
         aliases: [...COLUMNS_ALIASES, `${row.count}단`],
         group: row.group,
         onItemClick: blocked ? () => undefined : () => insertColumnsBlock(editor, row.count),

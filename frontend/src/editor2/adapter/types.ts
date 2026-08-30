@@ -230,8 +230,8 @@ export interface BnCallout extends BnBlockCommon {
 }
 
 /**
- * `:::columns{n=2} … :::` — 흐름형 다단(stage-41). content `'none'` + **children으로 본문 블록**
- * (`BnCallout`과 정확히 대칭 — 자식 블록이 곧 내용이다).
+ * `::::columns{n=2} … ::::` — 고정 열 다단 컨테이너(stage-41 2차). content `'none'` + **children으로
+ * `column` 블록들**(`BnCallout`과 정확히 대칭 — 자식 블록이 곧 내용이다).
  *
  * `count`는 **number**로 싣는다(스펙 propSchema의 default가 `2` = number라 문자열로 실으면
  * 적재에서 형이 어긋난다). 값은 어댑터가 정규화하지 않는다 — 범위 밖 값도 그대로 왕복시키고
@@ -245,6 +245,18 @@ export interface BnCallout extends BnBlockCommon {
 export interface BnColumns extends BnBlockCommon {
   type: 'columns'
   props: { count: number; meta: string }
+}
+
+/**
+ * `:::column` — 고정 열 다단의 **단 하나**(stage-41 2차). content `'none'` + children으로 단 내용.
+ *
+ * **prop 0**(`BnToc` 전례) — 단에는 옮길 값이 아예 없다. 그래도 `props: {}`를 명시적으로 실어
+ * 편집 스펙(propSchema 빈 객체)과 형태를 맞춘다. 블록 공통 메타(provenance)는 정규 상태의 단에는
+ * 없지만, 유입 JSON에 있으면 **공통 사이드카 경로**를 그대로 탄다(columns·webEmbed 같은 예외가 아니다).
+ */
+export interface BnColumn extends BnBlockCommon {
+  type: 'column'
+  props?: Record<string, never>
 }
 
 /** `![[DOC-0007]]` — 원자·읽기 전용 카드. `label:''` ⇔ undefined(규약 C). */
@@ -297,6 +309,7 @@ export type BnBlock =
   | BnCallout
   | BnColumns
   | BnDocEmbed
+  | BnColumn
   | BnToc
   | BnWebEmbed
   | BnSourceFallback
@@ -320,6 +333,7 @@ export const BN_BLOCK_TYPES = [
   'mathBlock',
   'callout',
   'columns',
+  'column',
   'docEmbed',
   'toc',
   'webEmbed',

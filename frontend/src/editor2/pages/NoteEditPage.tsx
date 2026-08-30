@@ -670,9 +670,10 @@ function EditableNote({
       >
         {/* 방언 툴바·참조 칩 피커(G-2 강제 지점 ① · G-4). `RefUiProvider`는 **BlockNoteView
             바깥**이어야 한다 — 칩 노드 뷰가 이 컨텍스트를 구독하고, 툴바가 닫혀도 피커는 살아
-            있어야 하기 때문이다. 끄는 기본 UI는 서식 툴바·슬래시 메뉴 2개뿐이며(둘 다 방언
-            항목을 얹어 다시 제공한다), 사이드 메뉴·드래그 핸들·링크 툴바·표 핸들 등 나머지
-            기본 UI는 그대로 켜 둔다(슬래시·드래그 정비는 M35 범위 — 이 단계는 끄지 않는다). */}
+            있어야 하기 때문이다. 끄는 기본 UI는 서식 툴바·슬래시 메뉴·**사이드 메뉴** 3개이며
+            셋 다 `NoteEditorDialectUI`가 방언 판을 다시 건다(사이드 메뉴는 stage-41 2차에서
+            단(`column`)에서만 감추려고 되건 것 — 다른 블록은 코어와 동일하다). 링크 툴바·표
+            핸들 등 나머지 기본 UI는 그대로 켜 둔다. */}
         <RefUiProvider editor={editor}>
           <BlockNoteView
             editor={editor}
@@ -680,6 +681,8 @@ function EditableNote({
             onChange={scheduleSave}
             formattingToolbar={false}
             slashMenu={false}
+            // 사이드 메뉴는 `NoteEditorDialectUI`가 되건다(stage-41 2차 — 단에서만 감춤).
+            sideMenu={false}
           >
             <NoteEditorDialectUI />
           </BlockNoteView>

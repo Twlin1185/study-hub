@@ -613,11 +613,26 @@ function serializeBlock(block: Block): string {
       const head = `${fence}${safeVariant(block.variant)}${title}${attrSuffix(block.attrs)}`
       return inner === '' ? `${head}\n${fence}` : `${head}\n${inner}\n${fence}`
     }
-    case 'columns': {
-      // 규약 C — `:::columns{n=<count>}` + 자식 블록 + 닫는 펜스. 펜스 길이 산정은 콜아웃과
-      // **같은 단일 출처**(`calloutFence`)를 쓴다: 자식에 콜아웃·columns가 있으면 바깥 펜스가
-      // 자동으로 길어진다.
+    case 'column': {
+      // 규약 C — 단 하나(`:::column` + 자식 + 닫는 펜스). 속성은 두지 않는다.
+      // 빈 단은 `:::column\n:::`으로 실린다(정규화가 빈 문단 1개를 보장하지만 빈 문단의
+      // 투영은 빈 문자열이라 결과가 같다 — 되읽으면 정규화가 다시 빈 문단을 채운다).
       const inner = serializeBlockSeq(block.children)
+      const fence = calloutFence(inner)
+      const head = `${fence}column`
+      return inner === '' ? `${head}\n${fence}` : `${head}\n${inner}\n${fence}`
+    }
+    case 'columns': {
+      // 규약 C — `::::columns{n=<count>}` + `:::column` 자식들 + 닫는 펜스. 펜스 길이 산정은
+      // 콜아웃과 **같은 단일 출처**(`calloutFence`)를 쓴다: 자식이 `:::column`이라 바깥 펜스가
+      // 자동으로 4가 되고, 단 안에 콜아웃이 있으면 column 4 · columns 5로 함께 자란다.
+      //
+      // 단 펜스끼리는 **빈 줄 없이** 붙인다(규약 C 정규형 예시) — 블록 시퀀스 기본 구분(빈 줄)을
+      // 쓰면 단 사이에 빈 줄이 끼어 정규형이 흔들린다. 정규화를 거치지 않은 유입(비-column 자식
+      // 혼재)은 종전 시퀀스 규칙으로 안전하게 떨어진다.
+      const inner = block.children.every((child) => child.type === 'column')
+        ? block.children.map((child) => serializeBlock(child)).join('\n')
+        : serializeBlockSeq(block.children)
       const fence = calloutFence(inner)
       // `attrs`에 `n`이 살아 있다 = 유입 원문이 **정수가 아닌 n**이었다는 뜻이다(파싱이 흡수하지
       // 않고 통짜 보존한 경우). 그때는 원문 쌍을 그대로 내보내 재직렬화에서 원문이 살아나게 하고,

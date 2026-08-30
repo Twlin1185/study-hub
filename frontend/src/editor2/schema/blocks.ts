@@ -430,27 +430,41 @@ export interface SourceFallbackBlock extends BlockBase {
 }
 
 /**
- * `:::columns{n=2} … :::` — **흐름형 다단**(Word의 "단") 컨테이너 블록(stage-41 / F-1 규약 A).
+ * `::::columns{n=2} … ::::` — **고정 열 다단**(Notion 컬럼) 컨테이너 블록(stage-41 2차 규약 A).
  *
- * 고정 열(Notion 컬럼)이 **아니다**: 자식 블록 시퀀스는 하나의 흐름이고, 렌더가 CSS
- * `column-count`로 그 흐름을 n개 단에 나눠 담는다(문단 내부도 단을 넘어 흐른다). 따라서
- * 저장 데이터는 "단 수 + 자식 블록"이 전부이며, 어느 블록이 몇째 단에 놓이는지는 저장하지 않는다.
+ * 1차의 흐름형(CSS `column-count` — 텍스트가 단을 넘어 흐르는 Word식 "단")을 **대체**한다:
+ * 정규 상태에서 `children`은 전부 `ColumnBlock`이고 각 단은 **독립 내용**이다(어느 블록이
+ * 몇째 단에 있는지가 곧 데이터다 — 1차와 달리 저장된다).
  *
- * `count`는 **유입 값을 그대로 보존**한다(범위 밖 값도 자르지 않는다 — 표시 강등(3단 상한)은
- * 렌더 몫이다). 편집 UI가 만들 수 있는 값은 2·3뿐이고, 그 밖의 값은 외부 유입분이다.
+ * `count`는 `n=` **표기**이고 **정본은 `column` 자식 수**다(`normalizeColumnsBlock` 불변식 ②가
+ * 둘을 맞춘다). 유입 값은 그대로 보존한다: 범위 밖(`n=4`)도 자르지 않고 **그 수만큼 열**로
+ * 그린다(결정 ② — 1차의 "3단 상한 표시 강등"은 폐기).
  * `n`이 **정수 표기가 아니거나 결손**이면 `count`는 기본 2로 두고 원문 쌍을 `attrs`에 남겨
  * 재직렬화에서 원문(`{n=abc}`)이 되살아나게 한다(값 보존 원칙 — 콜아웃 `attrs` 전례).
  *
  * `attrs` = `n` 이외의 미지 속성 쌍 통짜 보존(콜아웃 전례 · 순서 유지).
  * **중첩 금지는 입력 UI의 계약**이고 스키마는 막지 않는다 — 유입 데이터의 중첩(columns 안
- * columns · 콜아웃 안 columns)은 그대로 보존하고, 안쪽은 렌더에서 1단으로 표시한다.
+ * columns · 콜아웃 안 columns)은 그대로 보존하고 렌더도 그대로 grid로 그린다(결정 ③).
  */
 export interface ColumnsBlock extends BlockBase {
   type: 'columns'
-  /** 단 수 — 유입 값 보존(정규 도메인은 2·3). */
+  /** 단 수 표기 — **정본은 `column` 자식 수**다(정규화가 맞춘다). 유입 값 보존(정규 도메인 2·3). */
   count: number
   /** `n` 이외의 미지 속성 쌍(있을 때만) */
   attrs?: AttrPair[]
+  children: Block[]
+}
+
+/**
+ * `:::column … :::` — 고정 열 다단의 **단 하나**(stage-41 2차 규약 A).
+ *
+ * **prop·attrs가 없다** — 단은 "몇째 자리인가 + 무엇을 담는가"가 전부다.
+ * 정규 상태의 불변식은 `schema/columnsNormalize.ts`가 세운다:
+ * 부모는 항상 `columns`이고(아니면 자식을 제자리에 승격 — 불변식 ④) 자식은 **1개 이상**이다
+ * (빈 단 = 빈 문단 1개 — 편집 표면에서 클릭으로 들어갈 자리가 있어야 한다. 불변식 ③).
+ */
+export interface ColumnBlock extends BlockBase {
+  type: 'column'
   children: Block[]
 }
 
@@ -470,8 +484,9 @@ export type Block =
   | TocBlock
   | WebEmbedBlock
   | SourceFallbackBlock
-  // ---- 흐름형 다단(stage-41 — 가산 확장이라 `BLOCK_SCHEMA_VERSION`은 1 그대로다)
+  // ---- 고정 열 다단(stage-41 — 가산 확장이라 `BLOCK_SCHEMA_VERSION`은 1 그대로다)
   | ColumnsBlock
+  | ColumnBlock
 
 export type BlockType = Block['type']
 
@@ -479,7 +494,13 @@ export type BlockType = Block['type']
 
 /** 자식 블록을 갖는 블록인가(중첩 순회용). */
 export function blockChildren(block: Block): Block[] {
-  if (block.type === 'quote' || block.type === 'callout' || block.type === 'columns') return block.children
+  if (
+    block.type === 'quote' ||
+    block.type === 'callout' ||
+    block.type === 'columns' ||
+    block.type === 'column'
+  )
+    return block.children
   if (block.type === 'listItem') return block.children ?? []
   return []
 }

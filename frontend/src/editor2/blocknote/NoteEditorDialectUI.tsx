@@ -8,12 +8,19 @@
 // 없다(칩처럼 편집기 밖 노드 뷰가 여는 게 아니라 **이 슬래시 메뉴 하나**만 연다) — 그래서 별도
 // Provider 없이 이 컴포넌트가 직접 상태를 들고 있다가 렌더한다.
 //
-// `BlockNoteView`에는 `formattingToolbar={false} slashMenu={false}`만 넘기면 된다 — 나머지 기본 UI
-// (**사이드 메뉴·드래그 핸들**·링크 툴바·표 핸들·이모지)는 그대로 살아 있다(`BlockNoteDefaultUI` 실측).
-// 드래그 재배열(F-5)이 코어 사이드 메뉴 그대로인 이유가 이것이다 — 끄지 않았으므로 켜져 있다.
+// `BlockNoteView`에는 `formattingToolbar={false} slashMenu={false} sideMenu={false}`를 넘긴다 —
+// 나머지 기본 UI(링크 툴바·표 핸들·이모지)는 그대로 살아 있다(`BlockNoteDefaultUI` 실측).
+// 사이드 메뉴는 stage-41 2차부터 **여기서 되건다**(`SideMenuController` + `ColumnAwareSideMenu`) —
+// 단(`column`) 위에서만 감추고 그 밖에는 코어와 동일하다. 드래그 재배열(F-5)은 그대로다.
 import { useState } from 'react'
-import { FormattingToolbarController, SuggestionMenuController } from '@blocknote/react'
-import { filterSuggestionItems } from '@blocknote/core/extensions'
+import {
+  FormattingToolbarController,
+  SideMenu,
+  SideMenuController,
+  SuggestionMenuController,
+  useExtensionState,
+} from '@blocknote/react'
+import { SideMenuExtension, filterSuggestionItems } from '@blocknote/core/extensions'
 import { useRefPickerCommands } from './refPicker/RefUiProvider'
 import FindReplacePanel from './find/FindReplacePanel'
 import { buildSlashItems } from './slash/slashItems'
@@ -25,6 +32,23 @@ import { useHistoryShortcuts } from './toolbar/useHistoryShortcuts'
 import { useMicroMarkShortcuts } from './toolbar/useMicroMarkShortcuts'
 import { useNoteEditor } from './toolbar/useNoteEditor'
 import WebEmbedInsertPanel from './webEmbed/WebEmbedInsertPanel'
+
+/**
+ * 사이드 메뉴(＋ 추가·드래그 핸들) — **단(`column`) 위에서는 감춘다**(stage-41 규약 B 2차).
+ * 셀을 통째로 끌어내면 `columns` 구조가 깨지고(정규화가 되돌리느라 깜빡인다) 단 자체를 다른 곳에
+ * 떨어뜨리는 조작은 우리 UX에 없기 때문이다. **다른 블록은 기본 `SideMenu` 그대로**이고
+ * `columns` 컨테이너 자신도 핸들을 유지한다(통째 이동·삭제).
+ *
+ * 0.54의 커스텀 `sideMenu`는 **props를 받지 않는다**(`SideMenuController`가 `<Component />`로만
+ * 렌더한다 — node_modules 실측). 그래서 대상 블록은 사이드 메뉴 확장의 상태 저장소에서 직접 읽는다.
+ */
+function ColumnAwareSideMenu() {
+  const blockType = useExtensionState(SideMenuExtension, {
+    selector: (state) => state?.block?.type as string | undefined,
+  })
+  if (blockType === 'column') return null
+  return <SideMenu />
+}
 
 export default function NoteEditorDialectUI() {
   const editor = useNoteEditor()
@@ -44,6 +68,9 @@ export default function NoteEditorDialectUI() {
           CSS `order`(notes.css)로 편집 표면 최상단·sticky에 앉힌다(구현 재량 — 규약 A①). */}
       <DockedFormattingToolbar />
       <FormattingToolbarController formattingToolbar={NoteFormattingToolbar} />
+      {/* 기본 사이드 메뉴를 끄고(`BlockNoteView sideMenu={false}`) 같은 것을 여기서 되건다 —
+          단(`column`)에서만 null(위 주석). */}
+      <SideMenuController sideMenu={ColumnAwareSideMenu} />
       <SuggestionMenuController
         triggerCharacter="/"
         getItems={async (query) =>
