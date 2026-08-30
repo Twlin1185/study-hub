@@ -1,216 +1,284 @@
-# Stage 41 — 흐름형 다단(세로 단나누기 · FB-10 ⓐ): `columns` 컨테이너 블록 + `:::columns{n=2}` 방언 (v2.0.x 후속)
+# Stage 41 — 다단(세로 단나누기 · FB-10): **고정 열 `columns` > `column` 컨테이너** + `::::columns{n=2} / :::column` 방언 (v2.0.x 후속 · **2차 개정 2026-08-30**)
 
-> 상태: **구현·검토·실측 완료(2026-08-30) — 잔여 = DoD 8(사용자 실사용 PC+폰 ⓐ~ⓔ + 인쇄 미리보기 단 수) + 머지.**
-> 구현 `011b10c`(F-1~F-6)·`972dbbc`(삽입 프리즈 픽스) → 검증 일괄(F-7) → stage-reviewer(Opus) **조건부**(치명 0·중요 1·
-> 경미 5·의심 1) → 수정 5건 → 브라우저 실측 2회(1차 Sonnet 에이전트: **편집 표면 다단 CSS 매칭 0** 발견 → 선택자
-> 재작성 · 2차 메인 대화: 전건 정상) → 문서 반영(G-8). 착수 전 결정 ①~④ = 권고안 채택(위임 판정 — 재론 여지) ·
-> **④ 실측 결과 = ⓐ 유지(강등 없음)** — 표에 추기. 상세·수치 정본 = 말미 "완료 기록".
-> (생성 경위: 2026-08-24 사용자 실사용 피드백 FB-10(별지 `editor-v2.plan.md` §13 — "세로 구분선으로 2단·3단을
-> 골라 Word의 단처럼") + 같은 날 사용자 지시 **"2.x는 뒤로"** → stage-39 전례(v2.0.x 후속 · M 번호 미부여 ·
-> 별지 관할 · 마스터 §14 압축 표 무변경)로 즉시 편성. **D10(GPL XL 도입 금지 — `@blocknote/xl-multi-column`)
-> 확정 후 "자체 구현·후순위"로 남겨 둔 첫 대상의 실행**이다. stage-40(툴바 정비)과 분리한 근거 = 신규
-> 컨테이너 블록 + 신규 방언 + 프로젝션·리더 렌더가 걸려 위험 축이 다르다.)
-> 범위: **흐름형 CSS 다단(Word 단)** — 컨테이너 커스텀 블록 `columns`(2·3단) + 슬래시/툴바 진입 + 단 수
-> 변경·해제 UI + 방언 `:::columns{n=2} … :::` 왕복 + 리더(`MarkdownView`) 렌더 + 모바일 1단 강등.
-> **선행 = stage-40**(툴바 항목 빌더·블록 필터 단일 출처 위에 다단 메뉴를 가산한다 — 순서 고정).
-> **후속 = stage-42(가칭 `stage-42-editor-retire` — 구 편집기 퇴역 실행 + 노트 v2 정식 이식 + 철저 검증 →
-> v2.0.1 발행 예정 · 조건부 — 2026-08-24 사용자 지시, 별지 머리말 정본)**. 그래서 이 단계에서도 **구 편집기
-> 코드 무접촉(stage-36 규약 A)이 더욱 중요**하다 — 리더 `MarkdownView`는 퇴역 **비대상**(stage-38 규약 C)이라
-> 접촉 허용(아래 규약 D).
-> 정본: 화면 계약 = **screens §5.16 "툴바 정비·다단(S40·S41)" 추기(Design v1.47 — 구현 후 실측 재개정)** ·
-> 방언 = **별지 §5.4 표 "세로 단나누기" 행 확정 개정(2026-08-24)** · 손실 = **별지 §14 11번(신규)** · 저장 계약 =
-> **api §4.28 ③·§4.29 무개정 계승**(블록 JSON + 프로젝션 동반 규칙 그대로 — 신규 블록 타입 1개가 실릴 뿐).
-> **DDL 0 · Alembic 0 · settings 키 0 · LLM 0 · 신규 엔드포인트 0 · 신규 npm/파이썬 의존 0(D10 — GPL XL 금지
-> 불변) · 백엔드 diff 0(실측: `backend/`에 `:::` directive 처리 코드 0 — 리더는 프론트 `MarkdownView`) ·
-> 초기 청크 증가 ≤ 5KB(min)(R37 — `MarkdownView`/`DirectiveBlocks`는 초기 청크라 리더 렌더 1종만 가산)**
+> 상태: **2차(고정 열 ⓑ) 구현·검토·실측 완료(2026-08-30) — 잔여 = DoD 8(사용자 실사용 PC+폰 ⓐ~ⓕ) + 머지.** 묶음 A(변환기·어댑터·리더·코퍼스)·B(스펙·정규화 훅·UX) 병렬 구현(opus) → Opus 검토 **조건부**(치명 0·중요 3·경미 7) → 수정 라운드(단 경계 **키 가드 강등 채택** · 두 계층 정규화 동치 고정 · 편집기 계층 헤드리스 검사 72건 · 병합 빈 줄 보존 · 리더 혼재 흡수) → 브라우저 실측 2회(삽입 즉시 2·3셀 grid · 단 내 Enter · 3단 입력 1단 무이동 · 2↔3 병합 손실 0 · 해제 · Delete/Backspace/Shift+Tab 단 경계 무동작 · `column` 핸들 숨김 · 390px 적층 · 리더 grid) → 표적 재검토 → H-8. 상세 = 말미 "완료 기록(2차)". (종전 2차 편성 문구: 1차(흐름형 ⓐ)는 구현·검토·실측·머지(PR #74)까지
+> 끝났으나 **사용자 실사용 피드백(2026-08-30)으로 결정 ①이 ⓑ로 번복**됐다: "다단을 눌렀는데 단이 생기지 않는다 ·
+> 왼쪽 단에서 엔터를 눌러야만 옆 단으로 · 1·2·3단 각각 컨테이너가 있어야 하고 각 단에서 엔터는 그 단 안에서 아래로 ·
+> 3단에서 줄바꿈하면 1단으로 데이터가 이동" = 흐름형(브라우저 다단 **균등 배분**)의 본질이 요구와 어긋남 → 메인
+> 대화가 진단·선택지 제시 → **사용자 확정 "ⓑ 고정 열로 전환"**. 이 문서는 그 개정본이며, **1차 구현은 2차가 대체**
+> 한다(1차 이력·수치는 말미 "1차(흐름형) 이력" 절에 보존). 구현 착수 = `/stage-implement 41`(2차 체크리스트 H-1~H-8).
+> (생성 경위·편성 근거는 1차와 같다: 2026-08-24 사용자 피드백 FB-10 + "2.x는 뒤로" 지시 → stage-39 전례(v2.0.x 후속 ·
+> M 번호 미부여 · 별지 관할 · 마스터 §14 압축 표 무변경) · D10(GPL XL `@blocknote/xl-multi-column` 금지 불변) 첫 자체
+> 구현 대상. 선행 stage-40 완료 · 후속 stage-43(구 편집기 퇴역) 조건부.)
+> 범위: **고정 열 다단(Notion 컬럼)** — 컨테이너 블록 `columns`(2·3단) 안에 **단 컨테이너 블록 `column` n개**(각각
+> 독립 내용 · 엔터는 그 단 안에서 아래로) + 슬래시/툴바 진입 + 단 수 변경(병합·추가)·[단 해제] + 방언
+> `::::columns{n=2} … :::column … ::: … ::::` 왕복 + 리더(`MarkdownView`) grid 렌더 + 모바일 세로 적층(1단).
+> 정본: 화면 계약 = **screens §5.16 "툴바 정비·다단(S40·S41)" — 2차 개정(Design v1.51 예정 · 구현 후 실측 재개정)** ·
+> 방언 = **별지 §5.4 "세로 단나누기" 행 2차 개정** · 손실 = **별지 §14 11번 2차 개정** · 저장 계약 = §4.28 ③·§4.29
+> 무개정 계승(블록 타입 2개가 실릴 뿐).
+> **DDL 0 · Alembic 0 · settings 키 0 · LLM 0 · 신규 엔드포인트 0 · 신규 npm/파이썬 의존 0(D10) · 백엔드 diff 0 ·
+> 초기 청크 증가 ≤ 5KB(min)(R37 — 1차 기준선 위 가산분이 아니라 **main 대비 총합**) · 엔진 내부 패치 0(R33)**
 > (위반이 필요해지면 착수 중단·사용자 보고).
 
-## 착수 전 결정 (권고안 채택 — 2026-08-24 메인 대화 위임 판정 · 사용자 미답 = 위임 · 재론 여지)
-
-> 관례(D1·D7 전례): 권고안을 명기하되 확정은 사용자(또는 사용자의 명시 위임 판정)만 한다. 사용자가 "즉시
-> 편성"만 지시하고 선택지에 답하지 않아 **권고안을 채택해 진행**한다. **사용자가 다른 선택지를 답하면 그
-> 시점에 이 표·규약을 개정한다.**
+## 착수 전 결정 (2차 — 2026-08-30)
 
 | # | 결정 | 선택지 · 판정 |
 |---|---|---|
-| ① | **다단 방식** | ⓐ **흐름형 CSS 다단(Word 단)** — 컨테이너 커스텀 블록(자식 블록 = 내용) + 자식 그룹에 `column-count` · 텍스트가 단을 넘어 흐른다 · 엔진 내부 노드 비접촉(콜아웃 전례 · R33) · 비용 낮음 / ⓑ 고정 열(Notion 컬럼) — 열마다 독립 컨테이너 = 엔진 내부 노드(blockContainer 중첩) 재구현·업그레이드 리스크·비용 높음. **← 채택 ⓐ(권고 — 2026-08-24 위임 판정) · ⓑ 착수 금지** |
-| ② | **단 수 범위** | 2·3단만(사용자 원문 "2단·3단") vs 4단 이상 허용. **← 채택 2·3단(권고)** — 4 이상 금지(입력 UI 고정 · 유입 데이터의 범위 밖 값은 규약 B ④) |
-| ③ | **중첩 규칙** | columns 안 columns = 금지(1단) · **콜아웃 안 columns** = ⓐ 허용 / ⓑ 금지. **← 채택 ⓑ 금지(권고 — 단순화)**: 콜아웃 안은 폭이 좁고 펜스 중첩 산정이 복잡해진다. **columns 안 콜아웃·표·코드·이미지 등 모든 블록은 허용**(자식 제한 0 — 단 CSS 흐름은 블록 단위로 깨질 수 있음 = 알려진 한계 §14 11번 ⓒ) |
-| ④ | **흐름 단위** | ⓐ **문단 내부도 단을 넘어 흐른다**(진짜 Word 단 — 긴 문단이 단 경계에서 이어진다) / ⓑ 블록 단위 흐름(`break-inside: avoid` — 문단이 통째로 다음 단으로 이동). **← 채택 ⓐ(권고 — 사용자 표현 "Word의 단"과 일치) · 단 원자·표·이미지·코드 블록은 `break-inside: avoid`**(잘리면 뜻이 깨진다). **실측 강등 경로**: 드래그 핸들·사이드 메뉴가 단 경계에 걸친 블록에서 오동작하면 F-2 실측 후 ⓑ로 강등하거나 컨테이너 내부 드래그 비활성(규약 E) — 강등 시 이 표에 기록 **← F-2 실측(2026-08-30)**: 문단 내 흐름 성립(긴 문단 조각 x=339/652 두 단에 걸침) · 사이드 메뉴 = 왼단 문단 hover 시 문단 옆(정상) · **단 경계에 걸친 문단의 오른단 조각 hover 시 핸들이 컨테이너 상단 왼쪽(문단 통합 경계 상자 좌상단)에 뜸** — 블록 귀속 정확·드래그/메뉴 기능 정상·위치만 hover 지점과 이격 → **ⓐ 유지·강등 없음**(불편하면 강등 ⓐ = 문단에도 `break-inside: avoid` 1줄 — DoD 8 ⓓ 사용자 판단) · 드롭 자체는 CDP 마우스로 네이티브 HTML5 drag가 발화하지 않아 미검증(도구 제약 — 실기기 DoD 8) |
+| ① | **다단 방식** | ⓐ 흐름형 CSS 다단(1차 구현 — 텍스트가 단을 넘어 흐르고 브라우저가 균등 배분) / ⓑ **고정 열** — `columns` 안에 `column` 컨테이너 n개, 각 단이 독립 내용·독립 커서 흐름. **← ⓑ 확정(2026-08-30 사용자 — 1차 ⓐ 실사용 후 번복)**. 1차 지시서의 "ⓑ = 엔진 내부 노드 재구현·고비용" 판단은 **철회**: 콜아웃·1차 columns와 같은 `createReactBlockSpec` 컨테이너 2종(`columns`·`column`) + 자식 그룹 **grid CSS**로 엔진 내부 비접촉 구현이 가능하다(1차에서 확보한 선택자 형태 `.bn-block:has(> :not(.bn-block-group) [data-…]) > .bn-block-group` 재사용) |
+| ② | **단 수 범위** | **2·3단 유지**(1차와 동일 · 4 이상 입력 UI 없음 · 유입 데이터의 4단 이상은 값·단 보존, 표시는 grid가 그대로 n열 — 고정 열은 상한 강등이 필요 없다(폭만 좁아진다) · 권고안 채택) |
+| ③ | **중첩 규칙** | **columns 안 columns 금지 · 콜아웃 안 columns 금지**(1차와 동일 — 삽입 가드) · **column 안의 모든 블록 허용**(콜아웃·표·코드·이미지·목록·수식). 유입 데이터의 중첩(드래그로 생긴 것 포함)은 **보존·grid로 그대로 렌더**(폭만 좁아짐 — 1단 강등 규칙 폐기) |
+| ④ | **단 경계 편집 규칙**(1차 "흐름 단위"를 대체) | 각 `column`은 **항상 자식 ≥ 1**(빈 단 = 빈 문단 1개 — 클릭 가능) · 단의 마지막 문단에서 Enter = 그 단 안에 새 문단 · 단의 첫 문단 맨 앞 Backspace/Shift+Tab(엔진 기본 = 부모 밖으로 승격)은 **정규화가 되돌려 단 안에 유지**(내용 이동 0) · 방향키는 문서 순서(1단 끝 → 2단 처음)를 따른다(엔진 기본) · **단 수 3→2 = 3단 내용을 2단 끝에 병합(손실 0) · 2→3 = 빈 단 추가** · **[단 해제] = 1단·2단·3단 내용을 순서대로 승격**(undo 1단위) · 컨테이너 제거 = 블록 삭제 또는 [단 해제]뿐(**"빈 컨테이너 자동 제거" 규칙 폐기** — 빈 단 n개도 사용자가 둔 레이아웃이다) — 권고안 채택 · 실측 후 재개정 여지 **← H-6 실측(2026-08-30 · CDP 합성 키)**: 엔진 기본 승격이 예상보다 파괴적 — **Delete(단 끝) = 다음 단 내용 전부를 현재 단으로 병합(단 소실)** · **Backspace(단 첫 블록 맨 앞) = 뒤 형제들을 자식으로 끌고 승격** → 정규화 되돌림만으로는 순서/중첩 변형이 남는다 → **규약 E 강등 채택 = 단 경계 키 가드**(`blocknote/columnsKeymap.ts` · BlockNote 확장 `createExtension({keyboardShortcuts})` priority 101 > 코어 50 · Backspace 단 최상위 첫 자식 시작 · Delete 단 서브트리 마지막 잎 끝 · Shift-Tab 부모 column = no-op · **표 안은 전부 해제**(셀 이동 회귀 방지) · 그 외 키 무개입) — 재실측: 세 키 모두 구조 무변·Enter/타이핑/단 밖 편집 정상. 단을 빠져나가는 수단 = [단 해제]·드래그·컨테이너 삭제(설계 의도) |
 
-## 확정 규약 (①~④ 위임 판정으로 유효 — 이 문서 + screens §5.16 S41 추기 + 별지 §5.4/§14 개정분이 정본)
+## 확정 규약 (2차 — 이 문서 + screens §5.16 2차 개정 + 별지 §5.4/§14 2차 개정분이 정본)
 
-### A. 블록 실체 — `columns` 컨테이너
+### A. 블록 실체 — `columns` > `column`
 
-- **앱 중립 블록**(`editor2/schema/blocks.ts` — `CalloutBlock` 351~362행 전례): `ColumnsBlock { type: 'columns',
-  count: number, children: Block[] }`. `attrs`(미지 속성 쌍 통짜 보존 — 콜아웃 전례)는 **둔다**(`{n=2 x=1}`
-  같은 유입 데이터 손실 0 원칙 — 자유 편집 UI는 만들지 않는다).
-- **편집기 스펙**(`blocknote/specs/blocks.tsx` — `createReactBlockSpec` · `createCalloutBlockSpec` 25~55행
-  전례): `type: 'columns'` · `propSchema { count: { default: 2 }, attrs }` · `content: 'none'` · **자식 = 내용**
-  (BlockNote 중첩 그룹 `.bn-block-group`). 렌더 = 상단 얇은 컨트롤 띠(2/3 토글 + [단 해제]) — 색·테두리
-  전부 토큰(불변 규칙 5).
-- **어댑터**(`adapter/toBlockNote.ts`·`fromBlockNote.ts` — 콜아웃 전례 대칭) 양방향 1:1 · 미지 `attrs` 왕복.
-- **CSS**(`notes.css`): 컨테이너 블록의 **자식 그룹**에 `column-count: 2|3` · `column-gap`(토큰 간격) ·
-  **`column-rule: 1px solid var(--border)`**(사용자 표현 "세로 구분선" — 토큰 색) · 원자·표·이미지·코드 블록
-  `break-inside: avoid`(결정 ④) · **모바일(<768px) = `column-count: 1`·구분선 없음**(강등 — 데이터 무변).
-  단 수는 prop → DOM 속성(엔진이 prop을 `data-*`로 방출하는지 실측 후 — 아니면 렌더에서 `data-count`
-  부여·구현 재량). 콜아웃 children 시각 소속 CSS(stage-36 F-8)와 같은 계층·같은 특이도 규칙.
-- **범위 밖 값**(유입 데이터 `n=4`·비정수 등): **값 보존 · 표시는 3단 상한으로 강등**(콜아웃 variant "값
-  그대로 보존 + 기본 스타일" 전례 — 조용한 변형 금지). 입력 UI는 2·3만 준다(결정 ②).
+- **앱 중립 블록**(`editor2/schema/blocks.ts`): `ColumnsBlock { type: 'columns', count: number, attrs?: AttrPair[], children: Block[] }`
+  **유지**(children은 정규 상태에서 전부 `ColumnBlock`) + **신규 `ColumnBlock { type: 'column', children: Block[] }`**(prop 없음 ·
+  `attrs` 없음 — `:::column`에는 속성을 두지 않는다). `blockChildren()`에 `column` 가산. 정규 불변식(변환기·어댑터·정규화가
+  공유하는 함수 `normalizeColumnsBlock` 1개 — `editor2/schema` 또는 `transform`에 두고 세 곳이 import):
+  ① `columns.children`은 전부 `column` — 아닌 자식은 **직전 `column`의 끝**(없으면 첫 `column`의 앞)으로 이동
+  ② `column`이 0개면 `count`개 생성 · `count`는 **`column` 수로 갱신**(children이 정본 · `n=` 속성은 표기)
+  ③ 각 `column.children ≥ 1`(0이면 빈 문단 삽입)
+  ④ `column`의 부모가 `columns`가 아니면 **해제**(자식을 제자리에 승격).
+- **편집기 스펙**(`blocknote/specs/blocks.tsx`): `columns` = 1차 스펙 유지(`count`·`meta` prop · `content: 'none'` · 상단 컨트롤 띠
+  = 2/3 토글 + [단 해제] · `data-columns-view={count}` 선언 속성) — 단 **빈 컨테이너 제거 훅(`ensureColumnsEmptyCleanup`)은
+  정규화 훅 `ensureColumnsNormalized`로 대체**. **신규 `column` 스펙**: `type: 'column'` · prop 없음 · `content: 'none'` ·
+  렌더 = 높이 0에 가까운 빈 `div`(`data-column-cell`) — 셀의 시각(구분선·여백)은 CSS가 `.bn-block-outer` 단위로 그린다.
+  `blocknote/schema.ts`에 등록(2행). 슬래시 메뉴에는 **`column` 항목을 두지 않는다**(사용자는 columns 단위로만 만든다).
+- **어댑터**(`adapter/toBlockNote.ts`·`fromBlockNote.ts`·`types.ts`): `BnColumn { type: 'column', props: {}, children }` 추가 ·
+  양방향 1:1 · `fromBlockNote` 컨테이너 평탄화 예외에 `column` 가산(자식이 형제로 새지 않게) · 되읽기 직후
+  `normalizeColumnsBlock` 적용(유입 JSON이 비정규여도 편집 표면은 정규 상태만 본다).
+- **CSS**(`notes.css` — 1차 흐름형 규칙 **전부 삭제**하고 grid로 대체): 컨테이너의 자식 그룹
+  `.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='2']) > .bn-block-group { display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }`(3단 동형) · 각 단 셀(`> .bn-block-group > .bn-block-outer`)
+  두 번째부터 **`border-left: 1px solid var(--border)`**(세로 구분선 — 토큰 색) + 왼쪽 여백 · 셀 안 `.bn-block-content`
+  `max-width: 100%`(표는 기존 가로 스크롤 규칙 유지) · **모바일(<768px) = `grid-template-columns: 1fr` 세로 적층 · 구분선
+  없음**(데이터 무변). 선택자는 1차에서 실측한 형태(`.bn-block:has(> :not(.bn-block-group) …) > .bn-block-group` —
+  리액트 스펙 블록의 tiptap 노드뷰 래퍼 때문에 `+ .bn-block-group` 형제 선택자는 매칭 0)를 그대로 쓴다.
+  `break-inside`·`column-*` 규칙은 흐름형 전용이었으므로 제거.
+- **범위 밖 값**(`n=4`·비정수): 값 보존 · `column` 수가 정본이므로 표시는 그 수만큼 grid 열(4열도 그대로 — 결정 ②).
 
 ### B. 진입·조작 UX
 
-- **슬래시**: `/단나누기`(별칭 `/columns`·`/2단`·`/3단`·`/다단`) — `slash/slashTable.ts` 전수표(stage-36 F-5)에
-  행 가산(그룹 = 기존 그룹명 재사용 — 새 그룹명 금지 관례). `/2단`·`/3단`은 단 수 지정 삽입.
-- **툴바 메뉴**(`ColumnsMenu` — `CalloutMenu` 380~422행 전례): stage-40 항목 빌더의 **블록 기능군**에 가산
-  (부유·도킹 동시 노출 — 단일 출처) · 항목 = 2단·3단. **선택 블록이 있으면 그 블록들을 감싸고**, 없으면 빈
-  2단(자식 = 빈 문단 1개) 삽입(`insertCalloutBlock` 전례 — `refPicker/insert.ts`).
-- **단 수 변경**: 컨테이너 상단 컨트롤 띠 2/3 토글(prop 갱신만 — 자식 무변).
-- **[단 해제]**: 자식 블록을 컨테이너 자리에 **순서대로 승격**(컨테이너 삭제 + 자식 삽입 — 한 트랜잭션 · 조용한
-  손실 0 · undo 1단위).
-- **중첩 차단(결정 ③)**: 커서/선택이 columns 안 또는 콜아웃 안이면 다단 메뉴·슬래시 항목 **비활성 + 사유
-  툴팁**(숨기지 않는다 — 원자 가드 관례). 유입 데이터의 중첩은 보존하고 안쪽은 CSS로 1단 표시.
-- **빈 컨테이너**: 자식이 0이 되면(마지막 자식 삭제) 컨테이너도 제거 — 빈 껍데기 잔존 금지(구현 재량이되
-  "빈 `:::columns` 펜스가 저장되는 경로 0"이 계약).
+- **슬래시**: `/단나누기`(별칭 `/columns`·`/다단` 공통 · `/2단`·`/3단`은 그 항목만 — 1차 경-4 형태 유지) → `columns` + 빈 `column`
+  n개(각 빈 문단 1) 삽입 · **커서 = 1단의 빈 문단**.
+- **툴바 [다단]**(`ColumnsMenu` — stage-40 빌더 블록 기능군 · 부유·도킹 동시): 2단·3단. **선택 블록이 있으면 그 블록들을 1단에
+  넣고 나머지 단은 빈 문단**, 없으면 빈 columns 삽입 · 중첩 차단(columns 안·콜아웃 안 = 비활성 + 사유 툴팁 — 1차와 동일 ·
+  `columnsInsertBlocked`는 `column` 안도 "columns 안"으로 판정).
+- **단 수 변경**(컨트롤 띠 2/3 토글): 2→3 = 빈 `column` 추가 · **3→2 = 마지막 단 내용을 앞 단 끝에 병합**(손실 0 · 한 트랜잭션 ·
+  undo 1단위). `count` prop과 `column` 수를 함께 갱신.
+- **[단 해제]**: 모든 단의 자식을 **1단→2단→3단 순서로 컨테이너 자리에 승격**(컨테이너 삭제 + 자식 삽입 — 한 트랜잭션 · undo 1단위).
+- **단 경계 편집**(결정 ④): 정규화 훅이 `editor.onChange` 뒤 `setTimeout 0`(1차 재진입 방지 관례)에 `normalizeColumnsBlock`
+  불변식 ①~④를 적용한다 — 변경이 없으면 dispatch하지 않는다(무한 루프 방지 · 1차 프리즈 교훈: **PM 관리 DOM 변이 금지**,
+  블록 API만). 알려진 한계: 사용자 조작 + 정규화 = undo 2단계(첫 Ctrl+Z가 중간 상태를 보일 수 있음 — 실측 기록).
+- **사이드 메뉴**: `column` 블록 자체는 **드래그 핸들·＋ 버튼을 숨긴다**(셀을 끌어내는 조작 금지 — `SideMenuController`의
+  커스텀 `sideMenu`가 `block.type === 'column'`이면 null · 다른 블록은 기본 `SideMenu`). columns 컨테이너 자체는 핸들 유지(통째
+  이동·삭제). 단 안 블록은 각 셀 안에 경계 상자가 있으므로 핸들 위치가 정상이다(1차 이격 문제 해소).
+- **빈 컨테이너**: 자동 제거 없음(결정 ④). 저장 시 빈 단은 `:::column\n:::`으로 실린다 — "빈 `::::columns` 펜스"(단 0개)는
+  정규화가 만들지 않으므로 저장 경로 0.
 
-### C. 방언·프로젝션 — `:::columns{n=2} … :::`
+### C. 방언·프로젝션 — `::::columns{n=2}` / `:::column`
 
-- **직렬화**(`transform/blocksToMarkdown.ts` — 609~612행 `callout` 케이스 전례): 컨테이너 directive
-  `:::columns{n=<count>}` + 자식 블록 + `:::`. 펜스 길이 = **`calloutFence(inner)` 재사용**(자식에 콜아웃이
-  있으면 바깥 펜스가 길어진다 — 중첩 산정 단일 출처). `attrs` 미지 쌍은 `n` 뒤에 그대로.
-- **파싱**(`transform/mdastToBlocks.ts` — 438행 `containerDirective` → `calloutBlock` 분기 **앞**에
-  `node.name === 'columns'` 분기 신설 → `ColumnsBlock`). `n` 결손·비정수 = 기본 2(값 보존 원칙은 `attrs`로).
-  **주의(실측)**: 현행은 모든 `containerDirective`가 콜아웃이 되므로 기존 문서에 `:::columns` 이름의 콜아웃이
-  있었다면 의미가 바뀐다 → **F-5 코퍼스·실문서 전수 검사에 "directive 이름 `columns` 기존 표본 수" 항목
-  필수**(예상 0 — 0이 아니면 사용자 보고 후 결정).
-- **리더**(`components/MarkdownView.tsx` 203~219행 directive 분기 — `fold`/`hide`/콜아웃 전례): `columns`
-  분기 신설 → `DirectiveBlocks.tsx`에 `ColumnsSection`(같은 토큰 CSS 다단 — 편집 표면과 동일 외양 · 모바일
-  1단 · **인쇄 = 화면과 같은 단 수**(강등 없음 — 인쇄 폭에서 3단이 좁으면 실사용 DoD로 판단)).
-  `remarkStudy.ts` 59행 `F52_DIRECTIVE_NAMES`(inlineFormat off 표면의 원문 노출 퇴로) 가입 여부는 **구현
-  실측 판단** — 계약 = **`:::columns`가 없는 기존 문서의 렌더 diff 0**(`{w=}` 전례).
-- **프로젝션 손실(별지 §14 11번 — ⓐ 명문화된 강등 손실)**: Markdown **외부 소비자**(remark-directive 없는
-  렌더러)는 펜스 줄이 평문으로 보이고 내용은 **순차 나열**로 읽는다. **리더·편집·재전환은 무손실**(왕복
-  동형 — directive 자체가 소스). 별지 §5.4 종전 "프로젝션 강등 = 순차 나열" 문구는 이 뜻으로 **한정 개정**.
-- **왕복 코퍼스**(`s35-doc-roundtrip` 전례 — **신규 `s41-columns-roundtrip.mjs`**): 2단/3단 · 자식에 문단·
-  목록·표·코드·이미지·콜아웃 · `attrs` 미지 쌍 · 범위 밖 `n` · 빈 자식 · 콜아웃 안 columns(유입 보존) 표본 —
-  블록→md→블록 동형 + md→블록→md 문자열 동형. 기존 s30~s37 회귀 건수 무변.
+- **직렬화**(`transform/blocksToMarkdown.ts`): `columns` = `{fence}columns{n=<count>}{attrs}` + 각 `column` 직렬화 + `{fence}` ·
+  `column` = `{fence}column` + 자식 + `{fence}`(빈 단 = `:::column\n:::`). 펜스 길이 = **`calloutFence(inner)` 재사용**(단 안에
+  콜아웃이 있으면 `column` 펜스 4 · 바깥 `columns` 펜스 5 — 중첩 산정 단일 출처). 정규형 예:
+  ```
+  ::::columns{n=2}
+  :::column
+  1단 내용
+  :::
+  :::column
+  2단 내용
+  :::
+  ::::
+  ```
+- **파싱**(`transform/mdastToBlocks.ts`): `containerDirective` `columns` 분기(1차) 안에서 자식 `containerDirective` `column`을
+  `ColumnBlock`으로 · 그 밖의 자식(1차 형식 `:::columns{n=2}` + 평문 자식 = **레거시 수용**)은 `normalizeColumnsBlock`이
+  1단으로 모으고 빈 단을 채운다(재직렬화는 2차 정규형 — 계열 ② "정규화 수용"). 라벨 동반 `:::columns[제목]`·`:::column[제목]`은
+  1차와 같이 `sourceFallback` 원문 보존. **`column` directive가 `columns` 밖에 단독으로 오면** 콜아웃 분기로 떨어지지 않게
+  `columns` 분기 **앞**에서 잡아 자식을 제자리에 승격(불변식 ④).
+- **리더**(`components/MarkdownView.tsx` + `DirectiveBlocks.tsx`): `columns` → `ColumnsSection`(**grid** · `data-columns={n}` ·
+  `index.css` `.md-columns { display: grid; grid-template-columns: repeat(n) }` — 1차 `column-count` 규칙 삭제) · **신규 `column`
+  → `ColumnCell`**(`.md-column` · 두 번째부터 `border-left` 토큰 구분선) · `columns` 직계 자식 중 `column`이 아닌 것(레거시)은 1단
+  셀로 묶는다 · **모바일(<768px, `@media screen` 한정) 세로 적층** · **인쇄 = 화면과 같은 열 수**(grid는 인쇄 폭에서도 유지 —
+  1차 중-1 교훈: `md:` 유틸 금지). `remarkStudy.ts`: `column` directive에도 `hProperties` 통과(F52 퇴로 목록 가입 여부는 1차
+  판단 유지 = 미가입 · 계약 = **`columns`가 없는 기존 문서 렌더 diff 0**).
+- **프로젝션 손실(별지 §14 11번 2차)**: 외부 Markdown 소비자는 두 펜스(`::::columns` / `:::column`)가 평문으로 보이고 단 내용이
+  **1단→2단→3단 순서대로 나열**된다 — 리더·편집·재전환은 무손실.
+- **왕복 코퍼스**(`s41-columns-roundtrip.mjs` **2차로 재작성**): ① 정규형 고정점(2단/3단 · 단마다 문단·목록·표·코드·이미지·
+  콜아웃(펜스 4/5)·수식·헤딩·빈 단) ② 정규화 수용(**1차 레거시 `:::columns{n=2}` 평문 자식** → 1단 + 빈 단 · `n` 결손 ·
+  `n`과 `column` 수 불일치 → `column` 수 우선 · `column` 안 비-column 섞임) ③ 값 보존·폴백(`n=4`(4열 보존) · `n=abc` · 미지
+  attrs · 라벨 동반 → sourceFallback · `columns` 밖 단독 `:::column` → 승격) ④ 어댑터(`column` 왕복 · 평탄화 예외 · 사이드카
+  불요 · 실제 스키마 적재) ⑤ 실문서(directive 이름 **`columns`·`column` 표본 수** 병기 — 예상 0 · 프로젝션 고정점). 기존
+  s30~s40 회귀 건수 무변(s33 블록 표는 **18종**으로 갱신 — `column` 가산).
 
 ### D. 격리·검증
 
-- 접촉 파일(프론트 한정): `editor2/schema/blocks.ts`(타입 1) · `editor2/adapter/toBlockNote.ts`·
-  `fromBlockNote.ts`·`types.ts` · `editor2/transform/blocksToMarkdown.ts`·`mdastToBlocks.ts` ·
-  `blocknote/schema.ts`(스펙 등록 1행) · `blocknote/specs/blocks.tsx`(스펙) · `blocknote/slash/slashTable.ts` ·
-  `blocknote/toolbar/**`(다단 메뉴 — stage-40 빌더 위) · `blocknote/notes.css` · **리더 = `components/MarkdownView.tsx`·
-  `components/markdown/DirectiveBlocks.tsx`(+ 필요 시 `remarkStudy.ts`)**. **백엔드·구 편집기(DocEditor 소스 폼·
-  `MarkdownFieldEditor`·`EditablePreview`·퇴로 토글)·저장 API 무접촉.**
-- 리더 접촉의 정당성: stage-38 규약 C 퇴역 대상 정의에서 `MarkdownView`는 **비대상(존치 — D5)**이고, 방언
-  렌더 추가는 `::toc`/`::web`(stage-37) 전례. 리더 diff는 `columns` 분기 1곳 + `ColumnsSection` 1개로 한정 —
-  **기존 문서 렌더 diff 0**이 계약.
-- 회귀 = 기존 회귀 스크립트 전건 건수 무변·실패 0 + `s41-columns-roundtrip.mjs` + `s32-realdoc-check`
-  (실문서 전수 — directive 이름 `columns` 표본 수 병기) · `tsc -b`·`npm run build` · `invariant-scan.ps1` PASS ·
-  `run-tests.ps1` 무회귀 · 초기 청크 ≤ +5KB(min) · 백엔드 diff 0 · 신규 의존 0(`package.json` diff 0).
+- 접촉 파일(프론트 한정): `editor2/schema/blocks.ts` · `editor2/adapter/{toBlockNote,fromBlockNote,types}.ts` ·
+  `editor2/transform/{blocksToMarkdown,mdastToBlocks}.ts`(+ 정규화 함수 파일 1개 신설) · `blocknote/schema.ts` ·
+  `blocknote/specs/blocks.tsx` · `blocknote/slash/slashTable.ts` · `blocknote/toolbar/**` · `blocknote/refPicker/insert.ts` ·
+  `blocknote/notes.css` · 편집기 뷰 파일(`SideMenuController` 커스텀 — `BlockNoteView`를 그리는 파일 1곳) ·
+  리더 `components/MarkdownView.tsx`·`components/markdown/DirectiveBlocks.tsx`·`remarkStudy.ts`·`src/index.css` ·
+  `scripts/s41-columns-roundtrip.mjs`·`s33-adapter-roundtrip.mjs`(블록 표). **백엔드·구 편집기·저장 API 무접촉.**
+- 회귀 = 기존 회귀 스크립트 전건 건수 무변·실패 0 + s41 2차 전건 + `s32-realdoc-check` · `tsc -b`·`npm run build` ·
+  `invariant-scan.ps1` PASS · `run-tests.ps1` 무회귀 · 초기 청크 ≤ main +5KB · 백엔드 diff 0 · `package.json` diff 0.
 
 ### E. 알려진 위험·강등 경로
 
-- **드래그 핸들·사이드 메뉴 위치**(엔진 부유 배치 — 별지 §13 FB-10 "제약"): CSS 다단 안 블록의 DOM rect가
-  단 경계에서 둘로 갈라지면 핸들이 엉뚱한 자리에 뜰 수 있다. **F-2 실측 필수** → 문제 시 순서대로 강등:
-  ⓐ 결정 ④ⓑ(블록 단위 흐름 `break-inside: avoid` 전면) → ⓑ 컨테이너 내부 드래그 비활성(사이드 메뉴 숨김 —
-  자식 재배열은 [단 해제] 후) — 채택한 강등을 착수 전 결정 표 ④에 기록. **엔진 내부 패치 금지**(R33 —
-  `createReactBlockSpec`만).
-- **커서 이동**: 단 경계에서 방향키·클릭 캐럿은 브라우저 CSS 다단 처리에 맡긴다(contenteditable 표준 동작) —
-  이상 시 실기기 DoD 보고 항목.
-- **표·이미지가 단 폭보다 넓을 때**: 자식 블록 `max-width: 100%`·표는 가로 스크롤(기존 규칙) — 강제 축소 없음.
+- **엔진 기본 승격 동작**(Backspace/Shift+Tab/드래그로 블록이 `column` 밖으로): 정규화 훅이 되돌린다 — 실측에서 "되돌림이
+  보이는 깜빡임" 또는 undo 2단계가 불편하면 **키 가로채기(Backspace at column start = no-op)** 를 2차 강등으로 검토(엔진 내부
+  패치 금지 — `keyboardShortcuts`/tiptap extension 수준만).
+- **`column` 셀 클릭 진입**: 빈 단은 빈 문단 1개를 보장하므로 항상 클릭 가능 — 문단 높이 이하 여백 클릭은 엔진 기본.
+- **grid 셀 폭보다 넓은 표·이미지**: 셀 `min-width: 0` + 표 가로 스크롤(기존 D2 봉인) — 강제 축소 없음.
+- **레거시 1차 문서**: 실문서 표본 0(1차 실측) — 변환 규칙만 두고 마이그레이션 없음.
 
-## 체크리스트
+## 체크리스트 (2차 — 고정 열)
 
 ### 백엔드 묶음
 
-- 없음 — **백엔드 diff 0이 이 단계의 계약이다**(실측 근거 = `backend/`에 `:::` 처리 0 · DoD 6).
+- 없음 — 백엔드 diff 0 계약(1차와 동일).
 
-### 프론트 묶음 (담당 `frontend-dev` · Sonnet — 변환기·어댑터 부분은 stage-34/35 전례대로 신중, 필요 시 opus 승격)
+### 프론트 묶음 A — 변환기·어댑터·리더 (담당 opus 승격 — 변환기 신중 관례)
 
-- [x] F-1. **스키마·어댑터·변환기**(규약 A·C) — `ColumnsBlock` 타입 · 스펙 등록 · to/fromBlockNote 대칭 ·
-      `blocksToMarkdown` 케이스(`calloutFence` 재사용) · `mdastToBlocks` `columns` 분기(콜아웃 앞) ·
-      범위 밖 값·`attrs` 보존.
-- [x] F-2. **편집기 스펙·CSS·드래그 실측**(규약 A·E) — `createReactBlockSpec` 컨테이너 렌더(컨트롤 띠) · 자식 그룹
-      `column-count`/`column-gap`/`column-rule`(토큰) · `break-inside` 규칙 · 모바일 1단 · **드래그 핸들·사이드
-      메뉴 실측 기록**(정상 / 강등 ⓐ / 강등 ⓑ — 결정 ④ 표에 추기).
-- [x] F-3. **진입·조작 UX**(규약 B) — 슬래시 5별칭 · 툴바 `ColumnsMenu`(stage-40 빌더 블록 기능군) · 감싸기/빈
-      삽입 · 2/3 토글 · [단 해제](승격 · undo 1단위) · 중첩 차단(비활성 + 사유) · 빈 컨테이너 제거.
-- [x] F-4. **리더 렌더**(규약 C) — `MarkdownView` `columns` 분기 + `DirectiveBlocks.ColumnsSection`(같은 토큰 CSS ·
-      모바일 1단 · 인쇄 동일 단 수) · 기존 문서 렌더 diff 0 확인(`s32-realdoc-check`).
-- [x] F-5. **왕복 코퍼스·실문서 검사**(규약 C·D) — `s41-columns-roundtrip.mjs` 표본 전건 동형 · 기존 회귀 건수
-      무변 · **directive 이름 `columns` 기존 표본 수 = 0 확인**(0 아니면 보고).
-- [x] F-6. **모바일·실기기 표면 준비** — 390px 에뮬: 1단 강등·구분선 없음·컨트롤 띠 터치 타깃 36px. (실기기
-      최종 = DoD 8.)
-- [x] F-7. **검증 일괄**(규약 D) — 회귀 전건 · 신규 스크립트 · `tsc -b`·`npm run build` · 초기 청크 ≤ +5KB(min) ·
-      `invariant-scan.ps1` PASS · `run-tests.ps1` 무회귀 · 백엔드 diff 0 · `package.json` diff 0.
+- [x] H-1. **스키마·정규화** — `ColumnBlock` 타입 · `blockChildren` 가산 · `normalizeColumnsBlock` 불변식 ①~④(순수 함수 · 단위
+      검사는 H-5 코퍼스에 포함).
+      (구현 2026-08-30 — 신설 `editor2/schema/columnsNormalize.ts`: `normalizeColumnsBlock`(①~③ · 변경 없으면 **입력 객체 참조
+      그대로**) · `unwrapStrayColumns`(④만) · `normalizeColumnsTree`(④ + 모든 columns ①~③ · 어댑터 되읽기 진입점). 새 블록 id는
+      순수성 유지를 위해 **컨테이너 id 파생**(`<id>~1`)이 기본이고 `options.makeId`로 호출부 관례를 주입한다. 단 없는 컨테이너에서
+      새로 만드는 단 수는 상한 12(병적 `n=9999` 방어 — 내용은 1단에 전부 산다).)
+      (검토 반영 2026-08-30 · 경-1 — 단 0개 + `count`가 **수가 아니거나 없을 때** 생성 단 수 폴백을 1 → **2**로 정렬
+      (스키마 기본값·파서 `n` 결손 기본·편집기 계층과 동일). 명시된 `count: 0`·음수는 종전대로 1단으로 접는다.
+      생성 상한은 A 12 · B 3으로 아직 다르다 — 단 0개 컨테이너에서만 갈리므로 **잔여 정렬 항목으로 보고**.)
+- [x] H-2. **변환기** — 직렬화(`column` 케이스 · `calloutFence` 재사용) · 파싱(`columns` 안 `column` · 레거시 평문 자식 수용 ·
+      단독 `column` 승격 · 라벨 동반 폴백) · 어댑터 `BnColumn` 왕복 · 평탄화 예외 · 되읽기 정규화.
+      (구현 2026-08-30 — 단 펜스끼리는 **빈 줄 없이** 잇는다(규약 C 정규형 예시대로 · 비정규 자식 혼재분만 종전 블록 시퀀스 규칙).
+      `:::column`의 **속성 동반**(`{x=1}`)도 라벨 동반과 같이 원문 보존(sourceFallback)으로 보낸다 — 단에는 담을 자리가 없어
+      흡수하면 값이 조용히 사라진다. 어댑터 `BnColumn` = prop 0(`props: {}`) · `fromBlockNoteBlocks`가 되읽기 끝에
+      `normalizeColumnsTree`를 돌린다(정규 문서는 참조 동일 = 비용 0). `toBlockNote`는 정규화하지 않는다(어댑터 무정규화 원칙 —
+      편집 표면은 H-4 훅이 지킨다).)
+- [x] H-3. **리더** — `ColumnsSection` grid + `ColumnCell` · 레거시 1단 묶음 · `index.css` grid/구분선/모바일 screen/인쇄 동일 ·
+      `remarkStudy` `column` 통과 · 기존 문서 렌더 diff 0(`s32-realdoc-check` 442/442).
+      (구현 2026-08-30 — 열 수의 정본은 **hast 직계 `column` 자식 수**(`columnCellCount`)이고 `n=`은 레거시(단 없는 columns)에서만
+      읽는다: 레거시는 내용을 셀 하나로 묶고 나머지 단을 빈 셀로 채워 정규화 결과와 같은 모습이 된다. 4열 이상은 인라인
+      `grid-template-columns` 대신 **커스텀 프로퍼티 `--md-columns`**로 낸다 — 인라인 선언은 모바일 미디어 쿼리를 이겨 폰에서
+      4열이 남는다. `remarkStudy`는 `column`에 **정규 표기 여부**(`data-directive-normative`)만 실어 변환기의 흡수/폴백 판정과
+      리더를 일치시킨다. 1차 흐름형 `column-count` 규칙은 전부 삭제. **화면 실측(폰 390px·인쇄 미리보기)은 브라우저 단계**.)
+      (검토 반영 2026-08-30 · 경-4 — **혼재 입력 흡수**: `columns` 직계의 비-`column` 자식(레거시 평문 · 속성 동반
+      `:::column{x=1}` 폴백 div)을 리더도 불변식 ①과 같은 규칙으로 **직전 셀 끝**(앞에 셀이 없으면 첫 셀 앞)에 넣는다
+      (`groupColumnsChildren` — 혼재가 없으면 입력 children을 그대로 돌려 정규 문서 렌더 diff 0). 열 수는 여전히 직계
+      `column` 수. SSR 실측: 뒤 평문 → 셀1 끝·2열 유지 / 앞 평문 → 셀1 앞·1열 / 속성 동반 column → 셀1 안 흡수·1열
+      = 변환기 투영과 같은 결론.)
+- [x] H-5. **왕복 코퍼스 2차** — `s41-columns-roundtrip.mjs` 재작성(계열 ①~⑤) · `s33` 블록 18종 표 · `columns`·`column` 실문서
+      표본 수 병기 · 기존 회귀 건수 무변.
+      (2026-08-30 · 검토 반영 후 재실행 — **s41 2차 335건 전건 통과**(① 102 · ② 55 · ③ 47 · ③-b 정규화 함수 단위 16 · ④ 104 · ⑤ 11 · 실제 `noteSchema`
+      적재 왕복 12/12 = 묶음 B 스펙 등록 확인). 실문서 442표면에서 directive `columns` **0건** · `column` **0건**(기존 문서 변환·
+      렌더 diff 0). 회귀: s30 365 · s32-realdoc 442/442 · s32-blocks 751 · s33 **999**(블록 18종으로 갱신) · s37 191 · s35 3062
+      (= 7×437표면+3 — DB 표면 수가 1차 실측 때보다 1건 줄어든 데이터 변동이고 검사 항목은 무변) · `tsc -b` 0 · `npm run build` 성공 ·
+      `invariant-scan` PASS.)
+
+### 프론트 묶음 B — 편집기 스펙·정규화 훅·UX (담당 opus 승격 — 1차 프리즈 전례)
+
+- [x] H-4. **스펙·CSS·정규화 훅** — `column` 스펙 + 등록 · 1차 흐름형 CSS 삭제 → grid/구분선/모바일 · `ensureColumnsNormalized`
+      (`onChange` + `setTimeout 0` · 변경 없으면 dispatch 0) · `column` 사이드 메뉴 숨김(`SideMenuController`).
+      (구현 2026-08-30 — 계산은 신설 `blocknote/columnsNormalize.ts`(잎 모듈)에, dispatch는 `specs/blocks.tsx`
+      `ensureColumnsNormalized`/`applyColumnsNormalization`에. 0.54의 커스텀 `sideMenu`는 props를 받지 않아
+      대상 블록을 `useExtensionState(SideMenuExtension)`로 읽는다. **검토 반영(2026-08-30)**: 앱 계층
+      정규화(A `normalizeColumnsTree`)와 **동치**로 맞췄다(생성 상한 `MAX_GENERATED_COLUMNS`를 A에서
+      import · 단 0개+`count` 비정수/미지정 = 2단 · 빈 stray `column`은 통째 제거) — `scripts/s41-columns-editor.mjs`
+      계열 ②(픽스처 13종 트리 비교)가 고정한다. 지연 실행 시 파괴된 편집기 방어·`onChange` 해제 함수 보관 포함.)
+- [x] H-6. **진입·조작 UX** — 슬래시/툴바 삽입(빈 단 n개 · 커서 1단) · 선택 감싸기(1단) · 2↔3 토글(추가/병합) · [단 해제] 순서
+      승격 · 중첩 차단(`column` 안 포함) · 단 경계 Enter/Backspace/Shift+Tab 실측 기록.
+      (코드 완료 2026-08-30 · `scripts/s41-columns-editor.mjs` 계열 ③이 삽입·커서·병합(내부 빈 문단 보존)·해제·
+      감싸기·차단을 고정. **단 경계 실측 결과(2026-08-30)**: ⓐ 단 끝 Delete = 엔진이 다음 단 내용을 통째로
+      끌어와 뒤 단 소실 ⓑ 단 첫 블록 맨 앞 Backspace = lift가 뒤 형제를 자식으로 달고 나가 구조 변형
+      ⓒ Tab·Shift+Tab·Enter는 정상 → **규약 E 강등 채택**: `blocknote/columnsKeymap.ts`(공식 확장 API
+      `createExtension({ keyboardShortcuts })` · 우선순위 101 > 코어 키맵 50)로 Backspace(단 첫 블록 시작)·
+      Delete(단 마지막 잎 끝)·Shift+Tab(단 최상위)만 no-op. 표 안에서는 전부 해제(셀 이동 보존).
+      **결정 ④ 본문에 이 강등을 반영해야 한다**(H-8).)
+- [x] H-7. **모바일·실기기 표면 준비** — iframe 390px 에뮬(1차 관례): 세로 적층·구분선 없음·컨트롤 띠 36px.
+      (CSS 준비 완료 2026-08-30 — `@media (max-width: 767px)`에서 `grid-template-columns: 1fr` + 구분선·왼쪽
+      여백 제거 · 컨트롤 띠 버튼 `min-h-9` 유지. **에뮬 실측 자체는 브라우저 단계**.)
 
 ### 공통
 
-- [x] G-8. **문서 반영** — 본 문서 체크박스·완료 기록(결정 ④ 실측 결과 포함) · **screens §5.16 S41 실측 재개정**
-      (Design 판번 +1) · 별지 `editor-v2.plan.md` §13 FB-10 행 완료 추기 · §5.4 표 행 실측 확정 · §14 11번 상태
-      갱신 · §10 D10 행 1구 · 마스터 머리말 이력 1줄 · `docs/manual/user-manual.html` 갱신(단나누기 사용법·
-      모바일 1단·Markdown 소비자 강등 안내).
+- [x] H-8. **검증 일괄 + 문서 반영** — 규약 D 전건 · 본 문서 체크박스·완료 기록(결정 ④ 실측 결과) · **screens §5.16 S41 2차
+      실측 재개정(Design v1.51)** · 별지 §5.4 행·§13 FB-10·§14 11번 2차 · 마스터 머리말 1줄 · 매뉴얼(단나누기 사용법을 고정
+      열로 다시 씀 — 방언 예시 포함).
 
 ## 이 단계에서 하지 않는 것 (착수 금지)
 
-- **고정 열(Notion 컬럼 — 결정 ①ⓑ)** · **열 폭 드래그** · **단 내 독립 스크롤** · **4단 이상**.
-- **`@blocknote/xl-multi-column` 등 XL(GPL) 도입** — D10 불변(저장소 public).
-- **구문 강조(FB-11 ⓑ)** — stage-40과 동일하게 제외·등재만.
-- **콜아웃 안 다단 허용**(결정 ③ⓑ) — 실수요 실측 후 재론.
-- **columns를 위한 서버측 처리·프로젝션 생성** — 백엔드 diff 0(영구 금지 조항 §4.28/§4.29 계승).
-- **구 편집기 접촉** — stage-36 규약 A · stage-42 대조표 보전. 구 편집기에서 `:::columns` 문서를 열면 소스
-  폼에 펜스가 평문으로 보이는 것은 **정상**(콜아웃 `:::note` 전례와 동일 — 손대지 않는다).
-- **리더 블록 네이티브 뷰**(D5 재보류 불변) — 리더 접촉은 directive 렌더 분기 1곳뿐.
-- **엔진 내부(blockContainer·PM 노드) 패치** — R33.
+- **열 폭 드래그(비율 조정)** · **단 내 독립 스크롤** · **4단 이상 입력 UI**(유입 데이터 4열 보존·표시는 함) · **단 병합/분할 UI**
+  (2↔3 토글 외).
+- **`@blocknote/xl-multi-column` 등 XL(GPL) 도입** — D10 불변.
+- **콜아웃 안 다단 허용**(결정 ③) · **구문 강조(FB-11 ⓑ)** · **columns를 위한 서버측 처리** · **구 편집기 접촉** · **엔진 내부
+  (blockContainer·PM 노드) 패치**(R33) · **리더 블록 네이티브 뷰**(D5).
+- **1차 흐름형 옵션 병존**(ⓐ/ⓑ 선택 UI) — 고정 열로 단일화.
 
-## DoD
+## DoD (2차)
 
 **자동 검증(구현 사이클 내 확인)**
 
-1. **착수 전 결정 ①~④ 판정 기록 존재**(위임 판정·재론 조건 · ④는 F-2 실측 결과 추기). **← ①~④ 판정
-   충족(2026-08-24) · ④ 실측 추기는 F-2.**
-2. **왕복 동형** — `s41-columns-roundtrip.mjs` 전건 + 기존 회귀 건수 무변·실패 0 · `columns` 기존 표본 0 확인.
-3. **편집 표면** — 2단/3단 표시(세로 구분선·토큰 색) · 슬래시/툴바 진입 · 감싸기·해제·단 수 변경 · 중첩 차단 ·
-   빈 컨테이너 잔존 0 · 드래그 실측 기록(정상 또는 채택 강등).
-4. **리더·인쇄** — 미리보기·문서 상세·인쇄에서 같은 단 수 · 모바일 1단 · **기존 문서 렌더 diff 0**.
-5. **조용한 손실 0** — [단 해제]·자식 삭제·범위 밖 값·미지 `attrs` 어느 경로에서도 본문이 사라지지 않음.
-6. **검증 일괄 통과**(F-7 — 회귀·청크·invariant·run-tests·**백엔드 diff 0·신규 의존 0**).
-7. **문서 반영 완료**(G-8 — §5.16·별지 §5.4/§13/§14·매뉴얼).
+1. **착수 전 결정 ①~④(2차) 기록 존재** — ① 사용자 확정 · ②③④ 권고안 채택(④는 H-6 실측 결과 추기). **← ① 충족(2026-08-30).**
+2. **왕복 동형** — s41 2차 전건 + 기존 회귀 건수 무변·실패 0 · `columns`·`column` 기존 표본 0 확인 · 레거시 1차 형식 수용.
+3. **편집 표면** — 삽입 즉시 n개 단이 **비어 있어도 보인다**(구분선·셀) · 각 단에서 Enter = 그 단 안 아래 · 3단 입력이 1단으로
+   이동하지 않음 · Backspace/Shift+Tab 승격이 정규화로 되돌아옴 · 2↔3 토글(병합 손실 0) · [단 해제] · 중첩 차단 · `column` 핸들
+   숨김 · 콘솔 오류 0·프리즈 0.
+4. **리더·인쇄** — 미리보기·문서 상세·인쇄 같은 열 수(grid) · 모바일 적층 · 기존 문서 렌더 diff 0.
+5. **조용한 손실 0** — 병합·해제·정규화·범위 밖 값·미지 `attrs`·레거시 수용 어느 경로에서도 본문이 사라지지 않음.
+6. **검증 일괄 통과**(규약 D — 회귀·청크·invariant·run-tests·백엔드 diff 0·신규 의존 0).
+7. **문서 반영 완료**(H-8).
 
 **사용자 이행**
 
-8. **실사용 확인** — PC + 폰: ⓐ 2단·3단 작성이 "Word의 단"처럼 흐름 ⓑ 세로 구분선 ⓒ 폰에서 1단으로 읽힘
-   ⓓ 드래그·커서 이동 이상 없음 ⓔ 인쇄 미리보기 단 표시. 발견 결함 보고 — 치명이면 완료 보류.
+8. **실사용 확인** — PC + 폰: ⓐ [다단] 즉시 2·3단 상자가 보임 ⓑ 각 단에서 엔터가 그 단 안에서 내려감 ⓒ 3단 입력이 1단으로
+   안 감 ⓓ 세로 구분선 ⓔ 폰에서 위→아래 적층 ⓕ 인쇄 미리보기 열 수. 발견 결함 보고 — 치명이면 완료 보류.
 
 ## 게이트/판정 규칙
 
-- **이 단계는 게이트가 아니다** — 완료 = DoD 전건 충족(8 포함) + stage-reviewer 검토 통과.
-- **stage-40 완료 전 착수 금지**(툴바 빌더·필터 단일 출처 의존).
-- 착수 전 결정 위임 판정 = 사용자 답변 도착 시 즉시 반영(①ⓑ로 바뀌면 이 지시서 전면 재작성 — 착수 중단).
-- **stage-42 조건**: 이 단계에서 추가 수정사항(결함)이 발견되면 그 수정이 먼저이고 stage-42 번호는 밀린다
-  (2026-08-24 사용자 지시 — 별지 머리말 정본). 발견분은 별지 §13에 등재.
+- 이 단계는 게이트가 아니다 — 완료 = DoD 전건 충족(8 포함) + stage-reviewer 검토 통과.
+- 결정 ①은 **사용자 확정**(재론 없음) · ②~④는 권고안 채택(사용자 답변 도착 시 개정).
+- stage-43 조건(추가 수정사항 발견 시 그 수정이 먼저)은 별지 머리말 정본.
 
-## 구현 순서·분배 힌트
+## 구현 순서·분배 힌트 (2차)
 
-- 순서: F-1(변환기·어댑터 — 왕복이 성립해야 나머지가 의미 있다) → F-5 초판(코퍼스 스크립트를 먼저 만들어
-  F-1을 검증) → F-2(스펙·CSS·**드래그 실측 = 결정 ④ 확정 지점**) → F-3 → F-4 → F-6 → F-7 → 검토 → G-8.
-- 서브에이전트 프롬프트에 담을 것: 결정 ①~④ 판정 원문 · 규약 A~E 발췌 · 접촉 파일 목록(규약 D) · 실측
-  라인(`schema/blocks.ts` 350~362행 · `specs/blocks.tsx` 25~55행 · `blocksToMarkdown.ts` 561·609행 ·
-  `mdastToBlocks.ts` 337~349·438행 · `MarkdownView.tsx` 203~219행 · `remarkStudy.ts` 59행 · `slashTable.ts` ·
-  `NoteFormattingToolbar.tsx` 380~422행) · **백엔드·구 편집기 무접촉 · `frontend/dist` 금지** · 서버 검증이
-  필요하면 임시 포트 + 종료·리스너 부재 확인 의무.
-- 완료 후 리뷰 = `stage-reviewer`(Opus). 말미에 "완료 기록"을 추가한다(머리말 "상태" 줄 갱신 + 말미 완료 기록).
+- 묶음 A(H-1→H-2→H-3→H-5)와 묶음 B(H-4→H-6→H-7)는 **병렬** — 계약 = 이 문서 규약 A의 타입·불변식·선택자 형태. B는 A의
+  `normalizeColumnsBlock`을 import하되, A가 끝나기 전엔 같은 시그니처의 로컬 스텁으로 진행 가능(통합 시 교체).
+- 서브에이전트 프롬프트에 담을 것: 결정 ①~④(2차) · 규약 A~E 발췌 · 1차 코드 위치(`schema/blocks.ts:448` ColumnsBlock ·
+  `specs/blocks.tsx` 219~ 정리 훅·250~ columns 스펙 · `refPicker/insert.ts:98~` columnsInsertBlocked/insertColumnsBlock/
+  wrapInColumns/unwrapColumns · `mdastToBlocks.ts:362·464~` · `blocksToMarkdown.ts:616` · `fromBlockNote.ts:467·576` ·
+  `toBlockNote.ts:409` · `notes.css` stage-41 구획 · `DirectiveBlocks.tsx:121~` · `MarkdownView.tsx:221~` · `remarkStudy.ts:187` ·
+  `index.css` `.md-columns`) · **백엔드·구 편집기 무접촉 · `frontend/dist` 금지 · 서버 검증 시 임시 포트 + 종료 의무**.
+- 완료 후 리뷰 = `stage-reviewer`(Opus) + 브라우저 실측(1차 관례: 임시 8766 · iframe 390px · 콘솔 pattern 필터).
 
-## 완료 기록 (2026-08-30)
+## 완료 기록 (2차 · 고정 열 · 2026-08-30)
 
-- **구현**: `011b10c`(F-1~F-6 — 스키마·어댑터·변환기·리더·스펙/CSS·슬래시/툴바·단 해제·중첩 차단·빈 컨테이너 제거 · s41 257건) + `972dbbc`(삽입 즉시 프리즈 — 노드뷰 이펙트의 PM 관리 DOM 변이 제거 → `data-columns-view` 선언 속성) + 본 세션 수정 5건(아래).
-- **검토(Opus · 정적)**: **조건부** — 치명 0 · 중요 1 · 경미 5 · 의심 1. **[중-1] 인쇄 단 수 강등**: 리더 `ColumnsSection`이 Tailwind `md:columns-*`(≥768px)를 썼는데 인쇄 미디어 쿼리 폭 = A4 콘텐츠 박스 210−15×2 = 180mm ≈ 680px < 768px → 인쇄 1단(규약 C 위반) → **수정**: `data-columns` 선언 속성 + `.md-columns[data-columns=n]` CSS · 모바일 1단은 `@media screen` 한정. **[경-1]** 유입 `n=abc`(비정수) 문서에서 2↔3 토글이 조용히 무효화(직렬화가 attrs의 `n`을 우선) → **수정**: 토글 시 `attrs`의 `n` 소거(`columnsMetaWithoutN`) — 실측 `n=abc` → 3단 → 저장 `:::columns{n=3}`. **[경-2]** 유입된 빈 `:::columns`는 열기만으로는 잔존·첫 편집 시 회수 → 계약("저장 경로 0") 충족·§5.16 문구 한정. **[경-3]** notes.css 특이도 주석 수치 정정. **[경-4]** `/2단`·`/3단` 별칭을 항목별로 분리(공통 = `/단나누기`·`/columns`·`/다단`). **[경-5]** G-8 이행(본 기록). **[의심-1] undo 트랩**(빈 컨테이너 `setTimeout 0` 제거 트랜잭션) → **실측 = 트랩 없음**(단일 자식 삭제 → 컨테이너 제거 → Ctrl+Z 4회 단조 복원: 컨테이너→"solo"→빈→삽입 전).
-- **브라우저 실측 1차(Sonnet 에이전트 · 임시 서버 8766 · Chrome CDP)**: **[치명급 발견] 편집 표면 다단 CSS 매칭 0** — `[data-content-type='columns']:has(…) + .bn-block-group`은 리액트 스펙 블록의 tiptap 노드뷰 래퍼(`.react-renderer.node-columns.bn-react-node-view-renderer`)가 `.bn-block-content`를 감싸 **형제가 없어** 영구 미매칭(`querySelector` null · `columnCount: auto`). 나머지 = 컨트롤 띠 36px · C1 토글 · C2 중첩 차단(툴바 `disabled` + 사유 · 슬래시 회색+사유) · C3 단 해제 + Ctrl+Z 1회 복원 · C4 자식 전부 삭제 → 컨테이너 자동 제거 · 저장 `:::columns{n=2}` 비어 있지 않음 · 리더 `.md-columns` 2단 solid — 전건 정상. 관찰 = 콘솔 `Minified React error #185` 8회 1건(zoom 액션 실패·백그라운드 스로틀링 시점 — 이후 미재현).
-- **수정(선택자 재작성)**: `.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view=n]) > .bn-block-group`(래퍼 유무 독립 · `:not(.bn-block-group)`으로 중첩 안쪽 값 배제 · 특이도 (0,5,0) · 중첩 규칙 (0,9,0) · 모바일 규칙 동형+소스 순서). 리더 모바일 규칙은 값별 규칙과 같은 특이도 `.md-columns[data-columns]`로(1차 정정에서 `.md-columns`(0,1,0)로 써 390px 리더가 2·3단 잔존 → 재정정).
-- **브라우저 실측 2차(메인 대화 · 수정 후 dist)**: 편집 표면 `columnCount` 2/3 · `column-rule` solid 1px · 긴 문단 조각 x=339(왼단)/652(오른단) = **문단 내 흐름 성립(결정 ④ⓐ)** · 사이드 메뉴 = 왼단 문단 hover 시 (291,351) vs 문단 y=354 정상 / 오른단 조각 hover 시 (291,231) = 컨테이너 상단 왼쪽(통합 경계 상자 좌상단 — 귀속 정확·기능 정상·위치 이격 → **④ⓐ 유지·강등 없음**, DoD 8 ⓓ 사용자 판단) · **390px = 같은 오리진 iframe 에뮬**(`resize_window`가 Chrome 창 최소폭에 막혀 inner 984 고정): 편집 1단·구분선 없음·버튼 36px / 리더 1단·구분선 없음 · 데스크톱 리더 2/3단 solid · 인쇄 = 스타일시트에서 값별 규칙 무미디어·모바일 규칙 `screen and (width <= 767px)` 확인(실제 인쇄 미리보기 = DoD 8 ⓔ) · 콘솔 오류 0 · 테스트 노트 2건 소프트 삭제 확인.
-- **F-7 최종 수치**: 회귀 전건 무변·실패 0(s30 365 · s32-realdoc 442/442 · s32-blocks 751 · s33 999 · s34 PASS/99 · s35 3069 · s36 40 · s37 191 · s40 37) · **s41 257/257 · directive 이름 `columns` 기존 표본 0** · `tsc -b` 0 · `npm run build` ✓ · **초기 청크 Δ vs main JS +497B · CSS +752B**(< 5KB) · `invariant-scan` PASS · `run-tests` 611 passed · **백엔드 diff 0 · `package.json`/lock diff 0 · 구 편집기 diff 0**.
-- **후속 등재(범위 밖 · 코드 0 — 별지 §13)**: **FB-14** 콜아웃 자식 그룹 CSS 전례(stage-36 F-8 `[data-content-type='callout'] + .bn-block-group`)도 같은 래퍼 이유로 **매칭 0** 탐침(main 기존 — 수정 여부·stage-42 조건 해당 = 사용자 판단) · **FB-15** React #185 1회 관찰(미재현).
-- **접촉 파일**: 규약 D 목록 안(프론트 한정) + `s33-adapter-roundtrip.mjs` 블록 17종 표 4행. 문서 = 본 지시서 · screens §5.16(Design v1.50) · design 색인 판번 · 별지 머리말/§5.4/§10 D10/§13/§14 11번 · 마스터 머리말(v0.58)·버전 정의 · 매뉴얼.
-- **잔여**: DoD 8(사용자 — PC+폰 ⓐ 흐름 ⓑ 세로 구분선 ⓒ 폰 1단 ⓓ 드래그·커서(핸들 이격 판단 포함) ⓔ 인쇄 미리보기 단 수) · 머지(dist 포함 — 이 브랜치 선행 커밋 관례).
+- **구현**: 묶음 A(opus — `schema/blocks.ts` `ColumnBlock` · `schema/columnsNormalize.ts`(순수 정규화 ①~④ · `MAX_GENERATED_COLUMNS` 12 단일 출처) · 변환기(`column` 직렬화 · `columns` 안 `column` 파싱 · 레거시 1차 형식 수용 · 단독 `column` 승격 · 라벨/속성 동반 `column` = sourceFallback) · 어댑터 `BnColumn` · 리더 `ColumnsSection` grid + `ColumnCell` + 혼재 흡수 `groupColumnsChildren` · `index.css` grid/구분선/screen 한정 모바일 · `s41-columns-roundtrip.mjs` 2차 재작성 · s33 블록 18종) + 묶음 B(opus — `column` 스펙·등록 · `blocknote/columnsNormalize.ts`(BN JSON 계층 정규화 — A와 동치 계약·상수 import) · `ensureColumnsNormalized` 훅(onChange → 계획 0이면 dispatch 0 → `setTimeout 0` → `transact` 1회 · 파괴된 편집기 방어) · `columnsKeymap.ts` 키 가드 · `extensions.ts` 등록(두 표면 공용) · `ColumnAwareSideMenu`(`useExtensionState(SideMenuExtension)` — 0.54 커스텀 sideMenu는 props 0) · `insert.ts` 삽입/감싸기/`setColumnsCount`(2→3 빈 단 · 3→2 병합 — tail이 빈 문단만일 때만 버림)/해제/차단 · `notes.css` grid·셀 구분선·컨테이너 상자·모바일 · `s41-columns-editor.mjs` 67건).
+- **Opus 검토(1차)**: 조건부 — 중-1 정규화 두 계층 발산 · 중-2 승격 되돌림이 순서 변형(결정 ④ 위반) · 중-3 B 계층 자동 검증 0 · 경-1~7(폴백 단 수 1/2 · 빈 stray 처리 · 병합이 빈 줄 삭제 · 리더 혼재 독립 셀 · 커서 start · onChange 해제 · 두 표면). → 수정 라운드에서 중-1/2/3·경-1/2/3/4/6 해소, 경-5/7 현행 유지.
+- **브라우저 실측**(메인 대화 · 임시 8766 · Chrome CDP · 키 입력은 PM 뷰 합성 이벤트 — 숨김 탭 제약): 삽입 즉시 2셀 grid(290px×2 · 2셀 `border-left` 1px) · 1단 Enter → 1단 안 새 문단 · 2단/3단 입력 시 다른 단 무변 · 3단 토글 3셀(185px×3) · 2단 병합 col2=[c,d,e,f] 손실 0 · 저장 `::::columns{n=2}\n:::column\na\n\nb\n:::\n:::column\nc\n\nd\n:::\n::::` · 데스크톱 리더 grid 2셀(339px) 구분선 · iframe 390px 편집 1열 세로 적층·구분선 없음·버튼 36px / 리더 1열 · `column` 셀 hover 사이드 메뉴 없음 / 문단 hover 정상 · **가드 전**: Delete(단 끝) → col2 소실·Backspace(단 첫) → 뒤 형제 중첩 → **가드 후** 세 키 구조 무변 · 콘솔 오류 0. 도구 제약: 숨김 탭(다른 창에 가림)은 CDP 키 입력·Mantine 드롭다운·타이머가 죽는다 — `SetWindowPos(HWND_TOPMOST, NOACTIVATE)`로 가림 해제 · 슬래시/툴바 메뉴 경로는 헤드리스(s41-editor)로 갈음.
+- **F/H-8 최종 수치**: s41 2차 335/335 · s41-columns-editor 72/72(정규화 9·A/B 동치 14·조작 19·키 가드 30) · 회귀 무변(s30 365 · s32-realdoc 442/442 · s32-blocks 751 · s33 999 · s34 PASS/99 · s35 3062(DB 표면 수 변동) · s36 40 · s37 191 · s40 37) · `columns`·`column` 실문서 표본 0 · tsc 0 · build ✓ · 초기 청크 Δ vs main JS +1,232B / CSS +63B · invariant PASS · run-tests 611 · 백엔드/package.json/구 편집기 diff 0.
+- **Opus 표적 재검토(2차)**: **통과**(중요 잔존 0 · 경미 6) — 키 가드 priority 근거 성립(`91+(idx+r)*10 ≥ 91` > 코어 50) · 표 예외 단 밖 무영향 · A/B 동치 검사 자기 참조 아님 · 경-3/4 손실 0. 머지 전 반영: **신-1** 단 첫 블록이 목록·헤딩·코드·인용일 때 Backspace가 유형 해제까지 막던 것 → 가드에 `isParagraph` 조건(④-3b·26~29 추가 = 72건) · 신-2 리더 혼재 흡수 key 중복 → 묶음별 재키 · 잔-4 주석 수치 정정. 잔존(현행 유지) = Shift-Tab 가드 collapsed 미검사 · `_tiptapEditor.isDestroyed` 사설 필드 읽기 · 커서 복원 start.
+- **알려진 한계(사용자 판단 항목)**: ⓐ 단 첫 블록 Backspace·단 끝 Delete·Shift+Tab이 무동작(안내 없음) — 단을 빠져나가려면 [단 해제]/드래그/컨테이너 삭제 ⓑ 드래그로 블록을 단 사이(columns 직계)에 떨어뜨리면 정규화가 직전 단 끝으로 보낸다(undo 2단계 가능) ⓒ 한글 IME 조합 중 정규화 dispatch는 미실측(가드로 정규화 발화 자체가 드묾).
+- **잔여**: DoD 8(사용자 — PC+폰 ⓐ 삽입 즉시 단 표시 ⓑ 단 내 엔터 ⓒ 3단 입력 무이동 ⓓ 구분선 ⓔ 폰 적층 ⓕ 인쇄 열 수 + 위 한계 ⓐ 체감) · 머지(dist 포함).
+
+---
+
+## 1차(흐름형 ⓐ) 이력 — 대체됨 (2026-08-24 편성 → 2026-08-30 구현·검토·실측·머지 PR #74 → 같은 날 사용자 번복)
+
+- **1차 결정**: ① ⓐ 흐름형 CSS 다단(위임 판정) · ② 2·3단 · ③ 중첩 금지(안쪽 1단 표시) · ④ 문단 내 흐름 + 원자 블록
+  `break-inside: avoid` — F-2 실측: 단 경계 문단의 오른단 조각 hover 시 핸들이 컨테이너 상단 왼쪽에 뜸(귀속 정확·위치 이격) →
+  ⓐ 유지 판정.
+- **1차 규약 요지**: `columns`(자식 = 내용) + 자식 그룹 `column-count`/`column-rule` · 방언 `:::columns{n=2} … :::`(자식 평문) ·
+  리더 `column-count` · 빈 컨테이너 자동 제거 · 슬래시 5별칭 · 툴바 [다단] · 2/3 토글 · [단 해제].
+- **1차 완료 기록(2026-08-30)**: 구현 `011b10c`·`972dbbc`(삽입 프리즈 — PM 관리 DOM 변이 → `data-columns-view` 선언 속성) ·
+  Opus 검토 조건부(치명 0·중요 1 인쇄 단 수 강등·경미 5·의심 1) → 수정 5건(`a131a7f`: 인쇄 = `data-columns` 속성 CSS +
+  screen 한정 모바일 · 토글 시 attrs `n` 소거 · 별칭 분리 · 주석 정정 · **편집 표면 선택자 재작성** — 브라우저 실측에서
+  `[data-content-type='columns'] + .bn-block-group`이 노드뷰 래퍼 때문에 매칭 0) · 실측 2회(편집 2/3단·문단 내 흐름 · iframe
+  390px 1단 · 리더 2/3단 · 토글/해제/undo 정상 · undo 트랩 없음) · F-7 수치: 회귀 전건 무변 · s41 257/257 · `columns` 표본 0 ·
+  초기 청크 Δ JS +497B/CSS +752B · invariant PASS · run-tests 611 · 백엔드/의존 diff 0 · 후속 등재 별지 §13 FB-14(콜아웃 자식
+  CSS 매칭 0 의심 — main 기존)·FB-15(React #185 1회).
+- **번복 사유(2026-08-30 사용자)**: 빈 컨테이너에 단이 보이지 않음 · 왼단이 차야 오른단으로 · 3단 입력이 균등 배분으로 1단
+  쪽에 재배치 — 요구 = 단마다 독립 컨테이너. 흐름형의 본질이라 CSS로 해소 불가(`column-fill: auto`는 고정 높이 전제).
+- **1차에서 2차로 계승한 자산**: 선택자 형태(`.bn-block:has(> :not(.bn-block-group) …) > .bn-block-group`) · `data-columns-view`
+  선언 속성 관례 · 리더 `data-columns` 속성 CSS + screen 한정 모바일(인쇄 동일) · 토글 시 `attrs` `n` 소거 · 별칭 규칙 ·
+  `columnsInsertBlocked`·`wrapInColumns`·`unwrapColumns` 골격 · s41 스크립트 골격(jiti 로더·계열 구조) · 브라우저 실측 절차
+  (임시 8766 · iframe 390px · 콘솔 pattern).

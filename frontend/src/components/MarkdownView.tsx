@@ -1,5 +1,5 @@
-import { useContext, useMemo, useRef } from 'react'
-import type { ComponentProps, CSSProperties } from 'react'
+import { Children, cloneElement, isValidElement, useContext, useMemo, useRef } from 'react'
+import type { ComponentProps, CSSProperties, ReactElement, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -20,7 +20,14 @@ import rehypeSourcePos from './markdown/rehypeSourcePos'
 import { FOLD_DEFAULT_LABEL, HIDE_DEFAULT_LABEL } from './markdown/refSyntax'
 import EmbedCard from './markdown/EmbedCard'
 import { DocLinkChip, HeadingAnchorChip } from './markdown/RefChips'
-import { CalloutBlock, ColumnsSection, FoldSection, HideSection, InlineSpoiler } from './markdown/DirectiveBlocks'
+import {
+  CalloutBlock,
+  ColumnCell,
+  ColumnsSection,
+  FoldSection,
+  HideSection,
+  InlineSpoiler,
+} from './markdown/DirectiveBlocks'
 import { TocBlockReader, WebEmbedCardReader } from './markdown/CustomBlockReaders'
 import {
   HEX_INK_CLASS,
@@ -110,6 +117,65 @@ function attr(node: unknown, key: string): string {
   const properties = (node as { properties?: Record<string, unknown> } | undefined)?.properties
   const value = properties?.[key]
   return typeof value === 'string' ? value : ''
+}
+
+/** 정규 `:::column` 요소인가(hast 노드 기준 — 리더·변환기가 같은 판정을 쓴다). */
+function isColumnNode(node: unknown): boolean {
+  return attr(node, 'data-directive') === 'column' && attr(node, 'data-directive-normative') === 'true'
+}
+
+/**
+ * 고정 열 다단(stage-41 2차) — 컨테이너 hast 노드의 **직계 `:::column` 자식 수**.
+ * 열 수의 정본은 `n=` 표기가 아니라 이 값이다(변환기 불변식 ②와 같은 결론). 0이면 레거시
+ * (1차 흐름형 = 단 없는 `:::columns`)이므로 호출부가 내용을 셀 하나로 묶는다.
+ */
+function columnCellCount(node: unknown): number {
+  const children = (node as { children?: unknown[] } | undefined)?.children ?? []
+  let n = 0
+  for (const child of children) if (isColumnNode(child)) n += 1
+  return n
+}
+
+/**
+ * 혼재 입력(`column`과 비-column 자식이 섞인 columns) 흡수 — **불변식 ①과 같은 규칙**을 리더에도
+ * 적용한다: 비-column 자식은 **직전 셀의 끝**(앞에 셀이 없으면 **첫 셀의 앞**)으로 들어간다.
+ * 이렇게 하지 않으면 그 자식이 독립 grid 아이템이 되어 열이 늘어나 보인다(편집·저장 경로와 어긋남).
+ *
+ * 대상은 속성 동반 `:::column{x=1}`(폴백 div)·레거시 평문 자식 같은 **유입 데이터**뿐이고,
+ * 혼재가 없으면 **입력 children을 그대로** 돌려준다(정규 문서 렌더 diff 0 · 셀 요소를 건드리지 않는다).
+ */
+function groupColumnsChildren(children: ReactNode): ReactNode {
+  const items = Children.toArray(children)
+  const cells: ReactElement<{ children?: ReactNode }>[] = []
+  const extras: ReactNode[][] = []
+  const front: ReactNode[] = []
+  let mixed = false
+  for (const item of items) {
+    // mdast→hast가 블록 사이에 끼워 넣는 개행 텍스트는 grid 아이템이 되지 않는다(무시).
+    if (typeof item === 'string' && item.trim() === '') continue
+    const node = isValidElement(item) ? (item.props as { node?: unknown }).node : undefined
+    if (isValidElement(item) && isColumnNode(node)) {
+      cells.push(item as ReactElement<{ children?: ReactNode }>)
+      extras.push([])
+      continue
+    }
+    mixed = true
+    if (cells.length === 0) front.push(item)
+    else extras[extras.length - 1].push(item)
+  }
+  if (!mixed || cells.length === 0) return children
+  return cells.map((cell, i) => {
+    const own = Children.toArray(cell.props.children)
+    // 세 묶음(front·own·extras)은 각각 `Children.toArray`가 ".0"부터 키를 매긴 결과라 그대로 이으면
+    // React key 중복 경고가 난다(검토 신-2 · 2026-08-30) — 묶음별 접두어로 다시 키를 준다.
+    const rekey = (nodes: ReactNode[], prefix: string) =>
+      nodes.map((n, j) => (isValidElement(n) ? cloneElement(n, { key: `${prefix}${j}` }) : n))
+    return cloneElement(cell, { key: cell.key ?? i }, [
+      ...(i === 0 ? rekey(front, 'f') : []),
+      ...rekey(own, 'o'),
+      ...rekey(extras[i], 'x'),
+    ])
+  })
 }
 
 // hast 노드의 className(배열 또는 공백 구분 문자열)에 특정 클래스가 있는지.
@@ -218,16 +284,31 @@ export default function MarkdownView({
         if (directive === 'note' || directive === 'warn' || directive === 'tip') {
           return <CalloutBlock kind={directive} label={attr(node, 'data-directive-label')}>{children}</CalloutBlock>
         }
-        // 흐름형 다단(:::columns{n=2}) — stage-41 규약 C. 단 수는 remarkStudy가 실어 둔
-        // `data-directive-n`(원문 문자열)을 여기서 정수로 읽는다. 정수가 아니거나 없으면 기본 2 —
-        // 변환기(mdastToBlocks)의 `n` 흡수 규칙과 같은 결론이어야 두 표면이 일치한다.
+        // 고정 열 다단(::::columns{n=2} > :::column) — stage-41 2차 규약 C.
+        // **열 수의 정본 = `:::column` 자식 수**(변환기 불변식 ②와 같은 결론이어야 두 표면이
+        // 일치한다). 단이 하나도 없으면 1차 흐름형 레거시이므로 내용을 **셀 하나로 묶고** 나머지
+        // 단은 빈 셀로 채운다(정규화가 만드는 모습과 같다 — 단 수는 `n` 원문 표기에서 읽고,
+        // 정수가 아니거나 없으면 기본 2 = 변환기의 `n` 흡수 규칙과 같은 결론).
         // **라벨 동반(`:::columns[제목]`)은 columns로 그리지 않는다**: 담을 자리가 없어 라벨이
         // 조용히 사라지므로, 블록 변환이 원문 보존(sourceFallback)으로 보내는 것과 짝을 맞춰
         // 여기서도 아래 미지 directive 폴백(내용만 렌더)으로 흘려보낸다.
         if (directive === 'columns' && !attr(node, 'data-directive-label')) {
+          const cells = columnCellCount(node)
+          // 열 수 = **직계 `column` 수**. 그 밖의 자식(혼재 유입)은 셀 안으로 흡수한다(불변식 ①).
+          if (cells > 0) return <ColumnsSection count={cells}>{groupColumnsChildren(children)}</ColumnsSection>
           const raw = attr(node, 'data-directive-n').trim()
-          const count = /^-?\d+$/.test(raw) ? Number(raw) : 2
-          return <ColumnsSection count={count}>{children}</ColumnsSection>
+          return (
+            <ColumnsSection count={/^-?\d+$/.test(raw) ? Number(raw) : 2} legacy>
+              {children}
+            </ColumnsSection>
+          )
+        }
+        // 단 하나(:::column) — 정규 표기(라벨·속성 없음)만 셀로 그린다. 벗어난 표기는 변환기가
+        // 원문 보존으로 보내므로 여기서도 미지 directive 폴백(내용만 렌더)으로 흘려보낸다.
+        // `columns` 밖 단독 `:::column`도 셀 하나로 그려진다(grid 부모가 없으면 그냥 블록이다 —
+        // 변환기의 "자식 제자리 승격"과 보이는 결과가 같다).
+        if (directive === 'column' && attr(node, 'data-directive-normative') === 'true') {
+          return <ColumnCell>{children}</ColumnCell>
         }
         // 목차(::toc)·웹 임베드(::web) — stage-37 규약 A·B. 비정규형(속성 동반 toc·url 부재·
         // 미지 속성 동반 web)은 원문 그대로 노출한다(기존 미지 directive 폴백 관례와 동일 취지 —

@@ -10,8 +10,8 @@
 // - **인쇄는 전부 공개**(§4.19 ⑧, F52 결정 ⑤ 연장): 내용을 DOM에서 제거하지 않고 print: 변형으로
 //   항상 펼친다.
 // - 색상 하드코딩 0 — 토큰 클래스만.
-import { createContext, useContext, useState } from 'react'
-import type { KeyboardEvent, ReactNode } from 'react'
+import { useState } from 'react'
+import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 
 const BLOCK = 'print-avoid-break my-3 rounded-lg border border-border bg-surface'
 
@@ -118,39 +118,72 @@ export function CalloutBlock({
   )
 }
 
-// ---- 흐름형 다단(:::columns{n=2}) — stage-41 ----
+// ---- 고정 열 다단(::::columns{n=2} > :::column) — stage-41 2차 ----
 //
-// Word의 "단"과 같은 **흐름형**이다: 자식 블록 시퀀스는 하나의 흐름이고 CSS `column-count`가
-// 그 흐름을 n개 단에 나눠 담는다(문단 내부도 단을 넘어 흐른다 — 결정 ④). 고정 열(Notion 컬럼)이
-// 아니므로 "어느 블록이 몇째 단"이라는 정보 자체가 없다.
+// 1차 흐름형(CSS `column-count` — 텍스트가 단을 넘어 흐르는 Word식 "단")을 **대체**한다:
+// 컨테이너는 **grid**이고 각 `:::column`이 셀 하나다(어느 블록이 몇째 단인지가 데이터에 있다 —
+// 결정 ①ⓑ). 셀 렌더는 `ColumnCell`.
 //
-// 표시 규칙(데이터는 손대지 않는다 — 강등은 여기서만 한다):
-//   · 단 수는 **2·3만** 그린다. 유입 데이터의 범위 밖 값(`n=4` 이상)은 3단으로 상한 강등하고,
-//     2 미만(`n=1`·`n=0`·음수)은 1단으로 본다. 저장된 `count`는 그대로 남는다.
-//   · 단 수는 `data-columns` **선언 속성**으로만 내고 `index.css`의 `.md-columns[data-columns=…]`가
-//     column-count를 정한다(Tailwind `md:columns-*` 유틸을 쓰지 않는다 — 검토 중-1 2026-08-30:
-//     인쇄 시 미디어 쿼리가 평가하는 폭은 A4 콘텐츠 박스 210−15×2 = 180mm ≈ 680px < 768px라
-//     `md:` 규칙이 빠져 인쇄가 1단으로 강등됐다).
+// 표시 규칙(색·간격은 전부 `index.css`가 토큰으로 그린다):
+//   · 열 수 = **셀(`column`) 수**가 정본이다(변환기 불변식 ②와 같은 결론 — `n=`은 표기일 뿐).
+//     4열 이상도 그대로 그린다(결정 ② — 1차의 "3단 상한 표시 강등"은 폐기 · 폭만 좁아진다).
+//   · 열 수는 `data-columns` **선언 속성** + `--md-columns` 커스텀 프로퍼티로만 낸다(색이 아니다).
+//     2·3은 `index.css`의 값별 규칙이, 그 밖(4 이상)은 커스텀 프로퍼티가 grid-template-columns를
+//     정한다. 인라인 `grid-template-columns`를 쓰지 않는 이유: 인라인 **선언**은 모바일 미디어
+//     쿼리(1단 적층)를 이겨 폰에서 4열이 남는다 — 커스텀 프로퍼티는 값만 넘기므로 쿼리가 이긴다.
 //   · **모바일 강등은 `@media screen and (max-width: 767px)` 한정**(index.css) — 화면에서만 1단·
-//     구분선 없음. **인쇄는 강등하지 않는다**(규약 C — 화면과 같은 단 수 · print 미디어는 위
-//     쿼리에 안 걸린다).
-//   · **중첩 columns는 안쪽을 1단으로** 표시한다(입력 UI는 중첩을 막지만 유입 데이터는 보존되므로
-//     렌더가 감당해야 한다). 깊이는 컨텍스트로 센다 — CSS 하위 선택자보다 확정적이다.
-// 간격·구분선·자식 break-inside는 `index.css`의 `.md-columns`가 맡는다(색은 토큰만).
-/** 다단 중첩 깊이 — 0이면 최상위. 1 이상이면 안쪽이므로 1단으로 표시한다. */
-const ColumnsDepth = createContext(0)
+//     구분선 없음. **인쇄는 화면과 같은 열 수**(1차 중-1 교훈: `md:` 유틸 금지 — 인쇄 미디어 폭
+//     ≈680px < 768px라 `md:` 규칙이 빠져 인쇄가 1단으로 강등됐다).
+//   · **중첩 columns도 그대로 grid로** 그린다(결정 ③ — 1차의 깊이 기반 1단 강등 폐기).
+//   · 레거시(1차 흐름형 = 단 없는 `:::columns`)는 `MarkdownView`가 내용을 셀 하나로 묶고 나머지
+//     단을 빈 셀로 채운다 — 변환기 정규화(불변식 ①②)와 같은 모습이다.
 
-export function ColumnsSection({ count, children }: { count: number; children: ReactNode }) {
-  const depth = useContext(ColumnsDepth)
-  const clamped: 1 | 2 | 3 = count <= 1 ? 1 : count === 2 ? 2 : 3
-  const cols: 1 | 2 | 3 = depth > 0 ? 1 : clamped
+/** 표시 열 수 상한 — 정규화(`schema/columnsNormalize`)의 단 생성 상한과 같은 값. */
+const MAX_COLUMNS = 12
+
+/** 유입 값 → 표시 열 수(정수·1 이상·상한). 데이터는 손대지 않는다 — 표시 계산일 뿐이다. */
+function clampColumns(count: number): number {
+  const n = Math.trunc(count)
+  return Math.min(Math.max(Number.isFinite(n) ? n : 1, 1), MAX_COLUMNS)
+}
+
+/**
+ * `legacy` = 1차 흐름형(단 없는 `:::columns`) 표기 — 내용을 **셀 하나로 묶고** 나머지 단을 빈
+ * 셀로 채운다(정규화가 만드는 모습과 같다). 정규 표기는 자식이 이미 `ColumnCell`이므로 그대로 둔다.
+ */
+export function ColumnsSection({
+  count,
+  legacy = false,
+  children,
+}: {
+  count: number
+  legacy?: boolean
+  children: ReactNode
+}) {
+  const cols = clampColumns(count)
   return (
-    <ColumnsDepth.Provider value={depth + 1}>
-      <div className="my-3 md-columns" data-columns={cols}>
-        {children}
-      </div>
-    </ColumnsDepth.Provider>
+    <div
+      className="my-3 md-columns"
+      data-columns={cols}
+      style={{ '--md-columns': String(cols) } as CSSProperties}
+    >
+      {legacy ? (
+        <>
+          <ColumnCell>{children}</ColumnCell>
+          {Array.from({ length: cols - 1 }, (_, i) => (
+            <ColumnCell key={i} />
+          ))}
+        </>
+      ) : (
+        children
+      )}
+    </div>
   )
+}
+
+/** 단 하나 = grid 셀 하나(`:::column`). 구분선·여백은 `.md-column`이 토큰으로 그린다. */
+export function ColumnCell({ children }: { children?: ReactNode }) {
+  return <div className="md-column">{children}</div>
 }
 
 // ---- 인라인 스포일러(||…||) — F52 ----

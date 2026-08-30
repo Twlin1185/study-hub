@@ -10,9 +10,11 @@
 //  · D         — 팔레트 밖 노드는 원문 슬라이스를 담은 sourceFallback/inlineFallback으로 감싼다.
 //  · E         — 이미지 직후 `{w=<px>}` 부속 표기를 image 노드에 **병합 해석**한다(remark 플러그인 추가 0).
 import { mergeAttrPairs } from '../schema/blocks'
+import { normalizeColumnsBlock } from '../schema/columnsNormalize'
 import type {
   AttrPair,
   Block,
+  ColumnsBlock,
   InlineNode,
   InlineStyles,
   ListItemBlock,
@@ -352,26 +354,61 @@ function calloutBlock(node: MdNode, ctx: Ctx): Block {
 const COLUMNS_N_RE = /^-?\d+$/
 
 /**
- * `:::columns{n=2} … :::` → 흐름형 다단 컨테이너(stage-41 규약 A·C).
+ * `:::column`의 **정규 표기** 판정 — 라벨·속성이 하나도 없어야 한다(규약 A: 단에는 담을 값이
+ * 없다). 벗어난 표기(`:::column[제목]`·`:::column{x=1}`)를 스키마에 우겨넣으면 값이 조용히
+ * 사라지므로 호출부가 **원문 보존**(sourceFallback)으로 보낸다(stage-37 `::toc[라벨]` 전례).
+ */
+function isNormativeColumn(node: MdNode): boolean {
+  return !hProps(node)['data-directive-label'] && attrPairsOf(node).length === 0
+}
+
+/**
+ * `::::columns{n=2} … :::column … ::: … ::::` → **고정 열 다단** 컨테이너(stage-41 2차 규약 A·C).
  *
- * `n`이 **정수 표기**면 `count`로 흡수한다 — 범위 밖 값(`n=4`·`n=0`)도 **자르지 않고 그대로**
- * 싣는다(표시 강등(3단 상한)은 렌더 몫이고 데이터는 손대지 않는다). 정수가 아니거나(`n=abc`)
- * 결손이면 `count`는 기본 2로 두되, **원문 쌍이 있으면 `attrs`에 남긴다** — 그래야 재직렬화가
- * 원문(`{n=abc}`)을 그대로 되살려 왕복이 성립한다. `n` 이외의 미지 속성은 항상 통짜 보존.
+ * 자식 `:::column`은 `ColumnBlock`으로 흡수하고, 그 밖의 자식(1차 흐름형 레거시 `:::columns{n=2}`
+ * + 평문 자식 · 라벨/속성 동반 column의 sourceFallback)은 일반 변환을 거친 뒤 **정규화**가
+ * 1단으로 모은다(불변식 ① — 계열 ② "정규화 수용").
+ *
+ * `n`이 **정수 표기**면 `count`로 흡수한다 — 범위 밖 값(`n=4`)도 **자르지 않고 그대로** 싣는다
+ * (결정 ② — 표시도 그 수만큼 열). 정수가 아니거나(`n=abc`) 결손이면 `count`는 기본 2로 두되,
+ * **원문 쌍이 있으면 `attrs`에 남긴다** — 그래야 재직렬화가 원문(`{n=abc}`)을 그대로 되살려
+ * 왕복이 성립한다. `n` 이외의 미지 속성은 항상 통짜 보존.
+ * 최종 `count`는 정규화가 **`column` 수**로 맞춘다(children이 정본 · 불변식 ②) — `n`과 단 수가
+ * 어긋난 유입은 단 수가 이긴다.
  */
 function columnsBlock(node: MdNode, ctx: Ctx): Block {
   const attrs = attrPairsOf(node)
   const raw = attrs.find(([key]) => key === 'n')?.[1]?.trim()
   const absorbed = raw !== undefined && COLUMNS_N_RE.test(raw)
   const rest = absorbed ? attrs.filter(([key]) => key !== 'n') : attrs
-  const block: Block = {
-    id: nextId(ctx),
+  // id 시퀀스는 1차와 같은 순서(컨테이너 → 자식)로 매긴다.
+  const id = nextId(ctx)
+  const children: Block[] = []
+  // 비-column 자식은 **연속 구간 단위로** 기존 변환에 넘긴다(목록 런 같은 배열 단위 처리가
+  // 자식 하나씩 쪼개는 순간 달라지는 것을 막는다).
+  let pending: MdNode[] = []
+  const flush = () => {
+    if (pending.length === 0) return
+    children.push(...convertBlocks(pending, ctx))
+    pending = []
+  }
+  for (const child of node.children ?? []) {
+    if (child.type === 'containerDirective' && child.name === 'column' && isNormativeColumn(child)) {
+      flush()
+      children.push({ id: nextId(ctx), type: 'column', children: convertBlocks(child.children ?? [], ctx) })
+      continue
+    }
+    pending.push(child)
+  }
+  flush()
+  const block: ColumnsBlock = {
+    id,
     type: 'columns',
     count: absorbed ? Number(raw) : 2,
-    children: convertBlocks(node.children ?? [], ctx),
+    children,
   }
   if (rest.length) block.attrs = rest
-  return block
+  return normalizeColumnsBlock(block, { makeId: () => nextId(ctx) })
 }
 
 /** 규약 B — `::web`이 흡수하는 속성 키 전수(이 밖의 키가 하나라도 있으면 원문 보존으로 간다). */
@@ -462,8 +499,16 @@ function convertBlocks(nodes: MdNode[], ctx: Ctx): Block[] {
         out.push({ id: nextId(ctx), type: 'divider' })
         break
       case 'containerDirective':
-        // 흐름형 다단(stage-41)만 콜아웃 앞에서 갈라진다 — 그 밖의 container directive는 종전
-        // 그대로 콜아웃으로 간다(기존 문서 변환 diff 0 계약).
+        // 고정 열 다단(stage-41 2차)의 `columns`·`column`만 콜아웃 앞에서 갈라진다 — 그 밖의
+        // container directive는 종전 그대로 콜아웃으로 간다(기존 문서 변환 diff 0 계약).
+        //
+        // **`columns` 밖 단독 `:::column`**(불변식 ④): 콜아웃 분기로 떨어지면 `variant:'column'`
+        // 짜리 콜아웃이 되어 버리므로 **columns 분기보다 앞에서** 잡아 자식을 제자리에 승격한다.
+        if (node.name === 'column') {
+          if (isNormativeColumn(node)) out.push(...convertBlocks(node.children ?? [], ctx))
+          else out.push(fallbackBlock(node, ctx))
+          break
+        }
         //
         // **`:::columns[라벨]`은 흡수하지 않는다**: columns에는 라벨을 담을 자리가 없어(단 수와
         // 자식이 전부다) 흡수하면 라벨이 조용히 사라진다. stage-37 규약 A의 `::toc[라벨]` 전례

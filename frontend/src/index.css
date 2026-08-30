@@ -40,40 +40,54 @@ mark {
   font-family: var(--font-base, system-ui, 'Segoe UI', Roboto, sans-serif);
 }
 
-/* 흐름형 다단(stage-41 · `:::columns{n=}`) — 단 수는 `DirectiveBlocks.ColumnsSection`이 내는
-   **`data-columns` 선언 속성**이 정한다(1·2·3 — 범위 밖 값·중첩 안쪽은 렌더가 이미 강등해 둔 값).
-   Tailwind `md:columns-*` 유틸을 쓰지 않는 이유(검토 중-1 · 2026-08-30): 인쇄 미디어 쿼리 폭은
-   A4 콘텐츠 박스(≈680px) < md(768px)라 인쇄가 1단으로 강등됐다 — 규약 C "인쇄 = 화면과 같은
-   단 수" 위반. 구분선 색은 토큰(--border)만 쓴다 = 다크 모드 자동 대응. 1단일 때 column-rule은
-   그릴 자리가 없으므로 "중첩 columns = 1단·구분선 없음"이 규칙 추가 없이 성립한다. */
+/* 고정 열 다단(stage-41 2차 · `::::columns{n=} > :::column`) — 컨테이너는 **grid**이고 각
+   `:::column`이 셀 하나다(1차 흐름형 `column-count` 규칙은 폐기). 열 수는 `ColumnsSection`이 내는
+   **`data-columns` 선언 속성 + `--md-columns` 커스텀 프로퍼티**가 정한다: 2·3은 값별 규칙이,
+   4 이상(유입 데이터 · 결정 ②)은 커스텀 프로퍼티가 맡는다. 인라인 `grid-template-columns`를 쓰지
+   않는 이유 — 인라인 **선언**은 아래 모바일 미디어 쿼리를 이겨 폰에서 4열이 그대로 남는다(커스텀
+   프로퍼티는 값만 넘기므로 쿼리가 정상적으로 이긴다). Tailwind `md:columns-*` 유틸을 쓰지 않는
+   이유(1차 검토 중-1 · 2026-08-30): 인쇄 미디어 쿼리가 평가하는 폭은 A4 콘텐츠 박스 210−15×2 =
+   180mm ≈ 680px < md(768px)라 `md:` 규칙이 빠져 인쇄가 1단으로 강등됐다 — 규약 C "인쇄 = 화면과
+   같은 열 수" 위반. 구분선 색은 토큰(--border)만 쓴다 = 다크 모드 자동 대응. */
 .md-columns {
+  display: grid;
+  grid-template-columns: repeat(var(--md-columns, 1), minmax(0, 1fr));
   column-gap: 1.5rem;
-  column-rule: 1px solid var(--border);
-}
-.md-columns[data-columns='1'] {
-  column-count: 1;
+  row-gap: 0.75rem;
 }
 .md-columns[data-columns='2'] {
-  column-count: 2;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .md-columns[data-columns='3'] {
-  column-count: 3;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-/* 모바일(<768px) 1단 강등은 **화면(screen) 한정** — 인쇄(print)는 이 규칙에 걸리지 않아 화면
-   (데스크톱)과 같은 단 수로 찍힌다. 편집 표면(notes.css)의 768px 규칙과 같은 경계. 선택자는 위 값별
+/* 단 셀 — 두 번째부터 세로 구분선(토큰 색) + 왼쪽 여백. `min-width: 0`이라 셀보다 넓은 표·코드는
+   셀을 밀어내지 않고 기존 가로 스크롤 규칙으로 떨어진다(D2 봉인 · 강제 축소 없음). */
+.md-column {
+  min-width: 0;
+}
+.md-column + .md-column {
+  border-left: 1px solid var(--border);
+  padding-left: 1.5rem;
+}
+
+/* 모바일(<768px) 1단 적층은 **화면(screen) 한정** — 인쇄(print)는 이 규칙에 걸리지 않아 화면
+   (데스크톱)과 같은 열 수로 찍힌다. 편집 표면(notes.css)의 768px 경계와 같다. 선택자는 위 값별
    규칙과 **같은 특이도 (0,2,0)**(`.md-columns[data-columns]`)로 맞춰 소스 순서로 이긴다 — `.md-columns`
-   (0,1,0)만 쓰면 미디어 쿼리 안이라도 값별 규칙에 밀려 2·3단이 남는다(iframe 390px 실측 2026-08-30). */
+   (0,1,0)만 쓰면 미디어 쿼리 안이라도 값별 규칙에 밀려 2·3열이 남는다(1차 iframe 390px 실측 2026-08-30). */
 @media screen and (max-width: 767px) {
   .md-columns[data-columns] {
-    column-count: 1;
-    column-rule: none;
+    grid-template-columns: 1fr;
+  }
+  .md-column + .md-column {
+    border-left: 0;
+    padding-left: 0;
   }
 }
 
-/* 문단은 단을 넘어 흐른다(결정 ④ — 흐름형의 본질). 반대로 표·이미지·코드·수식 디스플레이와
-   원자 카드(콜아웃·접기·가리기·임베드 등 `.print-avoid-break`를 달고 다니는 블록)는 단 경계에서
-   쪼개지면 읽을 수 없으므로 통째로 넘긴다. */
+/* 표·이미지·코드·수식 디스플레이와 원자 카드(콜아웃·접기·가리기·임베드 등 `.print-avoid-break`를
+   달고 다니는 블록)는 인쇄 페이지 경계에서 쪼개지면 읽을 수 없으므로 통째로 넘긴다. */
 .md-columns table,
 .md-columns pre,
 .md-columns img,

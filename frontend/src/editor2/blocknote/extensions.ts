@@ -8,6 +8,7 @@
 // 건드리지 않는 경로라 업그레이드 내성이 낫다.
 import { createExtension } from '@blocknote/core'
 import type { AdapterSidecar } from '../adapter'
+import { createColumnsEdgeKeymapExtension } from './columnsKeymap'
 import { createFindPlugin } from './find/findPlugin'
 import { createTableAlignPlugin, type ColumnAlign, type InitialTableAlign } from './tableAlign/tableAlignPlugin'
 
@@ -31,5 +32,8 @@ export function createEditor2Extensions(initialTableAlign: InitialTableAlign) {
       key: 'editor2TableAlign',
       prosemirrorPlugins: [createTableAlignPlugin(initialTableAlign)],
     }),
+    // 단 경계 키 가드(stage-41 2차 규약 E 강등) — 두 표면 모두 이 함수로 확장을 받으므로
+    // 노트 편집기(`NoteEditPage`)·문서 블록 표면(`BlockSurface`) 양쪽에 같이 걸린다.
+    createColumnsEdgeKeymapExtension(),
   ]
 }

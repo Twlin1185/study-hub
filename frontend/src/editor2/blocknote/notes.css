@@ -500,75 +500,99 @@
     ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
 }
 
-/* ================================================================== stage-41 규약 A 다단(columns)
+/* ============================================ stage-41 규약 A **2차** 고정 열 다단(columns > column)
 
-   컨테이너 블록 `columns`(content 'none' · 자식 블록 = 내용 — `specs/blocks.tsx`)의 **자식
-   그룹**(엔진이 그리는 `.bn-block-group`)에만 `column-*`을 준다 — 컨트롤 띠 자체는 스펙의
-   Tailwind 유틸(토큰 색)로 이미 마감됐다.
+   구조: `columns`(컨트롤 띠 · content 'none') > 자식 그룹 `.bn-block-group` > 단마다
+   `.bn-block-outer > .bn-block >`(빈 `column` 콘텐츠 + 그 단의 자식 그룹). 바깥 자식 그룹을
+   **grid**로 만들고 각 `.bn-block-outer`를 셀로 그린다. 1차 흐름형(`column-count`·`column-rule`·
+   `break-inside`)은 전부 폐기했다 — 텍스트가 단을 넘어 흐르는 것이 실사용 요구와 어긋났다
+   (2차 개정 근거 · 착수 전 결정 ①).
 
-   단 수는 스펙 render가 **자기 렌더 루트에 선언적으로 찍는 `data-columns-view`**(2·3·1 — 클램프
-   값)를 `:has()`로 읽어 형제 자식 그룹에 적용한다. PM이 관리하는 DOM에는 손대지 않는다(브라우저
-   실측 결함 수정 이력 — 예전에는 render의 `useEffect`가 `closest('.bn-block')`의 style을 직접
-   변이했고 PM DOMObserver가 그 변이를 외부 변경으로 읽어 `markDirty → updateState` → 노드뷰
-   재마운트 → 이펙트 재실행 …로 무한 루프에 빠져 탭이 멎었다).
+   **선택자 형태(1차 실측 확정본 유지)**: `[data-content-type='columns'] + .bn-block-group`처럼
+   형제로 잡으면 매칭 0이다 — 리액트 스펙 블록은 tiptap ReactNodeView 래퍼가 `.bn-block-content`를
+   한 겹 감싸서 `.bn-block-group`이 그 **래퍼**의 형제이기 때문이다. 그래서 래퍼 유무에 독립적으로
+   블록 컨테이너 `.bn-block`에서 내려다본다:
+     `.bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group`
+   `> :not(.bn-block-group)`이 "자식 그룹이 아닌 직계 자식(= 콘텐츠 쪽) 아래"로 한정하므로 안쪽에
+   중첩된 columns의 속성은 바깥 규칙에 잡히지 않는다. 색은 토큰(`--border`)만 — 리터럴 0(불변 규칙 5).
+   간격(px)은 색이 아니라 토큰 대상이 아니다(이 파일 기존 관례). Chrome/Edge `:has()` 지원 —
+   개인용 홈 네트워크 앱이라 허용. */
 
-   **선택자 형태(2차 실측 정정 2026-08-30)**: 종전 `[data-content-type='columns']:has(…) + .bn-block-group`
-   은 **매칭 0**이었다 — 리액트 스펙 블록은 tiptap ReactNodeView 래퍼(`.react-renderer.node-columns
-   .bn-react-node-view-renderer`)가 `.bn-block-content`를 한 겹 감싸고, `.bn-block-group`은 그
-   **래퍼**의 형제라 `.bn-block-content`에는 형제가 없다(위 D2 봉인 주석의 "한 겹" 그 마디).
-   그래서 래퍼 유무에 독립적으로 **블록 컨테이너 `.bn-block`에서 내려다본다**:
-     `.bn-block:has(> :not(.bn-block-group) [data-columns-view='2']) > .bn-block-group`
-   `> :not(.bn-block-group)`이 "자식 그룹이 아닌 직계 자식(= 콘텐츠 쪽) 아래"로 한정하므로, 안쪽에
-   중첩된 columns의 `data-columns-view`(자식 그룹 아래)는 바깥 규칙에 잡히지 않는다.
-   특이도 = (0,5,0)(class 2 + `:has()` 안 최대 (0,2,0) + class 1). `column-rule`은 토큰(`--border`)만
-   — 리터럴 색 0(불변 규칙 5). `column-gap`은 색이 아니라 간격이라 토큰 대상이 아니다(이 파일에
-   간격 전용 토큰이 없어 기존 관례대로 리터럴 px). Chrome/Edge `:has()` 지원 — 개인용 홈 네트워크
-   앱이라 허용. */
-.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='2']) > .bn-block-group {
-  column-count: 2;
+/* ⓐ 기본 — **자식 수만큼** 열(착수 전 결정 ② 2차: 유입 4단 이상도 값·단 보존, 폭만 좁아진다).
+   `grid-auto-flow: column` + `grid-auto-columns`라 n을 CSS가 몰라도 된다. 엔진이 중첩 그룹에 주는
+   `margin-left: 24px`(들여쓰기)는 여기서 지운다 — 셀은 들여쓰기가 아니라 열이다. */
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   column-gap: 24px;
-  column-rule: 1px solid var(--border);
+  margin-left: 0;
+  margin-top: 0;
+  margin-bottom: 4px;
+  padding: 4px 10px 6px 10px;
+  border: 1px solid var(--border);
+  border-top-width: 0;
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+/* ⓑ 정규 상태(1·2·3단)는 **명시 트랙** — 정규화가 끝나기 전 자식이 잠깐 더 늘어도 다음 줄로
+   접힐 뿐 열 폭이 흔들리지 않는다. 특이도는 ⓐ와 같은 (0,5,0)이고 소스가 뒤라 이긴다. */
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='1']) > .bn-block-group {
+  grid-auto-flow: row;
+  grid-template-columns: 1fr;
+}
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='2']) > .bn-block-group {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='3']) > .bn-block-group {
-  column-count: 3;
-  column-gap: 24px;
-  column-rule: 1px solid var(--border);
-}
-.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='1']) > .bn-block-group {
-  column-count: 1;
-  column-rule: none;
+  grid-auto-flow: row;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-/* 단 안의 **원자·비문단 블록**은 단을 넘어 쪼개지지 않는다(착수 전 결정 ④) — 표·이미지·코드·
-   콜아웃·수식·구분선 등. 문단은 일부러 뺀다(문단은 단을 넘어 흘러야 한다 — `break-inside` 미지정).
-   `[data-content-type]`가 있는 모든 블록 콘텐츠가 대상이고, 문단(`paragraph`)만 `:not()`으로 뺀다. */
-.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group [data-content-type]:not([data-content-type='paragraph']) {
-  break-inside: avoid;
+/* ⓒ 셀 — 그리드 아이템은 각 단의 `.bn-block-outer`다. `min-width: 0`이라 넓은 표·코드가 열 폭을
+   밀어내지 않고(표는 기존 가로 스크롤 규칙 유지 — 강제 축소 없음), **두 번째 단부터** 왼쪽에
+   세로 구분선을 그린다(토큰 색). */
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group > .bn-block-outer {
+  min-width: 0;
+}
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group > .bn-block-outer + .bn-block-outer {
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
 }
 
-/* 자식은 단 폭을 넘지 않는다(표는 기존 가로 스크롤 규칙을 그대로 유지 — 강제 축소 없음, 위 D2 참고). */
+/* ⓓ 단(`column`)의 콘텐츠는 **빈 div**다(시각은 여기 CSS 몫) — 엔진 기본 여백(`padding: 3px 0`)을
+   지워 높이 0으로 만든다. 단의 자식 그룹은 중첩 그룹 들여쓰기(24px)를 지운다 — 셀 폭 전부를 쓴다. */
+.note-editor-frame .bn-block-content[data-content-type='column'] {
+  padding: 0;
+  min-height: 0;
+}
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group > .bn-block-outer > .bn-block > .bn-block-group {
+  margin-left: 0;
+}
+
+/* ⓔ 자식은 단 폭을 넘지 않는다(표는 기존 가로 스크롤 규칙 유지 — 위 D2 봉인 참고). */
 .note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group .bn-block-content {
   max-width: 100%;
 }
 
-/* 중첩된 안쪽 columns(착수 전 결정 ③ — 유입 데이터의 중첩은 보존하되 안쪽은 1단으로만 표시)는
-   자기 표시 단 수와 무관하게 1단으로 강등한다. 바깥 형태(0,5,0)를 두 번 이은 (0,9,0)이라 위 값별
-   규칙보다 항상 높아 자연히 이긴다 — `!important` 불필요. */
-.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group {
-  column-count: 1;
-  column-rule: none;
-}
-
-/* 모바일(<768px) — 단을 접어 1단으로(가로 폭이 부족해 다단이 의미가 없다). 2단·3단 규칙과 **같은
-   특이도**(0,5,0)로 맞춰(형태를 그대로 반복) 소스 순서(이 규칙이 나중)로 이기게 한다 — 특이도가
-   더 낮은 셀렉터로 쓰면 미디어 쿼리 안이라도 값별 규칙에 밀린다(CSS는 특이도가 소스 순서보다
-   우선한다). `[data-columns-view='1']` 규칙은 이미 1단이라 손댈 필요가 없다. 편집 표면은 인쇄
-   대상이 아니므로 media type 한정은 두지 않는다(리더 `index.css`는 screen 한정 — 검토 중-1). */
+/* ⓕ 모바일(<768px · H-7) — 단을 **세로로 적층**하고 구분선을 없앤다(데이터 무변 · 가로 폭이
+   부족해 열이 의미가 없다). 값별 규칙 ⓑ와 **같은 특이도**(0,5,0)로 형태를 그대로 반복해 소스
+   순서로 이기게 한다 — 더 낮은 특이도로 쓰면 미디어 쿼리 안이라도 밀린다. 편집 표면은 인쇄
+   대상이 아니므로 media type 한정은 두지 않는다(리더 `index.css`는 screen 한정). */
 @media (max-width: 767px) {
+  .note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group,
+  .note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='1']) > .bn-block-group,
   .note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='2']) > .bn-block-group,
   .note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='3']) > .bn-block-group {
-    column-count: 1;
-    column-rule: none;
+    grid-auto-flow: row;
+    grid-template-columns: 1fr;
+    row-gap: 4px;
+  }
+  .note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group > .bn-block-outer + .bn-block-outer {
+    border-left: 0;
+    padding-left: 0;
   }
 }
 

@@ -22,6 +22,7 @@
 //   | 표 셀 병합(colspan/rowspan) | GFM 표가 병합 셀을 표현하지 못한다 |
 //   | 이미지 파일명(name)·미리보기 토글(showPreview) | Markdown 이미지에 대응 필드가 없다 |
 import { BLOCK_SCHEMA_VERSION } from '../schema/blocks'
+import { normalizeColumnsTree } from '../schema/columnsNormalize'
 import type {
   AttrPair,
   Block,
@@ -477,6 +478,9 @@ function blockToAppInner(ctx: Ctx, id: string, block: BnBlock): Block | null {
       if (bag.meta) out.meta = bag.meta
       return out
     }
+    case 'column':
+      // 단 컨테이너 — prop 0. 자식만 되돌린다(정규화는 문서 단위로 마지막에 한 번 돈다).
+      return { id, type: 'column', children: blocksToApp(ctx, block.children) }
     case 'docEmbed': {
       const out: Block = { id, type: 'docEmbed', target: block.props?.target ?? '' }
       if (block.props?.label) out.label = block.props.label
@@ -573,9 +577,10 @@ function blocksToApp(ctx: Ctx, blocks: BnBlock[] | undefined): Block[] {
       converted.type !== 'listItem' &&
       converted.type !== 'quote' &&
       converted.type !== 'callout' &&
-      // columns도 자식을 **자기 내용으로** 갖는 컨테이너다 — 형제로 펴면 단 내용이 통째로
+      // columns·column도 자식을 **자기 내용으로** 갖는 컨테이너다 — 형제로 펴면 단 내용이 통째로
       // 컨테이너 밖으로 새어 나간다(자식 유실이 아니라 구조 붕괴).
       converted.type !== 'columns' &&
+      converted.type !== 'column' &&
       block.children?.length
     ) {
       out.push(...blocksToApp(ctx, block.children))
@@ -625,10 +630,14 @@ export function fromBlockNoteResult(
   sidecar?: AdapterSidecar,
 ): FromBlockNoteResult {
   const ctx: Ctx = { sidecar: sidecar ?? {}, collapsed: [], alignDrops: [], entry: undefined }
+  // stage-41 2차 — 되읽기 직후 **고정 열 다단 정규화**(규약 A 불변식 ①~④). 편집 세션이 남긴
+  // 비정규 상태(단 밖으로 승격된 블록·빈 단·columns 밖 단독 column)를 저장 전에 되돌린다:
+  // 편집 표면·변환기·저장분이 같은 정규 상태만 보게 하는 단일 출처가 `columnsNormalize`다.
+  // 정규 문서에서는 입력 배열을 그대로 돌려주므로(참조 동일성) 비용도 0에 가깝다.
   return {
     document: {
       version: BLOCK_SCHEMA_VERSION,
-      blocks: trimTrailingEmptyParagraphs(blocksToApp(ctx, blocks)),
+      blocks: normalizeColumnsTree(trimTrailingEmptyParagraphs(blocksToApp(ctx, blocks))),
     },
     microMarkCollapses: ctx.collapsed,
     tableAlignDrops: ctx.alignDrops,

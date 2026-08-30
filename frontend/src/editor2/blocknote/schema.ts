@@ -39,6 +39,7 @@ import type { BnBlock } from '../adapter'
 import { useThemeStore } from '../../stores/theme'
 import {
   createCalloutBlockSpec,
+  createColumnBlockSpec,
   createColumnsBlockSpec,
   createDocEmbedBlockSpec,
   createSourceFallbackBlockSpec,
@@ -139,8 +140,11 @@ export const noteSchema = BlockNoteSchema.create({
     // ---- 방언(stage-34 G-3 · G-7)
     mathBlock: createReactMathBlockSpec(),
     callout: createCalloutBlockSpec(),
-    // 흐름형 다단(stage-41 규약 A) — 컨테이너 블록, 자식 블록이 내용.
+    // 고정 열 다단(stage-41 규약 A **2차**) — 컨테이너 `columns` 안에 단 컨테이너 `column` n개.
+    // 둘 다 `content: 'none'`이고 **자식 블록이 내용**이다(슬래시 메뉴에는 `columns`만 노출한다 —
+    // 사용자는 단을 따로 만들지 않는다).
     columns: createColumnsBlockSpec(),
+    column: createColumnBlockSpec(),
     docEmbed: createDocEmbedBlockSpec(),
     toc: createTocBlockSpec(),
     webEmbed: createWebEmbedBlockSpec(),

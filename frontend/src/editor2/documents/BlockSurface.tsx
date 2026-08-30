@@ -226,6 +226,8 @@ const BlockSurface = forwardRef<BlockSurfaceHandle, BlockSurfaceProps>(function 
             onChange={onChange}
             formattingToolbar={false}
             slashMenu={false}
+            // 사이드 메뉴는 `NoteEditorDialectUI`가 되건다(stage-41 2차 — 단에서만 감춤).
+            sideMenu={false}
           >
             <NoteEditorDialectUI />
           </BlockNoteView>

@@ -419,6 +419,15 @@ function blockToBnInner(ctx: Ctx, at: string, block: Block): BnBlock | null {
         children: blocksToBn(ctx, `${at}.children`, block.children),
       }
 
+    case 'column':
+      // 단 컨테이너 — prop 0(옮길 값 없음) · 자식 블록이 곧 단 내용이다.
+      return {
+        id,
+        type: 'column',
+        props: {},
+        children: blocksToBn(ctx, `${at}.children`, block.children),
+      }
+
     case 'docEmbed':
       return {
         id,
