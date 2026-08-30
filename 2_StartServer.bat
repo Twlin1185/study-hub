@@ -28,6 +28,13 @@ if errorlevel 1 (
 )
 popd
 
+rem Rebuild the screen files when the frontend source changed (needs Node.js; skipped otherwise).
+rem Dev_StartServer.bat already ran this check when it hands over here - it passes "nobuild".
+if /i not "%~1"=="nobuild" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\ensure-frontend-build.ps1"
+    if errorlevel 1 echo [WARN] Frontend build failed - starting with the previous build.
+)
+
 if not exist "frontend\dist\index.html" (
     echo [ERROR] frontend\dist\index.html not found - this copy has no built screen files.
     echo         Get a package that includes the "frontend\dist" folder.

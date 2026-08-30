@@ -26,11 +26,11 @@ if %PLEN% GTR 110 (
 )
 
 if exist "%PYEXE%" (
-    echo [1/4] Portable Python already installed - skipping download.
+    echo [1/5] Portable Python already installed - skipping download.
     goto :PIP
 )
 
-echo [1/4] Downloading portable Python %PYVER% - about 11 MB ...
+echo [1/5] Downloading portable Python %PYVER% - about 11 MB ...
 set "PYZIP=%TEMP%\studyhub-python-embed.zip"
 call :DOWNLOAD "https://www.python.org/ftp/python/%PYVER%/python-%PYVER%-embed-amd64.zip" "%PYZIP%"
 if errorlevel 1 (
@@ -39,7 +39,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [2/4] Extracting to python-embed ...
+echo [2/5] Extracting to python-embed ...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Force '%PYZIP%' '%PYDIR%'"
 if errorlevel 1 (
     echo [ERROR] Failed to extract the Python archive.
@@ -58,9 +58,9 @@ if errorlevel 1 (
 
 :PIP
 if exist "%PYDIR%\Scripts\pip.exe" (
-    echo [3/4] pip already installed - skipping.
+    echo [3/5] pip already installed - skipping.
 ) else (
-    echo [3/4] Installing pip ...
+    echo [3/5] Installing pip ...
     call :DOWNLOAD "https://bootstrap.pypa.io/get-pip.py" "%PYDIR%\get-pip.py"
     if errorlevel 1 (
         echo [ERROR] Failed to download get-pip.py.
@@ -76,7 +76,7 @@ if exist "%PYDIR%\Scripts\pip.exe" (
     del "%PYDIR%\get-pip.py" >nul 2>&1
 )
 
-echo [4/4] Installing packages - first run can take a few minutes ...
+echo [4/5] Installing packages - first run can take a few minutes ...
 "%PYEXE%" -m pip install --no-warn-script-location -r "backend\requirements.txt"
 if errorlevel 1 (
     echo [ERROR] Package installation failed. Check the messages above.
@@ -104,6 +104,14 @@ if exist "study.db" (
         exit /b 1
     )
     popd
+)
+
+rem Build the screen files if the frontend source is newer than frontend\dist (needs Node.js;
+rem silently skipped on a PC without it - the dist included in this copy is used as-is).
+echo [5/5] Checking the frontend build ...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\ensure-frontend-build.ps1"
+if errorlevel 1 (
+    echo [WARN] Frontend build failed - the screen files in this copy will be used as they are.
 )
 
 echo.

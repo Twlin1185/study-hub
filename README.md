@@ -49,6 +49,7 @@ npm run dev        # 개발 서버 (프록시로 백엔드 연결)
 npm run build      # 배포 빌드 → FastAPI가 dist를 서빙
 ```
 
+- **빌드 자동화**: `1_Setup.bat`·`2_StartServer.bat`·`Dev_StartServer.bat`는 프론트 소스가 마지막 빌드와 다르면(`frontend/dist/.source-hash` 해시 비교 — 파일 시각이 아니라 내용 기준) 자동으로 `npm install`(필요 시)·`npm run build`를 돌립니다. Node.js가 없는 PC는 건너뛰고 저장소에 든 `dist`를 그대로 씁니다. 수동 확인: `cd frontend && node scripts/source-hash.mjs --check`.
 - 접속: PC `http://localhost:8000`, 휴대폰(같은 Wi-Fi) `http://<PC-IP>:8000`
 - 사용 설명서: 서버 실행 후 `http://localhost:8000/manual`
 - 데이터는 프로젝트 루트의 `study.db` 파일 하나에 저장됩니다. **백업 = 이 파일 복사**
