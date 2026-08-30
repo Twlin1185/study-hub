@@ -184,6 +184,14 @@ function applyDirectives(node: MdNode, opts: StudyCtx): void {
         if (styleDecls.length) hProperties.style = styleDecls.join(';')
         if (classNames.length) hProperties.className = classNames
       }
+      if (name === 'columns') {
+        // 흐름형 다단(stage-41) — 리더가 단 수를 읽을 수 있게 `n` **원문 문자열만** 넘긴다.
+        // 값 검증·범위 강등은 렌더 몫이고(MarkdownView.ColumnsSection), 여기서는 node의
+        // type/name/attributes/children을 일절 건드리지 않는다(toc·web 주석과 같은 이유 —
+        // 이 플러그인은 editor2 변환 파이프라인도 공유한다).
+        const n = (child.attributes ?? {}).n
+        if (n) hProperties['data-directive-n'] = n
+      }
       if (name === 'toc' || name === 'web') {
         // stage-37 규약 A·B(리더 렌더 전용 부가 정보) — **hProperties 신규 키만 추가**하고
         // node.type/name/attributes/children은 절대 건드리지 않는다: 이 함수(remarkStudyDirectives)

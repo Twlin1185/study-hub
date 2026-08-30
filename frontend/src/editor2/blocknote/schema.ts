@@ -39,6 +39,7 @@ import type { BnBlock } from '../adapter'
 import { useThemeStore } from '../../stores/theme'
 import {
   createCalloutBlockSpec,
+  createColumnsBlockSpec,
   createDocEmbedBlockSpec,
   createSourceFallbackBlockSpec,
 } from './specs/blocks'
@@ -138,6 +139,8 @@ export const noteSchema = BlockNoteSchema.create({
     // ---- 방언(stage-34 G-3 · G-7)
     mathBlock: createReactMathBlockSpec(),
     callout: createCalloutBlockSpec(),
+    // 흐름형 다단(stage-41 규약 A) — 컨테이너 블록, 자식 블록이 내용.
+    columns: createColumnsBlockSpec(),
     docEmbed: createDocEmbedBlockSpec(),
     toc: createTocBlockSpec(),
     webEmbed: createWebEmbedBlockSpec(),

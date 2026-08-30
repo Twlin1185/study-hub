@@ -499,3 +499,83 @@
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
 }
+
+/* ================================================================== stage-41 규약 A 다단(columns)
+
+   컨테이너 블록 `columns`(content 'none' · 자식 블록 = 내용 — `specs/blocks.tsx`)의 **자식
+   그룹**(엔진이 그리는 `.bn-block-group`)에만 `column-*`을 준다 — 컨트롤 띠 자체는 스펙의
+   Tailwind 유틸(토큰 색)로 이미 마감됐다.
+
+   단 수는 스펙 render가 **자기 렌더 루트에 선언적으로 찍는 `data-columns-view`**(2·3·1 — 클램프
+   값)를 `:has()`로 읽어 형제 자식 그룹에 적용한다. PM이 관리하는 DOM에는 손대지 않는다(브라우저
+   실측 결함 수정 이력 — 예전에는 render의 `useEffect`가 `closest('.bn-block')`의 style을 직접
+   변이했고 PM DOMObserver가 그 변이를 외부 변경으로 읽어 `markDirty → updateState` → 노드뷰
+   재마운트 → 이펙트 재실행 …로 무한 루프에 빠져 탭이 멎었다).
+
+   **선택자 형태(2차 실측 정정 2026-08-30)**: 종전 `[data-content-type='columns']:has(…) + .bn-block-group`
+   은 **매칭 0**이었다 — 리액트 스펙 블록은 tiptap ReactNodeView 래퍼(`.react-renderer.node-columns
+   .bn-react-node-view-renderer`)가 `.bn-block-content`를 한 겹 감싸고, `.bn-block-group`은 그
+   **래퍼**의 형제라 `.bn-block-content`에는 형제가 없다(위 D2 봉인 주석의 "한 겹" 그 마디).
+   그래서 래퍼 유무에 독립적으로 **블록 컨테이너 `.bn-block`에서 내려다본다**:
+     `.bn-block:has(> :not(.bn-block-group) [data-columns-view='2']) > .bn-block-group`
+   `> :not(.bn-block-group)`이 "자식 그룹이 아닌 직계 자식(= 콘텐츠 쪽) 아래"로 한정하므로, 안쪽에
+   중첩된 columns의 `data-columns-view`(자식 그룹 아래)는 바깥 규칙에 잡히지 않는다.
+   특이도 = (0,5,0)(class 2 + `:has()` 안 최대 (0,2,0) + class 1). `column-rule`은 토큰(`--border`)만
+   — 리터럴 색 0(불변 규칙 5). `column-gap`은 색이 아니라 간격이라 토큰 대상이 아니다(이 파일에
+   간격 전용 토큰이 없어 기존 관례대로 리터럴 px). Chrome/Edge `:has()` 지원 — 개인용 홈 네트워크
+   앱이라 허용. */
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='2']) > .bn-block-group {
+  column-count: 2;
+  column-gap: 24px;
+  column-rule: 1px solid var(--border);
+}
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='3']) > .bn-block-group {
+  column-count: 3;
+  column-gap: 24px;
+  column-rule: 1px solid var(--border);
+}
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='1']) > .bn-block-group {
+  column-count: 1;
+  column-rule: none;
+}
+
+/* 단 안의 **원자·비문단 블록**은 단을 넘어 쪼개지지 않는다(착수 전 결정 ④) — 표·이미지·코드·
+   콜아웃·수식·구분선 등. 문단은 일부러 뺀다(문단은 단을 넘어 흘러야 한다 — `break-inside` 미지정).
+   `[data-content-type]`가 있는 모든 블록 콘텐츠가 대상이고, 문단(`paragraph`)만 `:not()`으로 뺀다. */
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group [data-content-type]:not([data-content-type='paragraph']) {
+  break-inside: avoid;
+}
+
+/* 자식은 단 폭을 넘지 않는다(표는 기존 가로 스크롤 규칙을 그대로 유지 — 강제 축소 없음, 위 D2 참고). */
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group .bn-block-content {
+  max-width: 100%;
+}
+
+/* 중첩된 안쪽 columns(착수 전 결정 ③ — 유입 데이터의 중첩은 보존하되 안쪽은 1단으로만 표시)는
+   자기 표시 단 수와 무관하게 1단으로 강등한다. 바깥 형태(0,5,0)를 두 번 이은 (0,9,0)이라 위 값별
+   규칙보다 항상 높아 자연히 이긴다 — `!important` 불필요. */
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group .bn-block:has(> :not(.bn-block-group) [data-columns-view]) > .bn-block-group {
+  column-count: 1;
+  column-rule: none;
+}
+
+/* 모바일(<768px) — 단을 접어 1단으로(가로 폭이 부족해 다단이 의미가 없다). 2단·3단 규칙과 **같은
+   특이도**(0,5,0)로 맞춰(형태를 그대로 반복) 소스 순서(이 규칙이 나중)로 이기게 한다 — 특이도가
+   더 낮은 셀렉터로 쓰면 미디어 쿼리 안이라도 값별 규칙에 밀린다(CSS는 특이도가 소스 순서보다
+   우선한다). `[data-columns-view='1']` 규칙은 이미 1단이라 손댈 필요가 없다. 편집 표면은 인쇄
+   대상이 아니므로 media type 한정은 두지 않는다(리더 `index.css`는 screen 한정 — 검토 중-1). */
+@media (max-width: 767px) {
+  .note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='2']) > .bn-block-group,
+  .note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-columns-view='3']) > .bn-block-group {
+    column-count: 1;
+    column-rule: none;
+  }
+}
+
+/* 실측 준비(규약 E ⓑ) — 드래그 핸들이 columns 자식 그룹에서 오작동할 경우를 대비한 스위치
+   (기본 = 꺼짐, 이 속성이 없으면 무영향). devtools로 `.note-editor-frame`에
+   `data-disable-side-menu` 속성을 수동으로 부여하면 사이드 메뉴(＋ 추가·드래그 핸들)를 통째로
+   숨겨 그 없이도 편집이 되는지 실측할 수 있다 — 상시 코드 경로가 아니다. */
+.note-editor-frame[data-disable-side-menu] .bn-side-menu {
+  display: none;
+}

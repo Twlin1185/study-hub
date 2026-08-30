@@ -26,6 +26,8 @@ import type {
   AttrPair,
   Block,
   BlockDocument,
+  BlockMeta,
+  ColumnsBlock,
   InlineNode,
   InlineStyles,
   ListItemBlock,
@@ -101,6 +103,35 @@ function decodeWebEmbedMeta(value: string | undefined): WebEmbedBlock['meta'] {
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
   return parsed as WebEmbedBlock['meta']
+}
+
+/**
+ * 다단 컨테이너 `meta` prop → `{ attrs, meta }`. 깨진 값은 **조용히 무시**한다(저장 경로를
+ * 막지 않는다 — `decodeAttrPairs`·`decodeWebEmbedMeta`와 같은 관대한 복원 관례).
+ */
+function decodeColumnsMeta(value: string | undefined): { attrs?: AttrPair[]; meta?: BlockMeta } {
+  if (!value) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return {}
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+  const bag = parsed as { attrs?: unknown; meta?: unknown }
+  const out: { attrs?: AttrPair[]; meta?: BlockMeta } = {}
+  if (Array.isArray(bag.attrs) && bag.attrs.length > 0) out.attrs = bag.attrs as AttrPair[]
+  if (bag.meta && typeof bag.meta === 'object' && !Array.isArray(bag.meta)) out.meta = bag.meta as BlockMeta
+  return out
+}
+
+/**
+ * 단 수 prop → `count`. BlockNote propSchema는 number지만 되읽기 경로가 문자열을 흘릴 수 있어
+ * 둘 다 받는다. **정수가 아니면 기본 2**(스키마 기본값) — 범위 밖 정수는 그대로 보존한다.
+ */
+function columnsCount(value: unknown): number {
+  const n = typeof value === 'string' ? Number(value) : value
+  return typeof n === 'number' && Number.isInteger(n) ? n : 2
 }
 
 function appStyles(ctx: Ctx, styles: BnStyles | undefined): InlineStyles | undefined {
@@ -333,7 +364,8 @@ function blockToApp(ctx: Ctx, block: BnBlock): Block | null {
   // webEmbed는 제외한다(stage-37 F-2): 그 블록의 메타는 **자기 prop**에서 이미 복원됐고,
   // 사이드카 값으로 덮으면 §4.30 캐시가 지워진다.
   const meta = ctx.sidecar[id]?.meta
-  if (converted && meta && converted.type !== 'webEmbed') converted.meta = meta
+  // webEmbed·columns는 자기 `meta` prop이 provenance까지 싣는다 — 사이드카가 덮어쓰지 않는다.
+  if (converted && meta && converted.type !== 'webEmbed' && converted.type !== 'columns') converted.meta = meta
   return converted
 }
 
@@ -432,6 +464,19 @@ function blockToAppInner(ctx: Ctx, id: string, block: BnBlock): Block | null {
       if (attrs) out.attrs = attrs
       return out
     }
+    case 'columns': {
+      const out: ColumnsBlock = {
+        id,
+        type: 'columns',
+        count: columnsCount(block.props?.count),
+        children: blocksToApp(ctx, block.children),
+      }
+      // `meta` prop 하나가 미지 속성 쌍 + provenance를 함께 되돌린다(사이드카 불요).
+      const bag = decodeColumnsMeta(block.props?.meta)
+      if (bag.attrs) out.attrs = bag.attrs
+      if (bag.meta) out.meta = bag.meta
+      return out
+    }
     case 'docEmbed': {
       const out: Block = { id, type: 'docEmbed', target: block.props?.target ?? '' }
       if (block.props?.label) out.label = block.props.label
@@ -528,6 +573,9 @@ function blocksToApp(ctx: Ctx, blocks: BnBlock[] | undefined): Block[] {
       converted.type !== 'listItem' &&
       converted.type !== 'quote' &&
       converted.type !== 'callout' &&
+      // columns도 자식을 **자기 내용으로** 갖는 컨테이너다 — 형제로 펴면 단 내용이 통째로
+      // 컨테이너 밖으로 새어 나간다(자식 유실이 아니라 구조 붕괴).
+      converted.type !== 'columns' &&
       block.children?.length
     ) {
       out.push(...blocksToApp(ctx, block.children))

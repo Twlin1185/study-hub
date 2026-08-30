@@ -429,6 +429,31 @@ export interface SourceFallbackBlock extends BlockBase {
   nodeType: string
 }
 
+/**
+ * `:::columns{n=2} … :::` — **흐름형 다단**(Word의 "단") 컨테이너 블록(stage-41 / F-1 규약 A).
+ *
+ * 고정 열(Notion 컬럼)이 **아니다**: 자식 블록 시퀀스는 하나의 흐름이고, 렌더가 CSS
+ * `column-count`로 그 흐름을 n개 단에 나눠 담는다(문단 내부도 단을 넘어 흐른다). 따라서
+ * 저장 데이터는 "단 수 + 자식 블록"이 전부이며, 어느 블록이 몇째 단에 놓이는지는 저장하지 않는다.
+ *
+ * `count`는 **유입 값을 그대로 보존**한다(범위 밖 값도 자르지 않는다 — 표시 강등(3단 상한)은
+ * 렌더 몫이다). 편집 UI가 만들 수 있는 값은 2·3뿐이고, 그 밖의 값은 외부 유입분이다.
+ * `n`이 **정수 표기가 아니거나 결손**이면 `count`는 기본 2로 두고 원문 쌍을 `attrs`에 남겨
+ * 재직렬화에서 원문(`{n=abc}`)이 되살아나게 한다(값 보존 원칙 — 콜아웃 `attrs` 전례).
+ *
+ * `attrs` = `n` 이외의 미지 속성 쌍 통짜 보존(콜아웃 전례 · 순서 유지).
+ * **중첩 금지는 입력 UI의 계약**이고 스키마는 막지 않는다 — 유입 데이터의 중첩(columns 안
+ * columns · 콜아웃 안 columns)은 그대로 보존하고, 안쪽은 렌더에서 1단으로 표시한다.
+ */
+export interface ColumnsBlock extends BlockBase {
+  type: 'columns'
+  /** 단 수 — 유입 값 보존(정규 도메인은 2·3). */
+  count: number
+  /** `n` 이외의 미지 속성 쌍(있을 때만) */
+  attrs?: AttrPair[]
+  children: Block[]
+}
+
 export type Block =
   | ParagraphBlock
   | HeadingBlock
@@ -445,6 +470,8 @@ export type Block =
   | TocBlock
   | WebEmbedBlock
   | SourceFallbackBlock
+  // ---- 흐름형 다단(stage-41 — 가산 확장이라 `BLOCK_SCHEMA_VERSION`은 1 그대로다)
+  | ColumnsBlock
 
 export type BlockType = Block['type']
 
@@ -452,7 +479,7 @@ export type BlockType = Block['type']
 
 /** 자식 블록을 갖는 블록인가(중첩 순회용). */
 export function blockChildren(block: Block): Block[] {
-  if (block.type === 'quote' || block.type === 'callout') return block.children
+  if (block.type === 'quote' || block.type === 'callout' || block.type === 'columns') return block.children
   if (block.type === 'listItem') return block.children ?? []
   return []
 }

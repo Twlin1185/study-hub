@@ -39,3 +39,45 @@ mark {
 .doc-style-reset {
   font-family: var(--font-base, system-ui, 'Segoe UI', Roboto, sans-serif);
 }
+
+/* 흐름형 다단(stage-41 · `:::columns{n=}`) — 단 수는 `DirectiveBlocks.ColumnsSection`이 내는
+   **`data-columns` 선언 속성**이 정한다(1·2·3 — 범위 밖 값·중첩 안쪽은 렌더가 이미 강등해 둔 값).
+   Tailwind `md:columns-*` 유틸을 쓰지 않는 이유(검토 중-1 · 2026-08-30): 인쇄 미디어 쿼리 폭은
+   A4 콘텐츠 박스(≈680px) < md(768px)라 인쇄가 1단으로 강등됐다 — 규약 C "인쇄 = 화면과 같은
+   단 수" 위반. 구분선 색은 토큰(--border)만 쓴다 = 다크 모드 자동 대응. 1단일 때 column-rule은
+   그릴 자리가 없으므로 "중첩 columns = 1단·구분선 없음"이 규칙 추가 없이 성립한다. */
+.md-columns {
+  column-gap: 1.5rem;
+  column-rule: 1px solid var(--border);
+}
+.md-columns[data-columns='1'] {
+  column-count: 1;
+}
+.md-columns[data-columns='2'] {
+  column-count: 2;
+}
+.md-columns[data-columns='3'] {
+  column-count: 3;
+}
+
+/* 모바일(<768px) 1단 강등은 **화면(screen) 한정** — 인쇄(print)는 이 규칙에 걸리지 않아 화면
+   (데스크톱)과 같은 단 수로 찍힌다. 편집 표면(notes.css)의 768px 규칙과 같은 경계. 선택자는 위 값별
+   규칙과 **같은 특이도 (0,2,0)**(`.md-columns[data-columns]`)로 맞춰 소스 순서로 이긴다 — `.md-columns`
+   (0,1,0)만 쓰면 미디어 쿼리 안이라도 값별 규칙에 밀려 2·3단이 남는다(iframe 390px 실측 2026-08-30). */
+@media screen and (max-width: 767px) {
+  .md-columns[data-columns] {
+    column-count: 1;
+    column-rule: none;
+  }
+}
+
+/* 문단은 단을 넘어 흐른다(결정 ④ — 흐름형의 본질). 반대로 표·이미지·코드·수식 디스플레이와
+   원자 카드(콜아웃·접기·가리기·임베드 등 `.print-avoid-break`를 달고 다니는 블록)는 단 경계에서
+   쪼개지면 읽을 수 없으므로 통째로 넘긴다. */
+.md-columns table,
+.md-columns pre,
+.md-columns img,
+.md-columns .katex-display,
+.md-columns .print-avoid-break {
+  break-inside: avoid;
+}

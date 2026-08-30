@@ -348,6 +348,32 @@ function calloutBlock(node: MdNode, ctx: Ctx): Block {
   return block
 }
 
+/** `n` 속성 중 **스키마 필드로 흡수하는** 표기 = 정수 리터럴뿐(그 밖은 통짜 보존). */
+const COLUMNS_N_RE = /^-?\d+$/
+
+/**
+ * `:::columns{n=2} … :::` → 흐름형 다단 컨테이너(stage-41 규약 A·C).
+ *
+ * `n`이 **정수 표기**면 `count`로 흡수한다 — 범위 밖 값(`n=4`·`n=0`)도 **자르지 않고 그대로**
+ * 싣는다(표시 강등(3단 상한)은 렌더 몫이고 데이터는 손대지 않는다). 정수가 아니거나(`n=abc`)
+ * 결손이면 `count`는 기본 2로 두되, **원문 쌍이 있으면 `attrs`에 남긴다** — 그래야 재직렬화가
+ * 원문(`{n=abc}`)을 그대로 되살려 왕복이 성립한다. `n` 이외의 미지 속성은 항상 통짜 보존.
+ */
+function columnsBlock(node: MdNode, ctx: Ctx): Block {
+  const attrs = attrPairsOf(node)
+  const raw = attrs.find(([key]) => key === 'n')?.[1]?.trim()
+  const absorbed = raw !== undefined && COLUMNS_N_RE.test(raw)
+  const rest = absorbed ? attrs.filter(([key]) => key !== 'n') : attrs
+  const block: Block = {
+    id: nextId(ctx),
+    type: 'columns',
+    count: absorbed ? Number(raw) : 2,
+    children: convertBlocks(node.children ?? [], ctx),
+  }
+  if (rest.length) block.attrs = rest
+  return block
+}
+
 /** 규약 B — `::web`이 흡수하는 속성 키 전수(이 밖의 키가 하나라도 있으면 원문 보존으로 간다). */
 const WEB_ATTR_KEYS = new Set(['url', 'title'])
 
@@ -436,6 +462,21 @@ function convertBlocks(nodes: MdNode[], ctx: Ctx): Block[] {
         out.push({ id: nextId(ctx), type: 'divider' })
         break
       case 'containerDirective':
+        // 흐름형 다단(stage-41)만 콜아웃 앞에서 갈라진다 — 그 밖의 container directive는 종전
+        // 그대로 콜아웃으로 간다(기존 문서 변환 diff 0 계약).
+        //
+        // **`:::columns[라벨]`은 흡수하지 않는다**: columns에는 라벨을 담을 자리가 없어(단 수와
+        // 자식이 전부다) 흡수하면 라벨이 조용히 사라진다. stage-37 규약 A의 `::toc[라벨]` 전례
+        // 그대로 **원문 보존**(sourceFallback)으로 보내 손실 0을 지킨다. 라벨은 remarkStudy가
+        // hProperties로 실어 둔 것을 읽는다(콜아웃과 같은 경로).
+        if (node.name === 'columns' && !hProps(node)['data-directive-label']) {
+          out.push(columnsBlock(node, ctx))
+          break
+        }
+        if (node.name === 'columns') {
+          out.push(fallbackBlock(node, ctx))
+          break
+        }
         out.push(calloutBlock(node, ctx))
         break
       case 'leafDirective':

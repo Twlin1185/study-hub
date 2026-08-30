@@ -10,7 +10,7 @@
 // - **인쇄는 전부 공개**(§4.19 ⑧, F52 결정 ⑤ 연장): 내용을 DOM에서 제거하지 않고 print: 변형으로
 //   항상 펼친다.
 // - 색상 하드코딩 0 — 토큰 클래스만.
-import { useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 
 const BLOCK = 'print-avoid-break my-3 rounded-lg border border-border bg-surface'
@@ -115,6 +115,41 @@ export function CalloutBlock({
       </p>
       <div className="mt-1 border-t border-border pt-1 text-primary">{children}</div>
     </div>
+  )
+}
+
+// ---- 흐름형 다단(:::columns{n=2}) — stage-41 ----
+//
+// Word의 "단"과 같은 **흐름형**이다: 자식 블록 시퀀스는 하나의 흐름이고 CSS `column-count`가
+// 그 흐름을 n개 단에 나눠 담는다(문단 내부도 단을 넘어 흐른다 — 결정 ④). 고정 열(Notion 컬럼)이
+// 아니므로 "어느 블록이 몇째 단"이라는 정보 자체가 없다.
+//
+// 표시 규칙(데이터는 손대지 않는다 — 강등은 여기서만 한다):
+//   · 단 수는 **2·3만** 그린다. 유입 데이터의 범위 밖 값(`n=4` 이상)은 3단으로 상한 강등하고,
+//     2 미만(`n=1`·`n=0`·음수)은 1단으로 본다. 저장된 `count`는 그대로 남는다.
+//   · 단 수는 `data-columns` **선언 속성**으로만 내고 `index.css`의 `.md-columns[data-columns=…]`가
+//     column-count를 정한다(Tailwind `md:columns-*` 유틸을 쓰지 않는다 — 검토 중-1 2026-08-30:
+//     인쇄 시 미디어 쿼리가 평가하는 폭은 A4 콘텐츠 박스 210−15×2 = 180mm ≈ 680px < 768px라
+//     `md:` 규칙이 빠져 인쇄가 1단으로 강등됐다).
+//   · **모바일 강등은 `@media screen and (max-width: 767px)` 한정**(index.css) — 화면에서만 1단·
+//     구분선 없음. **인쇄는 강등하지 않는다**(규약 C — 화면과 같은 단 수 · print 미디어는 위
+//     쿼리에 안 걸린다).
+//   · **중첩 columns는 안쪽을 1단으로** 표시한다(입력 UI는 중첩을 막지만 유입 데이터는 보존되므로
+//     렌더가 감당해야 한다). 깊이는 컨텍스트로 센다 — CSS 하위 선택자보다 확정적이다.
+// 간격·구분선·자식 break-inside는 `index.css`의 `.md-columns`가 맡는다(색은 토큰만).
+/** 다단 중첩 깊이 — 0이면 최상위. 1 이상이면 안쪽이므로 1단으로 표시한다. */
+const ColumnsDepth = createContext(0)
+
+export function ColumnsSection({ count, children }: { count: number; children: ReactNode }) {
+  const depth = useContext(ColumnsDepth)
+  const clamped: 1 | 2 | 3 = count <= 1 ? 1 : count === 2 ? 2 : 3
+  const cols: 1 | 2 | 3 = depth > 0 ? 1 : clamped
+  return (
+    <ColumnsDepth.Provider value={depth + 1}>
+      <div className="my-3 md-columns" data-columns={cols}>
+        {children}
+      </div>
+    </ColumnsDepth.Provider>
   )
 }
 
