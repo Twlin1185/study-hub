@@ -63,8 +63,8 @@ const SLASH_TABLE: SlashRow[] = [
   { source: 'core', key: 'heading_6', group: GROUP.heading },
   // --- 고급
   { source: 'core', key: 'table', group: GROUP.advanced, aliases: ['table', '테이블', '격자'] },
-  // 다단(방언 · stage-41 규약 A·B) — 항목 2개(2단·3단)가 같은 5별칭을 공유한다(착수 전 결정 ②·
-  // 규약 B — "/2단"·"/3단"으로도 잡히고 "/단나누기"·"/columns"·"/다단"으로도 둘 다 잡힌다).
+  // 다단(방언 · stage-41 규약 A·B) — 항목 2개(2단·3단). 공통 별칭 `/단나누기`·`/columns`·`/다단`은
+  // 둘 다 잡고, `/2단`·`/3단`은 **그 단 수 항목만** 잡는다(규약 B "단 수 지정 삽입" — 검토 경-4 2026-08-30).
   { source: 'columns', count: 2, group: GROUP.advanced },
   { source: 'columns', count: 3, group: GROUP.advanced },
   // 목차(방언 · stage-37 규약 A) — 저장 데이터 0 · 자기 표면 헤딩에서 렌더 시점 파생.
@@ -94,8 +94,8 @@ const CALLOUT_ITEM: Record<string, { title: string; subtext: string; aliases: st
   hide: { title: '콜아웃 · 숨김', subtext: '숨겨 두는 상자', aliases: ['callout', '콜아웃', 'hide', '숨김', '가리기'] },
 }
 
-/** 다단 2종의 5별칭 계약(규약 B) — 두 항목이 이 목록을 **그대로 공유**한다(각자 다른 별칭 아님). */
-const COLUMNS_ALIASES = ['단나누기', 'columns', '2단', '3단', '다단']
+/** 다단 공통 별칭(규약 B) — 두 항목이 공유. 단 수 지정 별칭(`2단`/`3단`)은 항목별로 하나만 더한다. */
+const COLUMNS_ALIASES = ['단나누기', 'columns', '다단']
 
 /** 슬래시 메뉴는 항목 비활성(disabled)을 지원하지 않는다(`DefaultSuggestionItem`에 그 필드가
  * 없다 — 실측). 그래서 중첩 차단은 "실행 시 안내 후 무동작"으로 처리한다(규약 B). */
@@ -211,7 +211,7 @@ export function composeSlashItems(
         key: `columns_${row.count}`,
         title: blocked ? `⛔ 다단 · ${row.count}단` : `다단 · ${row.count}단`,
         subtext: blocked ? COLUMNS_NEST_NOTICE : `본문을 ${row.count}개 단으로 나눕니다`,
-        aliases: COLUMNS_ALIASES,
+        aliases: [...COLUMNS_ALIASES, `${row.count}단`],
         group: row.group,
         onItemClick: blocked ? () => undefined : () => insertColumnsBlock(editor, row.count),
       })

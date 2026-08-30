@@ -246,6 +246,32 @@ function ensureColumnsEmptyCleanup(editor: any): void {
   })
 }
 
+/**
+ * 단 수 토글 시 `meta` 주머니의 `attrs`에서 `n` 쌍을 떼어 낸다(검토 경-1 · 2026-08-30). 유입 원문이
+ * 정수가 아닌 `n`(`n=abc`·`n=2.5`)이면 파서가 그 쌍을 `attrs`에 통짜 보존하고, 직렬화는 "attrs에 `n`이
+ * 있으면 count 파생 `n`을 붙이지 않는다"(`blocksToMarkdown` — 원문 왕복 우선). 그대로 두면 사용자가
+ * 2↔3을 바꿔도 저장 결과가 원문 `n=abc`로 돌아가 **조용히 무효화**된다. 사용자가 단 수를 명시적으로
+ * 골랐으니 이제 count가 정본 — 원문 `n`은 여기서만 버린다(다른 미지 쌍·provenance는 그대로).
+ * 깨진 JSON은 손대지 않고 되돌려 준다(어댑터의 관대한 복원 관례).
+ */
+function columnsMetaWithoutN(meta: string | undefined): string {
+  if (!meta) return ''
+  let bag: unknown
+  try {
+    bag = JSON.parse(meta)
+  } catch {
+    return meta
+  }
+  if (!bag || typeof bag !== 'object' || Array.isArray(bag)) return meta
+  const rec = bag as { attrs?: unknown }
+  if (!Array.isArray(rec.attrs)) return meta
+  const attrs = rec.attrs.filter((pair) => !(Array.isArray(pair) && pair[0] === 'n'))
+  const out: Record<string, unknown> = { ...rec }
+  if (attrs.length > 0) out.attrs = attrs
+  else delete out.attrs
+  return Object.keys(out).length === 0 ? '' : JSON.stringify(out)
+}
+
 export const createColumnsBlockSpec = createReactBlockSpec(
   {
     type: 'columns',
@@ -287,7 +313,12 @@ export const createColumnsBlockSpec = createReactBlockSpec(
               type="button"
               aria-label={`${n}단으로 표시`}
               aria-pressed={raw === n}
-              onClick={() => editor.updateBlock(block, { type: 'columns', props: { count: n } })}
+              onClick={() =>
+                editor.updateBlock(block, {
+                  type: 'columns',
+                  props: { count: n, meta: columnsMetaWithoutN(block.props.meta as string) },
+                })
+              }
               className={`min-h-9 rounded border px-2 text-xs font-medium ${
                 raw === n
                   ? 'border-accent bg-accent-soft text-accent'

@@ -127,19 +127,16 @@ export function CalloutBlock({
 // 표시 규칙(데이터는 손대지 않는다 — 강등은 여기서만 한다):
 //   · 단 수는 **2·3만** 그린다. 유입 데이터의 범위 밖 값(`n=4` 이상)은 3단으로 상한 강등하고,
 //     2 미만(`n=1`·`n=0`·음수)은 1단으로 본다. 저장된 `count`는 그대로 남는다.
-//   · **모바일 우선** — 기본 1단, `md`(≥768px) 이상에서 n단. 1단에서는 column-rule이 그려질
-//     자리가 없으므로 "모바일 = 구분선 없음"이 자동으로 성립한다.
-//   · **인쇄는 강등하지 않는다** — 인쇄 레이아웃 폭(A4)은 md 브레이크포인트를 넘으므로 화면
-//     (데스크톱)과 같은 단 수가 그대로 적용된다. 인쇄 전용 오버라이드가 필요 없다.
+//   · 단 수는 `data-columns` **선언 속성**으로만 내고 `index.css`의 `.md-columns[data-columns=…]`가
+//     column-count를 정한다(Tailwind `md:columns-*` 유틸을 쓰지 않는다 — 검토 중-1 2026-08-30:
+//     인쇄 시 미디어 쿼리가 평가하는 폭은 A4 콘텐츠 박스 210−15×2 = 180mm ≈ 680px < 768px라
+//     `md:` 규칙이 빠져 인쇄가 1단으로 강등됐다).
+//   · **모바일 강등은 `@media screen and (max-width: 767px)` 한정**(index.css) — 화면에서만 1단·
+//     구분선 없음. **인쇄는 강등하지 않는다**(규약 C — 화면과 같은 단 수 · print 미디어는 위
+//     쿼리에 안 걸린다).
 //   · **중첩 columns는 안쪽을 1단으로** 표시한다(입력 UI는 중첩을 막지만 유입 데이터는 보존되므로
 //     렌더가 감당해야 한다). 깊이는 컨텍스트로 센다 — CSS 하위 선택자보다 확정적이다.
 // 간격·구분선·자식 break-inside는 `index.css`의 `.md-columns`가 맡는다(색은 토큰만).
-const COLUMNS_CLASS: Record<1 | 2 | 3, string> = {
-  1: 'columns-1',
-  2: 'columns-1 md:columns-2',
-  3: 'columns-1 md:columns-3',
-}
-
 /** 다단 중첩 깊이 — 0이면 최상위. 1 이상이면 안쪽이므로 1단으로 표시한다. */
 const ColumnsDepth = createContext(0)
 
@@ -149,7 +146,7 @@ export function ColumnsSection({ count, children }: { count: number; children: R
   const cols: 1 | 2 | 3 = depth > 0 ? 1 : clamped
   return (
     <ColumnsDepth.Provider value={depth + 1}>
-      <div className={`my-3 ${COLUMNS_CLASS[cols]} md-columns`} data-columns={cols}>
+      <div className="my-3 md-columns" data-columns={cols}>
         {children}
       </div>
     </ColumnsDepth.Provider>
