@@ -3,9 +3,9 @@
 기출·학습자료를 LLM으로 구조화해 쌓고 학습→풀이→오답→복습 루프를 완성하는 로컬 웹앱
 (FastAPI + SQLite + React). 개인용, 홈 네트워크 전용.
 
-**현재 버전 v2.00.0** (2026-08-22 발행) — 버전 단일 출처 = 루트 `VERSION` · 규약·이력 =
-`docs/03-release/CHANGELOG.md`. **다음**: stage-45(→v2.00.1) → stage-43(구 편집기 퇴역·핵심
-→v2.01.1) → 나머지(캡처·D8·D11-ⓐ 등)는 v2.x 편성 시. 진척·경위는 stage-index·stage 문서에만.
+**현재 버전 v2.00.1** (2026-09-01 발행) — 버전 단일 출처 = 루트 `VERSION` · 규약·이력 =
+`docs/03-release/CHANGELOG.md`. **다음**: stage-43(구 편집기 퇴역·핵심 →v2.01.1) →
+나머지(캡처·D8·D11-ⓐ 등)는 v2.x 편성 시. 진척·경위는 stage-index·stage 문서에만.
 
 ## 문서 지도 (코드보다 문서가 먼저다)
 
@@ -15,7 +15,7 @@
 | `docs/01-plan/editor-v2.plan.md` | 에디터 v2(완료) 별지 — 결정 D1~D11 · R33~R41 · §13 백로그 · §14 프로젝션 손실(정본) · **GPL 의존 금지(D10 — 저장소 public)** |
 | `docs/01-plan/stage-index.md` | **stage 전수 인덱스**(상태·산출 버전·경로 1표) — stage 문서는 여기서 찾는다 |
 | `docs/01-plan/stage-{n}-*.plan.md` | 단계 지시서(DoD·제외 범위) — 완료 경위·잔여 정본 = 머리말 "상태" 줄 + "완료 기록" |
-| `docs/02-design/study-app.design{,.api,.screens}.md` | 설계 3분할(§ 번호 불변) — 색인(§1~3 공통 규약·분할 지도) / §4 API / §5 화면·§6 토큰·§7 상태 |
+| `docs/02-design/study-app.design*.md` | 설계 3분할(§ 번호 불변) — 색인 `.design.md`(§1~3 공통 규약·분할 지도) / `.api.md`(§4) / `.screens.md`(§5 화면·§6 토큰·§7 상태) |
 | `docs/03-release/` | 패치노트 — `CHANGELOG.md`(v2 정본 · 머리 = **버전 규약 정본**) · `CHANGELOG-v1.md`(동결) |
 | `docs/04-archive/` | 완료 이력 원문 — **평소 읽지 않는다** |
 | `docs/manual/user-manual.html` | 사용자 매뉴얼 — 기능 변경 시 함께 갱신 |

@@ -46,12 +46,12 @@
 | 36 | 에디터 v2: 편집 표면 통합 | v2.00.0 | 완료 | 2026-08-20 | — | | stage-36-surface-unify.plan.md |
 | 37 | 에디터 v2: 커스텀 블록 3종 | v2.00.0 | 완료 | 2026-08-22 | — | | stage-37-custom-blocks.plan.md |
 | 38 | 에디터 v2: 모바일 마감 | v2.00.0 | 완료 | 2026-08-22 | — | v2.00.0 | stage-38-mobile-v2-closeout.plan.md |
-| 39 | FB-2: 저장/취소 상시 버튼 | v2.0.x | 완료 | 2026-08-24 | — | (소급 항목) | stage-39-note-save-controls.plan.md |
+| 39 | FB-2: 저장/취소 상시 버튼 | v2.0.x | 완료 | 2026-08-25 | — | (소급 항목) | stage-39-note-save-controls.plan.md |
 | 40 | 툴바 정비 (FB-9·6·11) | v2.0.x | 완료 | 2026-08-25 | — | (소급 항목) | stage-40-editor-toolbar.plan.md |
 | 41 | 다단(FB-10) 고정 열 columns | v2.0.x | 완료 | 2026-08-31 | — | (소급 항목) | stage-41-flow-columns.plan.md |
 | 42 | 반입 파이프라인 결함 4건 | v2.0.x | 완료 | 2026-08-31 | — | (소급 항목) | stage-42-import-bugfix.plan.md |
 | 43 | 구 편집기 퇴역 + 새 노트 편집기 완성 | v2.0.x | 예정 | | 핵심 | v2.01.1 (예정) | (문서 미생성 — 편성 시 작성) |
 | 44 | 문서 체계 재편 1: v1 이력 대이동 | v2.0.x | 완료 | 2026-08-31 | 사소 | v2.00.1 (44+45 묶음) | stage-44-docs-reorg-archive.plan.md |
-| 45 | 문서 체계 재편 2: 인덱스·버전 체계 | v2.0.x | 편성 | | 사소 | v2.00.1 (44+45 묶음) | stage-45-docs-index-version-scheme.plan.md |
+| 45 | 문서 체계 재편 2: 인덱스·버전 체계 | v2.0.x | 완료 | 2026-09-01 | 사소 | v2.00.1 (44+45 묶음) | stage-45-docs-index-version-scheme.plan.md |
 
 버전대 경계: stage 1~7 = v1(MVP M1~M7) · 8~30 = v1.x(→ v1.90.1, 2026-08-15) · 31~38 = v2.00.0(에디터 v2, 2026-08-22 발행) · 39~ = v2.0.x. stage 39~42의 산출 버전 "(소급 항목)" = 새 버전 규약 발효(v2.00.1) 전 완료분 — CHANGELOG에 소급 항목만 있고 번호 재부여 없음(규약 ②).
