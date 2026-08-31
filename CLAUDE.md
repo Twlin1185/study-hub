@@ -1,95 +1,81 @@
 # Study Hub — 개인 학습 허브
 
-기출문제·학습자료를 LLM으로 구조화해 쌓고, 학습→풀이→오답관리→복습 루프를 완성하는
-로컬 웹앱 (FastAPI + SQLite + React). 개인용, 홈 네트워크 전용.
+기출·학습자료를 LLM으로 구조화해 쌓고 학습→풀이→오답→복습 루프를 완성하는 로컬 웹앱
+(FastAPI + SQLite + React). 개인용, 홈 네트워크 전용.
 
-**현재 버전 v2.00.0** (2026-08-22 — 문서 작성·편집 재편(M31~M36 · stage 31~38) 완료·발행).
-사용자 결정 4건 확정(2026-08-23): **N-2 = 보류**(재론 = v2.x 첫 로드맵 편성 시) · D8 = 사용자 주도
-휴지통 방식(구현 v2.x) · D11-ⓐ = v2.x 이월 · **FB-2 [저장]/[취소] = 채택·필수(N-2 재론 전 선행)**.
-**stage-39(FB-2) 구현·검토 완료(2026-08-24) — DoD 8 1차 충족(2026-08-25) · 경미 5건 판정 완료 ·
-FB-12/13 후속 소수정 완료·머지(PR #68) → **stage-39 완료**. **사용자 지시(2026-08-24) "2.x는 뒤로"** — v2.x 계획서 선확정 관례는 **보류**하고 실사용
-피드백을 v2.0.x 후속 stage로 즉시 편성: **stage-40**(툴바 정비 — FB-6·9·11 · **완료·머지 2026-08-25 — DoD 8 1차
-실사용 "치명 없음" · ⓕⓖ 판단 잔여**) · **stage-42**(반입 파이프라인 결함 4건 — Codex SSL·분할 정리/병합·검토 본문 열람/편집·LLM 분류 — **2026-08-28 편성 → 구현·Opus 검토 통과·머지 PR #69 (2026-08-29) → DoD 8 1차 실사용 "치명 없음"(2026-08-31) = 완료**) · **stage-41**(다단 — FB-10 · 고정 열 `columns`로 2차 재구현 → 구현·검토·실측·머지(2026-08-30) → DoD 8 1차 실사용 "치명 없음"(2026-08-31) = **완료**) · **stage-43(예정·조건부 — 종전 stage-42에서 번호 이월)** = 구 편집기 퇴역(N-2 실행) + 새 노트 편집기 이식·완성 + 철저 검증(중간에 추가 수정사항이 나오면 그 수정이 먼저). 캡처 파이프라인·D8 구현·D11-ⓐ 등 나머지는
-여전히 v2.x 계획서 편성 시.
-**사용자 지시(2026-08-31) — v2.00.1 전 문서 체계 재편 선행**: **stage-44**(v1 이력 아카이브·패치노트
-v1/v2 분리 — 문서 전용) + **stage-45**(stage 인덱스·버전 체계 확립·억제기 재심사·CLAUDE.md 슬림화) 편성
-완료(2026-08-31 Fable). 실행 순서 = **44 → 45 → Fable 최종 점검 = v2.00.1 발행 → stage-43(핵심 → v2.01.1)**.
-버전 체계(사용자 제안 채택): 핵심 stage 완료 = 마이너 승격(예 2.00.3→2.01.1) · 사소 stage = 패치 증가(예
-2.00.1→2.00.2) — 규약 정본은 stage-45에서 `docs/03-release/CHANGELOG.md` 머리에 확정.
+**현재 버전 v2.00.0** (2026-08-22 발행) — 버전 단일 출처 = 루트 `VERSION` · 규약·이력 =
+`docs/03-release/CHANGELOG.md`. **다음**: stage-45(→v2.00.1) → stage-43(구 편집기 퇴역·핵심
+→v2.01.1) → 나머지(캡처·D8·D11-ⓐ 등)는 v2.x 편성 시. 진척·경위는 stage-index·stage 문서에만.
 
 ## 문서 지도 (코드보다 문서가 먼저다)
 
 | 문서 | 역할 |
 |---|---|
-| `docs/01-plan/study-app.plan.md` | 마스터 계획 — 기능 F01~F56, **스키마 DDL 단일 출처(§6.2)**, 로드맵 §14(M1~M36 압축 표 — 상세 원문·완료 기능 명세 = `docs/04-archive/`), 리스크 §15(유효분 잔류 — 종결 24건 = `docs/04-archive/risk-history.md`), 버전 정의(말미 — 현재 v2.00.0 · 릴리스 이력 = `docs/03-release/`) |
-| `docs/01-plan/editor-v2.plan.md` | **문서 작성·편집 재편(v2.00.0 — 완료) 별지 계획서** — 전략·아키텍처·로드맵(M31~M36)·결정 D1~D11·리스크 R33~R41·§13 피드백 백로그·§14 프로젝션 손실 목록(정본). **현황(2026-08-23): M31~M36 전 단계 완료 = v2.00.0 발행 · 사용자 결정 4건 확정(N-2 보류·D8 휴지통 방식·D11-ⓐ v2.x·FB-2 채택 → stage-39). 저장소 public — GPL 의존 금지(D10) 불변** |
-| `docs/02-design/study-app.design.md` | 설계 **색인** — §1~3(범위·구조·API 공통 규약) + 파일 분할 지도. § 번호는 분할 전과 동일 |
-| `docs/02-design/study-app.design.api.md` | §4 API 명세(4.1~4.27, [S1]~[S29] 태그) — 필요한 절만 `### 4.<n>` Grep 후 부분 읽기 |
-| `docs/02-design/study-app.design.screens.md` | §5 화면 상세 + 전역 패널·위저드 · §6 테마 토큰 · §7 상태 관리 — 필요한 절만 부분 읽기 |
-| `docs/03-release/` | **패치노트** — `CHANGELOG.md`(v2 현행 정본 — stage 완료마다 1항목) · `CHANGELOG-v1.md`(v1 대 — 동결) |
-| `docs/04-archive/` | 완료 이력 원문(M1~M36 로드맵 행·결정 기록·완료 기능 상세 F16~F56·종결 리스크·문서 자체 이력 v0.x/v1.x). **평소 읽지 않는다** |
-| `docs/01-plan/stage-{1..45}-*.plan.md` | 단계별 작업 지시서 — 체크리스트·DoD·제외 범위. **stage 1~38 전 단계 완료**(stage 1~30 = 2026-08-15 = v1.90.1 · stage 31~38(에디터 v2) = 2026-08-22 = v2.00.0 발행) · **stage-39(FB-2 [저장]/[취소]) = 구현·검토 완료**(DoD 8 1차 충족 2026-08-25 · 경미 5건 판정·FB-12/13 후속 소수정 완료·머지 PR #68 = **완료**) · **stage-40(툴바 정비) = 완료·머지**(2026-08-25 — DoD 8 1차 실사용 치명 없음 · 잔여: 부수 관찰 ⓕⓖ 판단) · **stage-41(다단 고정 열) = 완료**(머지 2026-08-30 · DoD 8 1차 실사용 치명 없음 2026-08-31) · **stage-42(반입 결함 4건) = 완료**(머지 PR #69 2026-08-29 · DoD 8 1차 실사용 치명 없음 2026-08-31) · **stage-44·45(문서 체계 재편 → v2.00.1) = 2026-08-31 편성**(진척은 각 문서 머리말 "상태" 줄). 완료 경위·게이트 기록·잔여 항목은 **각 stage 문서**가 정본(15단계 이후는 머리말 "상태" 줄 + 말미 "완료 기록", 그 이전은 체크박스) — CLAUDE.md에 옮겨 적지 말 것 |
+| `docs/01-plan/study-app.plan.md` | 마스터 계획 — F01~F56 · **DDL 단일 출처(§6.2)** · 로드맵 §14 · 리스크 §15 · 버전 정의(말미) |
+| `docs/01-plan/editor-v2.plan.md` | 에디터 v2(완료) 별지 — 결정 D1~D11 · R33~R41 · §13 백로그 · §14 프로젝션 손실(정본) · **GPL 의존 금지(D10 — 저장소 public)** |
+| `docs/01-plan/stage-index.md` | **stage 전수 인덱스**(상태·산출 버전·경로 1표) — stage 문서는 여기서 찾는다 |
+| `docs/01-plan/stage-{n}-*.plan.md` | 단계 지시서(DoD·제외 범위) — 완료 경위·잔여 정본 = 머리말 "상태" 줄 + "완료 기록" |
+| `docs/02-design/study-app.design{,.api,.screens}.md` | 설계 3분할(§ 번호 불변) — 색인(§1~3 공통 규약·분할 지도) / §4 API / §5 화면·§6 토큰·§7 상태 |
+| `docs/03-release/` | 패치노트 — `CHANGELOG.md`(v2 정본 · 머리 = **버전 규약 정본**) · `CHANGELOG-v1.md`(동결) |
+| `docs/04-archive/` | 완료 이력 원문 — **평소 읽지 않는다** |
 | `docs/manual/user-manual.html` | 사용자 매뉴얼 — 기능 변경 시 함께 갱신 |
 
-구현 관련 질문의 답은 대부분 설계 문서에 이미 있다 — 추정하기 전에 먼저 읽을 것.
-문서와 코드가 어긋나면 임의로 코드를 맞추지 말고 사용자에게 보고.
+답은 대부분 설계 문서에 있다 — 추정 전에 읽을 것 · 문서-코드 불일치는 임의 수정 말고 보고.
 
 ## 모델 운용 정책
 
 | 작업 | 담당 | 모델 |
 |---|---|---|
-| 계획·설계 변경, 아키텍처 결정 | 메인 대화 또는 `plan-architect` | **Fable** (한도 소진 시 Opus — 에이전트는 모델 미지정=세션 상속) |
-| 구현 사이클 오케스트레이션(`/stage-implement` 진행 중 메인 대화) | 메인 대화 | **Opus 이하** — 문서 Grep·에이전트 분배·결과 중계는 기계적이다. Fable은 계획·설계 대화에만 쓴다 |
-| 백엔드/프론트 구현 | `backend-dev` / `frontend-dev` | **Sonnet** (예외: sm2·import_service·학습모드 UX는 opus 승격) |
+| 계획·설계·아키텍처 결정 | 메인 대화 또는 `plan-architect` | **Fable**(소진 시 Opus · 에이전트 미지정=세션 상속) |
+| `/stage-implement` 오케스트레이션 | 메인 대화 | **Opus 이하**(분배·중계는 기계적) |
+| 백엔드/프론트 구현 | `backend-dev` / `frontend-dev` | **Sonnet**(sm2·import_service·학습모드 UX만 opus 승격) |
 | 단계 검토·코드 리뷰 | `stage-reviewer` | **Opus 고정** |
 | 브라우저 재현·UI 디버깅 | `browser-debugger` | **Sonnet** |
 
-워크플로 스킬: `/stage-implement <n>` (구현+검토 한 사이클) · `/stage-review <n>` (검토만) · `/stage-status` (진행 현황) · `/browser-debug <증상>` (Chrome 재현·진단).
+스킬: `/stage-implement` · `/stage-review` · `/stage-status` · `/browser-debug`.
 
 ## 토큰 규약 (모든 세션·에이전트)
 
-1. `frontend/dist`는 빌드 산출물 — 읽기·grep·diff 금지. diff는 `git diff -- . ':!frontend/dist'`.
-2. 계획·설계 문서는 **전체를 읽지 않는다** — Grep으로 `### 4.<n>`·`[S<n>]`·`## 5.<n>` 위치를 찾아 `Read offset/limit`으로 그 구간만.
-3. 검증은 래퍼 스크립트로 — 출력이 요약 몇 줄로 고정된다(§실행 참조). `npm run build`는 성공/실패와 에러 줄만 확인.
-4. 불변 규칙 기계 검사는 LLM이 grep하지 말고 `scripts/invariant-scan.ps1` 실행 결과(PASS/FAIL)로 갈음한다.
-5. 서브에이전트에는 필요한 발췌·라인 범위를 프롬프트에 담아 전달 — 문서를 통째로 다시 읽게 하지 않는다.
-6. 한 단계(stage) 사이클이 끝나면 새 세션으로 — 진척의 단일 출처는 stage 문서이므로 세션을 끊어도 잃는 게 없다.
+1. `frontend/dist` 읽기·grep·diff 금지(빌드 산출물). diff는 `git diff -- . ':!frontend/dist'`.
+2. 계획·설계 문서 **전체 읽기 금지** — `### 4.<n>`·`[S<n>]`·`## 5.<n>` Grep 후 `Read offset/limit`.
+3. 검증은 래퍼 스크립트(§실행 — 요약 고정) · `npm run build`는 성공/실패만.
+4. 불변 규칙 검사는 grep 말고 `scripts/invariant-scan.ps1` 결과(PASS/FAIL)로.
+5. 서브에이전트에는 발췌·라인 범위를 프롬프트에 담아 전달 — 문서 통째 재읽기 금지.
+6. stage 사이클이 끝나면 새 세션(진척 정본 = stage 문서 — 끊어도 무손실).
 
 ## 브라우저 디버깅 (claude-in-chrome)
 
-UI 결함 재현은 **사용자가 띄운 서버** `http://localhost:8000`에 접속한다 — 서버 구동 금지 규칙과
-무충돌(서버는 사용자가 켠 것). 접속 불가면 사용자에게 기동을 요청하고 대기.
+**사용자가 띄운** `http://localhost:8000`만 사용(불가면 기동 요청·대기 — 구동 금지와 무충돌).
+도구는 ToolSearch **1회 일괄 로드** · **텍스트 우선**(스크린샷 최소·GIF 요청 시만) · 콘솔
+`pattern`·네트워크 URL 필터 필수(전체 덤프 금지) · 왕복 많으면 `browser-debugger` 위임(동시
+1개 — 결론만 보고). 뒷정리: 연 탭 닫기 · 노트는 자동저장 — 건드렸으면 원상복구(+`/api/notes/{id}`)
+· CDP 한글 IME 미지원(미열림≠결함 — ASCII·툴바 우회).
 
-1. MCP 도구는 ToolSearch **1회 일괄 로드** — 디버깅이면 `read_console_messages`·`read_network_requests`까지 같은 호출에.
-2. **텍스트 우선**: 상태 확인은 `get_page_text`/`read_page`(filter)로. 스크린샷은 시각·레이아웃 결함에만 최소 횟수. GIF 녹화는 사용자가 요청할 때만.
-3. `read_console_messages`는 반드시 `pattern` 필터, `read_network_requests`는 대상 URL로 좁힌다 — 무필터 전체 덤프 금지.
-4. 왕복 많은 재현·콘솔/네트워크 추적은 `browser-debugger` 에이전트에 위임(`/browser-debug`) — 메인 대화에는 결론만. 브라우저 에이전트는 **동시 1개**(Chrome 연결 공유).
-5. 뒷정리: 자신이 연 탭은 닫는다. 노트 편집 화면은 **자동저장이 돌므로** 건드렸으면 원상복구(+`/api/notes/{id}` 확인). CDP는 한글 IME 조합을 안 태운다 — 미열림≠결함, ASCII·툴바로 우회.
-
-## 불변 규칙 (모든 코드 작업에 적용)
+## 불변 규칙 (모든 코드 작업)
 
 1. **채점은 서버에서만** — quiz/session 응답에 정답·해설 포함 금지.
 2. **attempts 저장 + 오답노트 생성 + SM-2 갱신 = 한 트랜잭션.**
-3. 문서 삭제 = 소프트 삭제(`is_active=0`). 물리 삭제 금지. 분류에서 빼기 = 연결 해제.
-4. `sources/` 원본 파일은 불변 — 수정·삭제 코드 금지.
-5. **색상 하드코딩 금지** — `styles/tokens.css` 토큰만. 다크 모드는 토큰으로 공짜여야 한다.
-6. 스키마 변경은 plan §6.2 갱신 + Alembic 마이그레이션 세트로만.
-7. 테스트는 `services/sm2.py`만 필수(pytest). 나머지는 실행 스모크로 검증하고 결과 보고.
-8. 에러 포맷·페이지네이션은 설계 §3 규약 준수.
-9. 각 단계 범위를 지킬 것 — stage 문서의 "이 단계에서 하지 않는 것"이 우선한다.
-10. 작업 완료 시 해당 stage 문서의 체크박스를 `[x]`로 갱신 (문서가 진척의 단일 출처).
+3. 문서 삭제 = 소프트 삭제(`is_active=0`) — 물리 삭제 금지. 분류 빼기 = 연결 해제.
+4. `sources/` 원본 불변 — 수정·삭제 코드 금지.
+5. **색상 하드코딩 금지** — `styles/tokens.css` 토큰만.
+6. 스키마 변경 = plan §6.2 갱신 + Alembic 마이그레이션 세트로만.
+7. 테스트 필수는 `services/sm2.py`(pytest)만 — 나머지는 실행 스모크.
+8. 에러 포맷·페이지네이션 = 설계 §3 규약.
+9. stage 문서의 "이 단계에서 하지 않는 것"이 우선한다.
+10. 완료 시 stage 문서 체크박스 `[x]` 갱신.
 
 ## 실행
 
-- **서버 구동 금지 규칙 (2026-08-19 사용자 지시 — 모든 세션·에이전트)**: Claude는 서버(uvicorn·vite)를
-  **직접 열지 않는다** — 사용자가 쓰도록 띄워 주는 것 포함(정식 서버 주인은 `2_StartServer.bat`, 켜는 것은
-  사용자 몫이며 머지 후 재시작도 하지 않는다). 스모크 등 **자체 검증으로 부득이한 경우만** 임시 포트로 짧게
-  띄우되(8000 금지), **작업이 끝나면 반드시 자신이 띄운 모든 서버를 종료하고 포트 리스너 부재까지 확인**한다.
-  서브에이전트에 서버 검증을 시킬 때도 이 종료 의무를 프롬프트에 명시할 것.
-- 백엔드: `uvicorn main:app --host 0.0.0.0 --port 8000` (backend/에서 — 사용자 실행 기준)
-- 프론트 개발: `npm run dev` (frontend/에서) / 배포 빌드는 `npm run build` → FastAPI가 dist 서빙 · **최신 여부 자동 판정**: 시작 스크립트 3종(`1_Setup`·`2_StartServer`·`Dev_StartServer.bat`)이 `scripts/ensure-frontend-build.ps1`을 호출 — `frontend/scripts/source-hash.mjs`가 소스 내용 해시를 `dist/.source-hash`(`npm run build`의 `postbuild`가 기록)와 비교해 다르면 빌드(Node 없으면 건너뜀 · mtime 비교 아님 — 2026-08-30)
-- 테스트: `powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1` (요약만 출력 · `-Path tests/test_sm2.py` 부분 실행 · `-Full` 전체 로그)
-  — 임베디드 파이썬(`python-embed/`, `_pth`)이라 `python -m pytest`는 임포트 실패한다. 래퍼가 sys.path를 주입한다.
-- 불변 규칙 검사: `powershell -ExecutionPolicy Bypass -File scripts/invariant-scan.ps1` (기준선 대비 신규 위반만 보고 · 정당한 변화면 `-UpdateBaseline`)
-- DB: 프로젝트 루트 `study.db` (SQLite WAL). 백업(F27) = `study.db` **VACUUM INTO** + `sources/` **zip 스냅샷** 2종 (`backend/services/backup_service.py` — 2026-08-09 실측 정정. 종전 "파일 복사" 서술은 구현보다 뒤처진 요약이었다. `sources/images/`도 백업에 포함된다).
-- 접속: PC `http://localhost:8000`, 폰 `http://<PC-IP>:8000` — **외부 포트포워딩 금지(R12)**.
+- **서버 구동 금지(2026-08-19 사용자 지시 — 전 세션·에이전트)**: uvicorn·vite를 직접 열지
+  않는다 — 대리 기동 포함(주인 = `2_StartServer.bat` · 기동·재시작 = 사용자 몫). 부득이한 자체
+  검증만 임시 포트(8000 금지) 짧게 — **종료 + 리스너 부재 확인**(서브에이전트에도 명시).
+- **stage 완료 절차**: CHANGELOG 1항목 + (발행 시) `VERSION` 갱신 + `stage-index.md` 1행.
+  CLAUDE.md는 **머리의 버전 줄 1곳만** — 경위는 stage 문서에만.
+- 백엔드: `uvicorn main:app --host 0.0.0.0 --port 8000`(backend/) — 접속 PC `localhost:8000` ·
+  폰 `<PC-IP>:8000` · **외부 포트포워딩 금지(R12)**.
+- 프론트: `npm run dev` / 배포 `npm run build` → FastAPI가 dist 서빙 · 시작 스크립트가
+  `scripts/ensure-frontend-build.ps1`로 소스 해시 비교(mtime 아님·Node 없으면 생략) 후 자동 빌드.
+- 테스트: `powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1`(`-Path` 부분 · `-Full` 전체)
+  — 임베디드 파이썬이라 `python -m pytest` 불가, 래퍼가 sys.path 주입.
+- 불변 검사: `powershell -ExecutionPolicy Bypass -File scripts/invariant-scan.ps1`(신규 위반만 · 정당하면 `-UpdateBaseline`)
+- DB: 루트 `study.db`(WAL) · 백업(F27) = **VACUUM INTO** + `sources/` zip 2종(`backend/services/backup_service.py`).
