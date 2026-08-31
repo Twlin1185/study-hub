@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -219,31 +220,79 @@ INDEX_HTML = FRONTEND_DIST / "index.html"
 FRONTEND_SRC = Path(__file__).resolve().parent.parent / "frontend" / "src"
 
 
+# 아래 두 상수·해시 계산은 frontend/scripts/source-hash.mjs 와 **동일 알고리즘**이어야 한다
+# (입력 목록 · CRLF→LF 정규화 · `상대경로\0내용\0` 연결 · sha256). 한쪽을 바꾸면 반드시 같이 바꿀 것.
+# 경고 전용 복제라 어긋나도 피해는 오탐/미탐 안내 한 줄이다(빌드 판정의 정본은 여전히 mjs 쪽).
+_HASH_INPUT_DIRS = ("src", "public")
+_HASH_INPUT_FILES = (
+    "index.html",
+    "package.json",
+    "package-lock.json",
+    "vite.config.ts",
+    "tsconfig.json",
+    "tsconfig.app.json",
+    "tsconfig.node.json",
+    "tailwind.config.js",
+    "postcss.config.js",
+)
+
+
+def _compute_frontend_source_hash() -> str:
+    frontend = FRONTEND_SRC.parent
+    files: list[Path] = []
+    for d in _HASH_INPUT_DIRS:
+        p = frontend / d
+        if p.exists():
+            files.extend(q for q in p.rglob("*") if q.is_file())
+    for f in _HASH_INPUT_FILES:
+        p = frontend / f
+        if p.exists():
+            files.append(p)
+    rel = sorted(p.relative_to(frontend).as_posix() for p in files)
+    h = hashlib.sha256()
+    for r in rel:
+        h.update(r.encode("utf-8"))
+        h.update(b"\0")
+        h.update((frontend / r).read_bytes().replace(b"\r\n", b"\n"))
+        h.update(b"\0")
+    return h.hexdigest()
+
+
 def _warn_if_frontend_stale() -> None:
-    """dist가 없거나 src보다 오래됐으면 기동 로그에 눈에 띄게 알린다.
+    """dist 빌드가 소스와 다르면 기동 로그에 눈에 띄게 알린다.
 
     배포 빌드(dist)를 FastAPI가 그대로 서빙하므로, 프론트 코드를 고치고 `npm run build`를
     빠뜨리면 **서버는 최신인데 화면만 옛 버전**이 된다(2026-07-26 실사용: dist가 하루 이상
     묵어 새 화면이 없는 채로 운영됨). 서버가 빌드를 대신 실행하지는 않는다 — 안내만 하고,
-    자동 빌드는 시작 스크립트(`Dev_StartServer.bat`)가 담당한다.
+    자동 빌드는 시작 스크립트 3종(`ensure-frontend-build.ps1`)이 담당한다.
+
+    판정은 시작 스크립트와 같은 소스 내용 해시 vs `dist/.source-hash` 스탬프다. 종전 mtime
+    비교는 git pull/체크아웃이 파일 시각을 다시 써 **빌드가 최신인데도 오탐**을 냈다
+    (2026-09-01 실사용 보고 — 자동 빌드가 안 도는 것처럼 보이게 한 원인). 경고 전용이므로
+    어떤 실패든 조용히 넘어간다.
     """
     if not INDEX_HTML.exists():
         print("[!] frontend/dist 없음 - 화면이 뜨지 않습니다. frontend 폴더에서 `npm run build`를 실행하세요.")
         return
     if not FRONTEND_SRC.exists():
         return
+    stamp = FRONTEND_DIST / ".source-hash"
     try:
-        built_at = INDEX_HTML.stat().st_mtime
-        newest_src = max(
-            (p.stat().st_mtime for p in FRONTEND_SRC.rglob("*") if p.is_file()),
-            default=0.0,
-        )
+        recorded = stamp.read_text(encoding="utf-8").strip() if stamp.exists() else ""
+        if recorded and recorded == _compute_frontend_source_hash():
+            return
     except OSError:
         return
-    if newest_src > built_at:
+    if recorded:
         print(
-            "[!] frontend/dist 가 소스보다 오래됐습니다 - 화면에 최신 변경이 반영되지 않습니다.\n"
-            "    frontend 폴더에서 `npm run build` 후 새로고침하세요."
+            "[!] frontend 소스가 마지막 빌드 이후 변경됐습니다 - 화면에 최신 변경이 반영되지 않습니다.\n"
+            "    시작 스크립트(1_Setup/2_StartServer/Dev_StartServer)로 실행하면 자동 빌드됩니다.\n"
+            "    수동: frontend 폴더에서 `npm run build` 후 새로고침."
+        )
+    else:
+        print(
+            "[!] frontend/dist 에 빌드 스탬프(.source-hash)가 없습니다 - 옛 빌드일 수 있습니다.\n"
+            "    frontend 폴더에서 `npm run build`를 한 번 실행하면 스탬프가 기록됩니다."
         )
 
 
