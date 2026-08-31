@@ -152,6 +152,14 @@ async def internal_error_handler(request: Request, exc: Exception) -> JSONRespon
 # 해시가 바뀌므로 별도 버전 파일·빌드 상수 없이 이것만으로 판별된다.
 _ASSET_SRC_RE = re.compile(r'src="[^"]*/assets/(index-[A-Za-z0-9_-]+\.js)"')
 
+# 앱 버전의 단일 출처는 루트 `VERSION` 파일(stage-45 결정 ④ — 발행 시에만 갱신).
+# 기동 시 1회 읽는다 — 부재·읽기 실패는 null 허용(표시용 부가 정보라 앱 동작과 무관).
+VERSION_FILE = Path(__file__).resolve().parent.parent / "VERSION"
+try:
+    APP_VERSION: str | None = VERSION_FILE.read_text(encoding="utf-8").strip() or None
+except OSError:
+    APP_VERSION = None
+
 
 @app.get("/api/app-version", include_in_schema=False)
 async def get_app_version():
@@ -162,7 +170,7 @@ async def get_app_version():
             asset = m.group(1) if m else None
         except OSError:
             asset = None
-    return {"asset": asset}
+    return {"asset": asset, "version": APP_VERSION}
 
 
 # --- 사용자 매뉴얼 서빙 (F39, 설계 §4.15, S12) ---

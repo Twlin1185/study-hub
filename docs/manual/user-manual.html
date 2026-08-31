@@ -260,7 +260,7 @@
 <div class="shell">
 <nav class="toc" aria-label="목차">
   <p class="brand">Study Hub</p>
-  <p class="brand-sub">사용 설명서 · v2.00.0</p>
+  <p class="brand-sub">사용 설명서 · v2.00.1</p>
   <ol>
     <li class="toc-group">준비</li>
     <li><a href="#intro">1. 이 앱은 무엇인가</a></li>
@@ -298,7 +298,7 @@
 <p class="lede">기출문제와 학습자료를 쌓고, 학습 → 풀이 → 오답관리 → 복습의 루프를 돌리는 개인 학습 허브.</p>
 <p class="doc-meta">
   이 문서 하나로 설치부터 일상 사용까지 따라 할 수 있게 쓰였습니다 — <strong>v1.x 전체 기능 기준(큐넷 공개문제 반입 포함)</strong>입니다. ·
-  갱신일: 2026-08-21 ·
+  갱신일: 2026-09-01 ·
   문서 위치: <code>docs/manual/user-manual.html</code>
 </p>
 
@@ -1917,6 +1917,13 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
       저장된 커스텀 테마를 무시하고 기본값으로 들어올 수 있습니다 — 거기서 [기본값으로
       되돌리기]를 누르거나 색을 다시 고르면 됩니다.</li>
   </ul>
+
+  <h3>앱 버전 확인 <span class="badge new">v2.00.1</span></h3>
+  <p>설정 화면 <strong>맨 아래</strong>에 현재 앱 버전이 표시됩니다(예: <code>Study Hub v2.00.1</code>).
+    버전별 변경 내용(패치노트)은 프로젝트의 <span class="path">docs/03-release/CHANGELOG.md</span>에서
+    볼 수 있습니다. 버전은 서버가 켜질 때 읽으므로 <strong>새 버전 발행 후에는 서버를 재시작해야
+    반영</strong>됩니다. 버전 줄이 안 보이면 서버가 옛 버전이거나 루트 <code>VERSION</code> 파일이 없는
+    상태입니다 — 앱 동작에는 지장이 없습니다.</p>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -2211,7 +2218,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 </section>
 
 <footer>
-  Study Hub 사용 설명서 · 2026-08-22 기준 · <strong>v2.00.0 (문서 작성·편집 재편 — 새 편집기 반영)</strong> ·
+  Study Hub 사용 설명서 · 2026-09-01 기준 · <strong>v2.00.1 (문서 체계 재편 — 버전 표시 추가)</strong> ·
   기능 계획·설계의 원본은 <code>docs/01-plan</code> · <code>docs/02-design</code> 문서를 참조하세요.
 </footer>
 </main>

@@ -6,7 +6,7 @@ import type { ThemeMode } from '../stores/theme'
 import { useSettings, useUpdateSettings } from '../api/settings'
 import { srsKeys } from '../api/srs'
 import { streakKeys } from '../api/stats'
-import { ApiError } from '../api/client'
+import { api, ApiError } from '../api/client'
 import type { FontScale, QuizAutoAdvance } from '../api/types'
 import DDayManager from '../components/DDayManager'
 import TagRuleManager from '../components/TagRuleManager'
@@ -440,9 +440,34 @@ export default function SettingsPage() {
               사용 설명서 열기 ↗
             </a>
           </div>
+
+          <AppVersionLine />
         </div>
       </div>
     </div>
+  )
+}
+
+// 앱 버전 표시(stage-45 결정 ④) — 단일 출처는 루트 VERSION 파일이고 서버가
+// `/api/app-version`의 `version` 필드로 알려준다. 구버전 서버·파일 부재 등으로
+// version이 없으면 줄 자체를 그리지 않는다(표시용 부가 정보 — 실패 허용).
+function AppVersionLine() {
+  const [version, setVersion] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    api
+      .get<{ asset: string | null; version?: string | null }>('/app-version')
+      .then((res) => {
+        if (!cancelled && res.version) setVersion(res.version)
+      })
+      .catch(() => {}) // 서버 응답 불가 — 조용히 생략
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  if (!version) return null
+  return (
+    <p className="pt-2 text-center text-xs text-muted">Study Hub v{version}</p>
   )
 }
 
