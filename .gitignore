@@ -45,8 +45,8 @@ tools/claude/
 # 도구 런타임 상태 (세션마다 자동으로 바뀌는 값 — 소스가 아니다)
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
-docs/.pdca-snapshots/
-docs/.pdca-status.json
+docs/.pdca-*
+docs/.bkit-*
 **/.bkit-memory.json
 
 # Visual Studio artifacts
