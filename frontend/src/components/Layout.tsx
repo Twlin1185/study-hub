@@ -34,7 +34,22 @@ const DESKTOP_EXTRA_ITEMS: NavItem[] = [
   { to: '/print', label: '인쇄', icon: '🖨️' },
 ]
 
-function NavButton({ item, compact, collapsed }: { item: NavItem; compact?: boolean; collapsed?: boolean }) {
+// 노트 진입점(stage-43 G-1 — 규약 B 정식 승격). 데스크톱 사이드바 1항목 + 모바일 좌측 드로어
+// 1항목(아래 drawer JSX) — 하단 탭바 5개는 불변(F39 관례). `/notes` 라우트 자체는 App.tsx에서
+// 여전히 lazy 청크(R37) — 여기 링크 추가는 라우트 진입 지점을 늘릴 뿐 초기 청크에 영향 없다.
+const NOTES_NAV_ITEM: NavItem = { to: '/notes', label: '노트', icon: '📓' }
+
+function NavButton({
+  item,
+  compact,
+  collapsed,
+  onClick,
+}: {
+  item: NavItem
+  compact?: boolean
+  collapsed?: boolean
+  onClick?: () => void
+}) {
   if (item.disabled) {
     return (
       <span
@@ -57,6 +72,7 @@ function NavButton({ item, compact, collapsed }: { item: NavItem; compact?: bool
     <NavLink
       to={item.to}
       end={item.end}
+      onClick={onClick}
       title={collapsed ? item.label : undefined}
       className={({ isActive }) =>
         `flex items-center rounded transition-colors ${
@@ -142,6 +158,8 @@ export default function Layout({ children }: { children: ReactNode }) {
           {DESKTOP_EXTRA_ITEMS.map((item) => (
             <NavButton key={item.to} item={item} collapsed={collapsed} />
           ))}
+          {/* stage-43 G-1(규약 B) — 노트 정식 승격, 사이드바 1항목. */}
+          <NavButton item={NOTES_NAV_ITEM} collapsed={collapsed} />
           <SuggestionsNavBadge compact={collapsed} />
         </nav>
         <div className="mt-auto flex flex-col gap-1">
@@ -216,8 +234,9 @@ export default function Layout({ children }: { children: ReactNode }) {
         </nav>
       </div>
 
-      {/* 좌측 드로어(모바일 전용) — 지금은 "LLM 작업" 진입점 1개만 담는다(하단 탭바 불변 —
-          §5 공통 레이아웃, F39 관례). 향후 다른 항목이 필요해지면 이 자리에 늘린다. */}
+      {/* 좌측 드로어(모바일 전용) — "노트"(stage-43 G-1 정식 승격) · "LLM 작업" 진입점 2개를
+          담는다(하단 탭바 불변 — §5 공통 레이아웃, F39 관례. FB-8 전면 확장은 이번 범위 아님 —
+          '노트' 1항목 추가만). 향후 다른 항목이 필요해지면 이 자리에 늘린다. */}
       {mobileDrawerOpen && (
         <div
           className="fixed inset-0 z-50 flex bg-black/40 md:hidden print:hidden"
@@ -242,6 +261,9 @@ export default function Layout({ children }: { children: ReactNode }) {
                 ✕
               </button>
             </div>
+            {/* stage-43 G-1(규약 B) — 노트 정식 승격, 드로어 1항목. 드로어 크기(비 collapsed)라
+                사이드바와 같은 행 레이아웃(text 라벨 포함)이 그대로 맞는다. */}
+            <NavButton item={NOTES_NAV_ITEM} onClick={() => setMobileDrawerOpen(false)} />
             <JobCenterButton
               onClick={() => {
                 setMobileDrawerOpen(false)

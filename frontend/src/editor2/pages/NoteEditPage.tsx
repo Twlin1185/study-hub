@@ -1,4 +1,4 @@
-// 노트(베타) 편집 — `/notes/:id` (설계 §5.16 "편집", API §4.28 · stage-33 규약 A·C·D)
+// 노트 편집 — `/notes/:id` (설계 §5.16 "편집", API §4.28 · stage-33 규약 A·C·D)
 //
 // 저장 파이프라인(§5.16 "저장 파이프라인"):
 //   BlockNote 문서 → 어댑터(fromBlockNoteBlocks) → 앱 블록 → blocksToMarkdown 프로젝션
@@ -68,7 +68,7 @@ export default function NoteEditPage() {
   const parsed = Number(params.id)
   const noteId = Number.isFinite(parsed) ? parsed : null
   const noteQuery = useNote(noteId)
-  // 탭 제목 = `노트(베타) · <노트 제목>` — 기존 화면과 구분되고, 노트 창을 여러 개 열어도
+  // 탭 제목 = `노트 · <노트 제목>` — 기존 화면과 구분되고, 노트 창을 여러 개 열어도
   // 서로 구별된다. 제목은 **저장된 값**을 따른다(타이핑마다 탭이 깜빡이지 않게).
   useNoteDocumentTitle(noteQuery.data?.title)
 

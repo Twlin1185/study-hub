@@ -1,18 +1,17 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Modal from './Modal'
 import ConfirmDialog from './ConfirmDialog'
-import MarkdownFieldEditor from './MarkdownFieldEditor'
+import MarkdownView from './MarkdownView'
 import DocStyleFields from './DocStyleFields'
 import { useCreateDocument, useDocument, useUpdateDocument } from '../api/documents'
 import { ApiError } from '../api/client'
 import type { DocumentDetail, DocumentStyle, DocumentType } from '../api/types'
-// S36(stage-36 F-1 — 규약 A·B) 통합 분기 결선.
-// 여기서 **직접** import하는 editor2 모듈은 전부 "블록을 모르는" 가벼운 것들이다(퇴로 토글 ·
-// 저장 계약 헬퍼·훅 — react-query와 타입뿐). BlockNote·어댑터·변환기가 들어 있는 편집 표면은
-// 아래 `lazy`로만 들어온다 — 초기 청크 한도(R37)를 지키는 지점이 이 두 줄의 구분이다.
-import { isDocBlockEditorEnabled } from '../editor2/lib/docEditorPreference'
+// stage-43 F-1(구 편집기 퇴역 · 규약 D) — 퇴로 토글 모듈은 소멸했다. 이 파일이
+// **직접** import하는 editor2 모듈은 여전히 "블록을 모르는" 가벼운 것들뿐이다(저장 계약 헬퍼·훅 —
+// react-query와 타입뿐). BlockNote·어댑터·변환기가 들어 있는 편집 표면은 아래 `lazy`로만 들어온다
+// — 초기 청크 한도(R37)를 지키는 지점이 이 두 줄의 구분이다.
 import {
   contentPair,
   explanationPair,
@@ -25,8 +24,8 @@ const DocFormBlockFields = lazy(() => import('../editor2/documents/DocFormBlockF
 
 // 문서 3대 공용 모듈 중 DocEditor (설계 §5 도입부·§5.4, F37 · stage-26 9-5 후속) — 작성/수정 폼.
 // 팝업(모달)과 전용 라우트(창) 양쪽에서 이 컴포넌트 그대로를 렌더한다(저장·검증 로직 공용 —
-// 경로별 분기 금지). 본문·해설 편집기는 공용 MarkdownFieldEditor 서브컴포넌트(9-4)로 필드
-// 분기 없이 동일하게 적용한다.
+// 경로별 분기 금지). 본문·해설 편집기는 공용 블록 표면(`DocFormBlockFields`, stage-43부터 상시)
+// 으로 필드 분기 없이 동일하게 적용한다(구 편집기의 방언 편집 위젯은 stage-43 F-1로 퇴역).
 const TYPE_OPTIONS: { value: DocumentType; label: string }[] = [
   { value: 'concept', label: '개념' },
   { value: 'question', label: '문제' },
@@ -106,19 +105,17 @@ export default function DocEditor({
   const docQuery = useDocument(editing ? (documentId ?? null) : null)
   const createDocument = useCreateDocument()
   const updateDocument = useUpdateDocument()
-  // S36 — 블록 표면으로 작성/편집할 때 쓰는 저장 경로(§4.29 ②⑦). 구 편집기 경로(위 두 훅)는
-  // 그대로 남는다 — 토글 OFF·퇴로에서 **완전히 종전 동작**이어야 하기 때문(규약 A).
+  // S36 — 블록 표면으로 작성/편집할 때 쓰는 저장 경로(§4.29 ②⑦). plain 저장 경로(위 두 훅)는
+  // 그대로 남는다 — stage-43 F-1(규약 D)부터는 메모리 변환이 미지원일 때(본문·해설 편집 잠금)
+  // 이 plain 경로로 나머지 필드만 **변형 없이** 저장한다.
   const createDocumentBlocks = useCreateDocumentWithBlocks()
   const updateDocumentBlocks = useUpdateDocumentBlocks()
 
   const [form, setForm] = useState<FormState>(() => initialDraft ?? emptyForm(defaultType))
   const [error, setError] = useState<string | null>(null)
-  // S36 통합 분기 상태 3종.
-  //  · 퇴로 토글은 **편집기를 여는 순간의 값으로 고정**한다(구독하지 않는다). 편집 중에 값이
-  //    바뀌면(다른 탭의 설정 화면 등) 표면이 통째로 갈리면서 작성 중이던 본문을 잃기 때문이다 —
-  //    토글은 "다음에 열 때 어느 편집기로 여는가"의 스위치다(모달·전용 라우트 모두 열 때 마운트).
-  const [blockEditorEnabled] = useState(isDocBlockEditorEnabled)
-  //  · 메모리 변환이 미지원 사유를 보고하면 그 자리에서 구 편집기로 되돌린다(조용한 폴백 0).
+  // stage-43 F-1(규약 D) — 퇴로 토글 소멸. 표면 분기는 이제 딱 하나다: 메모리 변환이 미지원
+  // 사유를 보고하면(아래 `blockFallbackReason`) 본문·해설 **편집 진입을 차단**하고 읽기 전용으로
+  // 보여준다(조용한 변형 0 — 구 편집기의 방언 편집 위젯은 삭제되어 더 이상 퇴로 편집 경로가 없다).
   const [blockFallbackReason, setBlockFallbackReason] = useState<string | null>(null)
   //  · 블록 표면의 편집분은 `form`에 반영되지 않으므로(표면이 자기 문서를 소유한다) 미저장
   //    판정(10-1ⓒ)에 따로 합류시킨다 — 안 그러면 표면에서만 쓴 내용이 확인 없이 사라진다.
@@ -127,22 +124,6 @@ export default function DocEditor({
   // "창으로 열기" 이월 초안으로 시작했으면 지시서대로 무조건 dirty로 간주한다(내용이 실제로
   // 서버 값과 같아도 — 사용자가 편집 중이던 걸 이어받았다는 사실 자체가 dirty).
   const startedFromDraftRef = useRef(initialDraft != null)
-  // 본문·해설 각 MarkdownFieldEditor의 참조 삽입 팝업이 열려 있는 동안에는 바깥 모달이
-  // Esc·배경 클릭으로 (편집 내용을 잃으며) 닫히지 않게 한다 — 9-4로 필드가 늘어나 두 인스턴스를
-  // 함께 추적한다.
-  const [refModalOpen, setRefModalOpen] = useState({ content: false, explanation: false })
-  const anyRefModalOpen = refModalOpen.content || refModalOpen.explanation
-
-  // 치명-1 수정(이중 방어 ①): 콜백 identity를 고정(useCallback)하고, setState가 값이 같으면
-  // 이전 객체를 그대로 돌려준다(새 참조를 만들지 않음) — 자식(MarkdownFieldEditor)이 렌더마다
-  // "새 콜백을 받았다"는 이유만으로 이펙트를 다시 돌리고 그게 다시 이 setState를 부르는 닫힌
-  // 루프를 만들지 않게 한다. 자식 쪽도 ref로 이중 방어한다(MarkdownFieldEditor.tsx 참조).
-  const handleContentRefModalOpenChange = useCallback((open: boolean) => {
-    setRefModalOpen((s) => (s.content === open ? s : { ...s, content: open }))
-  }, [])
-  const handleExplanationRefModalOpenChange = useCallback((open: boolean) => {
-    setRefModalOpen((s) => (s.explanation === open ? s : { ...s, explanation: open }))
-  }, [])
 
   // 10-1ⓒ 미저장 보호 — 폼이 "초기값"(빈 폼, 또는 불러온 문서 그대로)과 다르면 닫기 시도(Esc·
   // 오버레이·X·페이지 취소) 때 확인창을 거친다. 초기값은 edit 모드에서 문서가 로드되는 시점에
@@ -191,12 +172,13 @@ export default function DocEditor({
     return () => window.removeEventListener('beforeunload', handler)
   }, [isDirty])
 
-  // S36 통합 분기 조건(규약 A = stage-35 규약 F 그대로):
-  //   **퇴로 토글 ON** 그리고 ⓐ 표면이 미지원 사유로 물러난 적이 없고 ⓑ 편집 대상이 확정됐다
-  //   (신규 작성 = 빈 문서라 항상 성립 · 수정 = 상세가 로드된 뒤라야 블록/본문이 소스로 확정된다).
-  //   ⓒ 전환 문서인지·메모리 변환이 성립하는지는 표면 쪽(`DocFormBlockFields`)이 판정해
-  //   미지원이면 `onUnsupported`로 되돌려 준다 — 그 판정에 변환기가 필요해 lazy 청크 안에 있다.
-  const blockMode = blockEditorEnabled && blockFallbackReason == null && (!editing || doc != null)
+  // stage-43 F-1(규약 D — 퇴로 토글 소멸) 통합 분기 조건: ⓐ 표면이 미지원 사유로 물러난 적이
+  // 없고 ⓑ 편집 대상이 확정됐다(신규 작성 = 빈 문서라 항상 성립 · 수정 = 상세가 로드된 뒤라야
+  // 블록/본문이 소스로 확정된다). ⓒ 전환 문서인지·메모리 변환이 성립하는지는 표면 쪽
+  // (`DocFormBlockFields`)이 판정해 미지원이면 `onUnsupported`로 되돌려 준다 — 그 판정에 변환기가
+  // 필요해 lazy 청크 안에 있다. 미지원이면(= !blockMode, editing 확정 이후) **본문·해설 편집
+  // 진입을 차단**한다(규약 D — 옛 편집기 위젯이 삭제되어 더 이상 편집 퇴로가 없다).
+  const blockMode = blockFallbackReason == null && (!editing || doc != null)
 
   // 닫기 "시도" 진입점 — Esc·오버레이·X(Modal의 onClose)·페이지 닫기·폼의 취소 버튼이 전부 이
   // 함수를 거친다. 저장 성공 경로(onSuccess 핸들러)는 이 함수를 부르지 않고 onSaved/onClose를
@@ -431,11 +413,14 @@ export default function DocEditor({
         </p>
       )}
 
-      {/* S36 — 메모리 변환이 미지원 사유를 보고해 구 편집기로 되돌아왔을 때의 고지(조용한 폴백 0.
-          문서 상세(stage-35)의 같은 배너와 문구를 맞춘다). */}
+      {/* stage-43 F-1(규약 D) — 메모리 변환이 미지원 사유를 보고했을 때의 고지(조용한 변형 0).
+          옛 편집기의 방언 편집 위젯은 삭제되어 더 이상 편집 퇴로가 없다 — 본문·해설
+          **편집만 잠그고**, 제목·보기·정답·난이도·스타일 등 다른 항목은 그대로 편집할 수 있다
+          (문서 상세(stage-35)의 같은 배너와 문구를 맞춘다). */}
       {blockFallbackReason && (
         <div className="rounded border border-warning bg-surface p-3 text-xs text-primary">
-          이 문서에는 새 편집기가 아직 다루지 못하는 표현이 있어 기존 편집기로 열었습니다.
+          이 문서에는 새 편집기가 아직 다루지 못하는 표현이 있어 본문·해설 편집을 사용할 수
+          없습니다 — 다른 항목은 그대로 편집할 수 있습니다.
           <span className="mt-1 block text-muted">{blockFallbackReason}</span>
         </div>
       )}
@@ -491,30 +476,27 @@ export default function DocEditor({
           />
         </Suspense>
       ) : (
+        // stage-43 F-1(규약 D) — 본문·해설 **편집 진입 차단** + 읽기 유지. 공용 리더
+        // (`MarkdownView`)를 그대로 재사용한다(전용 읽기 전용 컴포넌트 신설 없음 — D10). 저장은
+        // 이 값들을 손대지 않은 채 그대로(구 편집기 경로의 plain 저장)로 넘어가므로, 조용한
+        // 변형이 저장 경로에 실릴 일이 없다.
         <>
-          <MarkdownFieldEditor
-            id="doc-content"
-            label="본문 (Markdown)"
-            value={form.content}
-            onChange={(next) => setForm((f) => ({ ...f, content: next }))}
-            rows={8}
-            minHeightClass="min-h-[50vh]"
-            docNo={doc?.doc_no}
-            onRefModalOpenChange={handleContentRefModalOpenChange}
-          />
+          <div className="flex flex-col gap-1 text-sm">
+            <p className="text-primary">본문 (편집 잠김)</p>
+            <div className="rounded border border-border bg-surface px-3 py-2">
+              <MarkdownView content={form.content} docNo={doc?.doc_no} />
+            </div>
+          </div>
 
           {questionFormFields}
 
           {questionLike && (
-            <MarkdownFieldEditor
-              id="doc-explanation"
-              label="해설 (Markdown)"
-              value={form.explanation}
-              onChange={(next) => setForm((f) => ({ ...f, explanation: next }))}
-              rows={4}
-              docNo={doc?.doc_no}
-              onRefModalOpenChange={handleExplanationRefModalOpenChange}
-            />
+            <div className="flex flex-col gap-1 text-sm">
+              <p className="text-primary">해설 (편집 잠김)</p>
+              <div className="rounded border border-border bg-surface px-3 py-2">
+                <MarkdownView content={form.explanation} docNo={doc?.doc_no} />
+              </div>
+            </div>
           )}
         </>
       )}
@@ -601,13 +583,9 @@ export default function DocEditor({
   }
 
   return (
-    // 참조 삽입 팝업이 열려 있는 동안에는 바깥 모달이 Esc·배경 클릭으로 닫히지 않게 한다
-    // (두 모달이 같은 window keydown을 듣기 때문 — 편집 내용 유실 방지). 팝업 쪽은 자체 핸들러로
-    // 스스로 닫히므로 여기서는 실제 onClose 대신 아무 것도 하지 않으면 충분하다. ref 팝업이 열려
-    // 있지 않으면 attemptClose로 보내 미저장 변경 확인(10-1ⓒ)을 거치게 한다.
     <Modal
       title={editing ? '문서 편집' : '새 문서'}
-      onClose={anyRefModalOpen ? () => {} : attemptClose}
+      onClose={attemptClose}
       widthClass="max-w-6xl"
       headerExtra={
         <button

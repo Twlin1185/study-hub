@@ -28,7 +28,7 @@ import type { FontScale } from '../api/types'
 // 여기서는 그 결과 HTML을 contentEditable 컨테이너로 옮겨 편집하고, 편집 결과는 인라인 모델
 // (`richSurface.ts`)을 거쳐 블록 소스로 되돌린다. DOM을 긁어 본문을 복원하는 경로는 없다.
 //
-// **React 재렌더 격리(B-4 — S27 `EditablePreview` 블록 memo 렌더 구조에 대한 예외 1건)**:
+// **React 재렌더 격리(B-4 — S27 편집 가능 미리보기의 블록 memo 렌더 구조에 대한 예외 1건)**:
 // 편집 대상 DOM(host)은 JSX 자식이 없다 — 내용은 `staging`(숨긴 React 서브트리)의 innerHTML을
 // **초기 1회(및 소스가 실제로 바뀔 때만)** 복사해 넣고, 그 뒤로는 **수동 DOM 관리**다. React가
 // 이 서브트리를 다시 그리면 조합 중인 IME·캐럿·선택이 통째로 날아가므로 구조로 차단한다.
@@ -42,7 +42,7 @@ export type RichSnapResult =
   | { ok: false; reason: 'composing' | 'nosession' }
   | { ok: false; reason: 'unsafe'; source: string }
 
-/** 부모(EditablePreview)가 툴바 표면·확정에 쓰는 핸들. */
+/** 부모(구 편집기 편집 가능 미리보기)가 툴바 표면·확정에 쓰는 핸들. */
 export interface RichBlockHandle {
   /** 지금 DOM 상태를 블록 소스로 직렬화 + 3층 검사. 선택 구간은 소스 오프셋으로 함께 온다. */
   snapshot: () => RichSnapResult
