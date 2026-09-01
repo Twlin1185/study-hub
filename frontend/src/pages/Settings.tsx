@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useThemeStore } from '../stores/theme'
 import type { ThemeMode } from '../stores/theme'
@@ -16,10 +15,6 @@ import SettingsSection from '../components/settings/SettingsSection'
 import LlmEngineSection from '../components/settings/LlmEngineSection'
 import QnetKeySection from '../components/settings/QnetKeySection'
 import ThemeCustomSection from '../components/settings/ThemeCustomSection'
-import {
-  setDocBlockEditorEnabled,
-  useDocBlockEditorEnabled,
-} from '../editor2/lib/docEditorPreference'
 
 const FONT_SCALE_OPTIONS: { value: FontScale; label: string }[] = [
   { value: 'small', label: '작게' },
@@ -410,23 +405,9 @@ export default function SettingsPage() {
             {/* 전역 테마 편집(S28 — F53 ①, §4.26 ③) — F38 6그룹 수 불변, 그룹 내 카드 추가만. */}
             <ThemeCustomSection />
 
-            {/* 실험실(베타) 카드(S33 — 에디터 v2 노트 표면 진입점, §5.16).
-                S35(에디터 v2 M34 — screens §5.3)에서 **퇴로 토글 1개**가 붙었다: "문서 편집에 새
-                편집기 사용"(기본 ON · 끄면 구 편집기로 완전 복귀). 서버 설정 키 0 — 기기별 스위치라
-                localStorage에 둔다(editor2/lib/docEditorPreference). F38 6그룹 수 불변. */}
-            <section className="rounded-lg border border-border bg-surface p-4">
-              <h3 className="mb-1 text-sm font-semibold text-primary">실험실(베타)</h3>
-              <p className="mb-3 text-xs text-muted">
-                새 편집기를 문서 편집에 시험 중입니다 — 끄면 기존 편집기로 완전히 돌아갑니다.
-              </p>
-              <DocBlockEditorToggle />
-              <Link
-                to="/notes"
-                className="mt-3 inline-block rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
-              >
-                노트(베타) 열기
-              </Link>
-            </section>
+            {/* stage-43 F-3 — 실험실(베타) 카드(S33 도입) 제거. 퇴로 토글은 소멸했고, 노트 진입은
+                정식 승격(G-1)으로 사이드바·모바일 드로어 '노트' 항목이 대신한다(§5.16 정식 표면 —
+                더 이상 이 카드가 유일한 진입점이 아니다). F38 6그룹 수 불변(카드 1개만 감소). */}
           </SettingsSection>
 
           {/* 모바일(<768px, 사이드바 없음) 전용 매뉴얼 진입 경로 — 아코디언 하단(§5.11) */}
@@ -468,28 +449,5 @@ function AppVersionLine() {
   if (!version) return null
   return (
     <p className="pt-2 text-center text-xs text-muted">Study Hub v{version}</p>
-  )
-}
-
-// 퇴로 토글(S35 — 에디터 v2 M34, screens §5.3 · stage-35 규약 F) — "문서 편집에 새 편집기 사용".
-// **기본 ON**이다(기본 OFF면 실사용이 일어나지 않아 D1 확정 실측이 나오지 않는다). 서버 settings
-// 키를 만들지 않고 기기별 localStorage에 둔다 — 값은 editor2/lib/docEditorPreference가 단일 출처.
-function DocBlockEditorToggle() {
-  const enabled = useDocBlockEditorEnabled()
-  return (
-    <div className="flex flex-col gap-1">
-      <label className="flex items-center gap-2 text-sm text-primary">
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={(e) => setDocBlockEditorEnabled(e.target.checked)}
-        />
-        문서 편집에 새 편집기 사용
-      </label>
-      <p className="text-xs text-muted">
-        문서 상세의 [편집]이 새 편집기로 열립니다. 끄면 기존 편집기로 완전히 돌아가며, 이미 새
-        형식으로 저장된 문서도 기존 편집기로 저장하면 예전 저장 방식으로 되돌아갑니다.
-      </p>
-    </div>
   )
 }

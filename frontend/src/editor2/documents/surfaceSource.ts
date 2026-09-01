@@ -19,7 +19,7 @@ export type SurfaceLoad = { ok: true; source: SurfaceSource } | { ok: false; rea
  * - 전환 문서: 저장된 블록(`*_blocks`)이 소스 오브 트루스다 — Markdown은 쳐다보지 않는다(규약 D).
  * - 미전환 문서·신규 작성: `content`/`explanation`(또는 이월 초안 Markdown)을 **메모리에서만**
  *   블록으로 변환한다(DB 무기록 — 규약 E).
- * - 변환이 미지원 사유를 내면 `ok:false` — 호출부는 그 자리에서 구 편집기로 퇴로를 잡는다.
+ * - 변환이 미지원 사유를 내면 `ok:false` — 호출부는 본문·해설 편집 잠김 + 안내로 전환한다(stage-43 규약 D).
  */
 export function loadSurface(
   blocks: BlockDocument | null,

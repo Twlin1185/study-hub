@@ -51,14 +51,14 @@ interface DocFormBlockFieldsProps {
   handleRef: Ref<DocFormBlockFieldsHandle>
   /** 편집이 일어났다 — 부모의 미저장(dirty) 판정에 합류한다. */
   onChange: () => void
-  /** 메모리 변환이 미지원 사유를 보고했다 — 부모가 구 편집기로 퇴로를 잡는다(규약 E·F). */
+  /** 메모리 변환이 미지원 사유를 보고했다 — 부모가 본문·해설 편집 잠김으로 전환한다(stage-43 규약 D). */
   onUnsupported: (reason: string) => void
 }
 
 interface PreparedSurfaces {
   content: SurfaceLoad
   explanation: SurfaceLoad
-  /** 해설 표면을 실제로 쓸 문서인가 — 안 쓰는 해설의 미지원은 퇴로 사유가 아니다. */
+  /** 해설 표면을 실제로 쓸 문서인가 — 안 쓰는 해설의 미지원은 잠김 사유가 아니다. */
   explanationRelevant: boolean
 }
 
@@ -105,7 +105,7 @@ export default function DocFormBlockFields({
   if (fallbackReason || !prepared.content.ok) {
     return (
       <>
-        <p className="text-sm text-muted">기존 편집기로 여는 중…</p>
+        <p className="text-sm text-muted">문서를 확인하는 중…</p>
         {between}
       </>
     )

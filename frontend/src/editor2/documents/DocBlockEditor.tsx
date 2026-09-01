@@ -10,7 +10,8 @@
 //
 // 지연 전환(규약 E): **열람·편집 진입은 DB를 쓰지 않는다**. 미전환 문서는 `content`를 메모리에서
 // 블록으로 변환해 표면에 올리고, **블록 쌍을 처음 동반한 저장이 곧 전환**이다. 변환이 미지원
-// 사유를 보고하면 이 표면을 열지 않고 **구 편집기(완전한 편집 경로)로 퇴로**를 잡는다.
+// 사유를 보고하면 이 표면을 열지 않고 부모가 **본문·해설 편집 잠김 + 안내**로 전환한다
+// (stage-43 규약 D — 구 편집기 퇴로는 퇴역으로 소멸).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import MarkdownView from '../../components/MarkdownView'
 import ConfirmDialog from '../../components/ConfirmDialog'
@@ -72,7 +73,7 @@ function prepareDocument(doc: DocumentDetail): PreparedDocument {
 interface DocBlockEditorProps {
   doc: DocumentDetail
   onClose: () => void
-  /** 메모리 변환이 미지원 사유를 보고했다 — 부모가 구 편집기로 퇴로를 잡는다(규약 E). */
+  /** 메모리 변환이 미지원 사유를 보고했다 — 부모가 본문·해설 편집 잠김으로 전환한다(stage-43 규약 D). */
   onUnsupported: (reason: string) => void
 }
 
@@ -96,7 +97,7 @@ export default function DocBlockEditor({ doc, onClose, onUnsupported }: DocBlock
   }, [contentFailed, explanationFailed])
 
   if (!prepared.content.ok || (prepared.explanation != null && !prepared.explanation.ok)) {
-    return <p className="p-4 text-sm text-muted">기존 편집기로 여는 중…</p>
+    return <p className="p-4 text-sm text-muted">문서를 확인하는 중…</p>
   }
 
   return (

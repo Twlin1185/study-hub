@@ -1,6 +1,7 @@
-// 노트(베타) 목록 — `/notes` (설계 §5.16 "목록", API §4.28 ①·④)
+// 노트 목록 — `/notes` (설계 §5.16 "목록", API §4.28 ①·④)
 //
-// 격리 베타 표면이다: 사이드바·하단 탭바에 오르지 않으며 진입은 설정 화면 실험실 카드 + 직접 URL뿐.
+// stage-43 G-2(정식 승격) — 베타 딱지 해제. 진입은 데스크톱 사이드바 · 모바일 좌측 드로어 '노트'
+// 항목(`Layout.tsx`) + 직접 URL. 하단 탭바 5개는 불변(F39 관례 — 탭 추가 금지, 규약 B).
 // 색은 전부 토큰(Tailwind 유틸 = tokens.css 변수) — 불변 규칙 5.
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -86,9 +87,9 @@ export default function NoteListPage() {
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
       <header className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="text-lg font-bold text-primary">노트 (베타)</h1>
+          <h1 className="text-lg font-bold text-primary">노트</h1>
           <p className="mt-1 text-xs text-muted">
-            새 편집기 시험용 저장소입니다 — 기존 문서와 분리돼 있습니다
+            문서와는 별도로 저장되는 자유 형식 메모입니다
           </p>
         </div>
         <button

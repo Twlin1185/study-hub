@@ -28,7 +28,6 @@ import { MARKDOWN_SCALE_CLASS } from '../utils/docStyle'
 import { ApiError } from '../api/client'
 import { pickEmbeddedBy, pickManualRelations } from '../utils/relations'
 import { choiceMarker, formatAnswer } from '../utils/answerFormat'
-import { useDocBlockEditorEnabled } from '../editor2/lib/docEditorPreference'
 
 // 에디터 v2 문서 편집 표면(S35 — 이 단계의 새 편집기 **유일한 진입점**). BlockNote·Mantine 번들이
 // 초기 청크에 섞이지 않게 **lazy 청크**로만 들어온다(R37 — 초기 청크 증가 ≤ 5KB가 DoD).
@@ -98,10 +97,9 @@ export default function DocumentDetailPage() {
 
   // 편집은 공용 DocEditor 모달로(설계 §5 도입부, F37) — 문서 상세 전용 인라인 폼 제거.
   const [editing, setEditing] = useState(false)
-  // S35(에디터 v2 M34 — screens §5.3 · stage-35 규약 F) — **편집 진입 분기 1곳**.
-  // 퇴로 토글이 ON이면 새 편집기 표면을 열고, 메모리 변환이 미지원 사유를 보고하면 그 자리에서
-  // 기존 편집기(= 완전한 편집 경로인 퇴로)로 되돌린다. 토글 OFF면 분기 자체가 서지 않는다.
-  const blockEditorEnabled = useDocBlockEditorEnabled()
+  // stage-43 F-1(규약 D — 퇴로 토글 소멸) — **편집 진입은 항상 새 편집기 표면부터 시도한다**.
+  // 메모리 변환이 미지원 사유를 보고하면 그 자리에서 공용 DocEditor 모달을 연다 — 그 모달도
+  // 내부적으로 같은 판정을 거쳐 본문·해설 편집만 잠그고(규약 D) 나머지 필드는 편집 가능하다.
   const [blockEditing, setBlockEditing] = useState(false)
   const [blockFallbackReason, setBlockFallbackReason] = useState<string | null>(null)
   const [addRelationOpen, setAddRelationOpen] = useState(false)
@@ -192,12 +190,8 @@ export default function DocumentDetailPage() {
             <button
               type="button"
               onClick={() => {
-                if (blockEditorEnabled) {
-                  setBlockFallbackReason(null)
-                  setBlockEditing(true)
-                } else {
-                  setEditing(true)
-                }
+                setBlockFallbackReason(null)
+                setBlockEditing(true)
               }}
               className="min-h-[36px] rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
             >
@@ -225,10 +219,12 @@ export default function DocumentDetailPage() {
         <DocEditor mode="edit" documentId={doc.id} onClose={() => setEditing(false)} />
       )}
 
-      {/* 메모리 변환이 미지원 사유를 보고해 구 편집기로 되돌아왔을 때의 고지(조용한 폴백 0). */}
+      {/* stage-43 F-1(규약 D) — 메모리 변환이 미지원 사유를 보고해 공용 편집 폼으로 열렸을 때의
+          고지(조용한 변형 0). 그 폼 안에서도 본문·해설 편집은 잠기고 나머지 항목만 편집 가능하다. */}
       {blockFallbackReason && !blockEditing && (
         <div className="mb-3 rounded border border-warning bg-surface p-3 text-xs text-primary">
-          이 문서에는 새 편집기가 아직 다루지 못하는 표현이 있어 기존 편집기로 열었습니다.
+          이 문서에는 새 편집기가 아직 다루지 못하는 표현이 있어 문서 편집 창에서 본문·해설 편집이
+          잠겼습니다.
           <span className="mt-1 block text-muted">{blockFallbackReason}</span>
         </div>
       )}

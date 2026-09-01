@@ -1,4 +1,4 @@
-/* 노트(베타) 편집 표면 — BlockNote 테마를 앱 토큰(tokens.css)으로 결선한다.
+/* 노트 편집 표면 — BlockNote 테마를 앱 토큰(tokens.css)으로 결선한다.
    불변 규칙 5: 색상 하드코딩 금지 — 전부 var() 경유. 다크 모드는 토큰 전환으로 공짜.
    (결선 방식은 stage-31 스파이크 `editor2/poc/poc.css`에서 검증된 것을 그대로 계승한다 —
     PoC 파일은 D9 격리 계약상 수정하지 않으므로 여기 별도 사본을 둔다.) */
@@ -131,15 +131,26 @@
      · 자식 그룹 = 같은 폭·같은 배경으로 머리에 이어 붙이고 아래 모서리만 둥글게,
      · 왼쪽 굵은 선(4px)이 머리부터 자식 끝까지 **끊기지 않고** 이어진다.
    색은 전부 토큰(var) 경유 — 리터럴 0(불변 규칙 5). variant 색은 스펙이 머리에 Tailwind 유틸로
-   주므로, 자식 쪽은 `data-variant`가 실릴 때만 같은 색으로 맞추고 아니면 `--border`로 떨어진다. */
-.note-editor-frame [data-content-type='callout'] > div {
+   주므로, 자식 쪽은 `data-variant`가 실릴 때만 같은 색으로 맞추고 아니면 `--border`로 떨어진다.
+
+   ---------------------------------------------------------------- stage-43 F-4(FB-14) 재작성
+   아래 4규칙(자식 그룹 배경·테두리 + variant 3색)은 `[data-content-type='callout'] + .bn-block-group`
+   형태(형제 콤비네이터)였는데 매칭 0이었다 — columns(위 stage-41 절)와 **같은 원인**: 리액트 스펙
+   블록은 tiptap `ReactNodeViewRenderer`가 만든 래퍼(className 옵션 `bn-react-node-view-renderer`)가
+   `.bn-block-content[data-content-type='callout']`를 한 겹 더 감싸서, `.bn-block-group`의 진짜
+   형제는 **그 래퍼**이지 `.bn-block-content` 자신이 아니다. columns 전례를 그대로 따라 래퍼 유무에
+   독립적으로 `.bn-block`에서 `:has()`로 내려다본다. 머리 규칙(`> div` 아래)은 래퍼 밖이 아니라
+   `.bn-block-content` **안쪽**(자식 콤비네이터) 문제라 원인이 달라 별도로 고친다 — 자식
+   콤비네이터(`>`)를 자손 콤비네이터로 낮춰 래퍼 깊이에 흔들리지 않게 한다(콜아웃 렌더 결과가
+   `<div>` 하나뿐이라 과매칭 위험 없음). */
+.note-editor-frame [data-content-type='callout'] div {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   border-bottom-width: 0;
   margin-bottom: 0;
 }
 
-.note-editor-frame [data-content-type='callout'] + .bn-block-group {
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-content-type='callout']) > .bn-block-group {
   margin-top: 0;
   margin-bottom: 4px;
   padding: 2px 10px 6px 10px;
@@ -152,13 +163,13 @@
   border-bottom-right-radius: 8px;
 }
 
-.note-editor-frame [data-content-type='callout'][data-variant='note'] + .bn-block-group {
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-content-type='callout'][data-variant='note']) > .bn-block-group {
   border-left-color: var(--accent);
 }
-.note-editor-frame [data-content-type='callout'][data-variant='warn'] + .bn-block-group {
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-content-type='callout'][data-variant='warn']) > .bn-block-group {
   border-left-color: var(--warning);
 }
-.note-editor-frame [data-content-type='callout'][data-variant='tip'] + .bn-block-group {
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-content-type='callout'][data-variant='tip']) > .bn-block-group {
   border-left-color: var(--correct);
 }
 

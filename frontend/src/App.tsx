@@ -25,8 +25,9 @@ import SuggestionsPage from './pages/Suggestions'
 // stage-31(M31) 판정용 스파이크 — 지연 로드 청크로 분리(초기 번들 무영향, R32-c), URL 직접 진입 전용
 const Editor2PocPage = lazy(() => import('./editor2/poc/PocPage'))
 
-// 노트(베타) — 에디터 v2 착지 표면(S33, §5.16). 편집기·Mantine 번들이 초기 청크에 섞이지 않도록
-// **지연 청크**로만 둔다(R37 — 초기 청크 증가 ≤ 5KB). 진입은 설정 실험실 카드 + 직접 URL뿐.
+// 노트 — 에디터 v2 착지 표면(S33, §5.16 · stage-43 G-2 정식 승격). 편집기·Mantine 번들이 초기
+// 청크에 섞이지 않도록 **지연 청크**로만 둔다(R37 — 초기 청크 증가 ≤ 5KB). 진입은 데스크톱
+// 사이드바 · 모바일 좌측 드로어 '노트' 항목(`Layout.tsx`) + 직접 URL.
 const NoteListPage = lazy(() => import('./editor2/pages/NoteListPage'))
 const NoteEditPage = lazy(() => import('./editor2/pages/NoteEditPage'))
 
