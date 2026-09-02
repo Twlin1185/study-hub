@@ -6,13 +6,20 @@
 //
 // 3지점(①툴바 ②역방향 정규화 ③붙여넣기)이 **같은 상수** `MICRO_MARKS`를 본다. 여기서 그 상수를
 // 다시 정의하지 않고 `adapter/marks.ts`에서 그대로 가져온다(단일 출처).
+//
+// **활성 판정은 `activeStyles.ts` 한 곳을 거친다**(stage-46 F-2 · 규약 D). 코어
+// `editor.getActiveStyles()`를 직접 읽으면 접힌 커서의 **대기 마크**(ProseMirror `storedMarks`)가
+// 보이지 않아 토글이 한 방향으로만 간다 — 켠 직후 다시 눌러도 계속 `addStyles`가 나가고, 밑줄
+// 구간 안에서 끈 뒤 다시 눌러도 계속 `removeStyles`가 나간다(= "Ctrl+U가 안 먹힌다" · FB-17).
+// 툴바 표시(`isSelected`)와 **같은 판정**을 써야 이중 토글·표시 어긋남이 생기지 않는다.
 import { MICRO_MARKS, type MicroMark } from '../../adapter/marks'
 import type { NoteBlockNoteEditor } from '../schema'
+import { readActiveStyles } from './activeStyles'
 
 type StyleBag = Parameters<NoteBlockNoteEditor['addStyles']>[0]
 
 function activeStyleRecord(editor: NoteBlockNoteEditor): Record<string, unknown> {
-  return editor.getActiveStyles() as unknown as Record<string, unknown>
+  return readActiveStyles(editor)
 }
 
 export function isMicroMarkActive(styles: Record<string, unknown>, mark: MicroMark): boolean {

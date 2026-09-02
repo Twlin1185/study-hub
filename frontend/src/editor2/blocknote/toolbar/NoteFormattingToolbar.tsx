@@ -1,8 +1,8 @@
 // 방언 서식 툴바 (stage-34 G-2 · 규약 C·E, 규약 A ① 진입점 하나).
 //
 // **기본 버튼은 그대로 둔다** — `getFormattingToolbarItems()`를 먼저 깔고 방언 컨트롤을 **덧붙인다**
-// (툴바 전면 재구성은 이 단계 범위가 아니다). **예외 1건 = 기본 밑줄 버튼 제거**(아래
-// `DEFAULT_UNDERLINE_ITEM_KEY` 주석 참조 — 규약 C 이행이지 전면 커스터마이즈가 아니다).
+// (툴바 전면 재구성은 이 단계 범위가 아니다). **예외 1건 = 기본 밑줄 버튼을 우리 아이콘 버튼으로
+// 치환**(아래 `DEFAULT_UNDERLINE_ITEM_KEY` 주석 참조 — 규약 C 이행이지 전면 커스터마이즈가 아니다).
 // 방언 컨트롤은 다음 4묶음이다:
 //   ① 마이크로 3종(밑줄·형광펜·스포일러) — **상호 배타 래퍼 1곳**(`microMarks.ts`) 경유 · active 표시.
 //   ② `:t` 색·크기(글자색 `c` · 바탕색 `bg` · 크기 `s`) — 값 도메인은 `palette.ts` 단일 출처.
@@ -16,7 +16,6 @@ import type { CSSProperties, ReactNode, SyntheticEvent } from 'react'
 import {
   FormattingToolbar,
   getFormattingToolbarItems,
-  useActiveStyles,
   useComponentsContext,
   useEditorSelectionChange,
 } from '@blocknote/react'
@@ -39,8 +38,10 @@ import { isSafeRefText, normalizeRefText, refTextRejection } from '../../schema/
 import type { NotePartialBlock } from '../schema'
 import { columnsInsertBlocked, insertCalloutBlock, insertColumnsBlock } from '../refPicker/insert'
 import { useRefPickerCommands } from '../refPicker/RefUiProvider'
+import { useActiveStyleRecord } from './activeStyles'
 import { ATOM_GUARD_TOOLTIP, selectionHasAtomInline } from './atoms'
 import { shouldShowTextFormattingGroup, useSelectedBlockTypes } from './blockFilter'
+import { TextSizeIcon, UnderlineIcon } from './icons'
 import type { CropTarget } from './imageCropEligibility'
 import { computeCropTarget } from './imageCropEligibility'
 import { MICRO_MARK_LABEL, applyMicroMark, clearMicroMark, toggleMicroMark } from './microMarks'
@@ -61,8 +62,16 @@ const ImageCropDialog = lazy(() => import('./ImageCropDialog'))
  * (규약 C 위반 → 방언 Markdown 왕복 붕괴), 덤으로 밑줄 버튼이 두 개 뜬다.
  * 우리가 **같은 기능의 대체 버튼**(`MicroMarkButton mark="underline"`)을 바로 옆에 제공하므로
  * 기능이 줄지 않는다 — 이것은 "슬래시/툴바 전면 커스터마이즈"(M35)가 아니라 규약 C의 이행이다.
+ *
+ * **stage-46 F-4(FB-18)**: 걷어내고 방언군 끝에 다시 붙이던 것을 **그 자리에 그대로 치환**한다.
+ * 기본 순서가 `bold → italic → underline → strike`라(0.54 `getFormattingToolbarItems` 실측),
+ * 치환하면 밑줄이 사용자가 기대하는 자리(굵게·기울임 옆)로 돌아온다. 기본 항목의 상대 순서는
+ * 여전히 바꾸지 않는다 — 자리 하나를 **같은 자리에서** 갈아 끼울 뿐이다.
  */
 const DEFAULT_UNDERLINE_ITEM_KEY = 'underlineStyleButton'
+
+/** 기본 밑줄 자리에 들어가는 우리 버튼의 항목 키(텍스트 서식군 소속 판정에 쓴다). */
+const MICRO_UNDERLINE_ITEM_KEY = 'microUnderline'
 
 /**
  * **원자 서식 가드를 씌울 코어 버튼**(stage-36 F-8 — stage-34가 남긴 알려진 한계의 해소).
@@ -87,7 +96,11 @@ const ATOM_GUARDED_DEFAULT_KEYS: ReadonlySet<string> = new Set([
  * 기본 항목만 `hideTextGroup`일 때 걸러진다. 나머지 기본 항목(블록 타입 선택·표 셀 병합·파일
  * 버튼·정렬·중첩·댓글 등)은 규약 B ②의 "블록 기능군"이라 항상 남는다.
  */
-const TEXT_GROUP_DEFAULT_KEYS = ATOM_GUARDED_DEFAULT_KEYS
+const TEXT_GROUP_DEFAULT_KEYS: ReadonlySet<string> = new Set([
+  ...ATOM_GUARDED_DEFAULT_KEYS,
+  // 기본 밑줄 자리를 대신 차지한 우리 버튼(stage-46 F-4) — 원래 그 자리가 텍스트 서식군이었다.
+  MICRO_UNDERLINE_ITEM_KEY,
+])
 
 /** 활성화(클릭·Enter·Space)를 캡처 단계에서 삼키는 덮개 — 시각적으로도 흐리게 보인다. */
 function AtomGuardShield({ children }: { children: ReactNode }) {
@@ -111,17 +124,39 @@ function AtomGuardShield({ children }: { children: ReactNode }) {
   )
 }
 
-/** 기본 항목 목록 — 밑줄 하나만 빼고(규약 C), 원자 선택일 때 마크 버튼에 가드를 씌운다. */
+/**
+ * 기본 항목 목록 — 밑줄 자리만 **우리 아이콘 버튼으로 치환**하고(규약 C·stage-46 F-4),
+ * 원자 선택일 때 마크 버튼에 가드를 씌운다. 치환 버튼은 `isDisabled`를 직접 받으므로
+ * `AtomGuardShield` 덮개가 필요 없다(우리 버튼이라 비활성 자리가 있다).
+ */
 function defaultToolbarItems(blocked: boolean) {
-  return getFormattingToolbarItems()
-    .filter((item) => item.key !== DEFAULT_UNDERLINE_ITEM_KEY)
-    .map((item) =>
-      blocked && item.key !== null && ATOM_GUARDED_DEFAULT_KEYS.has(item.key) ? (
-        <AtomGuardShield key={item.key}>{item}</AtomGuardShield>
-      ) : (
-        item
-      ),
+  let replaced = false
+  const items = getFormattingToolbarItems().map((item) => {
+    if (item.key === DEFAULT_UNDERLINE_ITEM_KEY) {
+      replaced = true
+      return (
+        <MicroMarkButton
+          key={MICRO_UNDERLINE_ITEM_KEY}
+          mark="underline"
+          blocked={blocked}
+          icon={<UnderlineIcon />}
+        />
+      )
+    }
+    return blocked && item.key !== null && ATOM_GUARDED_DEFAULT_KEYS.has(item.key) ? (
+      <AtomGuardShield key={item.key}>{item}</AtomGuardShield>
+    ) : (
+      item
     )
+  })
+  // 방어(stage-46 검토 경미 ③): BlockNote 업그레이드로 기본 밑줄 키가 사라지면 치환이 무산되어
+  // 밑줄 버튼 자체가 소실된다(래퍼 경유 경로 소실 = 규약 C 위반). 그때는 기본군 끝에 폴백 삽입한다.
+  if (!replaced) {
+    items.push(
+      <MicroMarkButton key={MICRO_UNDERLINE_ITEM_KEY} mark="underline" blocked={blocked} icon={<UnderlineIcon />} />,
+    )
+  }
+  return items
 }
 
 /** 다단 중첩 차단 사유(착수 전 결정 ③) — 원자 가드와 같은 "비활성 + 사유" 관례. */
@@ -187,25 +222,36 @@ function HexInputRow({ kind, onApply }: { kind: 'ink' | 'bg'; onApply: (hex: str
 
 // ---------------------------------------------------------------- 마이크로 3종
 
-function MicroMarkButton({ mark, blocked }: { mark: MicroMark; blocked: boolean }) {
+/**
+ * `icon`을 주면 **아이콘 버튼**(children 없음 → Mantine `ActionIcon` 경로 — 코어 굵게·기울임과
+ * 같은 모양), 안 주면 지금까지처럼 한글 텍스트 라벨 버튼이다(stage-46 규약 B — 아이콘은 밑줄·크기
+ * 2개뿐). `label`·`mainTooltip`은 두 경우 모두 한글 그대로다(접근성·발견성).
+ */
+function MicroMarkButton({
+  mark,
+  blocked,
+  icon,
+}: {
+  mark: MicroMark
+  blocked: boolean
+  icon?: ReactNode
+}) {
   const Components = useComponentsContext()!
   const editor = useNoteEditor()
-  const styles = useActiveStyles() as unknown as Record<string, unknown>
+  const styles = useActiveStyleRecord(editor)
   const active = styles[mark] === true
-  return (
-    <Components.FormattingToolbar.Button
-      label={MICRO_MARK_LABEL[mark]}
-      mainTooltip={blocked ? ATOM_GUARD_TOOLTIP : MICRO_MARK_LABEL[mark]}
-      isSelected={active}
-      isDisabled={blocked}
-      onClick={() => {
-        toggleMicroMark(editor, mark)
-        refocus(() => editor.focus())
-      }}
-    >
-      {MICRO_MARK_LABEL[mark]}
-    </Components.FormattingToolbar.Button>
-  )
+  const common = {
+    label: MICRO_MARK_LABEL[mark],
+    mainTooltip: blocked ? ATOM_GUARD_TOOLTIP : MICRO_MARK_LABEL[mark],
+    isSelected: active,
+    isDisabled: blocked,
+    onClick: () => {
+      toggleMicroMark(editor, mark)
+      refocus(() => editor.focus())
+    },
+  }
+  if (icon) return <Components.FormattingToolbar.Button {...common} icon={icon} />
+  return <Components.FormattingToolbar.Button {...common}>{MICRO_MARK_LABEL[mark]}</Components.FormattingToolbar.Button>
 }
 
 /**
@@ -218,7 +264,7 @@ function MicroMarkButton({ mark, blocked }: { mark: MicroMark; blocked: boolean 
 function InlineCodeButton({ blocked }: { blocked: boolean }) {
   const Components = useComponentsContext()!
   const editor = useNoteEditor()
-  const styles = useActiveStyles() as unknown as Record<string, unknown>
+  const styles = useActiveStyleRecord(editor)
   const active = styles.code === true
   return (
     <Components.FormattingToolbar.Button
@@ -251,7 +297,7 @@ function InlineCodeButton({ blocked }: { blocked: boolean }) {
 function HighlightMenu({ blocked }: { blocked: boolean }) {
   const Components = useComponentsContext()!
   const editor = useNoteEditor()
-  const styles = useActiveStyles() as unknown as Record<string, unknown>
+  const styles = useActiveStyleRecord(editor)
   const active = styles.highlight === true
   const view = readTextStyleView(styles)
 
@@ -319,7 +365,7 @@ function HighlightMenu({ blocked }: { blocked: boolean }) {
 function ColorMenu({ target, blocked }: { target: 'c' | 'bg'; blocked: boolean }) {
   const Components = useComponentsContext()!
   const editor = useNoteEditor()
-  const styles = useActiveStyles() as unknown as Record<string, unknown>
+  const styles = useActiveStyleRecord(editor)
   const view = readTextStyleView(styles)
   const current = target === 'c' ? view.ink : view.bg
   const kind = target === 'c' ? 'ink' : 'bg'
@@ -366,7 +412,7 @@ function ColorMenu({ target, blocked }: { target: 'c' | 'bg'; blocked: boolean }
 function SizeMenu({ blocked }: { blocked: boolean }) {
   const Components = useComponentsContext()!
   const editor = useNoteEditor()
-  const styles = useActiveStyles() as unknown as Record<string, unknown>
+  const styles = useActiveStyleRecord(editor)
   const current = readTextStyleView(styles).size
 
   const pick = (size: string | null) => {
@@ -377,14 +423,14 @@ function SizeMenu({ blocked }: { blocked: boolean }) {
   return (
     <Components.Generic.Menu.Root>
       <Components.Generic.Menu.Trigger>
+        {/* 아이콘 버튼(stage-46 F-4 · 규약 B) — children 없이 `icon`만 넘긴다. 라벨·툴팁은 한글. */}
         <Components.FormattingToolbar.Button
           label="글자 크기"
           mainTooltip={blocked ? ATOM_GUARD_TOOLTIP : '글자 크기'}
           isSelected={Boolean(current)}
           isDisabled={blocked}
-        >
-          크기
-        </Components.FormattingToolbar.Button>
+          icon={<TextSizeIcon />}
+        />
       </Components.Generic.Menu.Trigger>
       <Components.Generic.Menu.Dropdown className="bn-menu-dropdown">
         <Components.Generic.Menu.Label>글자 크기</Components.Generic.Menu.Label>
@@ -555,6 +601,7 @@ function CropButton() {
  *
  * 기본 항목의 **상대 순서는 바꾸지 않는다** — `getFormattingToolbarItems()`가 정한 순서 그대로
  * 두고 텍스트 서식군에 속하는 키만 걸러낸다(부유 툴바의 기존 버튼 배치를 그대로 지키기 위함).
+ * 밑줄만 **같은 자리에서** 우리 버튼으로 갈아 끼운다(stage-46 F-4 — 순서 변경이 아니라 치환).
  */
 export function buildFormattingToolbarItems({
   blocked,
@@ -570,13 +617,11 @@ export function buildFormattingToolbarItems({
     return { key, group: TEXT_GROUP_DEFAULT_KEYS.has(key) ? 'text' : 'block', node }
   })
 
+  // 방언군 순서(stage-46 F-4): **글자 크기 아이콘이 선두**로 전진했고, 밑줄은 여기서 빠져
+  // 기본 밑줄 자리(bold·italic 옆 — `defaultToolbarItems`)로 옮겨 갔다.
   const dialectItems: GroupedItem[] = [
+    { key: 'textSize', group: 'text', node: <SizeMenu key="textSize" blocked={blocked} /> },
     { key: 'inlineCode', group: 'text', node: <InlineCodeButton key="inlineCode" blocked={blocked} /> },
-    {
-      key: 'microUnderline',
-      group: 'text',
-      node: <MicroMarkButton key="microUnderline" mark="underline" blocked={blocked} />,
-    },
     { key: 'microHighlight', group: 'text', node: <HighlightMenu key="microHighlight" blocked={blocked} /> },
     {
       key: 'microSpoiler',
@@ -585,7 +630,6 @@ export function buildFormattingToolbarItems({
     },
     { key: 'textInk', group: 'text', node: <ColorMenu key="textInk" target="c" blocked={blocked} /> },
     { key: 'textBg', group: 'text', node: <ColorMenu key="textBg" target="bg" blocked={blocked} /> },
-    { key: 'textSize', group: 'text', node: <SizeMenu key="textSize" blocked={blocked} /> },
     { key: 'refChip', group: 'text', node: <RefButton key="refChip" /> },
     { key: 'callout', group: 'block', node: <CalloutMenu key="callout" /> },
     { key: 'columns', group: 'block', node: <ColumnsMenu key="columns" /> },
