@@ -28,7 +28,10 @@ export function useMicroMarkShortcuts(editor: NoteBlockNoteEditor): void {
     if (!dom) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return
-      if (event.key.toLowerCase() !== 'u') return
+      // `code` 대체 판정(stage-46 F-3): 한글 IME 조합 중에는 `key`가 `Process`로 들어오고,
+      // 비-US 배열에서는 다른 문자로 들어온다 — 그때도 물리 U 키는 잡는다(`useAtomMarkGuard`가
+      // `Mod+Shift+S`에 이미 쓰는 관례와 같다). Mod+U는 원래 물리 키 기준 단축키다.
+      if (event.key.toLowerCase() !== 'u' && event.code !== 'KeyU') return
       // 편집 표면 밖(피커 검색창·툴바 입력란 등)의 Ctrl+U는 건드리지 않는다.
       if (!(event.target instanceof Node) || !dom.contains(event.target)) return
       event.preventDefault()

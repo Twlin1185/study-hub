@@ -9,6 +9,7 @@
 //
 // 값 도메인은 `components/markdown/palette.ts` **단일 출처**(팔레트 7색 ∪ `#rrggbb` ∪ size 3종).
 // 편집기 v2가 새 색 규칙을 만들지 않는다.
+import { readActiveStyles } from './activeStyles'
 import { decodeTextStylePairs, encodeTextStylePairs } from '../specs/styles'
 import { interpretTextStyle } from '../../schema/blocks'
 import type { AttrPair, TextStyleView } from '../../schema/blocks'
@@ -47,13 +48,19 @@ export function withTextStyleKey(pairs: AttrPair[], key: TextStyleKey, value: st
   return out
 }
 
-/** 선택 구간의 `:t`에서 키 하나만 바꾼다. `value === null`이면 그 키를 없앤다. */
+/**
+ * 선택 구간의 `:t`에서 키 하나만 바꾼다. `value === null`이면 그 키를 없앤다.
+ *
+ * 현재 값은 `readActiveStyles`로 읽는다(stage-46 F-2) — 접힌 커서에서 색을 고른 **직후** 크기를
+ * 고르는 식의 연속 조작에서, 코어 `getActiveStyles()`는 대기 마크에만 있는 `:t`를 보지 못해
+ * 앞 선택이 통째로 날아간다(병합이 아니라 덮어쓰기가 된다).
+ */
 export function setTextStyleKey(
   editor: NoteBlockNoteEditor,
   key: TextStyleKey,
   value: string | null,
 ): void {
-  const styles = editor.getActiveStyles() as unknown as Record<string, unknown>
+  const styles = readActiveStyles(editor)
   const next = withTextStyleKey(decodeTextStylePairs(readTextStyleValue(styles)), key, value)
   const encoded = encodeTextStylePairs(next)
   if (encoded === '') editor.removeStyles({ t: '' } as StyleBag)

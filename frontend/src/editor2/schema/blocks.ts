@@ -545,6 +545,7 @@ export function emptyDocument(): BlockDocument {
 // | highlight           | `createReactStyleSpec` propSchema:"string"(§5.1)   | 값 보유 스타일 성립 확인됨 |
 // | spoiler             | `createReactStyleSpec` propSchema:"boolean"(§5.1)  | 클릭 공개 동작 확인됨 |
 // | t(ink/bg/size)      | `createReactStyleSpec` propSchema:"string" × 3     | 색 값은 팔레트 ∪ #rrggbb 그대로 |
+// |   (↑ highlight·spoiler·t 3종의 **현행 구현 = 코어 `createStyleSpec`(vanilla)** — stage-46 FB-19 전환. 이 표는 stage-31 성립 확인 이력이다.) |
 // | inlineCode          | 내장 `code` 스타일                                  | 1:1 |
 // | inlineMath          | `@blocknote/math-block` 인라인 또는 커스텀 인라인 콘텐츠 | M33 |
 // | link                | 내장 링크                                          | title은 어댑터에서 props로 |
