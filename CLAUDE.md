@@ -4,15 +4,23 @@
 (FastAPI + SQLite + React). 개인용, 홈 네트워크 전용.
 
 **현재 버전 v2.01.1** (2026-09-03 발행) — 버전 단일 출처 = 루트 `VERSION` · 규약·이력 =
-`docs/03-release/CHANGELOG.md`. **다음**: 미편성 — 후보(캡처·D8·D11-ⓐ·FB-20 마크 탈출 등)는
-v2.x 편성 시. 진척·경위는 stage-index·stage 문서에만.
+`docs/03-release/CHANGELOG.md`. **다음**: 미편성 — 잔여 할 일은 `docs/01-plan/backlog.md`(후보를 여기
+나열하지 않는다). 진척·경위는 stage-index·stage 문서에만.
+
+## 작업 사이클 (stage는 "할 일을 정한 뒤" 쓰는 산출물)
+
+`/backlog`(등재 · 코드 0) → `/stage-status`(진척 + 잔여 M/F/D/R/FB — `scripts/backlog-scan.ps1`) →
+`/stage-plan`(편성 = stage 지시서·설계 계약·index 행·등록부 상태) → `/stage-implement`(구현·검토·완료
+절차) → `/stage-review`(검토만). 잔여 정본 = 마스터 계획 §14 M·§5 F·§15 R + 별지 §10 D·§13 FB,
+등록부 `backlog.md`는 그 1줄 압축(stage-index와 같은 관례).
 
 ## 문서 지도 (코드보다 문서가 먼저다)
 
 | 문서 | 역할 |
 |---|---|
-| `docs/01-plan/study-app.plan.md` | 마스터 계획 — F01~F56 · **DDL 단일 출처(§6.2)** · 로드맵 §14 · 리스크 §15 · 버전 정의(말미) |
-| `docs/01-plan/editor-v2.plan.md` | 에디터 v2(완료) 별지 — 결정 D1~D11 · R33~R41 · §13 백로그 · §14 프로젝션 손실(정본) · **GPL 의존 금지(D10 — 저장소 public)** |
+| `docs/01-plan/study-app.plan.md` | 마스터 계획 — F01~F59(§5) · **DDL 단일 출처(§6.2)** · 로드맵 M1~M36 §14(+"v1.x 후보" 주석) · 리스크 R §15 · 버전 정의(말미) |
+| `docs/01-plan/editor-v2.plan.md` | 에디터 v2(완료) 별지 — 결정 D1~D11(§10) · R33~R41(§9) · **피드백 로그 FB-n(§13 — 등재 정본)** · §14 프로젝션 손실(정본) · **GPL 의존 금지(D10 — 저장소 public)** |
+| `docs/01-plan/backlog.md` | **잔여 등록부** — 미종결 M/F/D/R/FB 1표(상태·편성 조건) · 다음 stage는 여기서 고른다 · 정합 = `scripts/backlog-scan.ps1` |
 | `docs/01-plan/stage-index.md` | **stage 전수 인덱스**(상태·산출 버전·경로 1표) — stage 문서는 여기서 찾는다 |
 | `docs/01-plan/stage-{n}-*.plan.md` | 단계 지시서(DoD·제외 범위) — 완료 경위·잔여 정본 = 머리말 "상태" 줄 + "완료 기록" |
 | `docs/02-design/study-app.design*.md` | 설계 3분할(§ 번호 불변) — 색인 `.design.md`(§1~3 공통 규약·분할 지도) / `.api.md`(§4) / `.screens.md`(§5 화면·§6 토큰·§7 상태) |
@@ -26,13 +34,13 @@ v2.x 편성 시. 진척·경위는 stage-index·stage 문서에만.
 
 | 작업 | 담당 | 모델 |
 |---|---|---|
-| 계획·설계·아키텍처 결정 | 메인 대화 또는 `plan-architect` | **Fable**(소진 시 Opus · 에이전트 미지정=세션 상속) |
-| `/stage-implement` 오케스트레이션 | 메인 대화 | **Opus 이하**(분배·중계는 기계적) |
+| 계획·설계·아키텍처 결정 · `/stage-plan` 편성 · `/backlog` 등재 | 메인 대화 또는 `plan-architect` | **Fable**(소진 시 Opus · 에이전트 미지정=세션 상속) |
+| `/stage-implement`·`/stage-status` 오케스트레이션 | 메인 대화 | **Opus 이하**(분배·중계·집계는 기계적) |
 | 백엔드/프론트 구현 | `backend-dev` / `frontend-dev` | **Sonnet**(sm2·import_service·학습모드 UX만 opus 승격) |
 | 단계 검토·코드 리뷰 | `stage-reviewer` | **Opus 고정** |
 | 브라우저 재현·UI 디버깅 | `browser-debugger` | **Sonnet** |
 
-스킬: `/stage-implement` · `/stage-review` · `/stage-status` · `/browser-debug`.
+스킬: `/backlog` · `/stage-status` · `/stage-plan` · `/stage-implement` · `/stage-review` · `/browser-debug`.
 
 ## 토큰 규약 (모든 세션·에이전트)
 
@@ -69,8 +77,10 @@ v2.x 편성 시. 진척·경위는 stage-index·stage 문서에만.
 - **서버 구동 금지(2026-08-19 사용자 지시 — 전 세션·에이전트)**: uvicorn·vite를 직접 열지
   않는다 — 대리 기동 포함(주인 = `2_StartServer.bat` · 기동·재시작 = 사용자 몫). 부득이한 자체
   검증만 임시 포트(8000 금지) 짧게 — **종료 + 리스너 부재 확인**(서브에이전트에도 명시).
-- **stage 완료 절차**: CHANGELOG 1항목 + (발행 시) `VERSION` 갱신 + `stage-index.md` 1행.
-  CLAUDE.md는 **머리의 버전 줄 1곳만** — 경위는 stage 문서에만.
+- **stage 완료 절차**: CHANGELOG 1항목 + (발행 시) `VERSION` 갱신 + `stage-index.md` 1행 + `backlog.md`
+  편성 행 종결 이동(+출처 FB/D 행 `← 완료` 추기). CLAUDE.md는 **머리의 버전 줄 1곳만** — 경위는 stage 문서에만.
+- 잔여·현황: `powershell -ExecutionPolicy Bypass -File scripts/backlog-scan.ps1`(stage 집계 + 미종결 M/F/D/R/FB
+  ↔ `backlog.md` 대조 → PASS/DRIFT · `-Detail`로 닫힌 행까지). 문서 5곳을 직접 grep하지 않는다.
 - 백엔드: `uvicorn main:app --host 0.0.0.0 --port 8000`(backend/) — 접속 PC `localhost:8000` ·
   폰 `<PC-IP>:8000` · **외부 포트포워딩 금지(R12)**.
 - 프론트: `npm run dev` / 배포 `npm run build` → FastAPI가 dist 서빙 · 시작 스크립트가
