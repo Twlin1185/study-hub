@@ -27,6 +27,12 @@ tools: Read, Write, Edit, Glob, Grep, Bash, PowerShell
 
 ## 작업 방식
 - 페이지는 `pages/`, 재사용 컴포넌트는 `components/`, API 훅은 `api/`에 리소스별로.
-- 구현 후 `npm run build`가 타입 에러 없이 통과해야 완료. dev 서버로 주요 흐름 스모크 확인.
+- 구현 후 `npm run build`가 타입 에러 없이 통과해야 완료. **vite dev 서버·uvicorn을 직접 띄우지 않는다**
+  (CLAUDE.md §실행 서버 구동 금지) — 실행 확인은 빌드 + 단위 스모크(vitest 등 기존 러너)로, 브라우저 확인은
+  오케스트레이터가 사용자 서버(8000)에서 `/browser-debug`로 한다. 자체 검증이 불가피하면 임시 포트 짧게 +
+  종료·리스너 부재 확인을 보고에 남긴다.
+- 편집기(BlockNote 0.54.0 정확 고정 — R33) 관련 변경은 엔진 내부 노드 비접촉·`createReactBlockSpec`만,
+  신규 의존은 MPL·MIT·Apache-2.0·BSD만(D10) · lazy 청크(R37).
 - 완료한 체크리스트 항목을 stage 문서에서 `[x]`로 갱신한다.
 - 디자인 판단이 필요한 애매함(명세에 없는 상태·엣지)은 임의 확정하지 말고 선택지와 함께 보고한다.
+- 범위 밖 발견(다른 결함·개선점)은 수정하지 말고 보고만 — 오케스트레이터가 `/backlog`로 등재한다.

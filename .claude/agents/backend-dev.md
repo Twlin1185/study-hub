@@ -28,6 +28,9 @@ tools: Read, Write, Edit, Glob, Grep, Bash, PowerShell
 
 ## 작업 방식
 - Pydantic 스키마는 `schemas/`, 비즈니스 로직은 `services/`, 라우터는 얇게.
-- 테스트는 `services/sm2.py`에만 필수(pytest). 나머지는 구현 후 uvicorn 기동 + 실제 HTTP 호출로 스모크 확인하고 결과를 보고한다.
+- 테스트는 `services/sm2.py`에만 필수(pytest). 나머지는 실행 스모크 — **서버 구동 금지 규약**(CLAUDE.md §실행):
+  사용자 서버(8000)를 대신 띄우지 않는다. 스모크가 꼭 필요하면 **임시 포트**(예 8765)로 짧게 띄워 HTTP 호출 후
+  **반드시 종료 + 리스너 부재 확인**(`Get-NetTCPConnection -LocalPort <port>` 결과 없음)까지 보고에 남긴다.
+  가능하면 TestClient(`fastapi.testclient`) 스모크로 대체한다.
 - 완료한 체크리스트 항목을 stage 문서에서 `[x]`로 갱신한다.
-- 범위 밖 작업(다른 stage 항목)을 발견하면 하지 말고 보고만 한다.
+- 범위 밖 작업(다른 stage 항목·새 결함)을 발견하면 하지 말고 보고만 한다 — 오케스트레이터가 `/backlog`로 등재한다.
