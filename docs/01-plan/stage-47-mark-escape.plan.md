@@ -108,7 +108,7 @@
 
 ### 묶음 F — 프론트 구현 (권장 순서 F-1 → F-2 → F-3 — F-3은 독립이라 먼저 해도 무방)
 
-- [ ] F-1. **FB-20 마크 탈출 제스처**(규약 A) — `toolbar/markEscape.ts` 신설: ① 사실 추출
+- [x] F-1. **FB-20 마크 탈출 제스처**(규약 A) — `toolbar/markEscape.ts` 신설: ① 사실 추출
       `readMarkEscapeFacts(state, styleMarkNames)`(`collapsed`·`pending`·`nextInherits`·`prevIsMarkedSpace`·
       `inTable`) ② 순수 판정 `shouldEscapeOnArrowRight`·`shouldEscapeOnTab`·`shouldEscapeOnSpace` ③ 커맨드
       `escapeMarks(editor)`(대기 마크에서 스타일 마크만 제거 — 비-스타일 마크 보존) ·
@@ -117,18 +117,18 @@
       `extensions.ts` `createEditor2Extensions` 배열 **columns 확장 뒤**에 추가. 스타일 마크 이름 집합은
       `editor.schema.styleSchema` 키에서 얻는다(`activeStyles.ts`와 같은 조회 — 상수 복제 금지). 키 이름
       `Space`가 PM keymap 정규화(`" "`)로 잡히는지 실측(안 잡히면 `' '`).
-- [ ] F-2. **FB-6-후속①**(규약 B) — 공용 훅 `useAtomInlineGuard(editor)` 신설 + 두 툴바의 `useState`/
+- [x] F-2. **FB-6-후속①**(규약 B) — 공용 훅 `useAtomInlineGuard(editor)` 신설 + 두 툴바의 `useState`/
       `useEditorSelectionChange` 2줄을 훅 호출 1줄로 교체. `selectionHasAtomInline`(`atoms.ts`) 자체는 무변.
-- [ ] F-3. **고아 모듈 삭제**(규약 C) — `git grep -n "RichBlockEditor\|richSurface" -- frontend/src frontend/scripts`
+- [x] F-3. **고아 모듈 삭제**(규약 C) — `git grep -n "RichBlockEditor\|richSurface" -- frontend/src frontend/scripts`
       결과가 `RichBlockEditor.tsx` 자기 참조뿐임을 확인 후 2파일 `git rm`. 이어 `tsc`(빌드)로 미참조 확인 ·
       삭제로 새 고아가 생기는지 `inlineModel|inlineSerialize|htmlPasteMarkdown` 소비자 잔존 확인(§1 실측 =
       잔존 — 보고만).
 
 ### 묶음 V — 검증 (구현 후)
 
-- [ ] V-1. `npm run build` 성공(성공/실패만) + **초기 청크(엔트리 `index-*.js`) 증감 수치 — R37 증가 없음**
+- [x] V-1. `npm run build` 성공(성공/실패만) + **초기 청크(엔트리 `index-*.js`) 증감 수치 — R37 증가 없음**
       (stage-46 기준선 1,578,573 B · 키맵 모듈 추가분 기록).
-- [ ] V-2. **헤드리스 자동 검증 신설** `frontend/scripts/s47-mark-escape.mjs`(`s41-columns-editor.mjs` 관례 —
+- [x] V-2. **헤드리스 자동 검증 신설** `frontend/scripts/s47-mark-escape.mjs`(`s41-columns-editor.mjs` 관례 —
       `ServerBlockNoteEditor` + 실제 `noteSchema` · jiti 캐시 ON): ⓐ 순수 판정 전수표(구간 끝/중간/대기
       마크만/빈 pending/표 안 Tab/직전 공백 마크 유무 × 3키) ⓑ 커맨드 결과(→: 커서 위치 불변 + storedMarks에
       스타일 마크 0 · Space 2회: 문서 텍스트 공백 1개 + 그 공백 마크 0 + 뒤 입력 무마크 · 링크 마크 보존 ·
@@ -148,7 +148,7 @@
       (부유·도킹 양쪽) ⓕ 모바일 에뮬(390px) — 도킹 툴바에서 스페이스 2회 탈출 + active 표시 해제
       ⓖ **FB-14 회귀 대조 1회(코드 0)** — 콜아웃(variant note) 자식 그룹 `querySelector` 매칭 ≠ null · 배경/
       좌측선 적용 유지. 테스트 노트는 전부 DELETE 원상복구.
-- [ ] V-4. **백엔드 diff 0**(`git diff -- backend` 빈 결과) · 신규 의존 0(`package.json`·잠금 파일 diff 0) ·
+- [x] V-4. **백엔드 diff 0**(`git diff -- backend` 빈 결과) · 신규 의존 0(`package.json`·잠금 파일 diff 0) ·
       `RichBlockEditor|richSurface` grep 0(dist 제외).
 
 ### 묶음 D — 문서 (검증 종료 후)

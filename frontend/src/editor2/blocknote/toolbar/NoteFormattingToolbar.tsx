@@ -39,7 +39,7 @@ import type { NotePartialBlock } from '../schema'
 import { columnsInsertBlocked, insertCalloutBlock, insertColumnsBlock } from '../refPicker/insert'
 import { useRefPickerCommands } from '../refPicker/RefUiProvider'
 import { useActiveStyleRecord } from './activeStyles'
-import { ATOM_GUARD_TOOLTIP, selectionHasAtomInline } from './atoms'
+import { ATOM_GUARD_TOOLTIP } from './atoms'
 import { shouldShowTextFormattingGroup, useSelectedBlockTypes } from './blockFilter'
 import { TextSizeIcon, UnderlineIcon } from './icons'
 import type { CropTarget } from './imageCropEligibility'
@@ -47,6 +47,7 @@ import { computeCropTarget } from './imageCropEligibility'
 import { MICRO_MARK_LABEL, applyMicroMark, clearMicroMark, toggleMicroMark } from './microMarks'
 import type { MicroMark } from './microMarks'
 import { readTextStyleView, setTextStyleKey } from './textStyle'
+import { useAtomInlineGuard } from './useAtomInlineGuard'
 import { useNoteEditor } from './useNoteEditor'
 
 // 크롭 UI(canvas 인코딩 로직)는 **lazy 청크로만** 들여온다(R37 — 초기 청크 증가 금지). 버튼 자체는
@@ -645,9 +646,8 @@ export function buildFormattingToolbarItems({
 
 export default function NoteFormattingToolbar() {
   const editor = useNoteEditor()
-  const [blocked, setBlocked] = useState(() => selectionHasAtomInline(editor))
-  // 원자 인라인 가드는 **선택**에 달려 있다(스타일 변화만으로는 갱신되지 않는다).
-  useEditorSelectionChange(() => setBlocked(selectionHasAtomInline(editor)))
+  // 원자 인라인 가드 — 선택·내용 변경 모두 구독하는 공용 훅(stage-47 F-2 · 도킹과 같은 훅).
+  const blocked = useAtomInlineGuard(editor)
   // 블록별 필터(규약 B) — 부유 툴바도 도킹과 같은 규칙을 쓴다.
   const blockTypes = useSelectedBlockTypes(editor)
   const showTextGroup = shouldShowTextFormattingGroup(blockTypes)
