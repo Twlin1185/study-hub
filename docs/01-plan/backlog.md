@@ -8,7 +8,7 @@
 > - **정합 검사** = `powershell -ExecutionPolicy Bypass -File scripts/backlog-scan.ps1`(출처 5곳 스캔 ↔ 이 표 대조 → PASS/DRIFT). `/stage-status`가 실행한다. 출처 표기가 낡아 스캔이 "열림"으로 읽는 종결 항목은 §4에 1행 두면 보정된다.
 > - **우선순위 신호**(편성 권고 순): 결함 > 사용자 확정 대기 해소 > 최신 실수요(사용자 제안 날짜) > 저비용 정비(사소 stage 동승) > 실수요 미확인 후보. 버전 영향 판정(핵심/사소)은 CHANGELOG 머리 규약 ③.
 
-기준일 2026-09-12 (v2.01.2 · stage 1~47 완료 · 로드맵 M1~M36 전건 ✅ · F01~F59 전건 배정).
+기준일 2026-09-12 (v2.01.2 · stage 1~47 완료 · **stage-48 편성(착수 전 · 사소 · v2.01.3 예정)** · 로드맵 M1~M36 전건 ✅ · F01~F59 전건 배정).
 
 ## 1. 후보 (기능·제안·정비 — 편성 대상)
 
@@ -16,8 +16,8 @@
 |---|---|---|---|---|---|
 | FB-8 | 별지 §13 | 모바일 좌측 드로어를 전체 내비 메뉴로 확장(홈·커리큘럼·탐색·반입·인쇄 진입점) | 제안 | 미편성 | 앱 전역 `Layout.tsx` · F39 "하단 탭 추가 금지"와 무충돌(드로어는 예비된 자리) · 저비용 · 사소 |
 | FB-11-ⓑ | 별지 §13 FB-11 | 코드 블록 구문 강조(`@blocknote/code-block` shiki · MIT) + 복사 버튼 | 제안 | 미편성 | 신규 의존 1(D10 정합) · **반드시 lazy 청크**(R37) · ⓒ 인라인 버튼·ⓐ 외양은 stage-40 완료 · 사소 |
-| 코드-언어select | stage-46 §4 | 코드 블록 언어 select 화살표 외양 다듬기 | 다듬기 | 미편성 | 사소 stage 동승 후보 |
-| FB-2-잔여 | 별지 §13 FB-2 | 노트 복제 | 제안 | 미편성 | 저비용 · 노트 API 1개 추정 · 사소 |
+| 코드-언어select | stage-46 §4 | 코드 블록 언어 select 화살표 외양 다듬기 | 다듬기 | 편성 = stage-48 | 사소 stage 동승 — 래퍼 `::after` chevron · 토큰만 · 값·동작 무접촉(stage-48 규약 E) |
+| FB-2-잔여 | 별지 §13 FB-2 | 노트 복제 | 제안 | 편성 = stage-48 | `POST /api/notes/{id}/duplicate` 1개(api §4.28 ⑦ `[S48]`) + 목록 행 [복제] · DDL 0 · 사소(stage-48 규약 C·D) |
 | D11-ⓐ | 별지 §10 D11 | 참조로 붙여넣기 — 붙여넣을 자리에 문서 임베드 블록 삽입 UX | 기능 | 미편성(v2.x 이월 확정 2026-08-23) | 저장 구조 0 · 진입 UX 1개 · 원본→사본 단방향은 F43 성질로 이미 성립 · 사소 |
 | D8-구현 | 별지 §10 D8 | 휴지통·고아 이미지 2단계 정리 구현(삭제 주체 = 항상 사용자 · 앱 자동 삭제 0) | 기능 | 미편성(결정 확정 2026-08-23 ⓑ) | **불변 규칙 4 명시 개정 동반**(업로드 이미지 = 파생물 재해석 — plan-architect) · 핵심 여부는 편성 시 판정 |
 | 캡처 | 별지 §7.3·§5.5 · stage-43 §5 N-1 | 캡처 파이프라인 구현(녹음→전사→정제 · 사진→OCR · 필기) | 기능(F 번호 미부여) | 미편성 — **별도 계획서 선행** | 설계(`meta.provenance`·`IngestSource`)만 존재 · 착수 시 F 번호 부여 + N-1 ⓐ/ⓑ(notes→documents 이관) 재론 동반 · 핵심 |
@@ -34,8 +34,8 @@
 | ID | 출처(정본) | 요지 | 종류 | 상태 | 편성 조건·비고 |
 |---|---|---|---|---|---|
 | FB-15 | 별지 §13 | React #185(Maximum update depth) 콘솔 1회 관찰 · 이후 미재현 | 관찰 | 감시 | 재현 조건 미특정 — 실사용 중 프리즈·경고 관찰 시 보고 |
-| FB-21 | 별지 §13 | 콜아웃 기본 variant(`note`)는 엔진이 `data-variant`를 내보내지 않아 `notes.css` note 규칙 매칭 0 → 기본 콜아웃 좌측선이 `--border`로 남음(stage-43 F-4 잔재 · stage-47 V-3 ⓖ 실측 2026-09-12) | 결함(경미) | 미편성 | 사소 stage 동승 · 저비용 — 기본 규칙(`notes.css:153`) `border-left-color`를 `var(--accent)`로 + note 규칙 삭제(또는 `:not([data-variant])`) · CSS 1~2줄 · 토큰만 |
-| FB-22 | 별지 §13 | `NoteFormattingToolbar.tsx` `columnsInsertBlocked`(:521)·`computeCropTarget`(:561)이 `useEditorSelectionChange` 단독 구독 — FB-6-후속①과 동형(stage-47 검토 발견 · 실측 결함 0) | 관찰 | 미편성 | 사소 stage 동승 · 저비용 — 수정 시 `useAtomInlineGuard`와 같은 정책(선택+내용 변경 동시 구독) |
+| FB-21 | 별지 §13 | 콜아웃 기본 variant(`note`)는 엔진이 `data-variant`를 내보내지 않아 `notes.css` note 규칙 매칭 0 → 기본 콜아웃 좌측선이 `--border`로 남음(stage-43 F-4 잔재 · stage-47 V-3 ⓖ 실측 2026-09-12) | 결함(경미) | 편성 = stage-48 | 사소 stage 동승 · 저비용 — 기본 규칙(`notes.css:153`) `border-left-color`를 `var(--accent)`로 + note 규칙 삭제(stage-48 규약 A 확정 · `:not` 대안 기각) · CSS 1~2줄 · 토큰만 |
+| FB-22 | 별지 §13 | `NoteFormattingToolbar.tsx` `columnsInsertBlocked`(:521)·`computeCropTarget`(:561)이 `useEditorSelectionChange` 단독 구독 — FB-6-후속①과 동형(stage-47 검토 발견 · 실측 결함 0) | 관찰 | 편성 = stage-48 | 사소 stage 동승 · 저비용 — 공용 훅 `useEditorDerived`로 2곳 전환(`useAtomInlineGuard`와 같은 정책 · stage-48 규약 B) |
 
 ## 3. 리스크 감시 (미종결 — 종결 판정 = plan-architect · 마스터 §15 "(종결 — 이관)" 표기로 종결)
 

@@ -388,11 +388,19 @@
 - **원자 인라인 가드 구독(FB-6-후속①)**: 부유·도킹 툴바의 `blocked`(원자 인라인 선택 시 텍스트 서식 비활성)는 **공용 훅 `toolbar/useAtomInlineGuard.ts` 1개**가 선택 변경 + 내용 변경(S40 `useSelectedBlockTypes`와 같은 정책)을 함께 구독해 선택 좌표 불변 트랜잭션(원자 → 텍스트 치환)에서도 갱신된다(disabled 9→2 갱신 실측) — 표시 규칙(덮개·비활성) 자체는 S36/S40 무변. 동형 패턴 2곳(`NoteFormattingToolbar.tsx` `columnsInsertBlocked`·`computeCropTarget` — 선택 변경 단독 구독)은 범위 밖 · 별지 §13 FB-22 관찰 등재.
 - **공통 계약**: DDL 0 · settings 키 0 · 신규 엔드포인트 0 · 신규 의존 0 · 백엔드 diff 0 · 엔트리 청크 +0 B(lazy `ui-*.js` +1,625 B — R37 초기 청크 한도 내) · 고아 모듈 2파일(`RichBlockEditor.tsx`·`markdown/richSurface.ts`) 삭제 완료 — 화면 무영향(번들 미포함이었음). FB-14 콜아웃 CSS 회귀 대조 = 기본 규칙(`:has()`)·`warn` variant 매칭 정상 · 단 기본 variant(`note`)는 엔진이 기본값과 같은 prop의 `data-*`를 내보내지 않아 `[data-variant='note']` 규칙 매칭 0(좌측선 `--border` 잔존) → 별지 §13 FB-21 결함 등재(코드 0 — 이 stage 범위 밖).
 
+**노트 복제 · 편집 표면 다듬기 3건 (S48 — FB-2-잔여 · FB-21 · FB-22 · 코드-언어select · 편성 추기 Design v1.57(2026-09-12 — 착수 전 · 코드 0 · 실측 재개정은 완료 시 v1.58). 규약 정본 = `stage-48-minor-polish.plan.md` §2 — 이 절은 화면 계약만)**
+
+- **노트 복제(FB-2 잔여 — api §4.28 ⑦ `POST /api/notes/{id}/duplicate`)**: 진입점 = **목록 `/notes` 행 액션 [복제] 1곳**(기존 [삭제] 왼쪽 · 같은 크기·토큰 클래스 · 삭제 전용 `text-wrong` 미사용). **확인 다이얼로그 없음**(비파괴 — 결과는 삭제로 되돌아간다) · 진행 중 버튼 비활성(중복 클릭 = 사본 2개 방지) · **성공 = 새 노트 편집 화면 `/notes/:newId`로 이동**([새 노트] 생성 전례와 동일 — S39 세션 스냅샷은 새 노트 진입 시점에 정상 생성) · 실패 = 목록의 기존 액션 오류 표시에 서버 `message` 그대로(§3). 사본 제목 = `원제 + " (사본)"`(서버 규칙 — 프론트는 제목을 만들지 않는다). **편집 화면 상단 [복제]는 두지 않는다**(자동저장·세션 스냅샷 표면에서 "복제 시점 서버 상태 vs 미저장 편집분" 규약이 추가로 필요 · 실수요 미확인 — 필요 시 별지 §13 FB 등재 후 편성). 삭제분(`include_inactive`) 행에는 [복제] 노출 0(현행 목록은 삭제분을 표시하지 않아 자동 충족 · 서버도 404). 모바일 = 행 버튼 2개 `shrink-0` 유지 · 텍스트 버튼(아이콘 도입 0).
+- **콜아웃 기본 좌측선(FB-21)**: 기본 규칙(`notes.css:153` `:has()`)의 `border-left-color`를 `var(--accent)`로 두고 `[data-variant='note']` 규칙 삭제 — 엔진이 기본값 prop의 `data-variant`를 내보내지 않으므로 "기본 규칙 = note 스타일"이 정본. `warn`(`--warning`)·`tip`(`--correct`) 규칙 무변(특이도 우위 유지). 목록 밖 variant(기존 데이터 `:::노트[…]` 등 — "값 보존 + 기본 스타일")도 accent 좌측선 = 의도된 결과. 토큰만 · 리더·인쇄 CSS 무접촉.
+- **툴바 파생 상태 구독(FB-22)**: `NoteFormattingToolbar`의 [다단] 삽입 차단(`columnsInsertBlocked`)·[자르기] 대상(`computeCropTarget`) 2곳을 **공용 훅 `toolbar/useEditorDerived.ts`**(선택 변경 + 내용 변경 동시 구독 · `useCallback([editor])` 고정 · 함수형 갱신 + `isEqual` bail-out — S47 `useAtomInlineGuard`와 같은 정책의 일반화)로 전환. 표시 규칙(비활성·대상 판정) 무변 · 순수 판정 함수 무변 · `useAtomInlineGuard`를 이 훅 위에 얹을지는 구현자 판단(동작 동일 조건). 실측 결함 0의 정비 — 검증 = 빌드·기존 헤드리스 회귀·브라우저 회귀 0 + 선택 좌표 불변 트랜잭션 1건.
+- **코드 블록 언어 select 화살표(코드-언어select)**: 네이티브 화살표 제거(`appearance: none` + `padding-right`) + 래퍼 `div[contenteditable='false']`의 `::after` chevron(border 2변 회전 · `border-color: var(--text-muted)` · `pointer-events: none`). **배경 SVG data-URI 방식 금지**(색 리터럴 = 불변 규칙 5 위반). 값·옵션·동작 무접촉(S46 규약 D 계승) · hover/focus opacity 규칙 무변 · 포커스 링 유지.
+- **공통 계약**: DDL 0 · settings 키 0 · **신규 엔드포인트 1(§4.28 ⑦ — 기존 5개 무변)** · 신규 의존 0 · 백엔드 diff = `routers/notes.py` + 테스트 1파일 · 라우트 0 · 엔트리 청크 +0 B(R37 — 노트 lazy 청크 안).
+
 **모바일**
 
 - 폰에서 목록·편집이 열리고 한글 입력·기본 서식이 동작하는 수준까지가 M33 범위다. **터치 선택·드래그·툴바 밀도 마감은 M36(stage-37)** — 이 절에서 약속하지 않는다.
 
-**API**: `notes` 5종(§4.28) · `uploads`(§4.27 — 이미지 3진입점) · `search`(칩 피커 검색)·`documents` 목록(§4.2)·`documents/resolve-embeds`(§4.19) **읽기 전용 재사용**. **신규 엔드포인트는 §4.28의 5개뿐이다.**
+**API**: `notes` 5종(§4.28) **+ 복제 1종(§4.28 ⑦ — S48 편성 추기 2026-09-12)** · `uploads`(§4.27 — 이미지 3진입점) · `search`(칩 피커 검색)·`documents` 목록(§4.2)·`documents/resolve-embeds`(§4.19) **읽기 전용 재사용**. **신규 엔드포인트는 §4.28의 5개 + S48 복제 1개뿐이다.**
 
 ## 6. 테마 · 디자인 토큰 (F28)
 
