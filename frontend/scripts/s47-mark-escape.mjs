@@ -4,14 +4,16 @@
 // (`@blocknote/server-util`)를 만들어 돌린다. jiti 캐시는 켠다(끄면 `@blocknote/core`가 두 번 평가돼
 // PM `Duplicate use of selection JSON ID`로 죽는다 — s41 실측).
 //
-//   ⓐ 순수 판정 전수표 — `shouldEscapeOn{ArrowRight,Tab,Space}` × (구간 끝/중간/대기 마크만/빈 pending/
-//      표 안/직전 공백 마크 유무)
+//   ⓐ 순수 판정 전수표 — `shouldEscapeOn{ArrowRight,Space}` × (구간 끝/중간/대기 마크만/빈 pending/
+//      직전 공백 마크 유무)
 //   ⓑ 커맨드 결과 — 실제 편집기에서 →(커서 불변 + 대기 스타일 마크 0) · Space 2회(공백 1개 + 그 공백
 //      마크 0 + 뒤 입력 무마크 + 3회째 정상) · 링크 마크 보존 · bold+spoiler 동시 pending 전부 해제
 //   ⓒ columns 상호작용 — **실제 `createEditor2Extensions` 배열**로 만든 편집기의 PM 플러그인 체인에
 //      keydown(ArrowRight)을 흘려 단 마지막 블록 끝 + 대기 마크에서 **탈출이 먼저**인지 실측
-//   ⓓ 비발동 경로 — `pending = ∅`에서 3키 전부 `false`
-//   ⓔ 키 이름 `Space` — prosemirror-keymap 정규화(`" "`)로 실제 keydown이 잡히는지 실측
+//   ⓓ 비발동 경로 — `pending = ∅`에서 2키 전부 `false`
+//   ⓔ 키 이름 `Space` — prosemirror-keymap 정규화(`" "`)로 실제 keydown이 잡히는지 실측 ·
+//      Tab 제거 확인(FB-20 후속 2026-09-12) — 단축키 표에 `Tab` 키 없음 + 실제 체인에서 코어
+//      `nestBlock`이 그대로 도는지(문단이 앞 블록 자식으로 중첩)
 import Module, { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -143,25 +145,22 @@ function fireKey(key, keyCode) {
 
 // ══════════════════════════════════════ ⓐ 순수 판정 전수표
 {
-  const F = (over) => ({ collapsed: true, pending: ['bold'], nextInherits: false, prevIsMarkedSpace: false, inTable: false, ...over })
+  const F = (over) => ({ collapsed: true, pending: ['bold'], nextInherits: false, prevIsMarkedSpace: false, ...over })
   const rows = [
-    ['구간 끝', F({}), [true, true, false]],
-    ['구간 끝 + 직전 마크 공백', F({ prevIsMarkedSpace: true }), [true, true, true]],
-    ['구간 중간', F({ nextInherits: true }), [false, false, false]],
-    ['구간 중간 + 직전 마크 공백', F({ nextInherits: true, prevIsMarkedSpace: true }), [false, false, false]],
-    ['대기 마크만(버튼 직후 · 글자 0)', F({}), [true, true, false]],
-    ['빈 pending', F({ pending: [] }), [false, false, false]],
-    ['빈 pending + 직전 마크 공백', F({ pending: [], prevIsMarkedSpace: true }), [false, false, false]],
-    ['표 안 구간 끝', F({ inTable: true }), [true, false, false]],
-    ['표 안 구간 끝 + 직전 마크 공백', F({ inTable: true, prevIsMarkedSpace: true }), [true, false, true]],
-    ['선택 범위 있음', F({ collapsed: false }), [false, false, false]],
-    ['복수 pending(bold+spoiler) 구간 끝', F({ pending: ['bold', 'spoiler'] }), [true, true, false]],
+    ['구간 끝', F({}), [true, false]],
+    ['구간 끝 + 직전 마크 공백', F({ prevIsMarkedSpace: true }), [true, true]],
+    ['구간 중간', F({ nextInherits: true }), [false, false]],
+    ['구간 중간 + 직전 마크 공백', F({ nextInherits: true, prevIsMarkedSpace: true }), [false, false]],
+    ['대기 마크만(버튼 직후 · 글자 0)', F({}), [true, false]],
+    ['빈 pending', F({ pending: [] }), [false, false]],
+    ['빈 pending + 직전 마크 공백', F({ pending: [], prevIsMarkedSpace: true }), [false, false]],
+    ['선택 범위 있음', F({ collapsed: false }), [false, false]],
+    ['복수 pending(bold+spoiler) 구간 끝', F({ pending: ['bold', 'spoiler'] }), [true, false]],
   ]
   let i = 0
-  for (const [label, f, [r, t, s]] of rows) {
+  for (const [label, f, [r, s]] of rows) {
     i += 1
     check(`ⓐ-${i} ${label}: →=${r}`, me.shouldEscapeOnArrowRight(f) === r)
-    check(`ⓐ-${i} ${label}: Tab=${t}`, me.shouldEscapeOnTab(f) === t)
     check(`ⓐ-${i} ${label}: Space=${s}`, me.shouldEscapeOnSpace(f) === s)
   }
 }
@@ -172,7 +171,7 @@ function fireKey(key, keyCode) {
   load([{ type: 'paragraph', content: [{ type: 'text', text: 'abc', styles: { bold: true } }] }])
   editor.setTextCursorPosition(editor.document[0].id, 'end')
   let f = facts()
-  check('ⓑ-1 사실: 굵게 끝 = collapsed·pending[bold]·!nextInherits', f.collapsed && f.pending.join() === 'bold' && !f.nextInherits && !f.inTable, JSON.stringify(f))
+  check('ⓑ-1 사실: 굵게 끝 = collapsed·pending[bold]·!nextInherits', f.collapsed && f.pending.join() === 'bold' && !f.nextInherits, JSON.stringify(f))
 
   // ⓑ-2 사실 추출: 굵게 구간 중간
   editor.setTextCursorPosition(editor.document[0].id, 'start')
@@ -191,13 +190,11 @@ function fireKey(key, keyCode) {
   typeText('x')
   check('ⓑ-3d 탈출 뒤 입력 = 무마크', JSON.stringify(charsOfCursorBlock()) === JSON.stringify([['a', ['bold']], ['b', ['bold']], ['c', ['bold']], ['x', []]]), JSON.stringify(charsOfCursorBlock()))
 
-  // ⓑ-4 Tab: 같은 처리
+  // ⓑ-4 구간 끝 + 대기 마크 + Tab(FB-20 후속 2026-09-12): 우리 확장은 Tab 핸들러를 등록하지
+  // 않는다 — 전용 판정 함수가 없으므로 단축키 표 키 목록만 단언.
   load([{ type: 'paragraph', content: [{ type: 'text', text: 'abc', styles: { italic: true } }] }])
   editor.setTextCursorPosition(editor.document[0].id, 'end')
-  const posTab = cursorPos()
-  check('ⓑ-4 Tab 발동', me.markEscapeShortcuts.Tab({ editor }) === true)
-  check('ⓑ-4a Tab 커서 불변 + 대기 스타일 0', cursorPos() === posTab && storedStyleNames().length === 0)
-  check('ⓑ-4b 탈출 뒤 Tab = 통과(코어 들여쓰기)', me.markEscapeShortcuts.Tab({ editor }) === false)
+  check('ⓑ-4 구간 끝(대기 마크 있음)에서도 핸들러 목록에 Tab 없음', facts().pending.join() === 'italic' && Object.keys(me.markEscapeShortcuts).indexOf('Tab') === -1, JSON.stringify(Object.keys(me.markEscapeShortcuts)))
 
   // ⓑ-5 Space 2회: 1회째는 코어(상속 마크 붙은 공백) · 2회째 = 치환
   load([{ type: 'paragraph', content: [{ type: 'text', text: 'abc', styles: { bold: true } }] }])
@@ -294,7 +291,7 @@ function fireKey(key, keyCode) {
   setStored([pmSchema.marks.bold.create()])
   check('ⓑ-10 무마크 공백 뒤 대기 굵게: Space = 통과', me.markEscapeShortcuts.Space({ editor }) === false)
 
-  // ⓑ-11 표 안: Tab 비활성 · →·Space는 동작
+  // ⓑ-11 표 안: →·Space는 동작(Tab 제거 후에도 무회귀)
   const cell = (text, styles = {}) => [{ type: 'text', text, styles }]
   load([
     {
@@ -309,8 +306,7 @@ function fireKey(key, keyCode) {
   // 첫 셀 텍스트 끝으로 (셀 문단 시작 + 1글자)
   editor.transact((tr) => tr.setSelection(tr.selection.constructor.create(tr.doc, tr.selection.from + 1)))
   f = facts()
-  check('ⓑ-11 사실: 표 안 굵게 끝 = inTable·pending[bold]', f.inTable === true && f.pending.join() === 'bold' && !f.nextInherits, JSON.stringify(f))
-  check('ⓑ-11a 표 안 Tab = 통과(셀 이동 보존)', me.markEscapeShortcuts.Tab({ editor }) === false)
+  check('ⓑ-11 사실: 표 안 굵게 끝 = pending[bold]·!nextInherits', f.pending.join() === 'bold' && !f.nextInherits, JSON.stringify(f))
   check('ⓑ-11b 표 안 → 발동', me.markEscapeShortcuts.ArrowRight({ editor }) === true && storedStyleNames().length === 0)
   editor.transact((tr) => tr.setStoredMarks(null))
   typeText(' ')
@@ -357,7 +353,6 @@ function fireKey(key, keyCode) {
   const f = facts()
   check('ⓓ-0 사실: pending ∅', f.pending.length === 0, JSON.stringify(f))
   check('ⓓ-1 → false', me.markEscapeShortcuts.ArrowRight({ editor }) === false)
-  check('ⓓ-2 Tab false', me.markEscapeShortcuts.Tab({ editor }) === false)
   check('ⓓ-3 Space false', me.markEscapeShortcuts.Space({ editor }) === false)
   check('ⓓ-4 storedMarks 무접촉(null 유지)', editor.prosemirrorState.storedMarks === null)
   // 무마크 공백 2개 연속도 무발동
@@ -367,7 +362,7 @@ function fireKey(key, keyCode) {
   load([{ type: 'paragraph', content: [{ type: 'text', text: 'abc', styles: { bold: true } }] }])
   editor.setTextCursorPosition(editor.document[0].id, 'start')
   editor.transact((tr) => tr.setSelection(tr.selection.constructor.create(tr.doc, tr.selection.from, tr.selection.from + 3)))
-  check('ⓓ-6 범위 선택: 3키 false', me.markEscapeShortcuts.ArrowRight({ editor }) === false && me.markEscapeShortcuts.Tab({ editor }) === false && me.markEscapeShortcuts.Space({ editor }) === false)
+  check('ⓓ-6 범위 선택: 2키 false', me.markEscapeShortcuts.ArrowRight({ editor }) === false && me.markEscapeShortcuts.Space({ editor }) === false)
 }
 
 // ══════════════════════════════════════ ⓔ 키 이름 `Space` — prosemirror-keymap 정규화 실측
@@ -383,13 +378,20 @@ function fireKey(key, keyCode) {
   typeText(' ')
   const handled = fireKey(' ', 32)
   check('ⓔ-2 실제 체인: 2회째 Space keydown 처리 + 공백 무마크', handled === true && JSON.stringify(charsOfCursorBlock()[3]) === JSON.stringify([' ', []]), JSON.stringify(charsOfCursorBlock()))
-  // Tab keydown도 체인에서 우리 핸들러가 먼저(코어 nestBlock 미실행 = 문단이 그대로 최상위)
+  // Tab 제거 실측(FB-20 후속 2026-09-12) — 단축키 표에 Tab 핸들러가 없고, 구간 끝(대기 마크
+  // 있음)에서도 실제 keydown 체인이 **1회째부터** 코어 `nestBlock`을 그대로 실행한다(우리 확장
+  // 미개입 · 탈출 없음).
+  check('ⓔ-3 단축키 표에 Tab 없음(핸들러 미등록)', JSON.stringify(Object.keys(me.markEscapeShortcuts)) === JSON.stringify(['ArrowRight', 'Space']), JSON.stringify(Object.keys(me.markEscapeShortcuts)))
   load([{ type: 'paragraph', content: 'x' }, { type: 'paragraph', content: [{ type: 'text', text: 'abc', styles: { bold: true } }] }])
   editor.setTextCursorPosition(editor.document[1].id, 'end')
+  const preTabFacts = facts()
+  check('ⓔ-3a 전제: 구간 끝(대기 굵게)', preTabFacts.pending.join() === 'bold' && !preTabFacts.nextInherits, JSON.stringify(preTabFacts))
   const tabHandled = fireKey('Tab', 9)
-  check('ⓔ-3 실제 체인: Tab = 탈출(문단 들여쓰기 안 됨)', tabHandled === true && editor.document.length === 2 && storedStyleNames().length === 0, JSON.stringify(editor.document.map((b) => b.type)))
-  const tabHandled2 = fireKey('Tab', 9)
-  check('ⓔ-4 실제 체인: 탈출 뒤 Tab = 코어 들여쓰기(문단이 앞 블록 자식으로)', tabHandled2 === true && editor.document.length === 1 && editor.document[0].children.length === 1, JSON.stringify(editor.document.map((b) => [b.type, b.children.length])))
+  check(
+    'ⓔ-4 실제 체인: 1회째 Tab부터 코어 nestBlock 그대로(문단이 앞 블록 자식으로 · 대기 마크 무접촉)',
+    tabHandled === true && editor.document.length === 1 && editor.document[0].children.length === 1 && facts().pending.join() === 'bold',
+    JSON.stringify(editor.document.map((b) => [b.type, b.children.length])) + ' ' + JSON.stringify(facts()),
+  )
 }
 
 console.log(`총 ${pass + fail}건 · 통과 ${pass} · 실패 ${fail}`)

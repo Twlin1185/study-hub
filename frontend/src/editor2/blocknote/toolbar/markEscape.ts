@@ -1,10 +1,14 @@
-// **마크 탈출 제스처**(stage-47 F-1 · FB-20 · 규약 A) — 서식 구간 끝에서 `→`·`Tab`·`Space×2`로
-// 다음 입력에 붙을 **스타일 마크**(대기 마크)를 벗긴다. 노트·문서 양 편집 표면 공용(`extensions.ts`).
+// **마크 탈출 제스처**(stage-47 F-1 · FB-20 · 규약 A · Tab 제거는 FB-20 후속 2026-09-12) — 서식
+// 구간 끝에서 `→`·`Space×2`로 다음 입력에 붙을 **스타일 마크**(대기 마크)를 벗긴다. 노트·문서 양
+// 편집 표면 공용(`extensions.ts`).
 //
 // **왜 필요한가(FB-20)**: 접힌 커서가 굵게 구간 끝에 있으면 ProseMirror는 다음 입력에도 굵게를
 // 상속한다(마크 `inclusive` 기본값). 구간을 빠져나오려면 버튼을 다시 눌러 끄거나(FB-16 우회)
 // 단축키를 다시 쳐야 하는데, 모바일에는 단축키가 없고 버튼 왕복은 손이 많이 간다. 그래서
-// 워드프로세서 관례(→ / Tab / 스페이스 2회)로 "지금 걸린 서식을 여기서 끝낸다"를 만든다.
+// 워드프로세서 관례(→ / 스페이스 2회)로 "지금 걸린 서식을 여기서 끝낸다"를 만든다.
+// **Tab은 제외**(FB-20 후속·사용자 확정 2026-09-12): Tab은 1회째 탈출이 눈에 보이지 않아 사용자가
+// 한 번 더 누르면 코어 들여쓰기(블록 중첩)로 문단이 바뀐다 — 강한 기존 의미와 충돌해 제거했다.
+// Tab은 항상 코어 `nestBlock`으로 돌아간다(이 파일은 더 이상 Tab을 잡지 않는다).
 //
 // **규약 A 요지**:
 //   ① 대상 = `editor.schema.styleSchema`에 등재된 마크 전부(bold·italic·underline·strike·code·
@@ -15,7 +19,6 @@
 //      `nextInherits`는 같은 텍스트 블록 안 다음 문자가 `pending` 전부를 갖고 있음(= 구간 **중간**).
 //   ③ 발동하면 `true`(코어·브라우저 기본 동작 미실행), 그 밖에는 `false`(기본 동작 그대로).
 //      - `ArrowRight`: 커서 이동 없이 대기 마크에서 스타일 마크만 제거. 두 번째 →는 정상 이동.
-//      - `Tab`: 같은 처리(코어 `nestBlock` 미실행). **표 안에서는 비활성**(셀 이동 우선).
 //      - `Space` 2회: 1회째는 코어가 상속 마크 붙은 공백을 넣는다. 2회째 = 직전 문자가 스타일
 //        마크 붙은 공백이면 그 공백의 스타일 마크를 벗기고 대기 마크를 비우며 **두 번째 공백은
 //        넣지 않는다** → 결과 = 마크 밖 공백 1개(사용자 확정 ⓐ). 세 번째 스페이스는 직전 공백에
@@ -27,15 +30,13 @@
 // 확장(`createMarkEscapeKeymapExtension`). `columnsKeymap.ts`와 같은 결이며, 대안(예: 탈출 시
 // 공백 삽입)으로 바꿀 일이 생기면 이 파일 1곳만 손댄다. `scripts/s47-mark-escape.mjs`가 고정한다.
 //
-// **우선순위**: 공식 확장 `keyboardShortcuts`는 코어 Tab 키맵(우선순위 50)보다 먼저 돈다
-// (`columnsKeymap.ts` 머리 주석). columns 확장의 `ArrowRight`와는 같은 우선순위라 tiptap이
+// **우선순위**: 공식 확장 `keyboardShortcuts`는 코어 키맵(우선순위 50)보다 먼저 돈다
+// (`columnsKeymap.ts` 머리 주석 — Tab 키맵 예시). columns 확장의 `ArrowRight`와는 같은 우선순위라 tiptap이
 // 확장 배열을 **뒤집어** 플러그인을 쌓는 규칙(`ExtensionManager.plugins` — 배열 뒤쪽이 먼저)에
 // 따라 `extensions.ts`에서 columns **뒤**에 둔 이 확장이 먼저 처리한다(s47 ⓒ 실측 고정).
 import { createExtension } from '@blocknote/core'
 import type { Mark } from 'prosemirror-model'
 import type { EditorState, Transaction } from 'prosemirror-state'
-
-const TABLE = 'table'
 
 /** 순수 판정의 입력 — PM 상태에서 뽑아낸 **사실**만 담는다. */
 export type MarkEscapeFacts = {
@@ -47,8 +48,6 @@ export type MarkEscapeFacts = {
   nextInherits: boolean
   /** 직전 문자가 **스타일 마크 붙은 공백**인가(스페이스 2회 판정). */
   prevIsMarkedSpace: boolean
-  /** 커서가 표 안인가(Tab 제스처 비활성 — 셀 이동 우선). */
-  inTable: boolean
 }
 
 const NO_FACTS: MarkEscapeFacts = {
@@ -56,7 +55,6 @@ const NO_FACTS: MarkEscapeFacts = {
   pending: [],
   nextInherits: false,
   prevIsMarkedSpace: false,
-  inTable: false,
 }
 
 /** 편집기가 스타일 마크로 등재한 마크 이름 집합 — `activeStyles.ts`와 같은 조회(상수 복제 금지). */
@@ -92,15 +90,7 @@ export function readMarkEscapeFacts(state: EditorState, styleMarkNames: Readonly
     (nodeBefore.text ?? '').endsWith(' ') &&
     nodeBefore.marks.some((mark) => styleMarkNames.has(mark.type.name))
 
-  let inTable = false
-  for (let d = $cursor.depth; d > 0; d -= 1) {
-    if ($cursor.node(d).type.name === TABLE) {
-      inTable = true
-      break
-    }
-  }
-
-  return { collapsed: true, pending, nextInherits, prevIsMarkedSpace, inTable }
+  return { collapsed: true, pending, nextInherits, prevIsMarkedSpace }
 }
 
 /** 구간 끝 = 접힌 커서 + 대기 스타일 마크 있음 + 다음 문자가 그 마크를 물려받지 않음. */
@@ -111,11 +101,6 @@ export function isAtMarkedRangeEnd(facts: MarkEscapeFacts): boolean {
 /** `→` — 구간 끝이면 이동 없이 탈출. */
 export function shouldEscapeOnArrowRight(facts: MarkEscapeFacts): boolean {
   return isAtMarkedRangeEnd(facts)
-}
-
-/** `Tab` — 구간 끝이면 들여쓰기 대신 탈출. 표 안에서는 비활성(셀 이동 우선). */
-export function shouldEscapeOnTab(facts: MarkEscapeFacts): boolean {
-  return isAtMarkedRangeEnd(facts) && !facts.inTable
 }
 
 /** `Space` 2회째 — 구간 끝 + 직전 문자가 스타일 마크 붙은 공백일 때만 치환 탈출. */
@@ -136,7 +121,7 @@ function withoutStyleMarks(marks: readonly Mark[], styleMarkNames: ReadonlySet<s
 }
 
 /**
- * 탈출 커맨드(→·Tab) — 커서 이동 없이 대기 마크에서 스타일 마크만 제거한다.
+ * 탈출 커맨드(→) — 커서 이동 없이 대기 마크에서 스타일 마크만 제거한다.
  * `storedMarks`는 "다음 입력에 붙을 마크 **전체 목록**"이므로(`activeStyles.ts` 머리말) 스타일
  * 마크를 뺀 나머지(링크 등)를 그대로 다시 얹는다 — 빈 배열도 "전부 해제"라는 뜻이라 유효하다.
  * 판정은 호출자가 이미 끝냈다고 본다(사실 추출 → 순수 판정 → 이 커맨드).
@@ -182,11 +167,6 @@ function factsOf(editor: MarkEscapeEditorLike): MarkEscapeFacts {
 export const markEscapeShortcuts = {
   ArrowRight: ({ editor }: ShortcutContext) => {
     if (!shouldEscapeOnArrowRight(factsOf(editor))) return false
-    escapeMarks(editor)
-    return true
-  },
-  Tab: ({ editor }: ShortcutContext) => {
-    if (!shouldEscapeOnTab(factsOf(editor))) return false
     escapeMarks(editor)
     return true
   },
