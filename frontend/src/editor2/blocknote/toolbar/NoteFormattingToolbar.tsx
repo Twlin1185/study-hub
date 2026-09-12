@@ -17,7 +17,6 @@ import {
   FormattingToolbar,
   getFormattingToolbarItems,
   useComponentsContext,
-  useEditorSelectionChange,
 } from '@blocknote/react'
 import {
   HEX_INK_CLASS,
@@ -48,6 +47,7 @@ import { MICRO_MARK_LABEL, applyMicroMark, clearMicroMark, toggleMicroMark } fro
 import type { MicroMark } from './microMarks'
 import { readTextStyleView, setTextStyleKey } from './textStyle'
 import { useAtomInlineGuard } from './useAtomInlineGuard'
+import { useEditorDerived } from './useEditorDerived'
 import { useNoteEditor } from './useNoteEditor'
 
 // 크롭 UI(canvas 인코딩 로직)는 **lazy 청크로만** 들여온다(R37 — 초기 청크 증가 금지). 버튼 자체는
@@ -518,8 +518,7 @@ function CalloutMenu() {
 function ColumnsMenu() {
   const Components = useComponentsContext()!
   const editor = useNoteEditor()
-  const [blocked, setBlocked] = useState(() => columnsInsertBlocked(editor))
-  useEditorSelectionChange(() => setBlocked(columnsInsertBlocked(editor)))
+  const blocked = useEditorDerived(editor, columnsInsertBlocked)
 
   const insert = (count: 2 | 3) => {
     if (blocked) return
@@ -549,17 +548,24 @@ function ColumnsMenu() {
 
 // ---------------------------------------------------------------- 이미지 자르기(stage-37 F-6, 규약 C)
 
+/** `useEditorDerived`의 `isEqual`용 — `CropTarget`은 얕은 값 객체(id·url 문자열)라 필드 비교로
+ * 충분하다(stage-48 FB-22). null 두 값도 같음으로 본다. */
+function cropTargetEquals(a: CropTarget | null, b: CropTarget | null): boolean {
+  if (a === b) return true
+  if (a === null || b === null) return false
+  return a.id === b.id && a.url === b.url
+}
+
 /**
  * [자르기] — 선택이 크롭 제공 조건(자체 호스팅 `/images/` 경로만 · GIF 제외)을 만족하는 image 블록
  * 1개일 때만 나타난다(그 밖에는 **버튼 자체가 없다** — `FileReplaceButton` 등 기본 파일 버튼과 같은
- * "조건 미달 = null" 관례). 판정은 선택 변경 시에만 다시 계산한다(다른 방언 버튼의 `blocked`와 같은
- * 패턴 — `useEditorSelectionChange`).
+ * "조건 미달 = null" 관례). 판정은 선택·내용 변경 시 다시 계산한다(다른 방언 버튼의 `blocked`와 같은
+ * 패턴 — `useEditorDerived`).
  */
 function CropButton() {
   const Components = useComponentsContext()!
   const editor = useNoteEditor()
-  const [target, setTarget] = useState<CropTarget | null>(() => computeCropTarget(editor))
-  useEditorSelectionChange(() => setTarget(computeCropTarget(editor)))
+  const target = useEditorDerived(editor, computeCropTarget, cropTargetEquals)
   const [open, setOpen] = useState(false)
 
   if (!target) return null

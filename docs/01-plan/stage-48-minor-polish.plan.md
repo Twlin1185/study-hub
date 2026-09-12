@@ -106,38 +106,39 @@
 
 ### 묶음 B — 백엔드 (규약 C)
 
-- [ ] B-1. `backend/routers/notes.py`에 `@router.post("/{note_id}/duplicate", response_model=NoteOut)`
+- [x] B-1. `backend/routers/notes.py`에 `@router.post("/{note_id}/duplicate", response_model=NoteOut)`
       `duplicate_note(note_id, db)` 추가 — `_get_note_or_404` 재사용 후 **`is_active` 거짓이면 같은 404**(별도
       메시지 없음) · 제목 규칙(`rstrip` + `" (사본)"` · 공백뿐 → `"(사본)"` · 200자 초과 시 원제 절단) 헬퍼
       `_duplicate_title(title: str) -> str` 1개(순수 함수 — 테스트 대상) · `models.Note(title=…,
       content_blocks=원본.content_blocks, content=원본.content, blocks_version=원본.blocks_version)` INSERT ·
       commit · refresh · `_to_note_out`. 기존 5개 핸들러 무변(diff = 추가만). 라우트 순서: `/{note_id}` 계열
       뒤에 두어도 FastAPI가 경로 세그먼트 수로 구분하므로 충돌 0(확인만).
-- [ ] B-2. `backend/tests/test_notes_duplicate.py` 신설(`test_documents_blocks_post.py`의 in-memory
+- [x] B-2. `backend/tests/test_notes_duplicate.py` 신설(`test_documents_blocks_post.py`의 in-memory
       SQLite + `TestClient` 픽스처 관례) — ⓐ 생성 → 복제 → 응답 `id ≠ 원본` · `title == 원제 + " (사본)"` ·
       `content_blocks`·`content`·`blocks_version` 동일 · `is_active` true ⓑ 목록에 2건 · 원본 무변(`GET` 재조회)
       ⓒ 공백 제목 → `"(사본)"` ⓓ 199~200자 제목 → 결과 정확히 200자 이하 + 접미사 유지 ⓔ 삭제(`DELETE`) 후
       복제 → 404 ⓕ 없는 id → 404 ⓖ 반복 복제 → `" (사본) (사본)"`. `_duplicate_title` 단위 케이스 포함.
-- [ ] B-3. `powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1 -Path tests/test_notes_duplicate.py`
+- [x] B-3. `powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1 -Path tests/test_notes_duplicate.py`
       통과 · `-Full` 무회귀(applied_exam 2건 PATH 의존 실패는 기존 관찰 — 회귀 아님).
 
 ### 묶음 F — 프론트 구현 (권장 순서 F-1 → F-2 → F-3 → F-4 — 상호 독립)
 
-- [ ] F-1. **FB-21**(규약 A) — `notes.css:161` `var(--border)` → `var(--accent)` · `:166~168` note 규칙 삭제 ·
+- [x] F-1. **FB-21**(규약 A) — `notes.css:161` `var(--border)` → `var(--accent)` · `:166~168` note 규칙 삭제 ·
       주석 1줄(FB-21 · "기본 규칙 = note 스타일 — 엔진이 기본값 prop `data-variant`를 내보내지 않음") · `warn`·
       `tip` 무변.
-- [ ] F-2. **FB-22**(규약 B) — `toolbar/useEditorDerived.ts` 신설 + `NoteFormattingToolbar.tsx:521~522`·`:561~562`
+- [x] F-2. **FB-22**(규약 B) — `toolbar/useEditorDerived.ts` 신설 + `NoteFormattingToolbar.tsx:521~522`·`:561~562`
       전환(`cropTargetEquals` 얕은 비교 1개 신설 · `computeCropTarget`·`columnsInsertBlocked` 무변) ·
-      `useAtomInlineGuard` 재구성은 구현자 판단(하면 동작 동일 확인).
-- [ ] F-3. **노트 복제 UI**(규약 D) — `api/notes.ts` `useDuplicateNote()` + `NoteListPage.tsx` 행 [복제] 버튼
+      `useAtomInlineGuard` 재구성은 구현자 판단(하면 동작 동일 확인) — 재구성함(1줄 위임, 동작 동일).
+- [x] F-3. **노트 복제 UI**(규약 D) — `api/notes.ts` `useDuplicateNote()` + `NoteListPage.tsx` 행 [복제] 버튼
       (진행 중 비활성 · 성공 navigate · 실패 `setActionError`) · 색은 기존 클래스 토큰만.
-- [ ] F-4. **코드 언어 select 화살표**(규약 E) — `notes.css:481` 규칙에 `appearance: none` + `padding-right` 추가 ·
+- [x] F-4. **코드 언어 select 화살표**(규약 E) — `notes.css:481` 규칙에 `appearance: none` + `padding-right` 추가 ·
       래퍼 `::after` chevron 규칙 신설(주석: 배경 SVG 금지 사유 = 불변 규칙 5).
 
 ### 묶음 V — 검증 (구현 후)
 
-- [ ] V-1. `npm run build` 성공(성공/실패만) + **엔트리 청크(`index-*.js`) 증감 수치 — R37 증가 없음**(stage-47 기준선
-      = stage-46 1,578,573 B와 동일 · 노트 lazy 청크 증가분만 기록).
+- [x] V-1. `npm run build` 성공(성공/실패만) + **엔트리 청크(`index-*.js`) 증감 수치 — R37 증가 없음**(stage-47 기준선
+      = stage-46 1,578,573 B와 동일 · 노트 lazy 청크 증가분만 기록) — 빌드 성공, 엔트리 청크 1,578,573 B로
+      동일(증가 0). `NoteListPage` lazy 청크 4,574 B(복제 버튼분 증가).
 - [ ] V-2. `scripts/run-tests.ps1`(B-3) 통과 · 기존 헤드리스 스크립트(`s41-columns-editor.mjs`·`s47-mark-escape.mjs`
       등 run-tests 편입분) 무회귀 · `scripts/invariant-scan.ps1` **PASS**(색 리터럴 0 — `::after` border 색 토큰
       확인).

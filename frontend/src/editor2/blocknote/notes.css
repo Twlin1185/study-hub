@@ -158,14 +158,13 @@
   border: 1px solid var(--border);
   border-top-width: 0;
   border-left-width: 4px;
-  border-left-color: var(--border);
+  /* stage-48 FB-21: BlockNote는 기본값 prop의 data-*를 내보내지 않아 data-variant='note'가
+     영구 매칭 0 — 위 기본 규칙 자체가 note 스타일이 정본이라 여기서 바로 --accent를 쓴다. */
+  border-left-color: var(--accent);
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }
 
-.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-content-type='callout'][data-variant='note']) > .bn-block-group {
-  border-left-color: var(--accent);
-}
 .note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-content-type='callout'][data-variant='warn']) > .bn-block-group {
   border-left-color: var(--warning);
 }
@@ -469,6 +468,24 @@
   right: 8px;
 }
 
+/* stage-48 F-4 — select 기본 화살표를 지우고(F-4 아래) 대신 그리는 셰브런. 배경 SVG data-URI
+   방식은 금지한다 — `background-image`에 색 리터럴이 들어가 불변 규칙 5(색 하드코딩 금지) 위반
+   (`currentColor`가 data-URI 안에서는 통하지 않는다) — 대신 border 2변을 회전시켜 그린다(토큰만).
+   래퍼가 select 하나만 담으므로 래퍼 높이 = select 높이라 세로 중앙(top:50%)이 그대로 select
+   중앙이다. */
+.note-editor-frame [data-content-type='codeBlock'] > div[contenteditable='false']::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
 /* 검토 반려 결함 3 — 엔진 규칙 `.bn-block-content[data-content-type=codeBlock]>div>select`
    (글자색 리터럴·opacity:0·position:absolute;top:8px;left:18px를 함께 지정)의 특이도는
    (0,2,2)(class+attr=2, div+select 요소=2)로 종전 선택자
@@ -488,6 +505,11 @@
   font-size: 11px;
   line-height: 1.4;
   padding: 1px 4px;
+  /* stage-48 F-4 — 네이티브 화살표 제거(브라우저마다 크기·색이 달라 위 래퍼 ::after 셰브런과
+     겹쳐 보임). padding-right로 텍스트가 셰브런과 겹치지 않게 자리를 비운다. */
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 18px;
 }
 
 /* 엔진의 hover/focus 규칙(`:hover>div>select{opacity:.5}`, 특이도 (0,3,2))도 같은 방식으로 덮는다

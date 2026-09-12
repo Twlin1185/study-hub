@@ -12,6 +12,7 @@ import {
   parseServerDate,
   useCreateNote,
   useDeleteNote,
+  useDuplicateNote,
   useNotes,
   type NoteListItem,
 } from '../api/notes'
@@ -58,6 +59,7 @@ export default function NoteListPage() {
   const notesQuery = useNotes(filters)
   const createNote = useCreateNote()
   const deleteNote = useDeleteNote()
+  const duplicateNote = useDuplicateNote()
 
   const items = notesQuery.data?.items ?? []
   const total = notesQuery.data?.total ?? 0
@@ -141,6 +143,21 @@ export default function NoteListPage() {
                   <p className="mt-1 line-clamp-2 break-all text-xs text-muted">{note.excerpt}</p>
                 )}
               </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setActionError(null)
+                  duplicateNote.mutate(note.id, {
+                    onSuccess: (created) => navigate(`/notes/${created.id}`),
+                    onError: (error) =>
+                      setActionError(error instanceof Error ? error.message : '노트를 복제하지 못했습니다'),
+                  })
+                }}
+                disabled={duplicateNote.isPending}
+                className="shrink-0 rounded border border-border px-2 py-1 text-xs text-muted hover:bg-bg hover:text-primary disabled:opacity-50"
+              >
+                복제
+              </button>
               <button
                 type="button"
                 onClick={() => {

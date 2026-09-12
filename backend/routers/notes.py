@@ -104,6 +104,18 @@ def _to_list_item(note: models.Note) -> NoteListItem:
     )
 
 
+def _duplicate_title(title: str) -> str:
+    stripped = title.rstrip()
+    if not stripped:
+        return "(사본)"
+    candidate = f"{stripped} (사본)"
+    if len(candidate) <= TITLE_MAX_LEN:
+        return candidate
+    suffix = " (사본)"
+    keep = TITLE_MAX_LEN - len(suffix)
+    return f"{stripped[:keep]}{suffix}"
+
+
 def _get_note_or_404(db: Session, note_id: int) -> models.Note:
     note = db.get(models.Note, note_id)
     if note is None:
@@ -225,4 +237,23 @@ def delete_note(note_id: int, db: Session = Depends(get_db)) -> NoteOut:
         note.is_active = 0
         db.commit()
         db.refresh(note)
+    return _to_note_out(note)
+
+
+@router.post("/{note_id}/duplicate", response_model=NoteOut)
+def duplicate_note(note_id: int, db: Session = Depends(get_db)) -> NoteOut:
+    """노트 복제(설계 §4.28 ⑦ [S48]) — 삭제된 원본(is_active=0)은 없는 id와 동일하게 404."""
+    original = _get_note_or_404(db, note_id)
+    if not original.is_active:
+        raise NotFoundError("노트를 찾을 수 없습니다")
+
+    note = models.Note(
+        title=_duplicate_title(original.title),
+        content_blocks=original.content_blocks,
+        content=original.content,
+        blocks_version=original.blocks_version,
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
     return _to_note_out(note)
