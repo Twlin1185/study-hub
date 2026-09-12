@@ -1316,6 +1316,7 @@ backend/services/fetchers/
 | `GET /api/notes/{id}` | 단건 — 본문 전체. 삭제분도 `200` + `is_active:false`(목록에서만 기본 제외 — §3) | S33 |
 | `PATCH /api/notes/{id}` | 부분 수정 — `title` · (`content_blocks` + `content`) 쌍. **`is_active`는 받지 않는다**(복구 경로는 베타 범위 밖) | S33 |
 | `DELETE /api/notes/{id}` | **소프트 삭제**(`is_active=0` UPDATE만 — 물리 삭제 코드 0) · **재삭제 멱등** · 응답 = 삭제된 노트 표현 | S33 |
+| `POST /api/notes/{id}/duplicate` | **복제**(FB-2 잔여 — stage-48 편성 2026-09-12 · 구현 실측 확정 같은 날) — 요청 본문 없음 · `200 OK` + **새 노트의 표현** · 계약 = ⑦ | **S48** |
 
 - **LLM 0 · 잡 0 · 파일 쓰기 0 · settings 키 0** — 이 기능은 DB 테이블 1개만 쓴다.
 - 인증 없음(홈 네트워크 전용 — R12, 기존 전 엔드포인트와 동일).
@@ -1391,6 +1392,23 @@ backend/services/fetchers/
 
 - 백엔드: `backend/routers/notes.py`(신규) · `backend/schemas/note.py`(신규) · `backend/models.py`(`Note` 모델 추가만) · `backend/main.py`(라우터 등록 1줄) · `backend/alembic/versions/*`(신규 리비전 1개). **서비스 계층 신설 없음**(CRUD뿐 — 비즈니스 로직 0).
 - 프론트: `frontend/src/editor2/api/notes.ts`(React Query 훅 — 기존 `api/client.ts` 재사용) · 화면은 screens §5.16.
+
+**⑦ 노트 복제 — `POST /api/notes/{id}/duplicate` [S48] (stage-48 편성 추기 2026-09-12 → **구현 실측 2026-09-12 확정**(Design v1.58) — 아래 표 그대로 구현 · `test_notes_duplicate.py` 13 passed(제목 규칙 ⓐ~ⓖ·삭제분 404·원본 무변) · 규약 정본 = `stage-48-minor-polish.plan.md` 규약 C · 경위 = 같은 문서 §7)**
+
+> 별지 `editor-v2.plan.md` §13 FB-2의 잔여분(복제). **DDL 0(계획서 §6.2 무변 · Alembic 불필요) · 기존 5개 엔드포인트 계약 무변 · `NoteOut` 표현 재사용 · 서비스 계층 신설 0.** 서버가 하는 일은 "행 1개 읽어 행 1개 INSERT"뿐이다 — 원칙 ③(블록 내부 미해석)을 그대로 지킨다.
+
+| 항목 | 계약 |
+|---|---|
+| 요청 | 본문 **없음**(경로 파라미터 `id`만) |
+| 응답 | `200 OK` + **새 노트의 노트 표현**(② 공통 — 201 사용 안 함 · `id`는 새 값 · `created_at`·`updated_at` 새 값 · `is_active: true`) |
+| 제목 | `원제.rstrip() + " (사본)"` · 원제가 공백뿐이면 `"(사본)"` · 결과가 200자를 넘으면 **원제를 잘라** 200자 이하로 맞춘다(접미사 유지 — 복제가 `title_too_long`으로 실패하는 경로 0) · 반복 복제는 `" (사본)"` 누적(일련번호 0 — YAGNI) |
+| 본문 | `content_blocks`(TEXT)·`content`·`blocks_version` **원본 컬럼 값 그대로 복사** — **블록 id 재부여 0**(블록 id는 문서 내부 유일성만 필요 · 앵커 칩은 헤딩 텍스트 기준 · 사이드카는 로드마다 재유도. 재부여는 서버의 블록 해석을 요구해 원칙 ③ 위반) · 크기 상한 재검증 불필요(원본이 이미 통과한 값) |
+| 원본 | **무변**(읽기만) |
+| 삭제된 원본(`is_active=0`) | **404 `NOT_FOUND`** — 없는 id와 같은 응답("노트를 찾을 수 없습니다"). 사유: 삭제분 복제는 ⑥ "복구 엔드포인트 없음"의 우회 경로가 된다(휴지통·복구 = D8-구현 별도) |
+| 에러 | 404뿐(422 경로 없음 — 본문 없음·제목은 서버가 맞춤) · 500 공통 핸들러 · 프론트는 `message` 그대로 렌더(§3) |
+| 트랜잭션 | INSERT 1건 + commit(`create_note`와 동일 경로) · LLM 0 · 파일 쓰기 0 · settings 키 0 |
+
+- 구현 앵커: `backend/routers/notes.py` `duplicate_note` + 순수 제목 헬퍼 `_duplicate_title` · 테스트 `backend/tests/test_notes_duplicate.py`(in-memory SQLite + TestClient 관례) · 프론트 `api/notes.ts` `useDuplicateNote()` · 진입점은 screens §5.16 S48(목록 행 [복제] 1곳).
 
 ### 4.29 documents 블록 저장 — 에디터 v2 저장 전환·지연 마이그레이션 (S35 — 에디터 v2 M34. **계약 확정 2026-08-18, 지시서 `stage-35-documents-blocks.plan.md`**)
 

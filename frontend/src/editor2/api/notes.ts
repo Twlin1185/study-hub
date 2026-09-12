@@ -139,3 +139,13 @@ export function useDeleteNote() {
     onSuccess: () => qc.invalidateQueries({ queryKey: noteKeys.all }),
   })
 }
+
+/** [복제](stage-48 FB-2 잔여 — 규약 D) — 요청 본문 없음, 서버가 새 노트를 만들어 돌려준다
+ * (`POST /notes/{id}/duplicate`, §4.28 ⑦). 목록만 무효화한다(단건 캐시는 새 id라 없음). */
+export function useDuplicateNote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.post<Note>(`/notes/${id}/duplicate`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: noteKeys.lists() }),
+  })
+}

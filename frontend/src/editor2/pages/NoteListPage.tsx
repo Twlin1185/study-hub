@@ -3,7 +3,7 @@
 // stage-43 G-2(정식 승격) — 베타 딱지 해제. 진입은 데스크톱 사이드바 · 모바일 좌측 드로어 '노트'
 // 항목(`Layout.tsx`) + 직접 URL. 하단 탭바 5개는 불변(F39 관례 — 탭 추가 금지, 규약 B).
 // 색은 전부 토큰(Tailwind 유틸 = tokens.css 변수) — 불변 규칙 5.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { emptyDocument } from '../schema/blocks'
@@ -12,6 +12,7 @@ import {
   parseServerDate,
   useCreateNote,
   useDeleteNote,
+  useDuplicateNote,
   useNotes,
   type NoteListItem,
 } from '../api/notes'
@@ -58,6 +59,9 @@ export default function NoteListPage() {
   const notesQuery = useNotes(filters)
   const createNote = useCreateNote()
   const deleteNote = useDeleteNote()
+  const duplicateNote = useDuplicateNote()
+  // `isPending`은 리렌더 뒤에야 버튼을 잠근다 — 같은 틱의 재클릭(V-3 ⓓ⑥ 실측)까지 막는 동기 잠금.
+  const duplicateInFlight = useRef(false)
 
   const items = notesQuery.data?.items ?? []
   const total = notesQuery.data?.total ?? 0
@@ -141,6 +145,26 @@ export default function NoteListPage() {
                   <p className="mt-1 line-clamp-2 break-all text-xs text-muted">{note.excerpt}</p>
                 )}
               </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  if (duplicateInFlight.current) return
+                  duplicateInFlight.current = true
+                  setActionError(null)
+                  duplicateNote.mutate(note.id, {
+                    onSuccess: (created) => navigate(`/notes/${created.id}`),
+                    onError: (error) =>
+                      setActionError(error instanceof Error ? error.message : '노트를 복제하지 못했습니다'),
+                    onSettled: () => {
+                      duplicateInFlight.current = false
+                    },
+                  })
+                }}
+                disabled={duplicateNote.isPending}
+                className="shrink-0 rounded border border-border px-2 py-1 text-xs text-muted hover:bg-bg hover:text-primary disabled:opacity-50"
+              >
+                복제
+              </button>
               <button
                 type="button"
                 onClick={() => {

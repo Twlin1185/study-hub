@@ -194,6 +194,9 @@ if ($registryMissing) {
     # D ids are excluded on purpose -- a settled decision routinely leaves implementation work open.
     $checkClosed = @()
     foreach ($row in $activeRows) {
+        # A row already assigned to a stage ("편성 = stage-n") is closed by that stage's completion
+        # procedure, not by source text -- its source marker "← 편성(...)" would otherwise read as resolved.
+        if ($row.Status -match '^편성') { continue }
         $ids = @($row.Ids | Where-Object { $_ -match '^(FB-|R)' })
         if ($ids.Count -eq 0) { continue }
         $anyOpen = $false; $anyKnown = $false
