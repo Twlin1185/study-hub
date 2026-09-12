@@ -11,12 +11,11 @@
 // **표면당 1개** — `NoteEditorDialectUI`가 `BlockNoteView`의 children으로 이 컴포넌트를 렌더하므로,
 // `useNoteEditor()`가 그 `BlockNoteContext`(표면마다 새로 만들어진다)에서 편집기를 가져와 판정
 // 기준이 자연히 "그 표면 편집기의 현재 선택/커서"가 된다(포커스 여부와 무관 — 레이아웃 점프 방지).
-import { useState } from 'react'
 import type { MouseEvent } from 'react'
-import { useEditorSelectionChange, FormattingToolbar } from '@blocknote/react'
-import { selectionHasAtomInline } from './atoms'
+import { FormattingToolbar } from '@blocknote/react'
 import { shouldShowTextFormattingGroup, useSelectedBlockTypes } from './blockFilter'
 import { buildFormattingToolbarItems } from './NoteFormattingToolbar'
+import { useAtomInlineGuard } from './useAtomInlineGuard'
 import { useNoteEditor } from './useNoteEditor'
 
 /**
@@ -35,8 +34,8 @@ function preserveEditorSelectionOnMouseDown(event: MouseEvent<HTMLDivElement>): 
 
 export default function DockedFormattingToolbar() {
   const editor = useNoteEditor()
-  const [blocked, setBlocked] = useState(() => selectionHasAtomInline(editor))
-  useEditorSelectionChange(() => setBlocked(selectionHasAtomInline(editor)))
+  // 원자 인라인 가드 — 선택·내용 변경 모두 구독하는 공용 훅(stage-47 F-2 · 부유 툴바와 같은 훅).
+  const blocked = useAtomInlineGuard(editor)
   const blockTypes = useSelectedBlockTypes(editor)
   const showTextGroup = shouldShowTextFormattingGroup(blockTypes)
 
