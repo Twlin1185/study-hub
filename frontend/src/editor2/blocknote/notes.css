@@ -131,7 +131,8 @@
      · 자식 그룹 = 같은 폭·같은 배경으로 머리에 이어 붙이고 아래 모서리만 둥글게,
      · 왼쪽 굵은 선(4px)이 머리부터 자식 끝까지 **끊기지 않고** 이어진다.
    색은 전부 토큰(var) 경유 — 리터럴 0(불변 규칙 5). variant 색은 스펙이 머리에 Tailwind 유틸로
-   주므로, 자식 쪽은 `data-variant`가 실릴 때만 같은 색으로 맞추고 아니면 `--border`로 떨어진다.
+   주므로, 자식 쪽은 머리와 같은 색으로 맞춘다 — `data-variant` 없음(=기본 note · 엔진이 기본값을
+   생략) = accent · warn/tip = 각 토큰 · 그 외(fold·hide·목록 밖) = `--border`(stage-48 FB-21).
 
    ---------------------------------------------------------------- stage-43 F-4(FB-14) 재작성
    아래 4규칙(자식 그룹 배경·테두리 + variant 3색)은 `[data-content-type='callout'] + .bn-block-group`
@@ -158,13 +159,18 @@
   border: 1px solid var(--border);
   border-top-width: 0;
   border-left-width: 4px;
-  /* stage-48 FB-21: BlockNote는 기본값 prop의 data-*를 내보내지 않아 data-variant='note'가
-     영구 매칭 0 — 위 기본 규칙 자체가 note 스타일이 정본이라 여기서 바로 --accent를 쓴다. */
-  border-left-color: var(--accent);
+  /* 기본 = --border — 머리(스펙 `CALLOUT_STYLE`)가 `border-l-border`로 그리는 fold·hide·목록 밖
+     variant의 자식 그룹이 머리와 같은 색으로 이어진다(stage-48 검토 중요 ① — 규약 A 소수정). */
+  border-left-color: var(--border);
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }
 
+/* stage-48 FB-21: BlockNote는 기본값 prop의 data-*를 내보내지 않아 `[data-variant='note']`는 영구
+   매칭 0 — 기본 variant(note · 머리 `border-l-accent`)는 "data-variant 없음"으로 잡는다. */
+.note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-content-type='callout']:not([data-variant])) > .bn-block-group {
+  border-left-color: var(--accent);
+}
 .note-editor-frame .bn-block:has(> :not(.bn-block-group) [data-content-type='callout'][data-variant='warn']) > .bn-block-group {
   border-left-color: var(--warning);
 }

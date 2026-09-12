@@ -1,6 +1,8 @@
 # Stage 48 — 노트 복제 + 편집 표면 다듬기 3건 (FB-2-잔여 · FB-21 · FB-22 · 코드-언어select) (v2.0.x · 사소)
 
-> 상태: **착수 전**(편성 2026-09-12 · 사용자 확정 대기 항목 0 — 곧바로 구현 착수 가능).
+> 상태: **구현·검토·실측 완료(2026-09-12) — DoD 1~5 충족 · 6(사용자 확인) 회신 대기 = v2.01.3 발행 게이트.** 체크리스트 15/15 ·
+> 검토 중요 ①(FB-21 규칙이 fold·hide 머리 색과 갈라짐)은 규약 A 소수정으로 해소 · V-3 ⓓ⑥(같은 틱 재클릭) 동기 잠금 보강 · 경위 = §7.
+> (편성 2026-09-12 · 사용자 확정 대기 항목 0.)
 > **버전 영향: 사소**(CHANGELOG 규약 ③ — 경미 결함 1건(FB-21) + 관찰 정비 1건(FB-22) + 외양 다듬기 1건 + 편의
 > 액션 1개(노트 복제). **DDL 0 · 기존 API 5개 무변 · 새 화면(라우트) 0 · 퇴역 0 · 신규 의존 0.** 노트 복제는 `POST
 > /api/notes/{id}/duplicate` **추가 1개**지만 규약 ③의 "저장 계약(DDL/API) 변경"은 스키마·기존 계약의 **변경**을
@@ -40,6 +42,11 @@
     이점이 없다(기각). 목록 밖 variant(`:::노트[…]` 등 기존 데이터 — §5.16 "값 그대로 보존 + 기본 스타일")도
     기본 규칙을 타므로 좌측선이 accent가 된다 — **의도된 결과**(기본 스타일 = note 스타일).
   - 토큰만(불변 규칙 5) · 색 리터럴 0 · 라이트/다크 자동.
+  - **← 소수정(2026-09-12 · 검토 중요 ①)**: 위 안은 `fold`·`hide`·목록 밖 variant의 **머리**(스펙 `CALLOUT_STYLE` =
+    `border-l-border`)와 자식 그룹(accent) 색을 갈라지게 한다(stage-36 F-8 "좌측선이 머리부터 자식 끝까지 이어진다" 회귀).
+    **확정 = 자식 그룹은 머리 색 추종**: 기본 규칙 `--border` 유지 · `[data-content-type='callout']:not([data-variant])`
+    = `--accent`(엔진이 기본값 note의 `data-variant`를 생략) · warn·tip 무변. 위 "`:not` 기각"·"목록 밖 = accent 의도" 문구
+    철회 — 경위 = §7 검토.
 - **B. FB-22 = 공용 파생 구독 훅으로 2곳 전환** (결정 ②)
   - 신규 훅 `toolbar/useEditorDerived.ts`(권고 경로·이름 — `useEditorDerived<T>(editor, compute: (editor) => T,
     isEqual: (a: T, b: T) => boolean = Object.is): T`). 정책 = `useAtomInlineGuard`와 동일: `useState(() =>
@@ -139,10 +146,10 @@
 - [x] V-1. `npm run build` 성공(성공/실패만) + **엔트리 청크(`index-*.js`) 증감 수치 — R37 증가 없음**(stage-47 기준선
       = stage-46 1,578,573 B와 동일 · 노트 lazy 청크 증가분만 기록) — 빌드 성공, 엔트리 청크 1,578,573 B로
       동일(증가 0). `NoteListPage` lazy 청크 4,574 B(복제 버튼분 증가).
-- [ ] V-2. `scripts/run-tests.ps1`(B-3) 통과 · 기존 헤드리스 스크립트(`s41-columns-editor.mjs`·`s47-mark-escape.mjs`
+- [x] V-2. `scripts/run-tests.ps1`(B-3) 통과 · 기존 헤드리스 스크립트(`s41-columns-editor.mjs`·`s47-mark-escape.mjs`
       등 run-tests 편입분) 무회귀 · `scripts/invariant-scan.ps1` **PASS**(색 리터럴 0 — `::after` border 색 토큰
       확인).
-- [ ] V-3. **브라우저 실측**(사용자가 띄운 `localhost:8000` 우선 — 불가 시 임시 포트 자체 기동 허용 · **8000 금지 ·
+- [x] V-3. **브라우저 실측**(사용자가 띄운 `localhost:8000` 우선 — 불가 시 임시 포트 자체 기동 허용 · **8000 금지 ·
       종료 + 리스너 부재 확인 필수**). ⓐ **FB-21** — 노트에 콜아웃 3종(기본·warn·tip) 삽입 → 각 `.bn-block-group`의
       `getComputedStyle(...).borderLeftColor`가 `--accent`·`--warning`·`--correct` 계산값과 일치 · 라이트/다크 전환
       후 재확인 · 기존 데이터의 목록 밖 variant(있으면)도 accent ⓑ **코드 select** — 코드 블록 삽입 → 네이티브
@@ -154,18 +161,18 @@
       이미지·참조 칩 포함 노트로) 동일 렌더 · 목록 복귀 시 2건 · 원본 무변 · [취소]/복구 다이얼로그 오작동 0(S39
       스냅샷은 새 노트 기준) · 네트워크 `POST /api/notes/{id}/duplicate` 1회(중복 클릭 시 1회) ⓔ 모바일 에뮬(390px)
       — 목록 행 [복제]·[삭제] 2버튼과 제목 줄 겹침 0. 테스트 노트는 전부 `DELETE` 원상복구.
-- [ ] V-4. **백엔드 diff = `routers/notes.py` + `tests/test_notes_duplicate.py`뿐**(`git diff --stat -- backend`) ·
+- [x] V-4. **백엔드 diff = `routers/notes.py` + `tests/test_notes_duplicate.py`뿐**(`git diff --stat -- backend`) ·
       `alembic/versions` diff 0 · `package.json`·잠금 파일 diff 0.
 
 ### 묶음 D — 문서 (검증 종료 후)
 
-- [ ] D-1. **api §4.28 ⑦ `[S48]` 실측 확정 표기**(편성 추기 → "구현 실측 2026-xx-xx" 부기 · 행 번호 앵커) + **screens
+- [x] D-1. **api §4.28 ⑦ `[S48]` 실측 확정 표기**(편성 추기 → "구현 실측 2026-xx-xx" 부기 · 행 번호 앵커) + **screens
       §5.16 S48 블록 실측 재개정 = Design v1.58**(편성 추기 v1.57 → 실측 반영 · 색인 헤더 승급 · 관례대로 밀려나는
       v1.54 괄호 줄은 `docs/04-archive/design-changelog.md` 맨 위로 원문 이동).
-- [ ] D-2. `editor-v2.plan.md` §13 — FB-2 행(복제 부기 뒤)·FB-21·FB-22 행에 `← 완료(stage-48 · 날짜)` 1줄씩 추기.
-- [ ] D-3. 매뉴얼 `docs/manual/user-manual.html` 노트 절에 **복제 1줄**("목록의 [복제]로 사본을 만들어 바로 편집 —
+- [x] D-2. `editor-v2.plan.md` §13 — FB-2 행(복제 부기 뒤)·FB-21·FB-22 행에 `← 완료(stage-48 · 날짜)` 1줄씩 추기.
+- [x] D-3. 매뉴얼 `docs/manual/user-manual.html` 노트 절에 **복제 1줄**("목록의 [복제]로 사본을 만들어 바로 편집 —
       제목에 ' (사본)'이 붙습니다"). 나머지 3건은 매뉴얼 무변(외양·내부 정비).
-- [ ] D-4. 본 문서 완료 기록(§7)·체크박스 + §6 절차(CHANGELOG·VERSION·stage-index·backlog).
+- [x] D-4. 본 문서 완료 기록(§7)·체크박스 + §6 절차(CHANGELOG·VERSION·stage-index·backlog).
 
 ## 4. 이 단계에서 하지 않는 것
 
@@ -216,3 +223,35 @@
 - **편성**(2026-09-12): 지시서 확정 — 규약 A~F(사용자 확정 대기 0 · 결정 ①~⑤ 위임 판정) · api §4.28 ⑦ `[S48]`
   추기 · screens §5.16 S48 블록 추기(Design v1.57) · stage-index 48행 · backlog 4행 `편성 = stage-48` · 별지 §13
   FB-2·FB-21·FB-22 편성 추기.
+- **구현**(2026-09-12 · 브랜치 `stage-48-minor-polish` · 스냅샷 커밋 `60ad411`): 백엔드 `routers/notes.py` `duplicate_note` + `_duplicate_title`
+  (규약 C 그대로 — rstrip · " (사본)" · 195+5 절단 · 삭제분 동일 404 · 컬럼 TEXT 복사 · INSERT+commit 1회) + `tests/test_notes_duplicate.py`
+  13건(ⓐ~ⓖ + 헬퍼 단위 6) · 프론트 F-1~F-4(`notes.css` · `toolbar/useEditorDerived.ts` 신설 + 툴바 2곳 전환 + `useAtomInlineGuard`
+  1줄 위임 재구성 · `api/notes.ts` `useDuplicateNote` · `NoteListPage.tsx` [복제]). 부수: `scripts/backlog-scan.ps1`에 "편성 상태 행은
+  source-closed 검사 제외" 3줄(편성 행의 `← 편성(...)` 표기가 "해소"로 읽히는 오탐 방지 — 검토 경미 ③ 기록).
+- **자동 검증**(2026-09-12): `npm run build` 성공 · 엔트리 청크 1,578,573 B(stage-47 기준선과 동일 · +0 B) · 노트 lazy 청크
+  `NoteListPage` 4,574 → 4,648 B(+74 B 동기 잠금분) · `run-tests.ps1 -Full` **624 passed**(applied_exam PATH 의존 2건 포함 통과) ·
+  헤드리스 s40 37/37 · s41 81/81 · s47 77/77(Tab 제거 후 기준선과 동일) · `invariant-scan.ps1` PASS · 백엔드 diff = `routers/notes.py`
+  + 테스트 1파일(alembic·package.json 0).
+- **검토**(Opus `stage-reviewer` · 2026-09-12): **조건부 통과** — 중요 ① FB-21 수정(기본 규칙 accent + note 삭제)이 `fold`·`hide`·
+  목록 밖 variant의 **머리**(스펙 `CALLOUT_STYLE` = `border-l-border`)와 자식 그룹(accent) 색을 갈라지게 함(stage-36 F-8 "좌측선이
+  머리부터 자식 끝까지 이어진다" 회귀). **처분 = 규약 A 소수정(권고 b 채택)**: 자식 그룹 = 머리 색 추종 — 기본 규칙 `--border` ·
+  `[data-content-type='callout']:not([data-variant])` = `--accent`(엔진이 기본값 note의 `data-variant`를 생략) · warn·tip 무변. 편성
+  시 `:not` 대안을 기각한 근거("이점 없음")는 머리 색을 고려하지 않은 것이라 정정 · "목록 밖 variant = accent 의도" 문구도 철회
+  (머리와 같은 `--border`가 정본). 경미 ② 낡은 CSS 주석 정정 · ③ backlog-scan 변경 기록(위) · ④ api ⑦ 머리 v1.58 선행 표기는 D-1
+  승급으로 해소. 규약 B·C·D·E·불변 규칙 3/5/8·테스트 커버리지·문서 4종 = 이상 없음. 범위 밖 관찰: 절단 경로 `stripped[:195]` 끝이
+  공백이면 공백 2개 — 명세대로라 미수정.
+- **브라우저 실측 V-3**(`browser-debugger` · 임시 포트 8765 · 워크트리 일회용 DB · 종료 + 리스너 0 확인): 1차 — ⓐ note·warn·tip
+  3종 라이트/다크 계산값 일치 + 기본 콜아웃 `data-variant` 부재 · ⓑ `appearance:none` · `padding-right:18px` · `::after` 6px
+  chevron `--text-muted` 추종(다크 전환 확인) · 언어 변경 정상 · 390px 위치 박스 안쪽 · ⓒ [다단] 일반 문단 활성/콜아웃 자식 비활성 ·
+  [자르기] 이미지 없음=비표시 · 블록 타입 드롭다운 유지(`.click()` 단발은 즉시 닫힘처럼 보이나 실제 포인터 이벤트 시퀀스로는 정상 —
+  측정 아티팩트) · 콘솔 오류 0 · ⓓ ①~⑤·⑦·⑧ 통과(제목 " (사본)" · 블록 9/콜아웃 3/코드 1 동일 · 원본 `updated_at` 무변 · 복구
+  다이얼로그 0 · `text-wrong` 없음) · **⑥ 같은 JS 틱 `.click()` 2회 → POST 2건**(`isPending`은 리렌더 뒤 잠김) → `useRef` 동기 잠금 +
+  `onSettled` 해제 보강 · ⓔ 390px 목록 행 제목/[복제]/[삭제] 겹침 0. **2차(수정 후 재빌드)** — 콜아웃 6종(note·warn·tip·fold·hide·
+  목록 밖) × 라이트/다크 = **12/12 머리·그룹 일치** · 같은 틱 2회 클릭 = POST 1회 · 이후 단일 클릭 정상(잠금 해제). 실측 메모: 앱
+  `content_blocks`는 중립 스키마(콜아웃 `variant`·코드 `code` 평평한 필드 — BlockNote 원시 JSON 아님) · 테마 실측은 설정 화면 토글로만
+  (에디터 `.bn-container`가 자체 `dark` 클래스를 스토어에서 구독).
+- **문서**(2026-09-12): api §4.28 ⑦ 실측 확정 표기 · screens §5.16 S48 실측 재개정 = **Design v1.58**(색인 머리 갱신 · v1.54 행
+  `docs/04-archive/design-changelog.md` 이관 — 원문 동일 검증) · 별지 §13 FB-2·FB-21·FB-22 `← 완료` · 매뉴얼 노트 절 복제 1줄 ·
+  CHANGELOG `v2.01.3 (발행 대기)` 항목 · stage-index 48행 `완료(DoD 6 회신 대기)` · backlog 4행 §4 종결 이동 · `backlog-scan.ps1` PASS.
+- **잔여**: DoD 6 사용자 실사용(PC — 콜아웃 accent 체감·select 화살표·[복제] 사본 편집 / 폰 실기기 — [복제]/[삭제] 터치 오조작 0 /
+  툴바 회귀 체감 0) 치명 0 회신 → `VERSION` 2.01.3 + CLAUDE.md 버전 줄 + tag(§6 — stage-47 전례대로 release PR 별도).

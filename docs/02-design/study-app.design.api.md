@@ -1316,7 +1316,7 @@ backend/services/fetchers/
 | `GET /api/notes/{id}` | 단건 — 본문 전체. 삭제분도 `200` + `is_active:false`(목록에서만 기본 제외 — §3) | S33 |
 | `PATCH /api/notes/{id}` | 부분 수정 — `title` · (`content_blocks` + `content`) 쌍. **`is_active`는 받지 않는다**(복구 경로는 베타 범위 밖) | S33 |
 | `DELETE /api/notes/{id}` | **소프트 삭제**(`is_active=0` UPDATE만 — 물리 삭제 코드 0) · **재삭제 멱등** · 응답 = 삭제된 노트 표현 | S33 |
-| `POST /api/notes/{id}/duplicate` | **복제**(FB-2 잔여 — stage-48 편성 추기 2026-09-12) — 요청 본문 없음 · `200 OK` + **새 노트의 표현** · 계약 = ⑦ | **S48** |
+| `POST /api/notes/{id}/duplicate` | **복제**(FB-2 잔여 — stage-48 편성 2026-09-12 · 구현 실측 확정 같은 날) — 요청 본문 없음 · `200 OK` + **새 노트의 표현** · 계약 = ⑦ | **S48** |
 
 - **LLM 0 · 잡 0 · 파일 쓰기 0 · settings 키 0** — 이 기능은 DB 테이블 1개만 쓴다.
 - 인증 없음(홈 네트워크 전용 — R12, 기존 전 엔드포인트와 동일).
@@ -1393,7 +1393,7 @@ backend/services/fetchers/
 - 백엔드: `backend/routers/notes.py`(신규) · `backend/schemas/note.py`(신규) · `backend/models.py`(`Note` 모델 추가만) · `backend/main.py`(라우터 등록 1줄) · `backend/alembic/versions/*`(신규 리비전 1개). **서비스 계층 신설 없음**(CRUD뿐 — 비즈니스 로직 0).
 - 프론트: `frontend/src/editor2/api/notes.ts`(React Query 훅 — 기존 `api/client.ts` 재사용) · 화면은 screens §5.16.
 
-**⑦ 노트 복제 — `POST /api/notes/{id}/duplicate` [S48] (stage-48 편성 추기 2026-09-12 — 착수 전 · 규약 정본 = `stage-48-minor-polish.plan.md` 규약 C · 구현 실측 후 확정 부기)**
+**⑦ 노트 복제 — `POST /api/notes/{id}/duplicate` [S48] (stage-48 편성 추기 2026-09-12 → **구현 실측 2026-09-12 확정**(Design v1.58) — 아래 표 그대로 구현 · `test_notes_duplicate.py` 13 passed(제목 규칙 ⓐ~ⓖ·삭제분 404·원본 무변) · 규약 정본 = `stage-48-minor-polish.plan.md` 규약 C · 경위 = 같은 문서 §7)**
 
 > 별지 `editor-v2.plan.md` §13 FB-2의 잔여분(복제). **DDL 0(계획서 §6.2 무변 · Alembic 불필요) · 기존 5개 엔드포인트 계약 무변 · `NoteOut` 표현 재사용 · 서비스 계층 신설 0.** 서버가 하는 일은 "행 1개 읽어 행 1개 INSERT"뿐이다 — 원칙 ③(블록 내부 미해석)을 그대로 지킨다.
 

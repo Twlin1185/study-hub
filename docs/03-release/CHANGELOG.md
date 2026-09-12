@@ -13,6 +13,11 @@
 | ④ | 버전 단일 출처 | 루트 **`VERSION` 파일**(한 줄, 예 `2.00.1`). 서버가 기동 시 읽어 `GET /api/app-version`의 `version` 필드로 노출 → 설정 화면 하단 표시. 발행 시에만 갱신 |
 | ⑤ | stage 완료 절차 표준 항목 | **CHANGELOG 1항목 + (발행 시) VERSION 갱신 + stage-index 1행 갱신** + **`backlog.md` 편성 행 종결 이동**(잔여 등록부 — 2026-09-03 추가) + CLAUDE.md는 버전 줄 1곳만 |
 
+## v2.01.3 (발행 대기 — stage-48 DoD 6 사용자 회신 후 확정) — 노트 복제 + 편집 표면 다듬기 3건 (stage-48)
+
+- **stage-48** (구현·검토·실측 2026-09-12 · 사소) 노트 복제 FB-2 잔여 — 노트 목록 행 **[복제]** → 서버 `POST /api/notes/{id}/duplicate`(본문 없음 · 제목 `원제 + " (사본)"` · 200자 절단 · 블록·프로젝션 컬럼 그대로 복사 · 삭제된 원본 404 — 복구 우회 차단) → 사본 편집 화면으로 바로 진입(확인 없음 · 진행 중 버튼 비활성) · 매뉴얼 노트 절 1줄. **FB-21** 콜아웃 기본 좌측선이 회색(`--border`)으로 남던 결함 — 엔진이 기본값 `data-variant`를 내보내지 않아 note 규칙 매칭 0 → `:not([data-variant])` 규칙으로 accent(토큰만 · warn·tip 무변 · fold·hide·목록 밖은 머리와 같은 `--border` — 검토 중요 ① 반영). **FB-22** 툴바 [다단]·[자르기] 파생 상태 2곳 선택 변경 단독 구독 → 공용 훅 `useEditorDerived`(선택+내용 동시 구독 · bail-out)로 통일(`useAtomInlineGuard`도 같은 훅 위로). **코드 블록 언어 select** 네이티브 화살표 제거 + 래퍼 `::after` chevron(토큰만 · SVG data-URI 금지). DDL 0 · 기존 API 5개 무변 · 엔드포인트 +1 · 신규 의존 0 · 엔트리 청크 +0 B(R37) · pytest 624 passed(`test_notes_duplicate.py` 13 신설) · 헤드리스 s40/s41/s47 무회귀 · 불변 PASS.
+- 발행 게이트: DoD 6(PC 실사용 — 콜아웃 accent·select 화살표·[복제] 사본 편집 · 폰 실기기 [복제]/[삭제] 터치 오조작 0 · 툴바 회귀 체감 0) 회신 치명 0 → `VERSION` 2.01.3 + tag.
+
 ## v2.01.2 (2026-09-12) — 마크 탈출 제스처 + 툴바 가드 정합 + 고아 모듈 정리 (stage-47)
 
 - **stage-47** (구현·검토·실측 2026-09-12 · 사소) 마크 탈출 제스처 FB-20 — 서식 구간 끝에서 **→ · 스페이스 2회**로 대기 스타일 마크(굵게·형광펜·스포일러 등 전부) 해제(→ = 커서 무이동 · 스페이스 2회 = 마크 공백을 무마크 공백 1개로 치환 — 사용자 확정 ⓐ) · 공식 확장 키맵(`markEscape.ts` · columns 뒤) · 헤드리스 `s47-mark-escape.mjs` 95/95 · 엔트리 청크 +0 B. FB-6-후속① — 원자 인라인 가드 `blocked`를 공용 훅 `useAtomInlineGuard`(선택+내용 변경 동시 구독)로 통일. 고아 모듈 `RichBlockEditor.tsx`·`richSurface.ts` 삭제. Opus 검토 통과(치명·중요 0 · 경미 2 = 문서 정정 반영). 부수: FB-14는 stage-43 F-4에서 이미 해소 → 등록부 종결 정정 · 신규 등재 FB-21(콜아웃 기본 variant `data-variant` 미출력 → 좌측선 accent 미적용) · FB-22(툴바 동형 구독 패턴 2곳). Design v1.56.
