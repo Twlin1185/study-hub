@@ -298,6 +298,134 @@ def test_reparent_skips_duplicate_already_in_parent(client: TestClient, db):
     assert progress is not None
 
 
+def test_recursive_reparent_full_tree_dedup_and_progress(client: TestClient, db):
+    """재귀 + reparent, 4노드 트리(대상 A · 하위 B·C · 손자 D · 부모 P) 종합 케이스.
+
+    (Opus 검토 경미 ⑥ 반영) 문서 4종:
+      doc1 - A(자신) + B 중복 -> A 자신 행 우선 이관.
+      doc2 - B(sort_order=5)·C(sort_order=2) 양쪽에만 -> (category_id, sort_order,
+             document_id) 순 첫 행(=B, id가 더 작음) 이관, sort_order=5 보존.
+      doc3 - D 단독 -> 그대로 이관.
+      doc4 - 트리 내부(C·D) 중복 + 부모 P에 이미 존재 -> 트리 쪽 전부 폐기, P 기존 행 무변.
+    기대: deleted_categories=4, reparented=3(doc1/2/3), skipped_duplicates=4
+    (doc1 loser 1 + doc2 loser 1 + doc4 tree-loser 1 + doc4 parent-conflict 1).
+    """
+    p_id = _mk_category(db, "P")
+    a_id = _mk_category(db, "A", parent_id=p_id)
+    b_id = _mk_category(db, "B", parent_id=a_id)
+    c_id = _mk_category(db, "C", parent_id=a_id)
+    d_id = _mk_category(db, "D", parent_id=c_id)
+    assert b_id < c_id  # doc2 tie-break 전제(카테고리 id 오름차순으로 B가 이김)
+
+    doc1 = _mk_document(db, "DOC1")
+    doc2 = _mk_document(db, "DOC2")
+    doc3 = _mk_document(db, "DOC3")
+    doc4 = _mk_document(db, "DOC4")
+
+    _link(db, a_id, doc1, sort_order=1, local_note="A-doc1")
+    _link(db, b_id, doc1, sort_order=9)
+
+    _link(db, b_id, doc2, sort_order=5, local_note="B-doc2")
+    _link(db, c_id, doc2, sort_order=2)
+
+    _link(db, d_id, doc3, sort_order=3, local_note="D-doc3")
+
+    _link(db, c_id, doc4, sort_order=7)
+    _link(db, d_id, doc4, sort_order=8)
+    _link(db, p_id, doc4, sort_order=100, local_note="P-doc4-existing")
+
+    db.add(models.StudyProgress(category_id=a_id, document_id=doc1, status="done"))
+    db.add(models.StudyProgress(category_id=p_id, document_id=doc4, status="done"))
+    db.add(models.StudyProgress(category_id=c_id, document_id=doc4, status="in_progress"))
+
+    db.add(models.ResumePoint(category_id=d_id, document_id=doc3))
+    db.add(models.Suggestion(document_id=doc2, category_id=b_id, status="pending"))
+
+    att1 = models.Attempt(document_id=doc1, category_id=a_id, is_correct=1)
+    att2 = models.Attempt(document_id=doc3, category_id=d_id, is_correct=0)
+    db.add(att1)
+    db.add(att2)
+    db.commit()
+    att1_id, att2_id = att1.id, att2.id
+
+    resp = client.delete(
+        f"/api/categories/{a_id}",
+        params={"on_documents": "reparent", "recursive": "true"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body == {
+        "deleted_categories": 4,
+        "unlinked": 0,
+        "reparented": 3,
+        "skipped_duplicates": 4,
+    }
+
+    db.expunge_all()
+
+    for cid in (a_id, b_id, c_id, d_id):
+        assert db.get(models.Category, cid) is None
+    assert db.get(models.Category, p_id) is not None
+
+    # doc1: A 자신 행이 이김 -> P로 이관, sort_order/local_note 보존
+    link1 = (
+        db.query(models.CategoryDocument)
+        .filter_by(category_id=p_id, document_id=doc1)
+        .first()
+    )
+    assert link1 is not None
+    assert link1.sort_order == 1
+    assert link1.local_note == "A-doc1"
+
+    # doc2: (category_id, sort_order, document_id) 첫 행(B) 이김 -> sort_order=5 보존
+    link2 = (
+        db.query(models.CategoryDocument)
+        .filter_by(category_id=p_id, document_id=doc2)
+        .first()
+    )
+    assert link2 is not None
+    assert link2.sort_order == 5
+    assert link2.local_note == "B-doc2"
+
+    # doc3: 단독 이관
+    link3 = (
+        db.query(models.CategoryDocument)
+        .filter_by(category_id=p_id, document_id=doc3)
+        .first()
+    )
+    assert link3 is not None
+    assert link3.sort_order == 3
+    assert link3.local_note == "D-doc3"
+
+    # doc4: 트리 쪽 두 행 전부 폐기 -> P의 기존 행만 남고 무변
+    doc4_links = db.query(models.CategoryDocument).filter_by(document_id=doc4).all()
+    assert len(doc4_links) == 1
+    assert doc4_links[0].category_id == p_id
+    assert doc4_links[0].sort_order == 100
+    assert doc4_links[0].local_note == "P-doc4-existing"
+
+    # study_progress: doc1은 P로 이관(P에 기존 행 없었음), doc4는 P의 done 유지(트리 in_progress 폐기)
+    prog1 = db.query(models.StudyProgress).filter_by(document_id=doc1).all()
+    assert len(prog1) == 1
+    assert prog1[0].category_id == p_id
+    assert prog1[0].status == "done"
+
+    prog4 = db.query(models.StudyProgress).filter_by(document_id=doc4).all()
+    assert len(prog4) == 1
+    assert prog4[0].category_id == p_id
+    assert prog4[0].status == "done"
+
+    # resume_points/suggestions 정리(FK ON에서 IntegrityError 없이)
+    assert db.query(models.ResumePoint).count() == 0
+    assert db.query(models.Suggestion).count() == 0
+
+    # attempts -> 전부 P로 이관
+    refreshed_att1 = db.get(models.Attempt, att1_id)
+    refreshed_att2 = db.get(models.Attempt, att2_id)
+    assert refreshed_att1.category_id == p_id
+    assert refreshed_att2.category_id == p_id
+
+
 # ---------------------------------------------------------------------------
 # ⑥ 루트 + reparent → 422
 # ---------------------------------------------------------------------------

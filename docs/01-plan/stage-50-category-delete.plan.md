@@ -64,7 +64,7 @@
 
 **B. 백엔드 (`backend/`)**
 - [x] B-1 `routers/categories.py:73~75` — `delete_category(category_id, on_documents: Literal['unlink','reparent'] | None = None, recursive: bool = False)` · `status_code=200` · 응답 스키마 `CategoryDeleteResult`(`schemas/category.py`에 추가 — F 4필드).
-- [x] B-2 `services/category_service.py` `delete_category` 재작성(규약 B~F 순서 그대로): 하위 트리 id 수집(재귀 CTE — `recursive=False`면 자기 1개 + 하위 존재 시 409) → 태그 규칙 409 → 활성 문서 판정(`is_active == 1` 조인 · 미지정 시 409) → 루트+reparent 422 → 링크 이관/삭제(C 중복 규칙 — 부모 기존 행 우선 · 문서당 1행) → `study_progress`(E) → `resume_points` 삭제 → `attempts.category_id` NULL/부모 → `suggestions` 삭제 → 분류 행 깊은 순 삭제 → `commit` 1회 · 통계 반환.
+- [x] B-2 `services/category_service.py` `delete_category` 재작성(규약 B~F 순서 그대로): 하위 트리 id 수집(재귀 CTE) → 루트+reparent 422 → 태그 규칙 409 → 하위 존재 시 409(`recursive=False`) → 활성 문서 판정(`is_active == 1` 조인 · 미지정 시 409) → 링크 이관/삭제(C 중복 규칙 — 부모 기존 행 우선 · 문서당 1행) → `study_progress`(E) → `resume_points` 삭제 → `attempts.category_id` NULL/부모 → `suggestions` 삭제 → 분류 행 깊은 순 삭제 → `commit` 1회 · 통계 반환.
 - [x] B-3 에러 메시지 = 한국어 + 다음 행동(§3 규약) · `detail`에 수치(`children`·`documents`·`tag_rule_ids`) 동봉 · 코드는 `CONFLICT`/`VALIDATION_ERROR`만(신설 0).
 - [x] B-4 `_doc_counts`·`build_tree` 무변 확인(모달 수치 정의 G가 직계 활성 링크 수에 의존).
 

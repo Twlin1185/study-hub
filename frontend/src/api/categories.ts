@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from './client'
+import { api, ApiError } from './client'
 import type { CategoryDeleteResult, CategoryNode } from './types'
+
+// 삭제 실패 폴백 문구 — 규약 G "폴백 1곳" 단일 출처. 서버 에러(ApiError)는 그대로 message를 쓰고,
+// 그 외(네트워크 오류 등)만 이 문구로 정규화한다 — 페이지 3곳은 e.message만 그대로 전달하면 된다.
+const DELETE_CATEGORY_FALLBACK_MESSAGE = '삭제에 실패했습니다.'
 
 export const categoryKeys = {
   tree: ['categories', 'tree'] as const,
@@ -80,12 +84,18 @@ export interface DeleteCategoryInput {
 export function useDeleteCategory() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, on_documents, recursive }: DeleteCategoryInput) => {
+    mutationFn: async ({ id, on_documents, recursive }: DeleteCategoryInput) => {
       const params = new URLSearchParams()
       if (on_documents) params.set('on_documents', on_documents)
       if (recursive) params.set('recursive', '1')
       const qs = params.toString()
-      return api.delete<CategoryDeleteResult | void>(`/categories/${id}${qs ? `?${qs}` : ''}`)
+      try {
+        return await api.delete<CategoryDeleteResult | void>(`/categories/${id}${qs ? `?${qs}` : ''}`)
+      } catch (e) {
+        // ApiError는 서버 message를 그대로 보존 · 그 외만 폴백 문구로 정규화(단일 출처).
+        if (e instanceof ApiError) throw e
+        throw new Error(DELETE_CATEGORY_FALLBACK_MESSAGE)
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: categoryKeys.tree }),
   })

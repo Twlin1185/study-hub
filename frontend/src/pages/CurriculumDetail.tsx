@@ -333,7 +333,7 @@ export default function CurriculumDetailPage() {
               { id: modal.node.id, ...opts },
               {
                 onSuccess: closeModal,
-                onError: (e) => setModalError(errMsg(e, '삭제에 실패했습니다.')),
+                onError: (e) => setModalError(e.message),
               },
             )
           }}
