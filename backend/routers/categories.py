@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from schemas.category import (
     CategoryCreate,
+    CategoryDeleteResult,
     CategoryMove,
     CategoryNode,
     CategoryNodePipeline,
@@ -70,9 +71,19 @@ def move_category(
     return CategoryOut.model_validate(category)
 
 
-@router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_category(category_id: int, db: Session = Depends(get_db)) -> None:
-    category_service.delete_category(db, category_id)
+@router.delete(
+    "/{category_id}", response_model=CategoryDeleteResult, status_code=status.HTTP_200_OK
+)
+def delete_category(
+    category_id: int,
+    on_documents: Optional[Literal["unlink", "reparent"]] = None,
+    recursive: bool = False,
+    db: Session = Depends(get_db),
+) -> CategoryDeleteResult:
+    result = category_service.delete_category(
+        db, category_id, on_documents=on_documents, recursive=recursive
+    )
+    return CategoryDeleteResult(**result)
 
 
 @router.get("/{category_id}/study-track", response_model=StudyTrackResponse)

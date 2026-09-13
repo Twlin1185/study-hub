@@ -63,19 +63,19 @@
 ## 3. 체크리스트
 
 **B. 백엔드 (`backend/`)**
-- [ ] B-1 `routers/categories.py:73~75` — `delete_category(category_id, on_documents: Literal['unlink','reparent'] | None = None, recursive: bool = False)` · `status_code=200` · 응답 스키마 `CategoryDeleteResult`(`schemas/category.py`에 추가 — F 4필드).
-- [ ] B-2 `services/category_service.py` `delete_category` 재작성(규약 B~F 순서 그대로): 하위 트리 id 수집(재귀 CTE — `recursive=False`면 자기 1개 + 하위 존재 시 409) → 태그 규칙 409 → 활성 문서 판정(`is_active == 1` 조인 · 미지정 시 409) → 루트+reparent 422 → 링크 이관/삭제(C 중복 규칙 — 부모 기존 행 우선 · 문서당 1행) → `study_progress`(E) → `resume_points` 삭제 → `attempts.category_id` NULL/부모 → `suggestions` 삭제 → 분류 행 깊은 순 삭제 → `commit` 1회 · 통계 반환.
-- [ ] B-3 에러 메시지 = 한국어 + 다음 행동(§3 규약) · `detail`에 수치(`children`·`documents`·`tag_rule_ids`) 동봉 · 코드는 `CONFLICT`/`VALIDATION_ERROR`만(신설 0).
-- [ ] B-4 `_doc_counts`·`build_tree` 무변 확인(모달 수치 정의 G가 직계 활성 링크 수에 의존).
+- [x] B-1 `routers/categories.py:73~75` — `delete_category(category_id, on_documents: Literal['unlink','reparent'] | None = None, recursive: bool = False)` · `status_code=200` · 응답 스키마 `CategoryDeleteResult`(`schemas/category.py`에 추가 — F 4필드).
+- [x] B-2 `services/category_service.py` `delete_category` 재작성(규약 B~F 순서 그대로): 하위 트리 id 수집(재귀 CTE — `recursive=False`면 자기 1개 + 하위 존재 시 409) → 태그 규칙 409 → 활성 문서 판정(`is_active == 1` 조인 · 미지정 시 409) → 루트+reparent 422 → 링크 이관/삭제(C 중복 규칙 — 부모 기존 행 우선 · 문서당 1행) → `study_progress`(E) → `resume_points` 삭제 → `attempts.category_id` NULL/부모 → `suggestions` 삭제 → 분류 행 깊은 순 삭제 → `commit` 1회 · 통계 반환.
+- [x] B-3 에러 메시지 = 한국어 + 다음 행동(§3 규약) · `detail`에 수치(`children`·`documents`·`tag_rule_ids`) 동봉 · 코드는 `CONFLICT`/`VALIDATION_ERROR`만(신설 0).
+- [x] B-4 `_doc_counts`·`build_tree` 무변 확인(모달 수치 정의 G가 직계 활성 링크 수에 의존).
 
 **F. 프론트 (`frontend/src/`)**
-- [ ] F-1 `api/categories.ts` `useDeleteCategory` 입력 `{id, on_documents?, recursive?}` + 쿼리 조립(미지정 키 생략) · 응답 타입 `CategoryDeleteResult`(`api/types.ts`).
-- [ ] F-2 `components/DeleteCategoryModal.tsx` 신규(규약 G — 수치 요약 · 하위 포함 체크 · 문서 처리 라디오 · 루트면 재연결 미노출 · 옵션 0이면 단순 확인 · `submitting`/`errorMessage` 기존 관례).
-- [ ] F-3 `pages/Curriculum.tsx:201~220` · `CurriculumDetail.tsx:322~341` · `Explore.tsx:321~343` 3곳을 F-2로 교체(리터럴 3벌 삭제 · 폴백 문구 1곳) · Explore 선택 초기화를 삭제 트리 포함 판정으로 확장.
-- [ ] F-4 색·간격은 토큰·기존 유틸 클래스만(불변 규칙 5) · 390px에서 라디오·체크박스 줄바꿈 정상.
+- [x] F-1 `api/categories.ts` `useDeleteCategory` 입력 `{id, on_documents?, recursive?}` + 쿼리 조립(미지정 키 생략) · 응답 타입 `CategoryDeleteResult`(`api/types.ts`).
+- [x] F-2 `components/DeleteCategoryModal.tsx` 신규(규약 G — 수치 요약 · 하위 포함 체크 · 문서 처리 라디오 · 루트면 재연결 미노출 · 옵션 0이면 단순 확인 · `submitting`/`errorMessage` 기존 관례).
+- [x] F-3 `pages/Curriculum.tsx:201~220` · `CurriculumDetail.tsx:322~341` · `Explore.tsx:321~343` 3곳을 F-2로 교체(리터럴 3벌 삭제 · 폴백 문구 1곳) · Explore 선택 초기화를 삭제 트리 포함 판정으로 확장.
+- [x] F-4 색·간격은 토큰·기존 유틸 클래스만(불변 규칙 5) · 390px에서 라디오·체크박스 줄바꿈 정상.
 
 **V. 검증 (서버 구동 금지 — `2_StartServer.bat` 주인은 사용자 · 브라우저 실측은 사용자가 띄운 `localhost:8000`만)**
-- [ ] V-1 `backend/tests/test_category_delete.py` — ① 기본(파라미터 0) + 활성 문서 → 409 ② **비활성 문서 링크만 → 200 삭제(결함 ① 회귀)** ③ 하위 있음 + 비재귀 → 409 / `recursive=1` → 하위 전부 삭제·통계 ④ `unlink` → 링크 0·문서 `is_active` 무변·`study_progress` 삭제·`attempts.category_id` NULL ⑤ `reparent` → 부모 링크 존재·`sort_order`·`local_note` 보존·부모 기존 링크와 중복 시 `skipped_duplicates`·`study_progress` 이관·`attempts` 부모 ⑥ 루트 + `reparent` → 422 ⑦ 태그 규칙 존재 → 409(`tag_rule_ids`) · 부분 삭제 0 ⑧ `suggestions`·`resume_points` 행 정리(FK ON 픽스처에서 IntegrityError 0) ⑨ 잘못된 `on_documents` → 422. `run-tests.ps1 -Path backend/tests/test_category_delete.py` 통과 → `-Full` 무회귀.
+- [x] V-1 `backend/tests/test_category_delete.py` — ① 기본(파라미터 0) + 활성 문서 → 409 ② **비활성 문서 링크만 → 200 삭제(결함 ① 회귀)** ③ 하위 있음 + 비재귀 → 409 / `recursive=1` → 하위 전부 삭제·통계 ④ `unlink` → 링크 0·문서 `is_active` 무변·`study_progress` 삭제·`attempts.category_id` NULL ⑤ `reparent` → 부모 링크 존재·`sort_order`·`local_note` 보존·부모 기존 링크와 중복 시 `skipped_duplicates`·`study_progress` 이관·`attempts` 부모 ⑥ 루트 + `reparent` → 422 ⑦ 태그 규칙 존재 → 409(`tag_rule_ids`) · 부분 삭제 0 ⑧ `suggestions`·`resume_points` 행 정리(FK ON 픽스처에서 IntegrityError 0) ⑨ 잘못된 `on_documents` → 422. `run-tests.ps1 -Path backend/tests/test_category_delete.py` 통과(12 passed) → `-Full` 무회귀(636 passed).
 - [ ] V-2 `invariant-scan.ps1` PASS · `npm run build` 성공(성공/실패만 · 엔트리 청크 수치 기록 — 신규 의존 0이라 R37 게이트 무관).
 - [ ] V-3 브라우저 실측(사용자 기동 서버 · 노트 무접촉 · 실측용 분류는 새로 만들어 삭제 — 기존 데이터 무손실): ⓐ 하위 0·문서 0 분류 → 옵션 없는 단순 확인 → 삭제 ⓑ 문서 n건 분류 → 요약 수치 = 트리 `doc_count`와 일치 · 기본 라디오 "연결만 해제" → 삭제 후 탐색 "단일 문서" 필터에 노출 ⓒ 같은 조건에서 "부모로 재연결" → 부모 노드 `doc_count` 증가 · 문서 상세 `usages`에 부모 경로 ⓓ 하위 2단 + 문서 → 체크 없이 [삭제] 비활성 · 체크 후 삭제 → 트리에서 하위 전부 소멸 · Explore 선택 노드가 하위였으면 선택 해제 ⓔ 루트 분류 → 재연결 항목 미노출 ⓕ 태그 규칙 대상 분류 → 서버 409 메시지가 모달 안에 그대로 표시.
 

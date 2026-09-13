@@ -11,7 +11,7 @@ import { ApiError } from '../api/client'
 import ProgressBar from '../components/ProgressBar'
 import CategoryFormModal from '../components/CategoryFormModal'
 import MoveCategoryModal from '../components/MoveCategoryModal'
-import ConfirmDialog from '../components/ConfirmDialog'
+import DeleteCategoryModal from '../components/DeleteCategoryModal'
 import type { CategoryNode } from '../api/types'
 
 function errMsg(e: unknown, fallback: string) {
@@ -199,22 +199,22 @@ export default function CurriculumPage() {
       )}
 
       {modal.kind === 'delete-category' && (
-        <ConfirmDialog
-          title="분류 삭제"
-          message={`"${modal.node.name}" 분류를 삭제할까요? 하위 분류나 연결된 문서가 있으면 삭제할 수 없습니다.`}
-          confirmLabel="삭제"
-          danger
+        <DeleteCategoryModal
+          node={modal.node}
+          allNodes={nodes}
           submitting={deleteCategory.isPending}
           errorMessage={modalError}
           onClose={closeModal}
-          onConfirm={() => {
+          onConfirm={(opts) => {
             if (modal.kind !== 'delete-category') return
             setModalError(null)
-            deleteCategory.mutate(modal.node.id, {
-              onSuccess: closeModal,
-              onError: (e) =>
-                setModalError(errMsg(e, '삭제할 수 없습니다. 하위 분류/연결된 문서를 먼저 정리하세요.')),
-            })
+            deleteCategory.mutate(
+              { id: modal.node.id, ...opts },
+              {
+                onSuccess: closeModal,
+                onError: (e) => setModalError(errMsg(e, '삭제에 실패했습니다.')),
+              },
+            )
           }}
         />
       )}

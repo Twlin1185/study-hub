@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
-import type { CategoryNode } from './types'
+import type { CategoryDeleteResult, CategoryNode } from './types'
 
 export const categoryKeys = {
   tree: ['categories', 'tree'] as const,
@@ -70,10 +70,23 @@ export function useMoveCategory() {
   })
 }
 
+// on_documents/recursive 미지정 = 종전 409 동작(쿼리 키 자체를 생략 — 기본 동작 보존, FB-24 ②).
+export interface DeleteCategoryInput {
+  id: number
+  on_documents?: 'unlink' | 'reparent'
+  recursive?: boolean
+}
+
 export function useDeleteCategory() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: number) => api.delete<void>(`/categories/${id}`),
+    mutationFn: ({ id, on_documents, recursive }: DeleteCategoryInput) => {
+      const params = new URLSearchParams()
+      if (on_documents) params.set('on_documents', on_documents)
+      if (recursive) params.set('recursive', '1')
+      const qs = params.toString()
+      return api.delete<CategoryDeleteResult | void>(`/categories/${id}${qs ? `?${qs}` : ''}`)
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: categoryKeys.tree }),
   })
 }
