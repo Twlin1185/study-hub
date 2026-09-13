@@ -17,9 +17,9 @@ import CategoryFormModal from '../components/CategoryFormModal'
 import MoveCategoryModal from '../components/MoveCategoryModal'
 import LinkDocumentModal from '../components/LinkDocumentModal'
 import DocEditor from '../components/DocEditor'
-import ConfirmDialog from '../components/ConfirmDialog'
+import DeleteCategoryModal from '../components/DeleteCategoryModal'
 import { ApiError } from '../api/client'
-import { findCategory } from '../utils/tree'
+import { collectDescendantIds, findCategory } from '../utils/tree'
 import type { CategoryNode } from '../api/types'
 
 type ModalState =
@@ -319,25 +319,29 @@ export default function ExplorePage() {
       )}
 
       {modal.kind === 'delete-category' && (
-        <ConfirmDialog
-          title="분류 삭제"
-          message={`"${modal.node.name}" 분류를 삭제할까요? 하위 분류나 연결된 문서가 있으면 삭제할 수 없습니다.`}
-          confirmLabel="삭제"
-          danger
+        <DeleteCategoryModal
+          node={modal.node}
+          allNodes={treeNodes}
           submitting={deleteCategory.isPending}
           errorMessage={modalError}
           onClose={closeModal}
-          onConfirm={() => {
+          onConfirm={(opts) => {
             if (modal.kind !== 'delete-category') return
             setModalError(null)
-            deleteCategory.mutate(modal.node.id, {
-              onSuccess: () => {
-                if (selectedCategoryId === modal.node.id) setSelectedCategoryId(null)
-                closeModal()
+            // 재귀 삭제 시 선택 노드가 삭제 트리(자신 + 하위 전체)에 포함되면 선택을 초기화한다.
+            const deletedIds = collectDescendantIds(modal.node)
+            deleteCategory.mutate(
+              { id: modal.node.id, ...opts },
+              {
+                onSuccess: () => {
+                  if (selectedCategoryId != null && deletedIds.has(selectedCategoryId)) {
+                    setSelectedCategoryId(null)
+                  }
+                  closeModal()
+                },
+                onError: (e) => setModalError(e.message),
               },
-              onError: (e) =>
-                setModalError(errMsg(e, '삭제할 수 없습니다. 하위 분류/연결된 문서를 먼저 정리하세요.')),
-            })
+            )
           }}
         />
       )}

@@ -15,22 +15,22 @@
 | `POST /api/categories` | `{parent_id, name, level_hint?, exam_date?}` | S1 |
 | `PATCH /api/categories/{id}` | 이름·힌트·시험일 수정 | S1 |
 | `POST /api/categories/{id}/move` | `{parent_id, sort_order}` — 자기 자신/자손 밑으로 이동 시 409 | S1 |
-| `DELETE /api/categories/{id}` | ~~하위 노드나 연결 문서가 있으면 409 (강제 삭제 없음 — 먼저 비우도록 유도)~~ → **S50 개정(2026-09-13 편성)**: 선택 쿼리 `?on_documents=unlink\|reparent&recursive=1` — **미지정 = 종전 409 그대로**(하위 있음 · **활성** 문서 연결 있음 — 소프트 삭제 문서의 잔존 연결은 세지 않음 = FB-24 결함 ①) · 지정 시 링크 행만 해제/부모로 이관(문서 행 무접촉) + 하위 트리 물리 삭제(분류 행만) · 한 트랜잭션 · **200 + 통계**. 세부 = 아래 `[S50]` 절 | S1 · **S50** |
+| `DELETE /api/categories/{id}` | ~~하위 노드나 연결 문서가 있으면 409 (강제 삭제 없음 — 먼저 비우도록 유도)~~ → **S50 개정(2026-09-13 편성 · 구현 실측 확정)**: 선택 쿼리 `?on_documents=unlink\|reparent&recursive=1` — **미지정 = 종전 409 그대로**(하위 있음 · **활성** 문서 연결 있음 — 소프트 삭제 문서의 잔존 연결은 세지 않음 = FB-24 결함 ①) · 지정 시 링크 행만 해제/부모로 이관(문서 행 무접촉) + 하위 트리 물리 삭제(분류 행만) · 한 트랜잭션 · **200 + 통계**. 세부 = 아래 `[S50]` 절 | S1 · **S50** |
 | `GET /api/categories/{id}/stats` | 직계 자식별 `{progress, accuracy, attempt_count}` — 대시보드 드릴다운용 | S4 |
 | `GET /api/categories/{id}/study-track` | 학습 트랙: `sort_order`순 문서 배열 `{document_id, type, title, status}` + 이어하기 위치 | S3 |
 
-**분류 삭제 — 선택형 `DELETE /api/categories/{id}` [S50] (stage-50 편성 추기 2026-09-13 — 착수 전 · Design v1.61 · 규약 정본 = `stage-50-category-delete.plan.md` §2 · DDL 0 · Alembic 0 · 신규 엔드포인트 0)**
+**분류 삭제 — 선택형 `DELETE /api/categories/{id}` [S50] — 구현 실측 확정(2026-09-13 · Design v1.62) — 계약 그대로 구현 + 실측 확정 2건(ⓐ 409 `detail.documents` = 활성 문서 수 distinct · ⓑ `skipped_duplicates` = 트리 내 dedup 합산 항등식 — 아래 표 해당 행) · 구현 커밋 0883cbd + bdcb17d · `tests/test_category_delete.py` 13건 · pytest 637 · invariant PASS(physical-delete 기준선 1→9 = 규약 D·E 정당분 · `documents` 무접촉) · Opus 검토 통과(경미 6 — 3 반영·3 기록) · 규약 정본 = `stage-50-category-delete.plan.md` §2 · DDL 0 · Alembic 0 · 신규 엔드포인트 0 · 신규 의존 0**
 
 | 항목 | 계약 |
 |---|---|
 | 쿼리 | `on_documents`: `unlink` \| `reparent` \| (미지정) · `recursive`: `1`/`true`(기본 false). **본문 없음**(프론트 `api.delete`는 본문 미지원 — 쿼리만). 잘못된 값 = 422 `VALIDATION_ERROR` |
-| 기본 동작(미지정) | 종전 그대로 후방 호환 — 하위 분류 있음 → 409 `CONFLICT`(`detail.children=n`) · **활성(`is_active=1`) 문서** 연결 있음 → 409(`detail.documents=n`). 소프트 삭제 문서의 잔존 `category_documents` 행은 **판정에 세지 않고** 실행 시 `unlink`로 정리(결함 ① 수정) |
+| 기본 동작(미지정) | 종전 그대로 후방 호환 — 하위 분류 있음 → 409 `CONFLICT`(`detail.children=n`) · **활성(`is_active=1`) 문서** 연결 있음 → 409(`detail.documents=n`). 소프트 삭제 문서의 잔존 `category_documents` 행은 **판정에 세지 않고** 실행 시 `unlink`로 정리(결함 ① 수정). **실측 확정 ⓐ**: `detail.documents`는 **활성 문서 수(distinct)** — 모달 "연결 n건"·`unlinked` 통계는 링크 행 수라 재귀 시 한 문서가 여러 하위에 걸리면 둘이 다를 수 있음(프론트는 링크>0이면 항상 `on_documents`를 보내므로 실노출은 트리 stale 시뿐) |
 | `recursive=1` | 하위 트리(재귀 CTE) 전체를 **분류 행만 물리 삭제**(깊은 노드 먼저) · 하위의 문서 링크·참조에도 같은 `on_documents` 정책 적용 |
 | `on_documents=unlink` | 대상 트리의 `category_documents` 행 삭제 · 문서 행 무접촉(탐색 `orphan=1` "단일 문서"로 노출 · 다른 분류 연결은 그대로) — 불변 규칙 3 |
 | `on_documents=reparent` | 대상 트리의 링크 행을 **최상위 삭제 대상의 `parent_id`**로 `category_id` UPDATE(`sort_order`·`local_note`·`linked_at`·`linked_by`·`linked_rule_id` 보존). **문서당 1행**: 부모에 이미 같은 문서가 있으면 부모 행 유지·대상 행 삭제(`skipped_duplicates`+1) · 트리 안 다중 연결은 삭제 대상 자신 행 우선 → `(category_id, sort_order, document_id)` 첫 행 이관·나머지 삭제. **최상위 대상이 루트(`parent_id IS NULL`)면 422**(폴백 없음 — 프론트는 루트에서 옵션 미노출) |
 | FK 참조 정리(같은 트랜잭션 · `PRAGMA foreign_keys=ON`) | `study_progress`: unlink = 삭제 / reparent = 부모에 없는 문서만 이관(있으면 부모 행 유지) · `resume_points`: 삭제 · `attempts.category_id`: unlink = NULL / reparent = 부모 id(행 삭제 0 — SM-2·오답노트 무접촉) · `suggestions`(대상 분류 행): 삭제 · **`tag_rules`(대상 트리를 가리키는 규칙): 409 사전 차단**(`detail.tag_rule_ids=[…]` — 사용자 설정은 묵시 삭제 금지 · 설정 › 태그 규칙에서 먼저 정리) |
 | 검사 순서 | 404 → 422(루트+reparent) → 409 태그 규칙 → 409 하위(비재귀) → 409 활성 문서(미지정) → 실행 → `commit` 1회(예외 = 전체 롤백) |
-| 응답 | **200** `{ "deleted_categories": n, "unlinked": n, "reparented": n, "skipped_duplicates": n }`(종전 204 → 200 · `unlinked`/`reparented` = 링크 행 수 — 활성·비활성 합산). 에러 = §3 포맷 · 코드 4종 안(`CONFLICT`·`VALIDATION_ERROR`·`NOT_FOUND`) · `message` = 한국어 + 다음 행동 |
+| 응답 | **200** `{ "deleted_categories": n, "unlinked": n, "reparented": n, "skipped_duplicates": n }`(종전 204 → 200 · `unlinked`/`reparented` = 링크 행 수 — 활성·비활성 합산). **실측 확정 ⓑ**: `skipped_duplicates`는 부모 중복 폐기(+1)뿐 아니라 **트리 내 다중 연결 dedup으로 폐기된 행도 합산** → 항등 `unlinked + reparented + skipped_duplicates = 대상 트리 링크 행 수` · `study_progress` dedup은 카운터 미반영(통계 = 링크 행 전용). 에러 = §3 포맷 · 코드 4종 안(`CONFLICT`·`VALIDATION_ERROR`·`NOT_FOUND`) · `message` = 한국어 + 다음 행동 |
 | 하지 않는 것 | `on_documents=delete`(문서 동반 소프트 삭제) — **D8 휴지통 이후**(값 2종으로 봉인) · 태그 규칙 자동 삭제·재대상화 0 · 트리 응답 필드 추가 0(모달 수치 = 클라이언트가 `doc_count`·`children` 합산 — `doc_count`는 **직계 활성 링크 행 수**) |
 
 ### 4.2 문서 Documents

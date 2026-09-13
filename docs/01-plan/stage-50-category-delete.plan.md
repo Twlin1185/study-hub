@@ -1,6 +1,6 @@
 # Stage 50 — 분류 삭제 결함 수정 + 선택형 삭제 (FB-24 ①·②) (v2.0.x · 사소)
 
-> 상태: **착수 전**(편성 2026-09-13 · 사용자 확정 대기 항목 0 · 다음 명령 = `/stage-implement 50`).
+> 상태: **구현·검토·실측 완료(2026-09-13) — DoD 1~5 충족 · 6(사용자 실사용 확인) 회신 대기 = 발행 게이트(stage-48·49와 v2.01.3 한 발행 단위 — §6 ① ⓑ 합류)**(편성 2026-09-13 → 착수 2026-09-13 → 구현·Opus 검토 통과(치명·중요 0 · 경미 6 = 3 반영·3 기록)·브라우저 실측 ⓐ~ⓕ+390px 통과·문서 묶음 D 완료 2026-09-13 · 편성 PR #99 머지).
 > **버전 영향: 사소**(사용자 확정 2026-09-13 · CHANGELOG 규약 ③ 1회 질의 완료). 근거 병기: **가산적 선택 파라미터**(`on_documents`·
 > `recursive` 미지정 = 기존 409 그대로 — 후방 호환) · **신규 엔드포인트 0** · **DDL 0** · 새 화면(라우트) 0 · 사용자 체감 = 삭제
 > 모달의 옵션 1묶음 · 선례 = stage-48(신규 엔드포인트 `duplicate` 1개로도 사소 판정). → 산출 버전 **v2.01.4 예정**(stage-48·49가
@@ -63,26 +63,26 @@
 ## 3. 체크리스트
 
 **B. 백엔드 (`backend/`)**
-- [ ] B-1 `routers/categories.py:73~75` — `delete_category(category_id, on_documents: Literal['unlink','reparent'] | None = None, recursive: bool = False)` · `status_code=200` · 응답 스키마 `CategoryDeleteResult`(`schemas/category.py`에 추가 — F 4필드).
-- [ ] B-2 `services/category_service.py` `delete_category` 재작성(규약 B~F 순서 그대로): 하위 트리 id 수집(재귀 CTE — `recursive=False`면 자기 1개 + 하위 존재 시 409) → 태그 규칙 409 → 활성 문서 판정(`is_active == 1` 조인 · 미지정 시 409) → 루트+reparent 422 → 링크 이관/삭제(C 중복 규칙 — 부모 기존 행 우선 · 문서당 1행) → `study_progress`(E) → `resume_points` 삭제 → `attempts.category_id` NULL/부모 → `suggestions` 삭제 → 분류 행 깊은 순 삭제 → `commit` 1회 · 통계 반환.
-- [ ] B-3 에러 메시지 = 한국어 + 다음 행동(§3 규약) · `detail`에 수치(`children`·`documents`·`tag_rule_ids`) 동봉 · 코드는 `CONFLICT`/`VALIDATION_ERROR`만(신설 0).
-- [ ] B-4 `_doc_counts`·`build_tree` 무변 확인(모달 수치 정의 G가 직계 활성 링크 수에 의존).
+- [x] B-1 `routers/categories.py:73~75` — `delete_category(category_id, on_documents: Literal['unlink','reparent'] | None = None, recursive: bool = False)` · `status_code=200` · 응답 스키마 `CategoryDeleteResult`(`schemas/category.py`에 추가 — F 4필드).
+- [x] B-2 `services/category_service.py` `delete_category` 재작성(규약 B~F 순서 그대로): 하위 트리 id 수집(재귀 CTE) → 루트+reparent 422 → 태그 규칙 409 → 하위 존재 시 409(`recursive=False`) → 활성 문서 판정(`is_active == 1` 조인 · 미지정 시 409) → 링크 이관/삭제(C 중복 규칙 — 부모 기존 행 우선 · 문서당 1행) → `study_progress`(E) → `resume_points` 삭제 → `attempts.category_id` NULL/부모 → `suggestions` 삭제 → 분류 행 깊은 순 삭제 → `commit` 1회 · 통계 반환.
+- [x] B-3 에러 메시지 = 한국어 + 다음 행동(§3 규약) · `detail`에 수치(`children`·`documents`·`tag_rule_ids`) 동봉 · 코드는 `CONFLICT`/`VALIDATION_ERROR`만(신설 0).
+- [x] B-4 `_doc_counts`·`build_tree` 무변 확인(모달 수치 정의 G가 직계 활성 링크 수에 의존).
 
 **F. 프론트 (`frontend/src/`)**
-- [ ] F-1 `api/categories.ts` `useDeleteCategory` 입력 `{id, on_documents?, recursive?}` + 쿼리 조립(미지정 키 생략) · 응답 타입 `CategoryDeleteResult`(`api/types.ts`).
-- [ ] F-2 `components/DeleteCategoryModal.tsx` 신규(규약 G — 수치 요약 · 하위 포함 체크 · 문서 처리 라디오 · 루트면 재연결 미노출 · 옵션 0이면 단순 확인 · `submitting`/`errorMessage` 기존 관례).
-- [ ] F-3 `pages/Curriculum.tsx:201~220` · `CurriculumDetail.tsx:322~341` · `Explore.tsx:321~343` 3곳을 F-2로 교체(리터럴 3벌 삭제 · 폴백 문구 1곳) · Explore 선택 초기화를 삭제 트리 포함 판정으로 확장.
-- [ ] F-4 색·간격은 토큰·기존 유틸 클래스만(불변 규칙 5) · 390px에서 라디오·체크박스 줄바꿈 정상.
+- [x] F-1 `api/categories.ts` `useDeleteCategory` 입력 `{id, on_documents?, recursive?}` + 쿼리 조립(미지정 키 생략) · 응답 타입 `CategoryDeleteResult`(`api/types.ts`).
+- [x] F-2 `components/DeleteCategoryModal.tsx` 신규(규약 G — 수치 요약 · 하위 포함 체크 · 문서 처리 라디오 · 루트면 재연결 미노출 · 옵션 0이면 단순 확인 · `submitting`/`errorMessage` 기존 관례).
+- [x] F-3 `pages/Curriculum.tsx:201~220` · `CurriculumDetail.tsx:322~341` · `Explore.tsx:321~343` 3곳을 F-2로 교체(리터럴 3벌 삭제 · 폴백 문구 1곳) · Explore 선택 초기화를 삭제 트리 포함 판정으로 확장.
+- [x] F-4 색·간격은 토큰·기존 유틸 클래스만(불변 규칙 5) · 390px에서 라디오·체크박스 줄바꿈 정상.
 
 **V. 검증 (서버 구동 금지 — `2_StartServer.bat` 주인은 사용자 · 브라우저 실측은 사용자가 띄운 `localhost:8000`만)**
-- [ ] V-1 `backend/tests/test_category_delete.py` — ① 기본(파라미터 0) + 활성 문서 → 409 ② **비활성 문서 링크만 → 200 삭제(결함 ① 회귀)** ③ 하위 있음 + 비재귀 → 409 / `recursive=1` → 하위 전부 삭제·통계 ④ `unlink` → 링크 0·문서 `is_active` 무변·`study_progress` 삭제·`attempts.category_id` NULL ⑤ `reparent` → 부모 링크 존재·`sort_order`·`local_note` 보존·부모 기존 링크와 중복 시 `skipped_duplicates`·`study_progress` 이관·`attempts` 부모 ⑥ 루트 + `reparent` → 422 ⑦ 태그 규칙 존재 → 409(`tag_rule_ids`) · 부분 삭제 0 ⑧ `suggestions`·`resume_points` 행 정리(FK ON 픽스처에서 IntegrityError 0) ⑨ 잘못된 `on_documents` → 422. `run-tests.ps1 -Path backend/tests/test_category_delete.py` 통과 → `-Full` 무회귀.
-- [ ] V-2 `invariant-scan.ps1` PASS · `npm run build` 성공(성공/실패만 · 엔트리 청크 수치 기록 — 신규 의존 0이라 R37 게이트 무관).
-- [ ] V-3 브라우저 실측(사용자 기동 서버 · 노트 무접촉 · 실측용 분류는 새로 만들어 삭제 — 기존 데이터 무손실): ⓐ 하위 0·문서 0 분류 → 옵션 없는 단순 확인 → 삭제 ⓑ 문서 n건 분류 → 요약 수치 = 트리 `doc_count`와 일치 · 기본 라디오 "연결만 해제" → 삭제 후 탐색 "단일 문서" 필터에 노출 ⓒ 같은 조건에서 "부모로 재연결" → 부모 노드 `doc_count` 증가 · 문서 상세 `usages`에 부모 경로 ⓓ 하위 2단 + 문서 → 체크 없이 [삭제] 비활성 · 체크 후 삭제 → 트리에서 하위 전부 소멸 · Explore 선택 노드가 하위였으면 선택 해제 ⓔ 루트 분류 → 재연결 항목 미노출 ⓕ 태그 규칙 대상 분류 → 서버 409 메시지가 모달 안에 그대로 표시.
+- [x] V-1 `backend/tests/test_category_delete.py` — ① 기본(파라미터 0) + 활성 문서 → 409 ② **비활성 문서 링크만 → 200 삭제(결함 ① 회귀)** ③ 하위 있음 + 비재귀 → 409 / `recursive=1` → 하위 전부 삭제·통계 ④ `unlink` → 링크 0·문서 `is_active` 무변·`study_progress` 삭제·`attempts.category_id` NULL ⑤ `reparent` → 부모 링크 존재·`sort_order`·`local_note` 보존·부모 기존 링크와 중복 시 `skipped_duplicates`·`study_progress` 이관·`attempts` 부모 ⑥ 루트 + `reparent` → 422 ⑦ 태그 규칙 존재 → 409(`tag_rule_ids`) · 부분 삭제 0 ⑧ `suggestions`·`resume_points` 행 정리(FK ON 픽스처에서 IntegrityError 0) ⑨ 잘못된 `on_documents` → 422. `run-tests.ps1 -Path backend/tests/test_category_delete.py` 통과(12 passed) → `-Full` 무회귀(636 passed).
+- [x] V-2 `invariant-scan.ps1` PASS · `npm run build` 성공(성공/실패만 · 엔트리 청크 수치 기록 — 신규 의존 0이라 R37 게이트 무관).
+- [x] V-3 브라우저 실측(사용자 기동 서버 · 노트 무접촉 · 실측용 분류는 새로 만들어 삭제 — 기존 데이터 무손실): ⓐ 하위 0·문서 0 분류 → 옵션 없는 단순 확인 → 삭제 ⓑ 문서 n건 분류 → 요약 수치 = 트리 `doc_count`와 일치 · 기본 라디오 "연결만 해제" → 삭제 후 탐색 "단일 문서" 필터에 노출 ⓒ 같은 조건에서 "부모로 재연결" → 부모 노드 `doc_count` 증가 · 문서 상세 `usages`에 부모 경로 ⓓ 하위 2단 + 문서 → 체크 없이 [삭제] 비활성 · 체크 후 삭제 → 트리에서 하위 전부 소멸 · Explore 선택 노드가 하위였으면 선택 해제 ⓔ 루트 분류 → 재연결 항목 미노출 ⓕ 태그 규칙 대상 분류 → 서버 409 메시지가 모달 안에 그대로 표시.
 
 **D. 문서**
-- [ ] D-1 설계 — api §4.1 18행 개정 + `[S50]` 절(편성 시 v1.61로 선반영 완료 · 완료 시 "구현 실측 확정" 표기 + 색인 v1.62) · screens §5.2·§5.4 S50 불릿(동일).
-- [ ] D-2 별지 §13 FB-24 행 `← 완료(stage-50 · 날짜)` · backlog §1 FB-24 행 → §4 종결 이동 · FB-25 행 비고 "FB-24 선행" → "FB-24 완료(stage-50)"로 갱신 · `backlog-scan.ps1` PASS.
-- [ ] D-3 매뉴얼 분류 삭제 단락(규약 I) · CHANGELOG 항목 · stage-index 50행 · 이 문서 §7 완료 기록.
+- [x] D-1 설계 — api §4.1 18행 개정 + `[S50]` 절(편성 시 v1.61로 선반영 완료 · 완료 시 "구현 실측 확정" 표기 + 색인 v1.62) · screens §5.2·§5.4 S50 불릿(동일).
+- [x] D-2 별지 §13 FB-24 행 `← 완료(stage-50 · 날짜)` · backlog §1 FB-24 행 → §4 종결 이동 · FB-25 행 비고 "FB-24 선행" → "FB-24 완료(stage-50)"로 갱신 · `backlog-scan.ps1` PASS.
+- [x] D-3 매뉴얼 분류 삭제 단락(규약 I) · CHANGELOG 항목 · stage-index 50행 · 이 문서 §7 완료 기록.
 
 ## 4. 이 단계에서 하지 않는 것 (불변 규칙 9 — 이 절이 우선)
 
@@ -120,3 +120,27 @@
 
 ## 7. 완료 기록 (구현·검증·문서 경위 정본 — 착수 후 추기)
 
+- **편성**(2026-09-13): 지시서 확정 — 규약 A~I(사용자 확정 2건 = FB-24 ①+② 단독 묶음 · 버전 영향 사소 · 그 외 위임 판정) · api §4.1
+  18행 개정 + `[S50]` 절 · screens §5.2·§5.4 S50 추기(Design v1.61) · stage-index 50행 · backlog `편성 = stage-50` · 별지 §13 FB-24 편성
+  추기 · 편성 PR #99(GitHub 장애로 머지 지연 → 2026-09-13 머지).
+- **구현**(2026-09-13 · 커밋 0883cbd): 백엔드 = `routers/categories.py`(쿼리 2개 · 200 · `CategoryDeleteResult`) · `services/category_service.py`
+  `delete_category` 재작성(재귀 CTE `_collect_subtree` → 422/409 검사 순서 E → 링크 이관/삭제 → 진도 → 이어하기 → attempts → suggestions →
+  분류 깊은 순 → commit 1회) · `schemas/category.py` · `tests/test_category_delete.py`(FK ON 픽스처 · 12건) · `scripts/invariant-baseline.json`
+  physical-delete 기준선 1→9(분류 행·링크·진도·이어하기·제안 = 규약 D·E 정당분 · `documents` 무접촉 — 검토 경미 ② · 사용자 진행 승인).
+  프론트 = `components/DeleteCategoryModal.tsx` 신규 · `api/categories.ts`(`{id, on_documents?, recursive?}` → `URLSearchParams`) ·
+  `api/types.ts` `CategoryDeleteResult` · 3 페이지 `ConfirmDialog` 블록 교체 · Explore 선택 초기화 = 삭제 트리 포함 판정.
+- **검증**: `test_category_delete.py` 12 → 13 passed · `-Full` 636 → 637 passed · invariant PASS · `npm run build` 성공(엔트리 청크 무변 —
+  신규 의존 0) · tsc 0 · DoD 3 grep 0건.
+- **Opus 검토**(2026-09-13): **치명·중요 0 · 경미 6** — ① 상태 줄 미갱신(→ 이 절) ② 기준선 갱신 절차(→ 위 기록) ③ 409 `detail.documents` =
+  distinct 문서 수 vs 모달·통계 = 링크 행 수(→ api `[S50]` 실측 확정 표기) ④ 폴백 문구 3곳 → `useDeleteCategory` mutationFn 1곳 흡수(반영)
+  ⑤ B-2 문구 순서 정정(반영) ⑥ 재귀+reparent 4노드 dedup·진도 케이스 정식 테스트 편입(반영 · 커밋 bdcb17d). 해석 판정 = (a) 트리 내 dedup
+  폐기 행도 `skipped_duplicates` 합산 채택(항등 `unlinked+reparented+skipped = 대상 트리 링크 행 수`) (b) `study_progress` dedup 카운터
+  미반영 채택 (c) 프론트 "(하위 포함 D건)" 괄호 = `D !== d`일 때만 채택. 검토자 스크래치 5케이스(재귀+reparent · 재귀+미지정 409 · 재귀
+  unlink 합산 · `recursive=abc` 422 · 404) 통과.
+- **브라우저 실측 V-3**(2026-09-13 · 사용자 기동 8000 · browser-debugger): ⓐ 단순 확인(쿼리 없음 200) ⓑ 요약 "연결 문서 2건" = `doc_count` ·
+  `unlink` 후 usages 원복 ⓒ `reparent` → 부모 `doc_count`·usages 경로 ⓓ 미체크 [삭제] disabled + 힌트 · 체크 후 `recursive=1` · 하위 소멸 ·
+  Explore 선택 해제 ⓔ 루트 = 라디오 1개 ⓕ 태그 규칙 409 메시지 모달 표시 → 규칙 삭제 후 200 · 390px 줄바꿈 정상 — **전건 통과 · 콘솔
+  에러 0 · 실측 분류·규칙·연결 전부 정리(`S50` 0건 · usages 원복)**.
+- **문서 묶음 D**(2026-09-13): api `[S50]` 실측 확정 + screens 2곳 + Design v1.62(v1.58 아카이브 이관) · 별지 §13 FB-24 `← 완료` · backlog
+  §4 종결 이동 + FB-25 비고 "FB-24 완료(stage-50)" · 매뉴얼 분류 삭제 단락 · CHANGELOG v2.01.3 항목 합류(48·49·50) · stage-index 50행.
+- **잔여**: DoD 6 사용자 실사용(FB-24 원문 케이스 — 반입 단위 분류 삭제) 치명 0 회신 → `VERSION` 2.01.3 + tag(stage-48·49와 한 발행 단위).

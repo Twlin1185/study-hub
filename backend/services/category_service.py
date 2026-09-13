@@ -8,7 +8,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 import models
-from exceptions import ConflictError, NotFoundError
+from exceptions import ConflictError, NotFoundError, ValidationAppError
 from schemas.category import (
     CategoryCreate,
     CategoryMove,
@@ -283,28 +283,248 @@ def move_category(
     return category
 
 
-def delete_category(db: Session, category_id: int) -> None:
+def _collect_subtree(db: Session, root_id: int) -> List[Tuple[int, int]]:
+    """`root_id` 자신 + 모든 하위(자손)를 (id, depth) 목록으로 반환한다(depth 0 = 자신).
+
+    분류 물리 삭제 시 깊은 노드부터 지우기 위한 순서(depth desc)로도 재사용된다.
+    """
+    rows = db.execute(
+        text(
+            """
+            WITH RECURSIVE tree(id, depth) AS (
+                SELECT id, 0 FROM categories WHERE id = :root_id
+                UNION ALL
+                SELECT c.id, t.depth + 1
+                FROM categories c JOIN tree t ON c.parent_id = t.id
+            )
+            SELECT id, depth FROM tree
+            """
+        ),
+        {"root_id": root_id},
+    ).all()
+    return [(row.id, row.depth) for row in rows]
+
+
+def _active_doc_count(db: Session, target_ids: List[int]) -> int:
+    return db.execute(
+        select(func.count(func.distinct(models.CategoryDocument.document_id)))
+        .join(models.Document, models.Document.id == models.CategoryDocument.document_id)
+        .where(
+            models.CategoryDocument.category_id.in_(target_ids),
+            models.Document.is_active == 1,
+        )
+    ).scalar() or 0
+
+
+def _reparent_category_documents(
+    db: Session, target_ids: List[int], root_category_id: int, parent_id: int
+) -> Tuple[int, int]:
+    """대상 트리의 `category_documents` 행을 `parent_id`로 이관한다.
+
+    문서당 1행 규약: 트리 안 다중 연결은 `root_category_id` 자신의 행을 우선하고,
+    없으면 (category_id, sort_order, document_id) 순으로 첫 행을 승자로 삼는다.
+    승자가 부모에 이미 존재하는 문서면(부모 우선) 승자도 폐기(스킵)한다.
+    반환: (reparented, skipped_duplicates)
+    """
+    rows = db.execute(
+        select(models.CategoryDocument).where(
+            models.CategoryDocument.category_id.in_(target_ids)
+        )
+    ).scalars().all()
+
+    by_doc: Dict[int, List[models.CategoryDocument]] = defaultdict(list)
+    for row in rows:
+        by_doc[row.document_id].append(row)
+
+    parent_doc_ids = set(
+        db.execute(
+            select(models.CategoryDocument.document_id).where(
+                models.CategoryDocument.category_id == parent_id
+            )
+        ).scalars().all()
+    )
+
+    reparented = 0
+    skipped = 0
+
+    for document_id, doc_rows in by_doc.items():
+        root_row = next((r for r in doc_rows if r.category_id == root_category_id), None)
+        if root_row is not None:
+            winner = root_row
+        else:
+            winner = sorted(
+                doc_rows, key=lambda r: (r.category_id, r.sort_order, r.document_id)
+            )[0]
+
+        for row in doc_rows:
+            if row is not winner:
+                db.delete(row)
+                skipped += 1
+
+        if document_id in parent_doc_ids:
+            db.delete(winner)
+            skipped += 1
+        else:
+            winner.category_id = parent_id
+            reparented += 1
+
+    db.flush()
+    return reparented, skipped
+
+
+def _reparent_study_progress(
+    db: Session, target_ids: List[int], root_category_id: int, parent_id: int
+) -> None:
+    """대상 트리의 `study_progress` 행을 `parent_id`로 이관(부모에 이미 있으면 대상 행 폐기).
+
+    응답 통계에는 집계하지 않는다(통계는 category_documents 링크 전용).
+    """
+    rows = db.execute(
+        select(models.StudyProgress).where(
+            models.StudyProgress.category_id.in_(target_ids)
+        )
+    ).scalars().all()
+
+    by_doc: Dict[int, List[models.StudyProgress]] = defaultdict(list)
+    for row in rows:
+        by_doc[row.document_id].append(row)
+
+    parent_doc_ids = set(
+        db.execute(
+            select(models.StudyProgress.document_id).where(
+                models.StudyProgress.category_id == parent_id
+            )
+        ).scalars().all()
+    )
+
+    for document_id, doc_rows in by_doc.items():
+        root_row = next((r for r in doc_rows if r.category_id == root_category_id), None)
+        winner = root_row if root_row is not None else sorted(doc_rows, key=lambda r: r.category_id)[0]
+
+        for row in doc_rows:
+            if row is not winner:
+                db.delete(row)
+
+        if document_id in parent_doc_ids:
+            db.delete(winner)
+        else:
+            winner.category_id = parent_id
+
+    db.flush()
+
+
+def delete_category(
+    db: Session,
+    category_id: int,
+    on_documents: Optional[str] = None,
+    recursive: bool = False,
+) -> Dict[str, int]:
+    """분류 삭제 (설계 §4.1 [S50]).
+
+    검사 순서: 404 → 422(루트+reparent) → 409 태그 규칙 → 409 하위(비재귀) →
+    409 활성 문서(미지정) → 실행(링크 → 진도 → 이어하기 → attempts → suggestions →
+    분류 행 깊은 순) → commit 1회.
+    """
     category = get_category_or_404(db, category_id)
 
-    has_children = db.execute(
-        select(models.Category.id).where(models.Category.parent_id == category_id).limit(1)
-    ).first()
-    if has_children:
-        raise ConflictError(
-            "하위 분류가 있어 삭제할 수 없습니다. 먼저 비워주세요",
+    if on_documents == "reparent" and category.parent_id is None:
+        raise ValidationAppError(
+            "최상위 분류는 부모가 없어 재연결할 수 없습니다 — '연결만 해제'를 선택해주세요",
             detail={"category_id": category_id},
         )
 
-    has_documents = db.execute(
-        select(models.CategoryDocument.document_id)
-        .where(models.CategoryDocument.category_id == category_id)
-        .limit(1)
-    ).first()
-    if has_documents:
+    subtree_rows = _collect_subtree(db, category_id)
+    subtree_ids = [row_id for row_id, _ in subtree_rows]
+    target_ids = subtree_ids if recursive else [category_id]
+
+    tag_rule_ids = db.execute(
+        select(models.TagRule.id).where(models.TagRule.category_id.in_(target_ids))
+    ).scalars().all()
+    if tag_rule_ids:
         raise ConflictError(
-            "연결된 문서가 있어 삭제할 수 없습니다. 먼저 연결을 해제해주세요",
-            detail={"category_id": category_id},
+            f"이 분류(하위 포함)를 대상으로 하는 태그 규칙 {len(tag_rule_ids)}개가 있어 "
+            "삭제할 수 없습니다 — 설정 › 태그 규칙에서 먼저 정리해주세요",
+            detail={"category_id": category_id, "tag_rule_ids": list(tag_rule_ids)},
         )
 
-    db.delete(category)
+    if not recursive and len(subtree_ids) > 1:
+        children_count = len(subtree_ids) - 1
+        raise ConflictError(
+            f"하위 분류 {children_count}개가 있어 삭제할 수 없습니다 — "
+            "'하위 분류 포함'을 선택하거나 먼저 이동해주세요",
+            detail={"category_id": category_id, "children": children_count},
+        )
+
+    effective_on_documents = on_documents
+    if effective_on_documents is None:
+        active_count = _active_doc_count(db, target_ids)
+        if active_count > 0:
+            raise ConflictError(
+                f"연결된 문서 {active_count}건이 있어 삭제할 수 없습니다 — "
+                "연결만 해제/부모로 재연결 중 하나를 선택해주세요",
+                detail={"category_id": category_id, "documents": active_count},
+            )
+        effective_on_documents = "unlink"
+
+    unlinked = 0
+    reparented = 0
+    skipped_duplicates = 0
+
+    if effective_on_documents == "unlink":
+        db.execute(
+            models.StudyProgress.__table__.delete().where(
+                models.StudyProgress.category_id.in_(target_ids)
+            )
+        )
+        unlinked = db.execute(
+            select(func.count()).select_from(models.CategoryDocument).where(
+                models.CategoryDocument.category_id.in_(target_ids)
+            )
+        ).scalar() or 0
+        db.execute(
+            models.CategoryDocument.__table__.delete().where(
+                models.CategoryDocument.category_id.in_(target_ids)
+            )
+        )
+        db.execute(
+            models.Attempt.__table__.update()
+            .where(models.Attempt.category_id.in_(target_ids))
+            .values(category_id=None)
+        )
+    else:  # reparent
+        parent_id = category.parent_id  # 위 422 검사로 None이 아님이 보장됨
+        reparented, skipped_duplicates = _reparent_category_documents(
+            db, target_ids, category_id, parent_id
+        )
+        _reparent_study_progress(db, target_ids, category_id, parent_id)
+        db.execute(
+            models.Attempt.__table__.update()
+            .where(models.Attempt.category_id.in_(target_ids))
+            .values(category_id=parent_id)
+        )
+
+    db.execute(
+        models.ResumePoint.__table__.delete().where(
+            models.ResumePoint.category_id.in_(target_ids)
+        )
+    )
+    db.execute(
+        models.Suggestion.__table__.delete().where(
+            models.Suggestion.category_id.in_(target_ids)
+        )
+    )
+
+    delete_order = (
+        sorted(subtree_rows, key=lambda r: -r[1]) if recursive else [(category_id, 0)]
+    )
+    for cid, _ in delete_order:
+        db.execute(models.Category.__table__.delete().where(models.Category.id == cid))
+
     db.commit()
+
+    return {
+        "deleted_categories": len(delete_order),
+        "unlinked": unlinked,
+        "reparented": reparented,
+        "skipped_duplicates": skipped_duplicates,
+    }

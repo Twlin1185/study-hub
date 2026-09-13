@@ -58,6 +58,19 @@ class StageTypeProgress(BaseModel):
     total: int = 0
 
 
+class CategoryDeleteResult(BaseModel):
+    """`DELETE /api/categories/{id}` 응답 (설계 §4.1 [S50]).
+
+    unlinked/reparented은 `category_documents` 링크 행 수(활성·비활성 합산),
+    skipped_duplicates는 재연결 시 부모/트리 내 중복으로 이관 없이 폐기된 행 수.
+    """
+
+    deleted_categories: int
+    unlinked: int
+    reparented: int
+    skipped_duplicates: int
+
+
 class CategoryNodePipeline(BaseModel):
     """`GET /api/categories/tree?pipeline=1` 전용 응답 노드 — 기존 `CategoryNode`에
     `stage_progress`만 추가된 형태(파라미터 없는 기존 호출은 `CategoryNode`를 그대로 써서

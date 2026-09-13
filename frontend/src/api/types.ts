@@ -34,6 +34,15 @@ export interface CategoryTreeResponse {
   categories: CategoryNode[]
 }
 
+// DELETE /api/categories/{id}?on_documents=unlink|reparent&recursive=1 응답 (stage-50, FB-24 ②).
+// 미지정 쿼리 = 종전 409 동작(하위 분류·연결 문서가 있으면 삭제 불가) — 그 경로는 이 타입을 쓰지 않음.
+export interface CategoryDeleteResult {
+  deleted_categories: number
+  unlinked: number
+  reparented: number
+  skipped_duplicates: number
+}
+
 // 문서 목록 항목 — 명세에 명시된 필드 없음. tags/usage_count/bookmarked를 합리적으로 가정.
 export interface DocumentListItem {
   id: number

@@ -6,7 +6,7 @@
                             "frontend/src/utils/themeCustomInject.ts":  2
                         },
     "physical-delete":  {
-                            "backend/services/category_service.py":  1,
+                            "backend/services/category_service.py":  9,
                             "backend/services/tag_rule_service.py":  2,
                             "backend/services/tag_service.py":  3,
                             "backend/services/document_service.py":  4,
