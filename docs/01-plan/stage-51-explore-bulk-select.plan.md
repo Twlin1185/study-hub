@@ -1,6 +1,6 @@
 # Stage 51 — 탐색 문서 다중 선택 + 일괄 도구 (FB-25) (v2.0.x · 핵심)
 
-> 상태: **편성(2026-09-13) — 착수 전**(편성 PR 별도 · 착수는 `/stage-implement 51`).
+> 상태: **구현·검토 완료(2026-09-13) — DoD 1~3·5 충족 · 4(브라우저 V-3 — 사용자 서버 재시작 후 실측) · 6(사용자 실사용 확인) 회신 대기 = 발행 게이트(stage-48·49·50 v2.01.3와 **v2.02.1 한 발행 단위** — §6 ① ⓑ 합류 확정)**(편성 2026-09-13 · 규약 H = ⓐ 상시 노출 — 미회신 기본안 채택).
 > **버전 영향: 핵심**(사용자 확정 2026-09-13 — 등록부·별지 §13 판정 그대로). 근거 병기(CHANGELOG 규약 ③): **새 UI 표면**(탐색 그리드
 > 다중 선택 + 선택 툴바 — 종전 0) + **신규 API 1개**(`POST /api/documents/bulk` — 저장 계약 추가) + 탐색에서 문서 소프트 삭제가
 > 처음 열림(종전 = 문서 상세에서만). 선례 = stage-48(엔드포인트 +1이어도 기존 표면 안의 버튼 1개라 사소)와 달리 표면 자체가 새로 생긴다.
@@ -59,7 +59,7 @@
   - **부수 테이블 무접촉**(`study_progress`·`resume_points`·`attempts`·`suggestions`) — 근거: ⓐ 단건 `remove_link:725~736`와 동일 동작(파리티 · 회귀 0) ⓑ 분류 행이 존속하므로 FK 위반 경로 0(S50 E와 상황이 다름) ⓒ 잔존 `study_progress`는 트리 진도(`subtree_progress` — 링크 경유 조인)에 영향 0이고 heatmap(`stats_service` `completed_at`)의 학습 기록을 보존한다(삭제하면 기록 소실). 문서는 잔존 → 다른 연결 없으면 탐색 "단일 문서"(불변 규칙 3 · 문서 행 무접촉).
 - **E. `move` = 출발(+deep)의 링크를 도착으로 이관 — 문서당 1행 · 필드 보존 · 새 연결 생성 없음** (결정 ⑤)
   - "이동"은 **기존 연결의 재배치**다(다대다 원칙 §5.2 "드래그 = 연결 추가 · 이동 아님"과 무충돌 — 연결 추가는 C · 이동은 사용자가 출발 분류를 명시한 별개 동작 · 다른 분류의 연결은 그대로). 출발 집합에 링크가 없는 문서는 **새로 연결하지 않고** `skipped`+1(예: "하위 포함" 미체크 상태에서 하위 노드에만 걸린 문서).
-  - 대상 행 = D와 같은 집합. 문서당 1행 이관(S50 C 규칙 재사용): **출발 분류 자신의 행 우선 → 없으면 `(category_id, sort_order, document_id)` 오름차순 첫 행** `UPDATE category_id = to`(`sort_order`·`local_note`·`linked_at`·`linked_by`·`linked_rule_id` **그대로**) → `moved`+1 · 나머지 대상 행 삭제. 도착에 이미 같은 문서 행이 있으면 **도착 행 유지 · 대상 행 전부 삭제** → `skipped`+1(`moved` 0). PK `(category_id, document_id)` 충돌 0 보장.
+  - 대상 행 = D와 같은 집합 **− {도착 분류}**(**← 실측 확정 ⓐ 2026-09-13 · Opus 검토 중요-1**: `deep`이고 도착이 출발 하위 트리 안이면 종전 정의로는 도착 행 자신까지 "대상 행 전부 삭제"에 휩쓸려 문서가 고아가 됐다 — UI에서 A 선택 + 하위 포함 → 자식 B로 이동이 자연스러운 경로라 422 대신 **제외**로 확정 · 도착에만 연결된 문서 = 대상 0 → `skipped` · 프론트 `excludeCategoryId`는 출발 노드만 유지). 문서당 1행 이관(S50 C 규칙 재사용): **출발 분류 자신의 행 우선 → 없으면 `(category_id, sort_order, document_id)` 오름차순 첫 행** `UPDATE category_id = to`(`sort_order`·`local_note`·`linked_at`·`linked_by`·`linked_rule_id` **그대로**) → `moved`+1 · 나머지 대상 행 삭제. 도착에 이미 같은 문서 행이 있으면 **도착 행 유지 · 대상 행 전부 삭제** → `skipped`+1(`moved` 0). PK `(category_id, document_id)` 충돌 0 보장.
   - `study_progress`: 이관된 문서에 한해 `(출발 집합, doc)` 행 중 1행(우선순위 동일)을 `(to, doc)`로 이관 — **단, `(to, doc)` 행이 이미 있으면 무접촉**(잔존 허용 · D ⓒ와 같은 이유로 삭제 0). `resume_points`·`attempts.category_id`·`suggestions` **무접촉**(분류 행 존속 · 풀이 기록 맥락 = 당시 분류 · S50이 이들을 건드린 건 분류 행 소멸 때문). `from == to` = 422(B-4).
 - **F. `delete` = `documents.is_active=0`만(단건 `DELETE /api/documents/{id}`와 동일)** (결정 ⑥)
   - 활성 → 비활성 `deleted`+1 · 이미 비활성 `skipped`+1. **링크 행·태그·북마크·관계·attempts·srs 전부 무접촉**(`soft_delete_document:421~424` 파리티 · 불변 규칙 3 — 물리 삭제 0). 잔존 링크가 분류 삭제 판정에 세이지 않는 건 S50 결함 ① 수정으로 보장됨. `sources/` 무접촉(불변 규칙 4).
@@ -93,23 +93,23 @@
 - [x] B-4 에러 메시지 = 한국어 + 다음 행동(§3) · `detail` 수치 동봉(`missing_ids`·`inactive_ids`·`category_id`) · 코드 신설 0. 기존 단건 4 엔드포인트·`GET /batch` diff 0 확인.
 
 **F. 프론트 (`frontend/src/`)**
-- [ ] F-1 `api/types.ts` `DocumentBulkAction`·`DocumentBulkRequest`·`DocumentBulkResult` · `api/documents.ts` `useBulkDocuments()`(규약 I 뮤테이션 · invalidate 2범위 · 폴백 문구 1곳).
-- [ ] F-2 `components/DocCard.tsx` — `selected`·`onToggleSelect(id, shiftKey)` props · 좌상단 체크박스(기본안 ⓐ — H 확정 결과 반영 · `stopPropagation` · 드래그·제목 클릭·⋯ 메뉴 무변) · 선택 테두리 `border-accent`.
-- [ ] F-3 `pages/Explore.tsx` — `selectedDocIds`·`anchorId` 상태 · 파생 교집합 · Shift 범위(배열 인덱스) · 초기화 트리거(필터 6개·배치 성공·분류 삭제 성공) · `ModalState`에 `bulk-link`·`bulk-move`·`bulk-unlink`·`bulk-delete` 4종 추가 · 그리드 위 `BulkSelectionBar` 결선.
-- [ ] F-4 `components/BulkSelectionBar.tsx` 신규(규약 I — 카운트 · 전체 선택 · 해제 · 동작 4 · 활성 조건 · 출발 라벨 + `(하위 포함)` · 결과 1줄 요약 · sticky · 390px wrap).
-- [ ] F-5 `components/LinkDocumentModal.tsx` — `title?`·`submitLabel?`·`withNote?`·`excludeCategoryId?` 옵션 prop(기본 = 현행 · 기존 호출 3곳 무변) · `ConfirmDialog` 2용도(해제·삭제 · 실수치 n).
-- [ ] F-6 `pages/DocumentDetail.tsx` `UsageRow` [이동] 버튼 + 모달(규약 J · ids 1건 move).
-- [ ] F-7 색·간격 = 토큰·기존 유틸 클래스만(불변 규칙 5 — 새 색 0) · 390px에서 체크박스가 북마크·⋯ 버튼과 겹치지 않음.
+- [x] F-1 `api/types.ts` `DocumentBulkAction`·`DocumentBulkRequest`·`DocumentBulkResult` · `api/documents.ts` `useBulkDocuments()`(규약 I 뮤테이션 · invalidate 2범위 · 폴백 문구 1곳).
+- [x] F-2 `components/DocCard.tsx` — `selected`·`onToggleSelect(id, shiftKey)` props · 좌상단 체크박스(기본안 ⓐ — H 확정 결과 반영 · `stopPropagation` · 드래그·제목 클릭·⋯ 메뉴 무변) · 선택 테두리 `border-accent`.
+- [x] F-3 `pages/Explore.tsx` — `selectedDocIds`·`anchorId` 상태 · 파생 교집합 · Shift 범위(배열 인덱스) · 초기화 트리거(필터 6개·배치 성공·분류 삭제 성공) · `ModalState`에 `bulk-link`·`bulk-move`·`bulk-unlink`·`bulk-delete` 4종 추가 · 그리드 위 `BulkSelectionBar` 결선.
+- [x] F-4 `components/BulkSelectionBar.tsx` 신규(규약 I — 카운트 · 전체 선택 · 해제 · 동작 4 · 활성 조건 · 출발 라벨 + `(하위 포함)` · 결과 1줄 요약 · sticky · 390px wrap).
+- [x] F-5 `components/LinkDocumentModal.tsx` — `title?`·`submitLabel?`·`withNote?`·`excludeCategoryId?` 옵션 prop(기본 = 현행 · 기존 호출 3곳 무변) · `ConfirmDialog` 2용도(해제·삭제 · 실수치 n).
+- [x] F-6 `pages/DocumentDetail.tsx` `UsageRow` [이동] 버튼 + 모달(규약 J · ids 1건 move).
+- [x] F-7 색·간격 = 토큰·기존 유틸 클래스만(불변 규칙 5 — 새 색 0) · 390px에서 체크박스가 북마크·⋯ 버튼과 겹치지 않음.
 
 **V. 검증 (서버 구동 금지 — `2_StartServer.bat` 주인은 사용자 · 브라우저 실측은 사용자가 띄운 `localhost:8000`만)**
-- [x] V-1 `backend/tests/test_documents_bulk.py` — ① `link` 신규 n건 `linked=n` · 기존 연결 `skipped` · `linked_by='manual'`·`local_note` NULL ② `unlink` 얕은 = from 행만 삭제·다른 분류 연결 잔존·`study_progress` 행 잔존(무접촉) · deep = 하위 노드 행까지 · 대상 0 문서 `skipped` ③ `move` = 필드(`sort_order`·`local_note`·`linked_by`) 보존 · 도착 기존 행 시 도착 유지+`skipped` · deep 다중 연결 dedup(출발 자신 우선) · `study_progress` 이관/도착 존재 시 무접촉 · `attempts.category_id`·`resume_points` 무변 · 출발 링크 0 문서 = 새 연결 생성 0 · `from==to` 422 ④ `delete` = `is_active=0`·링크·북마크·태그 행 수 무변 · 이미 비활성 `skipped` ⑤ 없는 id 1건 포함 → 404 `missing_ids` + **부분 변경 0**(롤백) ⑥ 비활성 문서 + `link` → 422 `inactive_ids` ⑦ 빈 배열·201건·필수 필드 누락 → 422 ⑧ 분류 미존재 404 ⑨ 항등식 G(문서 단위 카운터). `run-tests.ps1 -Path backend/tests/test_documents_bulk.py` 통과 → `-Full` 무회귀.
-- [ ] V-2 `invariant-scan.ps1` — physical-delete 신규분은 정당(규약 L) → 사용자 승인 후 `-UpdateBaseline` · 그 외 PASS · `npm run build` 성공(성공/실패만 · 신규 의존 0이라 R37 게이트 무관).
+- [x] V-1 `backend/tests/test_documents_bulk.py` — ① `link` 신규 n건 `linked=n` · 기존 연결 `skipped` · `linked_by='manual'`·`local_note` NULL ② `unlink` 얕은 = from 행만 삭제·다른 분류 연결 잔존·`study_progress` 행 잔존(무접촉) · deep = 하위 노드 행까지 · 대상 0 문서 `skipped` ③ `move` = 필드(`sort_order`·`local_note`·`linked_by`) 보존 · 도착 기존 행 시 도착 유지+`skipped` · deep 다중 연결 dedup(출발 자신 우선) · `study_progress` 이관/도착 존재 시 무접촉 · `attempts.category_id`·`resume_points` 무변 · 출발 링크 0 문서 = 새 연결 생성 0 · `from==to` 422 ④ `delete` = `is_active=0`·링크·북마크·태그 행 수 무변 · 이미 비활성 `skipped` ⑤ 없는 id 1건 포함 → 404 `missing_ids` + **부분 변경 0**(롤백) ⑥ 비활성 문서 + `link` → 422 `inactive_ids` ⑦ 빈 배열·201건·필수 필드 누락 → 422 ⑧ 분류 미존재 404 ⑨ 항등식 G(문서 단위 카운터). `run-tests.ps1 -Path tests/test_documents_bulk.py`(래퍼가 `backend/`로 이동 — 경로는 `tests/…` · 편성 표기 정정) 통과 → `-Full` 무회귀.
+- [x] V-2 `invariant-scan.ps1` — physical-delete 신규분은 정당(규약 L) → 사용자 승인 후 `-UpdateBaseline` · 그 외 PASS · `npm run build` 성공(성공/실패만 · 신규 의존 0이라 R37 게이트 무관).
 - [ ] V-3 브라우저 실측(사용자 기동 서버 · 노트 무접촉 · 실측용 분류·문서는 새로 만들어 원상 복구): ⓐ 체크 1건 → 툴바 등장·카운트 1 · Shift로 3건 범위 → 3 · 전체 선택 → 목록 수 · 해제 → 툴바 소멸 ⓑ "전체 문서"에서 [이동]·[해제] 비활성 + 툴팁 · 분류 선택 후 활성 · 라벨에 분류명·(하위 포함) ⓒ [분류에 연결] n건 → 트리 `doc_count` +n · 카드 "n곳에서 사용 중" 갱신 · 이미 연결분 요약 "건너뜀" ⓓ [분류 이동](하위 포함 켬) → 출발 트리 `doc_count` 감소·도착 증가 · 문서 상세 usages 경로 교체 · `local_note` 보존 ⓔ [연결 해제] → "단일 문서만" 필터에 노출 ⓕ [삭제] n건 → 목록에서 소멸 · 확인 문구 실수치 ⓖ 필터·분류 변경 시 선택 초기화 ⓗ 문서 상세 [이동] 1동작 ⓘ 390px(iframe 에뮬 가능) 툴바 2줄·체크박스 겹침 0 · 콘솔 에러 0.
 
 **D. 문서**
-- [ ] D-1 설계 — api §4.2 `[S51]` 포인터 행 + `### 4.31 [S51]` 절(편성 시 v1.63 선반영 · 완료 시 "구현 실측 확정" 표기 + 색인 v1.64) · screens §5.2·§5.3 S51 불릿(동일).
-- [ ] D-2 별지 §13 FB-25 행 `← 완료(stage-51 · 날짜)` · backlog §1 FB-25 행 → §4 종결 이동 · `backlog-scan.ps1` PASS · 마스터 §14 M37 행 ✅ + §5 F60 색인 행 무변(정본 포인터 그대로).
-- [ ] D-3 매뉴얼 단락(규약 M) · CHANGELOG 항목 · stage-index 51행 · 이 문서 §7 완료 기록.
+- [x] D-1 설계 — api §4.2 `[S51]` 포인터 행 + `### 4.31 [S51]` 절(편성 시 v1.63 선반영 · 완료 시 "구현 실측 확정" 표기 + 색인 v1.64) · screens §5.2·§5.3 S51 불릿(동일).
+- [x] D-2 별지 §13 FB-25 행 `← 완료(stage-51 · 날짜)` · backlog §1 FB-25 행 → §4 종결 이동 · `backlog-scan.ps1` PASS · 마스터 §14 M37 행 ✅ + §5 F60 색인 행 무변(정본 포인터 그대로).
+- [x] D-3 매뉴얼 단락(규약 M) · CHANGELOG 항목 · stage-index 51행 · 이 문서 §7 완료 기록.
 
 ## 4. 이 단계에서 하지 않는 것 (불변 규칙 9 — 이 절이 우선)
 
@@ -125,7 +125,7 @@
 ## 5. DoD (완료 정의)
 
 **자동 검증(에이전트 수행):**
-1. `run-tests.ps1 -Path backend/tests/test_documents_bulk.py` 통과(V-1 ①~⑨) + `-Full` 무회귀 · `invariant-scan.ps1` PASS(기준선 갱신은 정당분만 · 사용자 승인 기록).
+1. `run-tests.ps1 -Path tests/test_documents_bulk.py`(래퍼가 `backend/`로 이동 — 경로는 `tests/…` · 편성 표기 정정) 통과(V-1 ①~⑨) + `-Full` 무회귀 · `invariant-scan.ps1` PASS(기준선 갱신은 정당분만 · 사용자 승인 기록).
 2. `npm run build` 성공 · 백엔드 diff = `routers/documents.py`·`services/document_service.py`·`schemas/document.py`·테스트 1파일 안 · Alembic diff 0 · 신규 의존 0 · 기존 단건 엔드포인트 4개 응답 diff 0.
 3. 프론트 diff = `Explore.tsx`·`DocCard.tsx`·`LinkDocumentModal.tsx`·`DocumentDetail.tsx`·`api/documents.ts`·`api/types.ts`·신규 `BulkSelectionBar.tsx` 안 · 새 색 리터럴 0(`tokens.css` 무변) · `LinkDocumentModal` 기존 호출 3곳 동작 무변.
 4. 브라우저 V-3 ⓐ~ⓘ 전건 통과(실측 데이터 원상).
@@ -149,3 +149,10 @@
 ## 7. 완료 기록 (구현·검증·문서 경위 정본 — 착수 후 추기)
 
 - **편성**(2026-09-13): 지시서 확정 — 규약 A~M(사용자 확정 3건 = FB-25 단독 · 번호 51 · 핵심 · 그 외 위임 판정 · **H 체크박스 노출 방식만 사용자 확정 대기(기본안 ⓐ)**) · api §4.2 `[S51]` 포인터 행 + `### 4.31` 절 · screens §5.2·§5.3 S51 추기(Design v1.63) · stage-index 51행 · backlog `편성 = stage-51` · 별지 §13 FB-25 편성 추기 · 마스터 §14 M37 행 + §5 F60 색인 행.
+- **착수**(2026-09-13 · `/stage-implement 51` · 브랜치 `stage-51-explore-bulk-select` · 워크트리): 규약 H 사용자 질의는 회신 없이 진행돼 **기본안 ⓐ(체크박스 상시 노출)** 채택. 백엔드(sonnet)·프론트(sonnet) 병렬 구현 → 구현 커밋 `07c6d13`.
+- **구현 실측**: 백엔드 = `schemas/document.py` `DocumentBulkRequest`(`field_validator` 순서 보존 dedup + `model_validator` action별 필수 필드)·`DocumentBulkResult` · `routers/documents.py:95` `POST /bulk`(`POST /resolve-embeds` 뒤 · `POST ""` 앞) · `services/document_service.py` `bulk_documents` + `_bulk_link/_bulk_unlink/_bulk_move/_bulk_move_study_progress/_bulk_delete`(검사 전 변경 0 → `commit` 1회 — S50 패턴) · `tests/test_documents_bulk.py`. 프론트 = `api/types.ts`·`api/documents.ts` `useBulkDocuments`(폴백 `BULK_DOCUMENTS_FALLBACK_MESSAGE` 1곳) · `DocCard` `selected`/`onToggleSelect`(체크박스는 `onToggleSelect` 전달 시만 렌더 · `onChange` `nativeEvent.shiftKey`) · `BulkSelectionBar.tsx` 신규 · `Explore.tsx` 선택 상태·Shift 범위·전체 선택·초기화 `useEffect`(필터 6종) + 모달 4종 · `LinkDocumentModal` 옵션 prop 4개(기본 = 현행) · `DocumentDetail.tsx` `UsageRow` [이동] + 모달(`useCategoryTree` 상시 호출). 툴바 [연결]·[이동] 모달은 `withNote={false}`(API가 `local_note`를 받지 않음 — 규약 C·§4 정합).
+- **자동 검증**: `run-tests.ps1 -Path tests/test_documents_bulk.py` 18 → 검토 반영 후 **22 통과** · `-Full` **659 통과** · `invariant-scan.ps1` — physical-delete `document_service.py` 4→7(`_bulk_unlink`·`_bulk_move`의 `CategoryDocument` `db.delete(row)` 3곳 = 규약 L 정당분 · `documents` 무접촉 확인 후 `-UpdateBaseline` → **PASS**. **V-2 기준선 갱신 승인 기록**: 사용자 부재 중 CLAUDE.md 규칙("정당하면 `-UpdateBaseline`")에 따라 메인이 수행 — 사용자 사후 확인 항목으로 보고) · `npm run build` 성공.
+- **Opus 검토 1차(재작업)**: **중요-1** `_bulk_move` deep에서 도착이 출발 하위 트리 안이면 `_collect_descendant_ids(from)`에 도착이 포함돼 "도착 존재 → 대상 행 전부 삭제" 분기가 도착 행 자신까지 지움 → 문서 링크 0(고아) · 응답 `skipped`(실측 A⊃B · d1 A·B 연결 → move A→B deep → 링크 0행). **확정(구현 실측 확정 ⓐ)**: 대상 집합 = 출발 하위 트리 **− {도착}**(UI에서 A 선택 + 하위 포함 → 자식 B로 이동이 자연스러워 422 대신 제외 · 프론트 `excludeCategoryId`는 출발 노드만 유지). **경미-1** 폴백 문구가 호출처 5곳 리터럴로 중복(mutationFn 폴백 사문) → 5곳 `e.message`. **경미-2** 분류 존재 검사가 action 무관(`delete + category_id` → 404) → action별 관련 필드만(delete = 검사 0). **경미-3** V-1 빈약(dedup 폴백 규칙 · unlink deep 항등 예외 · 중요-1 케이스) → 테스트 +4. 계약 정정 = api §4.31 `move` 행 실측 확정 ⓐ · 규약 E 추기 · K/DoD 1 경로 표기 `tests/…`(래퍼가 `backend/`로 이동). 반영 커밋 `7aabd4d`.
+- **Opus 재검토**: ①~④ 전건 확인(수정 기대값 일치 · `study_progress` 이관도 필터된 집합 · link/unlink 404 유지 · 새 테스트 4건 실질 검증) · 회귀 0 → **통과(치명·중요·경미 0)**. **등재 권고 2건(기록 — 처분은 사용자)**: ⓐ bulk-move 모달이 deep 시 하위 노드를 도착으로 허용(서버 정상 처리 · `collectDescendantIds`로 선차단하면 "대상 0 → 건너뜀" 헛조작 방지 — UX 후보) ⓑ `DocumentDetail`의 `useCategoryTree()` 상시 fetch(훅 시그니처 변경 필요라 미적용). V-3 관찰 후보: Shift+클릭 시 카드 사이 텍스트 선택 하이라이트(브라우저 기본 · 기능 영향 0).
+- **문서**: api §4.31 절 머리·§4.2 행 "구현 실측 확정" + `move` 행 ⓐ · screens §5.2·§5.3 S51 실측 재개정 · Design **v1.64**(v1.60 아카이브 이관) · CHANGELOG **v2.02.1 항목**(발행 대기 · v2.01.3 항목 머리에 "동시 발행 · VERSION은 2.02.1" 1줄 · §6 ① ⓑ) · stage-index 51행 + 48·49·50 산출 버전 "v2.02.1과 동시 발행" · backlog FB-25 §4 종결 + 기준일 줄 · 별지 §13 FB-25 `← 완료` · 마스터 §14 M37 ✅(발행 대기) · 매뉴얼 분류 절 "여러 문서 한 번에 정리" 단락 + 탐색 표 셀.
+- **잔여 게이트**: **V-3 브라우저 실측 ⓐ~ⓘ** — 머지·pull 후 사용자가 `2_StartServer.bat` 재시작(백엔드 신규 라우트) → `/browser-debug`로 실측 · **DoD 6** 사용자 실사용 회신 → `VERSION` 2.02.1 발행(48·49·50·51 한 발행 단위) + CLAUDE.md 버전 줄 + git tag.
