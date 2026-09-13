@@ -484,7 +484,7 @@ export default function ExplorePage() {
                   setAnchorId(null)
                   closeModal()
                 },
-                onError: (e) => setModalError(errMsg(e, '일괄 작업에 실패했습니다.')),
+                onError: (e) => setModalError(e.message),
               },
             )
           }}
@@ -518,7 +518,7 @@ export default function ExplorePage() {
                   setAnchorId(null)
                   closeModal()
                 },
-                onError: (e) => setModalError(errMsg(e, '일괄 작업에 실패했습니다.')),
+                onError: (e) => setModalError(e.message),
               },
             )
           }}
@@ -546,7 +546,7 @@ export default function ExplorePage() {
                   setAnchorId(null)
                   closeModal()
                 },
-                onError: (e) => setModalError(errMsg(e, '일괄 작업에 실패했습니다.')),
+                onError: (e) => setModalError(e.message),
               },
             )
           }}
@@ -573,7 +573,7 @@ export default function ExplorePage() {
                   setAnchorId(null)
                   closeModal()
                 },
-                onError: (e) => setModalError(errMsg(e, '일괄 작업에 실패했습니다.')),
+                onError: (e) => setModalError(e.message),
               },
             )
           }}

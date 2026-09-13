@@ -387,6 +387,146 @@ def test_move_from_equals_to_returns_422(client: TestClient, db):
 
 
 # ---------------------------------------------------------------------------
+# 검토 반영 — [중요-1] move deep에서 도착이 출발 하위 트리 안(A⊃B, from=A→to=B):
+# 대상 집합에서 to_category_id를 제외해야 도착 행 자신이 삭제되지 않는다(회귀).
+# ---------------------------------------------------------------------------
+
+
+def test_move_deep_destination_inside_source_subtree(client: TestClient, db):
+    a_id = _mk_category(db, "A")
+    b_id = _mk_category(db, "B", parent_id=a_id)  # B는 A의 하위(도착이 출발 하위 트리 안)
+    d1 = _mk_document(db, "D1")  # A·B 둘 다 연결
+    d2 = _mk_document(db, "D2")  # B에만 연결
+    d3 = _mk_document(db, "D3")  # A에만 연결
+    _link(db, a_id, d1, local_note="a-note")
+    _link(db, b_id, d1, local_note="b-note")
+    _link(db, b_id, d2, local_note="b-only")
+    _link(db, a_id, d3, local_note="a-only")
+
+    resp = client.post(
+        "/api/documents/bulk",
+        json={
+            "action": "move",
+            "document_ids": [d1, d2, d3],
+            "category_id": a_id,
+            "to_category_id": b_id,
+            "deep": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["moved"] == 1  # d3만 이관
+    assert body["skipped"] == 2  # d1(도착에 이미 있음)·d2(대상 0)
+    assert body["requested"] == body["moved"] + body["skipped"]  # 규약 G 항등
+
+    db.expunge_all()
+    # d1: A 행 삭제, B 행(도착 자신)은 그대로 잔존 — 고아(링크 0) 아님
+    assert db.get(models.CategoryDocument, {"category_id": a_id, "document_id": d1}) is None
+    d1_b_row = db.get(models.CategoryDocument, {"category_id": b_id, "document_id": d1})
+    assert d1_b_row is not None
+    assert d1_b_row.local_note == "b-note"
+    # d2: 대상(A만, B 제외) 0 → 무접촉, B 행 그대로
+    d2_b_row = db.get(models.CategoryDocument, {"category_id": b_id, "document_id": d2})
+    assert d2_b_row is not None
+    assert d2_b_row.local_note == "b-only"
+    # d3: A → B로 이관, 필드 보존
+    assert db.get(models.CategoryDocument, {"category_id": a_id, "document_id": d3}) is None
+    d3_b_row = db.get(models.CategoryDocument, {"category_id": b_id, "document_id": d3})
+    assert d3_b_row is not None
+    assert d3_b_row.local_note == "a-only"
+
+
+# ---------------------------------------------------------------------------
+# 검토 반영 — [경미-3] ⓑ move dedup 폴백: 출발 자신 행이 없고 하위 2노드에 연결된
+# 문서 → (category_id, sort_order, document_id) 오름차순 첫 행이 이관, 필드 보존.
+# ---------------------------------------------------------------------------
+
+
+def test_move_deep_dedup_fallback_no_source_root_row(client: TestClient, db):
+    from_id = _mk_category(db, "From")
+    child_a = _mk_category(db, "ChildA", parent_id=from_id)  # child_a.id < child_b.id
+    child_b = _mk_category(db, "ChildB", parent_id=from_id)
+    to_id = _mk_category(db, "To")
+    d1 = _mk_document(db, "D1")
+    # from_id 자신의 행은 없음 — child_a·child_b에만 연결(폴백 규칙 적용 대상)
+    _link(db, child_a, d1, sort_order=7, local_note="a-note")
+    _link(db, child_b, d1, sort_order=2, local_note="b-note")
+
+    resp = client.post(
+        "/api/documents/bulk",
+        json={
+            "action": "move",
+            "document_ids": [d1],
+            "category_id": from_id,
+            "to_category_id": to_id,
+            "deep": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["moved"] == 1
+
+    db.expunge_all()
+    assert db.get(models.CategoryDocument, {"category_id": child_a, "document_id": d1}) is None
+    assert db.get(models.CategoryDocument, {"category_id": child_b, "document_id": d1}) is None
+    winner_row = db.get(models.CategoryDocument, {"category_id": to_id, "document_id": d1})
+    assert winner_row is not None
+    # category_id 오름차순 첫 행(child_a — 생성 순서상 id가 더 작음)의 필드가 보존됨
+    assert winner_row.sort_order == 7
+    assert winner_row.local_note == "a-note"
+
+
+# ---------------------------------------------------------------------------
+# 검토 반영 — [경미-3] ⓒ unlink deep에서 문서 1건이 하위 여러 노드에 연결되면
+# unlinked(행 수) > requested(문서 수) — 규약 G 항등 예외.
+# ---------------------------------------------------------------------------
+
+
+def test_unlink_deep_row_count_exceeds_requested(client: TestClient, db):
+    parent_id = _mk_category(db, "P")
+    child1_id = _mk_category(db, "C1", parent_id=parent_id)
+    child2_id = _mk_category(db, "C2", parent_id=parent_id)
+    d1 = _mk_document(db, "D1")
+    _link(db, child1_id, d1)
+    _link(db, child2_id, d1)
+
+    resp = client.post(
+        "/api/documents/bulk",
+        json={
+            "action": "unlink",
+            "document_ids": [d1],
+            "category_id": parent_id,
+            "deep": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["requested"] == 1
+    assert body["unlinked"] == 2  # 행 수 > 문서 수(규약 G 항등 예외)
+    assert body["skipped"] == 0
+
+    db.expunge_all()
+    assert db.get(models.CategoryDocument, {"category_id": child1_id, "document_id": d1}) is None
+    assert db.get(models.CategoryDocument, {"category_id": child2_id, "document_id": d1}) is None
+
+
+# ---------------------------------------------------------------------------
+# 검토 반영 — [경미-2] delete는 category_id를 무시 — 존재하지 않는 category_id를
+# 동봉해도 404가 나지 않고 200(action별 관련 필드만 검사).
+# ---------------------------------------------------------------------------
+
+
+def test_delete_ignores_category_id_even_if_nonexistent(client: TestClient, db):
+    d1 = _mk_document(db, "D1")
+
+    resp = client.post(
+        "/api/documents/bulk",
+        json={"action": "delete", "document_ids": [d1], "category_id": 999999},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] == 1
+
+
+# ---------------------------------------------------------------------------
 # ④ delete — is_active=0 · 링크·북마크·태그 무접촉 · 이미 비활성 skipped
 # ---------------------------------------------------------------------------
 

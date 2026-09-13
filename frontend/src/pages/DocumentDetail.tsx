@@ -569,7 +569,7 @@ export default function DocumentDetailPage() {
               },
               {
                 onSuccess: () => setMovingFromCategoryId(null),
-                onError: (e) => setMoveError(errMsg(e, '이동에 실패했습니다.')),
+                onError: (e) => setMoveError(e.message),
               },
             )
           }}

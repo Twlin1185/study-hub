@@ -850,9 +850,20 @@ def _bulk_move(
 ) -> Tuple[int, int]:
     """규약 E — 출발(+deep)의 링크를 도착으로 이관, 문서당 1행(S50 `_reparent_category_documents`
     dedup 규칙 재사용: 출발 자신 행 우선 → (category_id, sort_order, document_id) 첫 행).
-    출발 링크 0 문서 = 새 연결 생성 없이 skipped."""
+    출발 링크 0 문서 = 새 연결 생성 없이 skipped.
+
+    deep일 때 도착이 출발의 하위 트리 안에 있으면(A⊃B, from=A→to=B) 대상 집합에서
+    `to_category_id`를 제외한다 — 포함하면 "도착에 이미 있음" 분기가 도착 자신의 행까지
+    삭제해 문서가 링크 0(고아)이 된다(검토 반영 · 실측 A→B deep 회귀).
+    """
     target_category_ids = (
-        _collect_descendant_ids(db, from_category_id) if deep else [from_category_id]
+        [
+            cid
+            for cid in _collect_descendant_ids(db, from_category_id)
+            if cid != to_category_id
+        ]
+        if deep
+        else [from_category_id]
     )
     rows = db.execute(
         select(models.CategoryDocument).where(
@@ -950,9 +961,13 @@ def bulk_documents(db: Session, payload: DocumentBulkRequest) -> DocumentBulkRes
             detail={"missing_ids": missing_ids},
         )
 
-    category_ids_to_check = [
-        cid for cid in (payload.category_id, payload.to_category_id) if cid is not None
-    ]
+    # 규약 A: delete는 category_id를 무시 — action별 관련 필드만 검사(검토 반영).
+    if payload.action == "move":
+        category_ids_to_check = [payload.category_id, payload.to_category_id]
+    elif payload.action in ("link", "unlink"):
+        category_ids_to_check = [payload.category_id]
+    else:  # delete
+        category_ids_to_check = []
     for category_id in category_ids_to_check:
         if db.get(models.Category, category_id) is None:
             raise NotFoundError(
