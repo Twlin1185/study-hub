@@ -26,8 +26,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/review-notes', label: '오답노트', icon: '📌' },
 ]
 
-// 데스크톱 사이드바 전용 추가 항목 — 탐색/반입은 모바일 하단 탭바에 없음(설계 §5 도입부),
-// 데스크톱에서는 계속 접근 가능해야 하므로 여기 유지.
+// 하단 탭바에 없는 추가 항목 — 탐색/반입/인쇄는 모바일 탭바 5개에 없음(설계 §5 도입부 · F39 탭
+// 추가 금지). 데스크톱 사이드바와 모바일 ☰ 드로어(stage-49 FB-8)가 같은 배열을 공유한다.
 const DESKTOP_EXTRA_ITEMS: NavItem[] = [
   { to: '/explore', label: '탐색', icon: '🗂️' },
   { to: '/import', label: '반입', icon: '📥' },
@@ -234,9 +234,10 @@ export default function Layout({ children }: { children: ReactNode }) {
         </nav>
       </div>
 
-      {/* 좌측 드로어(모바일 전용) — "노트"(stage-43 G-1 정식 승격) · "LLM 작업" 진입점 2개를
-          담는다(하단 탭바 불변 — §5 공통 레이아웃, F39 관례. FB-8 전면 확장은 이번 범위 아님 —
-          '노트' 1항목 추가만). 향후 다른 항목이 필요해지면 이 자리에 늘린다. */}
+      {/* 좌측 드로어(모바일 전용, FB-8 완료) — 사이드바(:154~183)와 동일한 상단 항목
+          (NAV_ITEMS 5 + DESKTOP_EXTRA_ITEMS 3 + 노트 1 = 9) + 하단 그룹(LLM 작업 · 도움말)을
+          그대로 미러링한다. 하단 탭바 5개는 불변(§5 공통 레이아웃, F39 관례) — 이 드로어와의
+          중복 노출은 의도된 것이다. 설정은 헤더에 이미 있어 드로어에는 넣지 않는다. */}
       {mobileDrawerOpen && (
         <div
           className="fixed inset-0 z-50 flex bg-black/40 md:hidden print:hidden"
@@ -244,7 +245,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           role="presentation"
         >
           <div
-            className="flex h-full w-64 max-w-[80vw] flex-col gap-1 border-r border-border bg-surface p-3"
+            className="flex h-full w-64 max-w-[80vw] flex-col gap-1 overflow-y-auto border-r border-border bg-surface p-3 pt-[calc(0.75rem+env(safe-area-inset-top))]"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -261,15 +262,29 @@ export default function Layout({ children }: { children: ReactNode }) {
                 ✕
               </button>
             </div>
-            {/* stage-43 G-1(규약 B) — 노트 정식 승격, 드로어 1항목. 드로어 크기(비 collapsed)라
-                사이드바와 같은 행 레이아웃(text 라벨 포함)이 그대로 맞는다. */}
-            <NavButton item={NOTES_NAV_ITEM} onClick={() => setMobileDrawerOpen(false)} />
-            <JobCenterButton
-              onClick={() => {
-                setMobileDrawerOpen(false)
-                setJobCenterOpen(true)
-              }}
-            />
+            {[...NAV_ITEMS, ...DESKTOP_EXTRA_ITEMS, NOTES_NAV_ITEM].map((item) => (
+              <NavButton key={item.to} item={item} onClick={() => setMobileDrawerOpen(false)} />
+            ))}
+            <div className="mt-auto flex flex-col gap-1 pt-1">
+              {/* LLM 작업 센터 진입점(S22, F48) — 사이드바 :167~169와 같은 배치(도움말 위). */}
+              <JobCenterButton
+                onClick={() => {
+                  setMobileDrawerOpen(false)
+                  setJobCenterOpen(true)
+                }}
+              />
+              {/* 도움말 진입점(F39) — 앱 라우트가 아닌 외부 문서 링크라 NavLink가 아닌
+                  일반 <a target="_blank">. 사이드바 :172~183과 같은 속성·클래스 토큰. */}
+              <a
+                href="/manual"
+                target="_blank"
+                rel="noopener"
+                className="flex flex-row items-center justify-start gap-2 rounded px-3 py-2 text-sm text-muted transition-colors hover:bg-bg hover:text-primary"
+              >
+                <span aria-hidden>❓</span>
+                <span>도움말</span>
+              </a>
+            </div>
           </div>
         </div>
       )}

@@ -44,6 +44,7 @@ import {
   createDocEmbedBlockSpec,
   createSourceFallbackBlockSpec,
 } from './specs/blocks'
+import { withCodeCopyButton } from './specs/codeCopyButton'
 import { createTocBlockSpec } from './specs/tocBlock'
 import { createWebEmbedBlockSpec } from './specs/webEmbedBlock'
 import {
@@ -95,8 +96,18 @@ function withoutPresentationProps<T extends { config: { propSchema: Record<strin
 
 // 규약 E — 펜스 정보 문자열(```js title=a 의 `title=a`)은 **보존만** 한다. 편집 UI는 만들지
 // 않으며(자유 입력 금지), 어댑터가 이 prop으로 왕복시킨다.
+//
+// [복사] 버튼(stage-49 F-4)은 `withCodeCopyButton`이 엔진 `render`를 감싸 붙인다 — DOM API는 그
+// render 안에서만 쓰므로 이 모듈의 헤드리스 로드 계약(위 머리 주석)은 그대로다.
+//
+// 구문 강조(stage-49 F-3)는 **이 스펙이 아니라 편집기 확장**에서 켠다 — BlockNote 0.54의
+// `createCodeBlockSpec` 옵션에는 `createHighlighter`가 없고(`blocks/Code/CodeBlockOptions.d.ts` 실측),
+// 스펙은 `meta.highlight: (block) => block.props.language`로 언어만 선언한다. 하이라이터는 편집기
+// 전역 `SyntaxHighlightingExtension`이 받는다(`extensions.ts` — 지연 로드 사유도 거기).
 function codeBlockSpecWithInfo() {
-  const base = withoutPresentationProps(createCodeBlockSpec({ supportedLanguages: CODE_LANGUAGES }))
+  const base = withCodeCopyButton(
+    withoutPresentationProps(createCodeBlockSpec({ supportedLanguages: CODE_LANGUAGES })),
+  )
   return {
     ...base,
     config: {

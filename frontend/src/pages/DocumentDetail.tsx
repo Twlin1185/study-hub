@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -28,6 +28,7 @@ import { MARKDOWN_SCALE_CLASS } from '../utils/docStyle'
 import { ApiError } from '../api/client'
 import { pickEmbeddedBy, pickManualRelations } from '../utils/relations'
 import { choiceMarker, formatAnswer } from '../utils/answerFormat'
+import { writeClipboardText } from '../utils/clipboardWrite'
 
 // 에디터 v2 문서 편집 표면(S35 — 이 단계의 새 편집기 **유일한 진입점**). BlockNote·Mantine 번들이
 // 초기 청크에 섞이지 않게 **lazy 청크**로만 들어온다(R37 — 초기 청크 증가 ≤ 5KB가 DoD).
@@ -108,6 +109,12 @@ export default function DocumentDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [srsDetailOpen, setSrsDetailOpen] = useState(false)
   const [answerRevealed, setAnswerRevealed] = useState(false)
+  // [참조 복사](stage-49 F-6, 규약 D ⑤) — 노트 편집기에 붙여넣으면 이 문서의 임베드 블록이
+  // 되는 참조 문법을 클립보드에 담는다. 성공/실패 라벨을 1.5초 보여준 뒤 원래 라벨로 복원.
+  const [refCopyState, setRefCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  // 라벨 복원 타이머 — 연타 시 앞 타이머가 라벨을 일찍 되돌리지 않도록 보관·해제(검토 경미-2).
+  const refCopyTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(refCopyTimer.current), [])
 
   const doc = docQuery.data
 
@@ -182,6 +189,20 @@ export default function DocumentDetailPage() {
           </span>
           <span className="text-xs text-muted">{doc.doc_no}</span>
           <BookmarkButton documentId={doc.id} bookmarked={doc.bookmarked} />
+          {/* [참조 복사](stage-49 F-6, 규약 D ⑤) — 블록 편집 중에도 노출(:192 숨김 그룹 밖). */}
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await writeClipboardText(`![[${doc.doc_no}]]`)
+              setRefCopyState(ok ? 'copied' : 'failed')
+              window.clearTimeout(refCopyTimer.current)
+              refCopyTimer.current = window.setTimeout(() => setRefCopyState('idle'), 1500)
+            }}
+            title="노트에 붙여넣으면 이 문서의 임베드 블록이 됩니다"
+            className="text-xs text-muted hover:text-primary"
+          >
+            {refCopyState === 'copied' ? '복사됨' : refCopyState === 'failed' ? '복사 실패' : '참조 복사'}
+          </button>
         </div>
         {/* 새 편집기 표면이 열려 있는 동안에는 [편집]·[삭제]를 감춘다 — 편집 중 삭제로 들어가는
             경로를 막고, 종료는 표면 안의 [편집 종료](저장 후 닫기)로 단일화한다. */}

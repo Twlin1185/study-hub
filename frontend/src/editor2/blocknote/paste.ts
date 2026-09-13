@@ -15,6 +15,14 @@
 //      일부 앱의 "첨부+본문" 클립보드처럼 이미지 없이 비이미지 파일만 실려 왔을 때, 같은
 //      클립보드의 `text/html` 본문(②)까지 통째로 버려지던 사고(검토 경미-1)를 막는다 — 안내는
 //      쌓아 두고(`notices`) 아래 ②·③으로 계속 흘려보낸다.
+//   ①′ **참조로 붙여넣기**(stage-49 규약 D ⑥ — stage-34 규약 G 네 갈래에 1갈래 계승 추가): 이미지가
+//      0개이고 커서 블록이 `codeBlock`이 아니며 `text/plain`의 trim 결과 **전체**가 임베드 마커
+//      `![[DOC-nnnn]]`(선택적 `|별칭`) **1개와 정확히 일치**하면 → `insertDocEmbedBlock`으로 슬래시
+//      피커와 **동일한 임베드 블록**을 커서에 넣고 끝낸다(`return true`). ②보다 앞인 이유: 웹페이지에서
+//      마커를 복사하면 `text/html`이 동반되는데 정확 일치 마커는 HTML보다 사용자 의도가 명확하다(경로 1개
+//      고정). **종전 경로 그대로인 것**(§4): 링크형 `[[DOC-…]]`·앵커형 `[[#…]]`·마커 앞뒤에 다른 글자·
+//      마커 2개 이상(부분 일치) — 전부 ②/③/기본 위임으로 흘러간다. 확인 다이얼로그 0(Ctrl+Z 1회로
+//      복귀 — 1트랜잭션) · 자기 참조 미차단(렌더 깊이 상한이 정본 — 규약 D ⑧).
 //   ② `text/html`이 있으면 → 기존 화이트리스트 변환기(`htmlToDialectMarkdown`, import만·무수정)
 //      → `markdownToBlocks` → 어댑터(`toBlockNoteBlocks`) → 규약 C(마이크로 상호 배타) 강제
 //      → 커서 위치에 삽입. 정화 규칙이 앱에 이 경로 1벌만 남는다(F52 raw HTML 기각 방어선 유지).
@@ -52,6 +60,11 @@ import type { InlineStyles } from '../schema/blocks'
 import { asEditorBlocks, type NoteBlockNoteEditor } from './schema'
 import { expandLooseLists } from './looseList'
 import { describeSkippedNonImageFiles, insertUploadedImages, isImageFile } from './uploads'
+// ①′ 참조로 붙여넣기 — 마커 문법은 리더·편집 도우미와 **같은 단일 출처**(`refSyntax.ts`)를 재사용한다.
+// 별도 정규식을 두지 않는다(방언 정의가 두 벌이 되면 표류한다).
+import { REF_SCAN_RE, parseRefMatch } from '../../components/markdown/refSyntax'
+import { isDocNo, isSafeRefText } from '../schema/refDomain'
+import { insertDocEmbedBlock } from './refPicker/insert'
 
 // ---------------------------------------------------------------- 규약 C 강제 지점 ③
 //
@@ -270,6 +283,33 @@ function insertAtCursor(editor: NoteBlockNoteEditor, blocks: BnBlock[]): void {
   editor.insertBlocks(asEditorBlocks(blocks), current, 'after')
 }
 
+// ---------------------------------------------------------------- ①′ 참조로 붙여넣기 판정
+
+/**
+ * `text/plain`이 **임베드 마커 1개와 정확히 일치**하는지(규약 D ⑥). 일치하면 임베드 대상·라벨을,
+ * 아니면 `null`을 돌려준다.
+ *
+ * - `REF_SCAN_RE`는 **전역(`g`) 정규식**이라 `lastIndex`가 호출 사이에 남는다 — 실행 전후로 0으로
+ *   되돌린다(리더 스캐너와 같은 객체를 공유하므로 여기서 남긴 상태가 리더로 번지면 안 된다).
+ * - "정확 일치" = 매치가 index 0에서 시작해 trim한 문자열 **전체를 소비**한다. 앞뒤 다른 글자·마커
+ *   2개 이상은 자연히 탈락한다(두 번째 마커까지 한 매치가 소비하지 못한다).
+ * - `kind`는 `'embed'`만(링크형 `[[DOC-…]]`·앵커형은 종전 경로) · target은 `isDocNo`로 재확인
+ *   (정규식이 이미 `DOC-\d{4,}`를 강제하지만 도메인 판정 함수를 정본으로 둔다).
+ * - 라벨 = 별칭 trim(`parseRefMatch`가 이미 trim) — `isSafeRefText` 실패(빈 값 포함)면 `''`
+ *   (추종형 — 슬래시 피커의 기본값과 같다).
+ */
+export function parseSoleEmbedMarker(plainText: string): { target: string; label: string } | null {
+  const trimmed = plainText.trim()
+  if (!trimmed.startsWith('![[')) return null
+  REF_SCAN_RE.lastIndex = 0
+  const match = REF_SCAN_RE.exec(trimmed)
+  REF_SCAN_RE.lastIndex = 0
+  if (!match || match.index !== 0 || match[0].length !== trimmed.length) return null
+  const ref = parseRefMatch(match)
+  if (!ref || ref.kind !== 'embed' || !isDocNo(ref.target)) return null
+  return { target: ref.target, label: isSafeRefText(ref.alias) ? ref.alias : '' }
+}
+
 // ---------------------------------------------------------------- pasteHandler 본체
 
 export interface PasteHandlerDeps {
@@ -338,6 +378,19 @@ export function createPasteHandler(deps: PasteHandlerDeps) {
       void insertUploadedImages(editor, imageFiles, deps.runUpload)
       flushNotices()
       return true
+    }
+
+    // ①′ 참조로 붙여넣기(stage-49 규약 D ⑥~⑧) — 여기 도달 = 이미지 0개. 커서가 코드 블록 안이면
+    // 제외한다(코드 안 참조는 §4.19 ① "코드 블록 제외" 원칙 — 평문 그대로 아래 경로로). 정확 일치
+    // 판정은 `parseSoleEmbedMarker`(머리말 ①′). 삽입은 슬래시 피커와 같은 커맨드라 결과 블록·왕복·
+    // `document_relations` 파생 전부 기존 경로가 담당한다(세션 사이드카 병합 0 — 임베드는 흡수분 없음).
+    if (editor.getTextCursorPosition().block.type !== 'codeBlock') {
+      const embed = parseSoleEmbedMarker(clipboardData.getData('text/plain') ?? '')
+      if (embed) {
+        insertDocEmbedBlock(editor, embed.target, embed.label)
+        flushNotices()
+        return true
+      }
     }
 
     // ② HTML — 앱 방언 화이트리스트 변환기 1벌만 탄다.
