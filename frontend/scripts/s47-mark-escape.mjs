@@ -73,7 +73,15 @@ function check(label, ok, detail) {
 const calls = []
 const extFactories = extensionsMod.createEditor2Extensions({})
 for (const factory of extFactories) {
-  const ext = factory()
+  // stage-49 F-3부터 배열에 **함수형 팩토리**(`syntaxHighlighter` — `createExtension(fn)` 계열이라 호출에
+  // `{ editor }` ctx가 필요)가 섞인다. 그 확장은 편집기가 생성 시 직접 호출하므로 여기 스파이 대상이
+  // 아니다 — ctx 없는 호출이 던지면 건너뛴다(객체형 `createExtension(obj)`는 인자 없이도 같은 객체를 돌려준다).
+  let ext
+  try {
+    ext = factory()
+  } catch {
+    continue
+  }
   if (ext.key === 'editor2ColumnsEdge' || ext.key === 'editor2MarkEscape') {
     const original = ext.keyboardShortcuts.ArrowRight
     ext.keyboardShortcuts.ArrowRight = (ctx) => {
@@ -341,8 +349,17 @@ function fireKey(key, keyCode) {
   check('ⓒ-2 두 번째 → = 처리됨(단 이동)', handled2 === true)
   check('ⓒ-2a 체인: markEscape false → columns true', JSON.stringify(calls) === JSON.stringify(['editor2MarkEscape:false', 'editor2ColumnsEdge:true']), JSON.stringify(calls))
   check('ⓒ-2b 커서 = 2단 첫 블록', editor.getTextCursorPosition().block.id === cols.children[1].children[0].id)
-  // 확장 배열 순서 명시 확인(columns 앞 · markEscape 뒤)
-  const keys = extFactories.map((f) => f().key)
+  // 확장 배열 순서 명시 확인(columns 앞 · markEscape 뒤) — 함수형 팩토리(stage-49 `syntaxHighlighter`)는
+  // ctx 없이 못 부르므로 편집기에 실제 등록된 키(`editor.extensions`)로 읽는다(순서 보존 실측).
+  const registered = [...editor.extensions.keys()]
+  const keys = extFactories.map((f) => {
+    try {
+      return f().key
+    } catch {
+      return null
+    }
+  })
+  check('ⓒ-3′ 구문 강조 확장 등록(syntaxHighlighting)', registered.includes('syntaxHighlighting'), registered.join(','))
   check('ⓒ-3 확장 배열: columns 앞 · markEscape 뒤', keys.indexOf('editor2ColumnsEdge') < keys.indexOf('editor2MarkEscape'), JSON.stringify(keys))
 }
 

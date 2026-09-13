@@ -527,6 +527,61 @@
   opacity: 1;
 }
 
+/* stage-49 F-4 — [복사] 버튼(`specs/codeCopyButton.ts`가 select 래퍼 안 첫 자식으로 붙인다).
+   래퍼를 flex로 바꿔 버튼·select가 가로로 나란히 서게 한다 — select 폭이 언어명마다 달라도
+   절대좌표 계산이 필요 없다. 위 래퍼 규칙(absolute · top 6px · right 8px)·`::after` 셰브런
+   (`right:6px` — 래퍼 오른쪽 끝 = select 오른쪽 끝이라 그대로 select 위에 얹힌다)·`> select`
+   규칙은 무변. 버튼 외양은 select와 같은 토큰·크기(11px · radius 4px). */
+.note-editor-frame [data-content-type='codeBlock'] > div[contenteditable='false'] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.note-editor-frame [data-content-type='codeBlock'] > div[contenteditable='false'] > button[data-code-copy] {
+  background: var(--surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 1px 6px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.note-editor-frame [data-content-type='codeBlock'] > div[contenteditable='false'] > button[data-code-copy]:hover {
+  color: var(--text);
+}
+
+/* 인쇄에는 조작 UI(복사·언어 select)를 남기지 않는다 — 래퍼 통째로 숨긴다. (편집 표면 자체는
+   인쇄 라우트가 아니지만 브라우저 인쇄로 편집 화면을 찍는 경우의 보정.) */
+@media print {
+  .note-editor-frame [data-content-type='codeBlock'] > div[contenteditable='false'] {
+    display: none;
+  }
+}
+
+/* stage-49 F-3 — 구문 강조 토큰 색 **결선**(규약 B-③). 하이라이터(`@blocknote/code-block` —
+   `github-light`/`github-dark` 듀얼)는 토큰 span에 `class="shiki"`와
+   `style="--shiki-light:…;--shiki-dark:…"` **변수 쌍만** 싣고 `color`는 쓰지 않는다
+   (`@shikijs/core` `defaultColor:false` · `prosemirror-highlight/shiki` 실측). 코어 CSS는
+   `.shiki { color: var(--shiki-dark) }`로 **항상 다크**를 고른다(코어 코드 블록은 테마와 무관하게
+   어두운 배경) — 우리 코드 블록 배경은 `--bg`(라이트 모드에서 밝음)라 그대로 두면 라이트 대비가
+   깨진다. 그래서 여기서 스킴별로 변수를 고른다(`data-color-scheme`는 `BlockNoteView`가 `useEditorTheme`
+   값으로 `.bn-container`에 찍는다 — 설정 토글 즉시 반영).
+   **불변 규칙 5 판정(규약 B-③)**: 토큰 색 값은 라이브러리가 런타임에 산출하는 **콘텐츠 표현 팔레트**
+   (KaTeX 배포 CSS 전례 — screens §5.3 S25)이지 앱 소스의 색 리터럴이 아니다. 앱 소스(이 파일·TS)에는
+   hex/rgb 리터럴 0 · 여기서는 변수 **참조만** 한다. 블록 배경·테두리·기본 글자색은 계속 토큰
+   (`--bg`·`--border`·`--text` — 위 블록 규칙 무변). 특이도 (0,3,0) > 코어 `.shiki` (0,1,0). */
+.note-editor-frame [data-content-type='codeBlock'] .shiki {
+  color: var(--shiki-light);
+}
+
+.note-editor-frame .bn-container[data-color-scheme='dark'] [data-content-type='codeBlock'] .shiki {
+  color: var(--shiki-dark);
+}
+
 /* 인라인 코드 칩 — 코드 블록 내부의 `<code>`(위에서 이미 배경을 준 `pre` 안)는 제외한다
    (`:not(pre code)` — 이중 배경 방지). 리더의 `[&_code]:bg-bg [&_code]:rounded [&_code]:px-1
    [&_code]:py-0.5`와 같은 토큰. */

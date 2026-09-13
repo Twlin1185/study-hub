@@ -1,6 +1,6 @@
 # Stage 49 — 모바일 전체 내비 드로어 + 코드 블록 구문 강조·복사 + 참조로 붙여넣기 (FB-8 · FB-11-ⓑ · D11-ⓐ) (v2.0.x · 사소)
 
-> 상태: **착수 전**(편성 2026-09-13 · 사용자 확정 대기 항목 0 — 위임 판정 결정 ①~⑧ · 검토·구현 시 실측 분기 2건은 §2 B-③·C-④에 판정 기준을 미리 적어 둠).
+> 상태: **구현 중**(편성 2026-09-13 → 착수 2026-09-13 · 사용자 확정 대기 항목 0 — 위임 판정 결정 ①~⑧ · 검토·구현 시 실측 분기 2건은 §2 B-③·C-④에 판정 기준을 미리 적어 둠 · **규약 B 결선 방식·청크 원칙은 2026-09-13 구현 중 API 불일치로 실측 개정 — §2 B "← 실측 개정" 블록이 정본**).
 > **버전 영향: 사소**(CHANGELOG 규약 ③ — 새 화면(라우트) 0 · **DDL 0 · API 0**(신규 엔드포인트 0 · 기존 계약 무변) ·
 > 퇴역 0. 실체 = 드로어 항목 확장(FB-8) + 코드 블록 강조·복사 버튼(FB-11-ⓑ) + 붙여넣기 진입 UX 1개(D11-ⓐ) — 전부
 > 기존 표면 위의 다듬기·편의 액션. **신규 프론트 의존 1**(`@blocknote/code-block` — 규약 ③의 핵심 요건이 아니고 D10·R37
@@ -13,7 +13,7 @@
 > (FB-8 · FB-11 사용자 제안) > 저비용 동승(D11-ⓐ — 저장 구조 0·진입 UX 1개).
 > 정본 포인터: 화면 계약 = screens §5 공통 레이아웃 S49 단락(드로어) · §5.3 S49 불릿([참조 복사]) · §5.16 S49 블록(강조·복사·
 > 붙여넣기) — 편성 추기 **Design v1.59** · api §4 무변(신규 API 0 — 색인 상태 줄에 명기) · 라이선스 규율 = 별지 §10 D10 ·
-> §9 R40 · 번들 규율 = 별지 §9 R37(엔트리 청크 기준선 1,578,573 B — stage-46~48 동일) · 붙여넣기 파이프라인 정본 =
+> §9 R40 · 번들 규율 = 별지 §9 R37(엔트리 청크 기준선 1,578,573 B — stage-46~48 동일 · 판정 기준은 §2 B 실측 개정 ⓒ) · 붙여넣기 파이프라인 정본 =
 > `editor2/blocknote/paste.ts` 머리말(stage-34 규약 G) · 참조 문법 정본 = `components/markdown/refSyntax.ts`(설계 §4.19 ①) ·
 > 발행 절차 = CHANGELOG 머리 규약 ⑤.
 
@@ -47,7 +47,7 @@
     — 소형 폰(640px 세로)에서도 스크롤 없이 들어가되 가로 모드는 스크롤. 아이콘·라벨 = `NavItem` 그대로(신규 아이콘 0).
   - 주석 `:237~239`("FB-8 전면 확장은 이번 범위 아님") 정정 · 예비 문구 삭제. 데스크톱 사이드바·탭바 diff 0(항목 배열
     참조만 공유). `aria-modal` 드로어의 포커스 트랩·ESC 닫기는 **현행대로**(기존에도 없음 — 이번 범위 밖 · §4).
-- **B. FB-11-ⓑ 구문 강조 = `@blocknote/code-block@0.54.0` · `createHighlighter`는 동적 import · 엔트리 +0 B** (결정 ②)
+- **B. FB-11-ⓑ 구문 강조 = `@blocknote/code-block@0.54.0` · `createHighlighter`는 동적 import · 엔트리 +0 B** (결정 ②) — **← 실측 개정(2026-09-13)**: 이 제목의 "동적 import · 엔트리 +0 B"와 아래 "결선 방식" 불릿은 편성 시 API 오인 — 아래 **"← 실측 개정" 불릿이 정본**(원문은 경위 기록으로 존치 · 패키지·라이선스·언어 세트·③ 테마·편집 표면 한정은 그대로 유효).
   - **패키지**: `@blocknote/code-block` **0.54.0 정확 고정**(다른 5개 `@blocknote/*`와 동일 버전 — 잠금 승격 시 6개 일괄 · R33
     관례). **라이선스 확인 항목 = 체크리스트 F-3 ①**: 등록부 행은 "MIT"로 적었으나 BlockNote 저장소 패키지는 MPL-2.0이
     통례 — `npm view @blocknote/code-block@0.54.0 license`(npm 메타)로 실측해 값(MIT 또는 MPL-2.0 — **둘 다 D10 허용**)을 §7에
@@ -61,6 +61,51 @@
     노트는 종전과 바이트 동일. 지연 팩토리를 엔진이 언제 호출하는지(첫 코드 블록 데코레이션 시점인지)는 **F-3 ③ 실측**
     으로 확인 — 스키마 생성 시점에 즉시 호출된다면 팩토리 안에서 한 번 더 미루는 대신 **그 사실을 §7에 기록하고 편집 청크
     증가분을 R37 수치로 남긴다**(엔트리 +0 B 원칙은 어느 경우에도 유지).
+  - **← 실측 개정(2026-09-13 · 구현 중 설계-API 불일치 — 위 "결선 방식" 불릿 전체와 "엔트리 +0 B 어느 경우에도"를 대체 ·
+    선택지 ⓐ 현 구현 수용 / ⓑ 자체 지연 모듈 / ⓒ 강조 중단 중 ⓐ 확정 · 위임 판정 — 사용자 확정 대기 0)**
+    - **사실(구현 에이전트 + 오케스트레이터 실측)**: `@blocknote/core@0.54.0` `createCodeBlockSpec` 옵션에 **`createHighlighter`가
+      없다**(`indentLineWithTab`·`defaultLanguage`·`supportedLanguages`뿐). 강조는 편집기 **전역 확장** `SyntaxHighlightingExtension({
+      createHighlighter })`(core export · `createExtension` 팩토리 — 옵션은 클로저에 갇혀 인스턴스에서 회수 불가)이 담당하고 스펙은
+      `meta.highlight`로 언어만 선언. `@blocknote/code-block@0.54.0` export = **`syntaxHighlighter`(위 확장의 인스턴스 · github-light/
+      dark 듀얼 · 내부 `createBundledHighlighter` 클로저)·`codeBlockOptions` 2개뿐** — 하이라이터 팩토리 자체는 미export. 패키지 진입점은
+      `@shikijs/core`·`@shikijs/engine-javascript`(엔진 본체)를 **정적 import** · 문법(`@shikijs/langs-precompiled/*` 49종)·테마 2종은
+      패키지 내부에서 **동적 import**(요청 시 청크). → 원문 `import('@blocknote/code-block').then((m) => m.codeBlock.createHighlighter())`
+      지연 팩토리는 **성립 불가**(그런 API 없음). **편성 오류 사유**: 패키지 export 표면을 실측하지 않고 `createCodeBlockSpec` 옵션
+      관례로 추정 — 이후 신규 의존 편성은 `node_modules` 타입 선언(`.d.ts`) export 실측을 §1 표에 동반한다(재발 방지 · 이 stage 한정
+      규율 아님 · `/stage-plan` 관례).
+    - **판정 = ⓐ 현 구현 수용**: 결선 = `editor2/blocknote/extensions.ts`에 `import { syntaxHighlighter } from '@blocknote/code-block'`
+      **정적 import + 확장 배열 말미 등록**(스펙·`schema.ts` 무접촉). 헤드리스 로드 계약은 **결선 지점 이동으로 그대로 성립** —
+      `schema.ts`·`paste.ts` import 시 shiki 로드 0 · `extensions.ts` import 시 엔진 11모듈(문법·테마 0) 실측. 원문 근거 ⓐ(헤드리스)·
+      ⓒ(코드 블록 없는 노트 = 강조 청크 요청 0)는 유지되고, ⓑ "편집 청크에도 shiki 본체를 얹지 않는다"만 **철회**(아래 청크 원칙).
+      - **ⓑ 자체 지연 모듈 기각**(core `SyntaxHighlightingExtension({ createHighlighter: () => import('./shikiLazy') })` + `shikiLazy.ts`가
+        `@shikijs/core`·`engine-javascript`·`langs-precompiled/*`·`themes/*` 직접 import): §4 "shiki 직접 의존·언어 패키지 개별 설치 0"
+        저촉 · `@shikijs/*` 4~5종을 package.json에 선언 = 신규 의존 1 → 5 · core가 요구하는 `Highlighter` 타입·shiki 버전과의 결합
+        (R33 6종 일괄 승격마다 우리 셈 재검증) · `@blocknote/code-block` 사문화(듀얼 테마 결선 코드를 우리가 재작성) · 얻는 것 =
+        편집 청크 −146 KB min뿐이고 **엔트리 +3,836 B는 동일하게 남는다**(Rollup 공유 모듈 export 보존 — 위치 무관) → YAGNI · D10
+        표면 확대. (사용자가 DoD 6 ⓑ에서 편집 진입 체감 회귀를 보고하면 그때 되살릴 대안 — 코드 되돌림 = `extensions.ts` 1줄.)
+      - **ⓒ 강조 중단 기각**: B-③ 중단 기준(테마 대비 불성립·GPL 발견) **미발동** — 라이선스 = `@blocknote/code-block` **MPL-2.0**
+        · 전이(`@shikijs/*`·oniguruma-to-es·hast-util-to-html 등) 전부 MIT · GPL 0 · 듀얼 테마 `--shiki-light`/`--shiki-dark` 변수 쌍
+        실측 → `notes.css` 결선 2규칙(리터럴 0) · 15종 전부 번들 포함(bash = shellscript 별칭 · 래퍼 불필요). 통과 상태에서 편성
+        시 오인한 번들 희망치 미달만으로 사용자 제안(FB-11) 기능을 버릴 근거 없음.
+    - **청크 원칙 개정(R37 판정 기준 — V-1·DoD 1이 이 기준을 쓴다)**:
+      ① **엔트리 청크**: "+0 B 어느 경우에도" → **의존 유래 증가분 ≤ R37 초기 청크 한도 5 kB**. 실측 `index-*.js` 1,579,811 →
+         **1,583,671 B(+3,860 B)** = 강조 귀책 **+3,836 B**(이미 엔트리에 있던 `stringify-entities`/`character-entities-html4`(remark
+         경로)의 추가 export를 shiki `codeToHtml`이 정적 참조하는 `hast-util-to-html`이 요구해 Rollup이 엔트리에 보존 — 구현자 판단 ·
+         shiki가 어느 청크에 들어가든 동일) + F-4/F-5 몫 +24 B → **한도 이내 · 통과**. 편성 기준선 1,578,573 B 대비 나머지 +1,238 B는
+         F-1 드로어·F-6 [참조 복사] 등 **앱 셸 기능 코드**(`Layout.tsx`·`DocumentDetail.tsx`는 엔트리 청크 — 편성 시 "+0 B"는 이 몫을
+         빠뜨린 오류 #2)로 추정 → V-1에서 귀책 분리해 기록(의존 0인 기능 코드는 R37 한도 대상 아님 · 수치만). **stage-50+ 기준선 =
+         V-1 최종 실측값**.
+      ② **편집 lazy 청크** `ui-*.js` 126,790 → **273,110 B(+146,320 B min)** = shiki 엔진 본체(core·primitive·vscode-textmate·
+         oniguruma-to-es·code-block 진입점). 코드 블록 없는 노트도 편집 진입 시 1회 로드 — **R37 M31 수용 판정(편집 진입 시 gzip
+         ≈307~415 KB 1회)의 연장으로 재수용**: 편집 진입 한정 · 1회 · 홈 네트워크 · SW 런타임 캐시(`public/sw.js` network-first ·
+         재방문 무비용). V-1에서 **gzip 증가분**(vite 빌드 출력 수치 1개)을 기록해 R37 행 추기.
+      ③ **강조 지연 청크**: 문법 49 + 테마 2 = 51 파일 emit. 우리 14종(text 제외) 합 2,001,574 B(**cpp 1,040,636 B 단독**) · 테마 2 ×
+         ≈11 KB · 나머지 33종(구현자 집계) 1,421,519 B는 **emit만 · 요청 0**(dist 디스크만). `createHighlighter` 호출 = core
+         `lazyShikiPlugin`이 첫 강조 대상 노드(**codeBlock·mathBlock**) 조우 시 1회 → 코드/수식 블록 없는 문서는 호출 0. **PWA 비대
+         (R37 오프라인 축) 무관** — `public/sw.js`는 precache 0(APP_SHELL 4항목 `:4`) · 런타임 캐시라 실제 요청한 언어만 쌓인다.
+         수식 블록만 있는 노트가 테마·문법 청크를 요청하는지는 V-3 ⓑ에서 **기록만**(판정 무관).
+      ④ 원문 F-3 ② 지시(`schema.ts` 스펙 옵션)는 **폐기** · F-3 ③(호출 시점 실측)은 위 ③으로 충족. 신규 의존은 여전히
+         `@blocknote/code-block` **1개**(V-4·§4·DoD 3 무변).
   - **언어 세트 = `CODE_LANGUAGES` 15종 무변**(select 옵션·값·별칭·저장 prop 무접촉 — stage-46 규약 D·stage-48 규약 E 계승).
     패키지의 `codeBlock.supportedLanguages`는 **쓰지 않는다**(한국어 라벨·우리 목록이 정본). 15종 각각을 강조 실측(F-3 ④) —
     패키지 shiki 번들에 없는 키가 있으면 **평문 폴백 + 콘솔 오류 0**이 조건이고, 오류가 나면 `createHighlighter` 래퍼에서
@@ -146,23 +191,26 @@
       Promise<boolean>`(`navigator.clipboard?.writeText` → 실패/부재 시 `document.execCommand('copy')` 폴백 — 임시 textarea는
       `position:fixed; opacity:0`·`readonly`·선택 후 즉시 제거 · 둘 다 실패 = `false`) · 머리 주석에 "폰 = 비보안 컨텍스트
       (`http://<IP>:8000`)라 폴백 필수" 명기.
-- [ ] F-3. **FB-11-ⓑ 구문 강조**(규약 B) —
+- [x] F-3. **FB-11-ⓑ 구문 강조**(규약 B) — (코드·빌드·헤드리스 완료 · ④ 시각 강조·⑤ 토글 반영은 브라우저 실측 대기 — 결선 지점은 스펙이 아니라 `extensions.ts` 확장(0.54 API 실측), 사유는 §7·구현 보고)
       ① `npm view @blocknote/code-block@0.54.0 license` + 전이 의존(`shiki`·`@shikijs/*`) 라이선스 확인 → 값 §7 기록(GPL 계열
          발견 시 **중단·보고**) → `npm i -E @blocknote/code-block@0.54.0`(package.json·잠금 파일 diff = 이 1건).
-      ② `schema.ts` `codeBlockSpecWithInfo()` — `createCodeBlockSpec({ supportedLanguages: CODE_LANGUAGES, createHighlighter:
-         () => import('@blocknote/code-block').then((m) => m.codeBlock.createHighlighter()) })` · 타입은 `import type`만 ·
-         `CODE_LANGUAGES` 무변 · 머리 주석에 지연 사유(R37 · 헤드리스 로드 계약) 1단락.
-      ③ 팩토리 호출 시점 실측(스키마 생성 시 vs 첫 코드 블록 렌더 시) — 결과와 청크 수치 §7 기록.
+      ② ~~`schema.ts` `codeBlockSpecWithInfo()` — `createCodeBlockSpec({ supportedLanguages: CODE_LANGUAGES, createHighlighter:
+         () => import('@blocknote/code-block').then((m) => m.codeBlock.createHighlighter()) })`~~ **← 실측 개정(2026-09-13 · 규약 B
+         개정 ④ — API 부재)**: 결선 = `extensions.ts` `import { syntaxHighlighter } from '@blocknote/code-block'` 정적 import + 확장
+         배열 말미 등록 · `schema.ts`·`CODE_LANGUAGES` 무접촉 · `extensions.ts` 머리 주석에 결선 지점 사유(스펙 옵션 부재 · 엔진 본체
+         = 편집 청크 · 문법·테마 = 패키지 내부 지연 · 규약 B 개정 인용) 1단락.
+      ③ 팩토리 호출 시점 실측(스키마 생성 시 vs 첫 코드 블록 렌더 시) — 결과와 청크 수치 §7 기록. **← 실측 완료(규약 B 개정 ③:
+         core `lazyShikiPlugin` 첫 codeBlock·mathBlock 조우 시 1회 · 편집 청크 +146,320 B min · 엔트리 +3,860 B)**.
       ④ 15종 언어 강조 실측(`csharp`·`bash`·`markdown` 등 번들 포함 여부) — 미포함 키는 평문 폴백 + 콘솔 오류 0 조건(오류
          시 래퍼에서 흘리기).
       ⑤ 테마 실측 — span 출력이 `--shiki-light`/`--shiki-dark` 변수 쌍이면 `notes.css`에 다크 결선 1규칙(변수 참조만 ·
          주석에 불변 규칙 5 판정 B-③ 인용) · 라이트/다크 전환(설정 토글) 즉시 반영 확인 · 단일 색이면 B-③ 중단 기준 적용.
-- [ ] F-4. **복사 버튼**(규약 C) — `schema.ts`(또는 `blocknote/specs/` 신규 파일 — 구현자 재량, 단 `schema.ts`의 헤드리스 로드
+- [x] F-4. **복사 버튼**(규약 C) — `schema.ts`(또는 `blocknote/specs/` 신규 파일 — 구현자 재량, 단 `schema.ts`의 헤드리스 로드
       계약 유지 = DOM API는 render 안에서만) 스펙 `implementation.render` 래핑 → 언어 select 래퍼 안 첫 자식 `<button
       data-code-copy>` · `mousedown preventDefault` · click → `writeClipboardText(코드 텍스트)` → 라벨 "복사됨"/"복사 실패"
       1.5초 · `notes.css` 래퍼 `display:flex; align-items:center; gap:4px` + 버튼 규칙(토큰만) + 인쇄 숨김 · 기존 `::after`
       chevron·select 규칙 무변 확인.
-- [ ] F-5. **D11-ⓐ 붙여넣기 분기**(규약 D ⑥~⑧) — `paste.ts` ①′: `imageFiles.length === 0` && 커서 블록 ≠ `codeBlock` &&
+- [x] F-5. **D11-ⓐ 붙여넣기 분기**(규약 D ⑥~⑧) — `paste.ts` ①′: `imageFiles.length === 0` && 커서 블록 ≠ `codeBlock` &&
       `text/plain` trim 전체 = embed 마커 1개(`REF_SCAN_RE` + `parseRefMatch` 재사용 · `lastIndex` 리셋 주의 — 전역 플래그 정규식
       · `isDocNo`) → `insertDocEmbedBlock(editor, target, safeLabel)` → `flushNotices()` → `return true` · 머리말 네 갈래 주석에
       ①′ 1줄 추가(stage-34 규약 G 계승 표기) · 링크형·앵커형·부분 일치는 종전 경로(주석에 명기).
@@ -172,8 +220,11 @@
 
 ### 묶음 V — 검증 (구현 후)
 
-- [ ] V-1. `npm run build` 성공(성공/실패만) + **엔트리 청크(`index-*.js`) = 1,578,573 B 동일(+0 B)** · 노트/편집 lazy 청크 증감 ·
-      **강조 지연 청크(shiki 본체·언어·테마) 파일 수와 합계 B** 기록(R37 수치 — 별지 §9 R37 행에 1줄 추기는 D-2).
+- [ ] V-1. `npm run build` 성공(성공/실패만) + **엔트리 청크(`index-*.js`) 최종값 기록 — 판정 기준 = 규약 B 개정 ①**(편성 기준선
+      1,578,573 B 대비 증가분을 **의존 유래(강조 export 보존 +3,836 B + F-4/F-5 +24 B — ≤ 5 kB 통과)** / **앱 셸 기능 코드(F-1 드로어·
+      F-6 [참조 복사] — 한도 대상 아님 · 수치만)**로 귀책 분리 · 최종값 = stage-50+ 기준선) · **편집 lazy 청크 `ui-*.js` 증감 min +
+      gzip 증가분 1개**(vite 출력 — 규약 B 개정 ②) · **강조 지연 청크(언어·테마) 파일 수·우리 14종 합계·emit만 된 잔여 합계 B** 기록
+      (R37 수치 — 별지 §9 R37 행에 1줄 추기는 D-2).
 - [ ] V-2. `scripts/run-tests.ps1 -Full` 무회귀(백엔드 diff 0이라 기대 = stage-48과 동일 624) · 헤드리스 `s33`·`s40`·`s41`·`s47`
       계열 무회귀(**스키마 import가 shiki를 로드하지 않는지** — 노드 실행 시간·의존 로드 로그로 확인) · `scripts/invariant-scan.ps1`
       **PASS**(`notes.css` 신규 규칙 = 변수 참조만).
@@ -182,7 +233,9 @@
       라우트 이동 + 드로어 닫힘 · 현재 라우트 active 강조 · 도움말 = 새 탭 · 640px 세로에서 스크롤 없이 들어감 · 데스크톱
       (≥768px) 사이드바·탭바 diff 0 ⓑ **강조** — 노트에 코드 블록(javascript·python·csharp·bash·text) 삽입 → 토큰 span 생성 ·
       언어 변경 시 재강조 · `text` 무강조 · 라이트/다크 전환 후 토큰 색 변화·배경 `--bg` 유지 · **코드 블록 없는 노트 열기
-      → 강조 청크 미요청**(네트워크 URL 필터) · 코드 블록 첫 렌더 → 청크 1회 로드 · 콘솔 오류 0(FB-11 후속 ② `Language  is
+      → 강조 청크(문법·테마) 미요청**(네트워크 URL 필터 — 엔진 본체는 편집 청크 `ui-*.js`에 동승하므로 이 항목의 대상 아님 · 규약 B
+      개정 ②) · 코드 블록 첫 렌더 → 문법·테마 청크 1회 로드 · **수식 블록만 있는 노트 → 테마·문법 청크 요청 여부 기록만**(개정 ③
+      · 판정 무관) · 콘솔 오류 0(FB-11 후속 ② `Language  is
       not supported`가 재현되면 강조 도입 전후 비교해 귀책만 기록 — §4) ⓒ **복사 버튼** — 클릭 → 클립보드 = 코드 원문(줄바꿈
       보존) · 라벨 "복사됨" 1.5초 · 에디터 선택·커서 무변 · select·chevron 겹침 0 · 390px 위치 · 인쇄 미리보기에서 버튼
       비표시 ⓓ **참조 붙여넣기** — 문서 상세 [참조 복사] → 라벨 "복사됨" → 노트 편집 표면에 Ctrl+V → `docEmbed` 블록 1개
@@ -228,7 +281,8 @@
 ## 5. DoD (완료 정의)
 
 **자동 검증(에이전트 수행):**
-1. `npm run build` 성공 + **엔트리 청크 +0 B**(1,578,573 B 동일 — R37) + 강조 지연 청크 수치 기록.
+1. `npm run build` 성공 + **엔트리 청크 의존 유래 증가분 ≤ 5 kB**(R37 — 규약 B 개정 ① · 실측 +3,860 B · 귀책 분리 기록) + 편집
+   청크 gzip 증가분 + 강조 지연 청크 수치 기록.
 2. `run-tests.ps1 -Full` 무회귀 · 헤드리스 s33/s40/s41/s47 무회귀(스키마 import에 shiki 미로드) · `invariant-scan.ps1` PASS.
 3. 백엔드 diff 0 · Alembic diff 0 · 신규 의존 = `@blocknote/code-block@0.54.0` 1건(라이선스 값 §7 기록 · GPL 계열 0).
 4. 브라우저 V-3 ⓐ~ⓔ 전건 통과(드로어 11항목 · 강조 라이트/다크 · 강조 청크 지연 로드 · 복사 · 참조 붙여넣기 왕복 · 원상복구).
@@ -238,7 +292,8 @@
 6. ⓐ **폰 실기기**(`<PC-IP>:8000`) — ☰ 드로어에서 탐색·반입·인쇄·커리큘럼 진입 · 항목 탭 후 드로어 닫힘 · PWA standalone
    상단 겹침 0 · **코드 블록 [복사]가 비보안 컨텍스트에서 동작**(폴백 경로) · 문서 상세 [참조 복사] → 노트 붙여넣기(길게
    눌러 붙여넣기) = 임베드 ⓑ PC 실사용 — 코드 블록 강조 체감(라이트/다크) · 언어 select·chevron 회귀 0 · 참조 붙여넣기
-   리듬(확인 없음)이 불편하지 않음 ⓒ **치명 결함 0 회신**.
+   리듬(확인 없음)이 불편하지 않음 · **노트/문서 편집 진입 체감 회귀 0**(편집 청크 +146 KB min — 규약 B 개정 ② · 회귀 보고 시
+   대안 = 개정 "ⓑ 자체 지연 모듈" 재검토) ⓒ **치명 결함 0 회신**.
 
 **게이트**: 1~5 전건 + 6 치명 0 → **v2.01.4 발행**(§6 ① 조건). 치명 발견 시 발행 보류·수정 선행. B-③ 중단 기준(테마 대비
 불성립·GPL 발견)이 발동하면 강조만 제외하고 나머지(드로어·복사·참조 붙여넣기)로 완료 — 제외 사실을 §7·CHANGELOG·별지
@@ -250,8 +305,8 @@ FB-11 행에 기록하고 FB-11-ⓑ 강조분은 backlog §1에 재존치.
    끝나면 **v2.01.4 항목 1개**(단독) ⓑ stage-48 회신이 아직이면 **v2.01.3 항목에 stage-49 불릿을 합류**("v2.01.3 — stage-48·49
    한 발행 단위" · v2.01.1 = 43+46 묶음 전례 · 규약 ② 번호 재부여 없음) — 어느 쪽인지는 완료 시점의 stage-48 상태로
    기계적으로 정한다(stage-index 두 행의 "산출 버전"을 같은 표기로 맞춘다). 불릿 = 드로어 전체 내비(FB-8) · 코드 블록 구문
-   강조(`@blocknote/code-block` 지연 청크 + 라이선스 값) + [복사](FB-11-ⓑ) · 참조로 붙여넣기(D11-ⓐ — [참조 복사] + 마커
-   붙여넣기) · R37 수치.
+   강조(`@blocknote/code-block` MPL-2.0 · 엔진 = 편집 청크 · 문법·테마 = 지연 청크) + [복사](FB-11-ⓑ) · 참조로 붙여넣기(D11-ⓐ —
+   [참조 복사] + 마커 붙여넣기) · R37 수치(엔트리·편집 청크·지연 청크 — 규약 B 개정 ①~③).
 2. 루트 `VERSION` = 발행 버전(`2.01.4` 또는 묶음 시 `2.01.3`) — 사용자 회신(DoD 6) 후.
 3. `stage-index.md` 49행 갱신(완료·일자·산출 버전).
 4. `backlog.md` — §1 `FB-8`·`FB-11-ⓑ`·`D11-ⓐ` 3행을 §4로 **종결 이동**(`종결(stage-49 · 날짜)`) · §3 `R37` 행 비고에 "강조
@@ -267,3 +322,9 @@ FB-11 행에 기록하고 FB-11-ⓑ 강조분은 backlog §1에 재존치.
   듀얼 여부·F-3 ③ 팩토리 호출 시점 — 판정 기준 선기재) · screens §5 공통 레이아웃 S49 단락 + §5.3 S49 불릿 + §5.16 S49
   블록 추기(Design v1.59 · api §4 무변 = API 0) · stage-index 49행 · backlog 3행 `편성 = stage-49` · 별지 §13 FB-8·FB-11 ·
   §10 D11 편성 추기.
+- **규약 B 실측 개정**(2026-09-13 · 구현 중): `createCodeBlockSpec`에 `createHighlighter` 옵션 부재 · `@blocknote/code-block` export =
+  `syntaxHighlighter`·`codeBlockOptions`뿐 → 편성 시 지연 팩토리 결선 성립 불가(API 오인). 선택지 ⓐ 현 구현 수용/ⓑ 자체 지연
+  모듈/ⓒ 강조 중단 중 **ⓐ 확정**(위임 판정 · 사용자 확정 대기 0) — 결선 = `extensions.ts` 정적 import + 확장 등록 · 청크 원칙 =
+  엔트리 의존 유래 ≤ 5 kB(실측 +3,860 B) · 편집 청크 +146,320 B min 재수용(R37 M31 연장) · 문법·테마 지연 유지 · PWA precache 0
+  확인. 연쇄 갱신 = F-3 ②③ · V-1 · V-3 ⓑ · DoD 1·6 ⓑ · §6 ① · screens §5.16 S49 강조 불릿·공통 계약 · backlog §1 FB-11-ⓑ·§3
+  R37 비고. 라이선스 실측 = `@blocknote/code-block` **MPL-2.0** · 전이 전부 MIT · GPL 0(F-3 ①).
