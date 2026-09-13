@@ -49,7 +49,7 @@
 | `DELETE /api/documents/{id}/relations/{to_id}` | 관계 해제 | S4 |
 | `PUT /api/documents/{id}/bookmark` · `DELETE 동일 경로` | 북마크 토글 (F29) | S4 |
 | `GET /api/documents/batch?ids=1,2,3` | 인쇄 뷰 등 다건 조회 | S4 |
-| `POST /api/documents/bulk` | **S51 신설(2026-09-13 편성 · 착수 전)**: 문서 n건(≤200) × `action` 1개(`link`·`unlink`·`move`·`delete`) 일괄 처리 — 한 트랜잭션(부분 성공 0) · 200 + 카운터 7필드 · 삭제 = `is_active=0`만 · 조회용 `GET /batch`와 별개. 세부 = **§4.31 `[S51]`** | **S51** |
+| `POST /api/documents/bulk` | **S51 신설(2026-09-13 편성 → 구현 실측 확정 2026-09-13)**: 문서 n건(≤200) × `action` 1개(`link`·`unlink`·`move`·`delete`) 일괄 처리 — 한 트랜잭션(부분 성공 0) · 200 + 카운터 7필드 · 삭제 = `is_active=0`만 · 조회용 `GET /batch`와 별개. 세부 = **§4.31 `[S51]`** | **S51** |
 
 > **S35(에디터 v2 M34)**: `GET /api/documents/{id}`·`PATCH /api/documents/{id}`에 블록 저장 필드(`content_blocks`·`explanation_blocks`·`blocks_version`)가 확장된다 — **계약 정본 = §4.29**(신규 엔드포인트 0 · 미전환 문서의 기존 계약은 무변경).
 
@@ -1520,7 +1520,7 @@ backend/services/fetchers/
 
 **말미 확인**: **DDL 0건 · Alembic 0건 · settings 키 0 · 신규 파이썬 의존 0 목표**(표준 라이브러리/기존 httpx 계열 재사용 — 구현 시 실측) · 잡 아님(동기 — 5초 상한이라 큐 불요).
 
-### 4.31 문서 일괄 작업 — 연결·이동·해제·소프트 삭제 (S51 — FB-25. **편성 추기 2026-09-13 · 착수 전 — 지시서 `stage-51-explore-bulk-select.plan.md` §2 정본**(구현 실측 확정 표기는 완료 시))
+### 4.31 문서 일괄 작업 — 연결·이동·해제·소프트 삭제 (S51 — FB-25. **편성 추기 2026-09-13 → 구현 실측 확정 2026-09-13(Design v1.64) — 지시서 `stage-51-explore-bulk-select.plan.md` §2·§7 정본**: 계약 그대로 구현 + 실측 확정 ⓐ(`move` 행 — 도착 제외) · 분류 존재 검사는 action별 관련 필드만(delete = 검사 0 — 규약 A 그대로) · `backend/tests/test_documents_bulk.py` 22건)
 
 > 근거: 별지 `editor-v2.plan.md` §13 **FB-25**(탐색 그리드에서 여러 문서를 골라 한 번에 옮기고·연결하고·지우는 수단 0 · 문서 상세 "분류 이동"은 해제+연결 2동작). 단건 API 4개(§4.2 `links`·`DELETE /{id}`)는 무변 · 기존 `GET /api/documents/batch`는 **조회**(인쇄) 전용이라 이름을 `bulk`(변경 전용)로 구분한다. 다대다 원칙(§5.2 "드래그 = 연결 추가 · 이동 아님")과의 정합: `link`가 연결 추가, `move`는 **사용자가 출발 분류를 명시한 기존 연결의 재배치**(다른 분류의 연결은 그대로 · 새 연결 생성 0).
 
@@ -1538,7 +1538,7 @@ backend/services/fetchers/
 | 검사 순서 | pydantic 422(값·상한·action별 필수 필드) → **404 문서**(없는 id 1건이라도 전체 거부 · `detail.missing_ids`) → 404 분류(`category_id`·`to_category_id`) → **422 의미**(`move` `from==to` · `link`/`unlink`/`move`에 비활성 문서 포함 `detail.inactive_ids` — `delete`는 비활성 허용) → 실행 → `commit` 1회(예외 = 전체 롤백 · 부분 성공 0). **409 없음** |
 | `link` | `(category_id, doc)` 행 없으면 생성(`sort_order=0`·`local_note=NULL`·`linked_by='manual'` 모델 기본·`linked_rule_id=NULL`) `linked`+1 · 있으면 무접촉 `skipped`+1. 태그 규칙 스캔·`suggestions` 무접촉(단건 `add_link` 동일) · `local_note` 입력 없음 |
 | `unlink` | 대상 = `category_documents` where `doc ∈ ids AND category ∈ (deep ? 출발 하위 트리 : {출발})` 행 삭제 → `unlinked` = 행 수 · 대상 0 문서 = `skipped`+1(멱등 · 200). **부수 테이블 무접촉**(`study_progress`·`resume_points`·`attempts`·`suggestions` — 단건 `remove_link` 파리티 · 분류 행 존속 = FK 무관 · 잔존 진도 행은 트리 진도에 영향 0(링크 경유 조인)·heatmap 기록 보존). 문서 행 무접촉(불변 규칙 3) |
-| `move` | 대상 집합 = `unlink`와 동일. **문서당 1행 이관**(출발 자신 행 우선 → `(category_id, sort_order, document_id)` 첫 행) `UPDATE category_id=to` — `sort_order`·`local_note`·`linked_at`·`linked_by`·`linked_rule_id` **보존** → `moved`+1 · 나머지 대상 행 삭제. 도착에 같은 문서 행이 있으면 **도착 유지·대상 전부 삭제** `skipped`+1. 출발 링크 0 문서 = **새 연결 생성 없이** `skipped`+1. `study_progress`: `(출발 집합, doc)` 1행 → `(to, doc)` 이관 · 도착에 있으면 무접촉(삭제 0). `resume_points`·`attempts.category_id`·`suggestions` 무접촉(분류 행 존속 · 풀이 기록 맥락 = 당시 분류) |
+| `move` | 대상 집합 = `unlink`와 동일 — **단, `to_category_id`는 대상에서 제외**(**실측 확정 ⓐ 2026-09-13 · Opus 검토 중요-1**: `deep=true`이고 도착이 출발 하위 트리 안이면 종전 정의로는 도착 행 자신까지 삭제돼 문서가 고아가 됐다 → 대상 집합 = 출발 하위 트리 − {도착} · 도착에만 연결된 문서 = `skipped` · 출발·도착 둘 다 연결 = 도착 유지·출발 행 삭제 `skipped` · `study_progress` 이관도 같은 집합). **문서당 1행 이관**(출발 자신 행 우선 → `(category_id, sort_order, document_id)` 첫 행) `UPDATE category_id=to` — `sort_order`·`local_note`·`linked_at`·`linked_by`·`linked_rule_id` **보존** → `moved`+1 · 나머지 대상 행 삭제. 도착에 같은 문서 행이 있으면 **도착 유지·대상 전부 삭제** `skipped`+1. 출발 링크 0 문서 = **새 연결 생성 없이** `skipped`+1. `study_progress`: `(출발 집합, doc)` 1행 → `(to, doc)` 이관 · 도착에 있으면 무접촉(삭제 0). `resume_points`·`attempts.category_id`·`suggestions` 무접촉(분류 행 존속 · 풀이 기록 맥락 = 당시 분류) |
 | `delete` | `documents.is_active=0`만(단건 `DELETE /api/documents/{id}` 파리티) `deleted`+1 · 이미 비활성 `skipped`+1. 링크·태그·북마크·관계·attempts·srs 전부 무접촉 · 물리 삭제 0 |
 | 응답 | **200** `{ "action", "requested": n(중복 제거 후), "linked": n, "unlinked": n, "moved": n, "deleted": n, "skipped": n }` 고정 7필드(해당 없는 카운터 0). 문서 단위 항등 `requested = (linked|moved|deleted) + skipped`(`unlink`는 `unlinked`가 링크 행 수라 예외 · `skipped` = 대상 0 문서 수). 정답·해설 0. 에러 = §3 포맷 · 코드 4종 안(`NOT_FOUND`·`VALIDATION_ERROR`) · `message` = 한국어 + 다음 행동 |
 | 하지 않는 것 | 태그·타입·북마크 일괄(`action` 값 추가는 실수요 후) · 휴지통·복구(D8 이후) · `linked_by` 새 값 · `local_note` 배치 입력 · `unlink`/`move`에서 진도·이어하기·풀이 기록 정리(S50 규약을 문서 단위로 확장하지 않음) · 단건 API 4개·`GET /batch` 계약 변경 |

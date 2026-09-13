@@ -14,15 +14,20 @@ const TYPE_LABEL: Record<string, string> = {
 interface DocCardProps {
   doc: DocumentListItem
   onRequestLink: (documentId: number) => void
+  // S51(FB-25) — 탐색 다중 선택. 체크박스는 상시 노출(선택 모드 토글 없음) · shiftKey로 범위 선택.
+  selected?: boolean
+  onToggleSelect?: (documentId: number, shiftKey: boolean) => void
 }
 
-export default function DocCard({ doc, onRequestLink }: DocCardProps) {
+export default function DocCard({ doc, onRequestLink, selected, onToggleSelect }: DocCardProps) {
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
     <div
-      className="group relative flex flex-col gap-2 rounded-lg border border-border bg-surface p-3 shadow-sm transition-shadow hover:shadow-md"
+      className={`group relative flex flex-col gap-2 rounded-lg border bg-surface p-3 shadow-sm transition-shadow hover:shadow-md ${
+        selected ? 'border-accent' : 'border-border'
+      }`}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData('application/x-document-id', String(doc.id))
@@ -30,6 +35,19 @@ export default function DocCard({ doc, onRequestLink }: DocCardProps) {
       }}
     >
       <div className="flex items-start justify-between gap-2">
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            checked={selected ?? false}
+            aria-label={`${doc.title} 선택`}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              const shiftKey = (e.nativeEvent as MouseEvent).shiftKey
+              onToggleSelect(doc.id, shiftKey)
+            }}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
+          />
+        )}
         <button
           type="button"
           onClick={() => navigate(`/docs/${doc.id}`)}

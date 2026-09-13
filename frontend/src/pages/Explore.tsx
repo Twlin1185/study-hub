@@ -7,10 +7,10 @@ import {
   useMoveCategory,
   useUpdateCategory,
 } from '../api/categories'
-import { useDocuments, useLinkDocument } from '../api/documents'
+import { useBulkDocuments, useDocuments, useLinkDocument } from '../api/documents'
 import { useTags } from '../api/tags'
 import { useSuggestions } from '../api/suggestions'
-import type { DocumentType } from '../api/types'
+import type { DocumentBulkResult, DocumentType } from '../api/types'
 import Tree from '../components/Tree'
 import DocCard from '../components/DocCard'
 import CategoryFormModal from '../components/CategoryFormModal'
@@ -18,6 +18,8 @@ import MoveCategoryModal from '../components/MoveCategoryModal'
 import LinkDocumentModal from '../components/LinkDocumentModal'
 import DocEditor from '../components/DocEditor'
 import DeleteCategoryModal from '../components/DeleteCategoryModal'
+import ConfirmDialog from '../components/ConfirmDialog'
+import BulkSelectionBar from '../components/BulkSelectionBar'
 import { ApiError } from '../api/client'
 import { collectDescendantIds, findCategory } from '../utils/tree'
 import type { CategoryNode } from '../api/types'
@@ -30,6 +32,24 @@ type ModalState =
   | { kind: 'delete-category'; node: CategoryNode }
   | { kind: 'link-document'; documentId: number }
   | { kind: 'create-document' }
+  // S51(FB-25) — 탐색 다중 선택 선택 툴바 4동작. ids·category_id는 현재 선택 상태에서 제출 시점에
+  // 읽는다(모달 자체는 대상만 담당 — 별도 payload 불필요).
+  | { kind: 'bulk-link' }
+  | { kind: 'bulk-move' }
+  | { kind: 'bulk-unlink' }
+  | { kind: 'bulk-delete' }
+
+// S51(FB-25) — 성공 요약 1줄(카운터 그대로). action별 주 카운터 필드가 다르다(§4.31 응답 항등식).
+function summarizeBulkResult(result: DocumentBulkResult): string {
+  const primary: Record<DocumentBulkResult['action'], [string, number]> = {
+    link: ['연결', result.linked],
+    unlink: ['해제', result.unlinked],
+    move: ['이동', result.moved],
+    delete: ['삭제', result.deleted],
+  }
+  const [label, n] = primary[result.action]
+  return result.skipped > 0 ? `${label} ${n} · 건너뜀 ${result.skipped}` : `${label} ${n}`
+}
 
 export default function ExplorePage() {
   const treeQuery = useCategoryTree()
@@ -48,6 +68,11 @@ export default function ExplorePage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [modal, setModal] = useState<ModalState>({ kind: 'none' })
   const [modalError, setModalError] = useState<string | null>(null)
+
+  // S51(FB-25) — 탐색 다중 선택. anchorId = Shift 범위 기준점(마지막 비Shift 클릭).
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<number>>(new Set())
+  const [anchorId, setAnchorId] = useState<number | null>(null)
+  const [bulkResultSummary, setBulkResultSummary] = useState<string | null>(null)
 
   // 문서 상세에서 태그 클릭 → 이동해온 ?tag= 쿼리를 필터에 반영
   useEffect(() => {
@@ -75,15 +100,67 @@ export default function ExplorePage() {
     page: 1,
     size: 100,
   })
+  const items = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data])
 
   const createCategory = useCreateCategory()
   const updateCategory = useUpdateCategory()
   const moveCategory = useMoveCategory()
   const deleteCategory = useDeleteCategory()
   const linkDocument = useLinkDocument()
+  const bulkDocuments = useBulkDocuments()
 
   const treeNodes = useMemo(() => treeQuery.data ?? [], [treeQuery.data])
   const selectedNode = selectedCategoryId != null ? findCategory(treeNodes, selectedCategoryId) : null
+
+  // S51(FB-25) — 초기화 트리거: 필터 6종(분류·하위 포함·타입·태그·단일 문서·북마크) 변경.
+  // 배치 성공 후·분류 삭제 성공 후는 해당 onSuccess에서 별도로 초기화한다.
+  useEffect(() => {
+    setSelectedDocIds(new Set())
+    setAnchorId(null)
+    setBulkResultSummary(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategoryId, deep, typeFilter, tagFilter, orphanOnly, bookmarkedOnly])
+
+  // 표시값 = 선택 ∩ 현재 목록 id(목록에서 사라진 id는 세지 않음) — 그대로 일괄 작업 대상이 된다.
+  const visibleSelectedIds = useMemo(
+    () => items.filter((d) => selectedDocIds.has(d.id)).map((d) => d.id),
+    [items, selectedDocIds],
+  )
+
+  function toggleDocSelect(id: number, shiftKey: boolean) {
+    setBulkResultSummary(null)
+    setSelectedDocIds((prev) => {
+      const next = new Set(prev)
+      if (shiftKey && anchorId != null) {
+        const ids = items.map((d) => d.id)
+        const anchorIdx = ids.indexOf(anchorId)
+        const clickedIdx = ids.indexOf(id)
+        if (anchorIdx !== -1 && clickedIdx !== -1) {
+          const [start, end] = anchorIdx <= clickedIdx ? [anchorIdx, clickedIdx] : [clickedIdx, anchorIdx]
+          for (let i = start; i <= end; i++) next.add(ids[i])
+        } else {
+          next.add(id)
+        }
+      } else if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+    if (!shiftKey) setAnchorId(id)
+  }
+
+  function selectAllVisible() {
+    setBulkResultSummary(null)
+    setSelectedDocIds(new Set(items.map((d) => d.id)))
+  }
+
+  function clearSelection() {
+    setBulkResultSummary(null)
+    setSelectedDocIds(new Set())
+    setAnchorId(null)
+  }
 
   function closeModal() {
     setModal({ kind: 'none' })
@@ -239,11 +316,27 @@ export default function ExplorePage() {
           <p className="text-sm text-muted">문서가 없습니다. "+ 새 문서"로 추가해 보세요.</p>
         )}
 
+        <BulkSelectionBar
+          count={visibleSelectedIds.length}
+          totalVisible={items.length}
+          fromNode={selectedNode}
+          deep={selectedCategoryId != null ? deep : false}
+          resultSummary={bulkResultSummary}
+          onSelectAllVisible={selectAllVisible}
+          onClear={clearSelection}
+          onLink={() => setModal({ kind: 'bulk-link' })}
+          onMove={() => setModal({ kind: 'bulk-move' })}
+          onUnlink={() => setModal({ kind: 'bulk-unlink' })}
+          onDelete={() => setModal({ kind: 'bulk-delete' })}
+        />
+
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {(documentsQuery.data?.items ?? []).map((doc) => (
+          {items.map((doc) => (
             <DocCard
               key={doc.id}
               doc={doc}
+              selected={selectedDocIds.has(doc.id)}
+              onToggleSelect={toggleDocSelect}
               onRequestLink={(documentId) => setModal({ kind: 'link-document', documentId })}
             />
           ))}
@@ -337,6 +430,10 @@ export default function ExplorePage() {
                   if (selectedCategoryId != null && deletedIds.has(selectedCategoryId)) {
                     setSelectedCategoryId(null)
                   }
+                  // S51(FB-25) — 초기화 트리거: 분류 삭제 성공 후.
+                  setSelectedDocIds(new Set())
+                  setAnchorId(null)
+                  setBulkResultSummary(null)
                   closeModal()
                 },
                 onError: (e) => setModalError(e.message),
@@ -360,6 +457,123 @@ export default function ExplorePage() {
               {
                 onSuccess: closeModal,
                 onError: (e) => setModalError(errMsg(e, '연결에 실패했습니다.')),
+              },
+            )
+          }}
+        />
+      )}
+
+      {/* S51(FB-25) — 선택 툴바 4동작. ids는 항상 표시값(선택 ∩ 현재 목록)을 보낸다. */}
+      {modal.kind === 'bulk-link' && (
+        <LinkDocumentModal
+          allNodes={treeNodes}
+          title={`${visibleSelectedIds.length}건을 분류에 연결`}
+          submitLabel="연결"
+          withNote={false}
+          submitting={bulkDocuments.isPending}
+          errorMessage={modalError}
+          onClose={closeModal}
+          onSubmit={(categoryId) => {
+            setModalError(null)
+            bulkDocuments.mutate(
+              { action: 'link', document_ids: visibleSelectedIds, category_id: categoryId },
+              {
+                onSuccess: (result) => {
+                  setBulkResultSummary(summarizeBulkResult(result))
+                  setSelectedDocIds(new Set())
+                  setAnchorId(null)
+                  closeModal()
+                },
+                onError: (e) => setModalError(e.message),
+              },
+            )
+          }}
+        />
+      )}
+
+      {modal.kind === 'bulk-move' && selectedNode && (
+        <LinkDocumentModal
+          allNodes={treeNodes}
+          title={`${visibleSelectedIds.length}건을 '${selectedNode.name}'에서 이동`}
+          submitLabel="이동"
+          withNote={false}
+          excludeCategoryId={selectedNode.id}
+          submitting={bulkDocuments.isPending}
+          errorMessage={modalError}
+          onClose={closeModal}
+          onSubmit={(toCategoryId) => {
+            setModalError(null)
+            bulkDocuments.mutate(
+              {
+                action: 'move',
+                document_ids: visibleSelectedIds,
+                category_id: selectedNode.id,
+                to_category_id: toCategoryId,
+                deep,
+              },
+              {
+                onSuccess: (result) => {
+                  setBulkResultSummary(summarizeBulkResult(result))
+                  setSelectedDocIds(new Set())
+                  setAnchorId(null)
+                  closeModal()
+                },
+                onError: (e) => setModalError(e.message),
+              },
+            )
+          }}
+        />
+      )}
+
+      {modal.kind === 'bulk-unlink' && selectedNode && (
+        <ConfirmDialog
+          title="연결 해제"
+          message={`${visibleSelectedIds.length}건의 '${selectedNode.name}' 연결${
+            deep ? '(하위 포함)' : ''
+          }을 해제할까요? 문서는 남습니다`}
+          confirmLabel="해제"
+          submitting={bulkDocuments.isPending}
+          errorMessage={modalError}
+          onClose={closeModal}
+          onConfirm={() => {
+            setModalError(null)
+            bulkDocuments.mutate(
+              { action: 'unlink', document_ids: visibleSelectedIds, category_id: selectedNode.id, deep },
+              {
+                onSuccess: (result) => {
+                  setBulkResultSummary(summarizeBulkResult(result))
+                  setSelectedDocIds(new Set())
+                  setAnchorId(null)
+                  closeModal()
+                },
+                onError: (e) => setModalError(e.message),
+              },
+            )
+          }}
+        />
+      )}
+
+      {modal.kind === 'bulk-delete' && (
+        <ConfirmDialog
+          title="문서 삭제"
+          message={`${visibleSelectedIds.length}건을 삭제할까요? 문서는 휴지통 없이 숨겨지며 분류 연결·학습 기록은 그대로 남습니다`}
+          confirmLabel="삭제"
+          danger
+          submitting={bulkDocuments.isPending}
+          errorMessage={modalError}
+          onClose={closeModal}
+          onConfirm={() => {
+            setModalError(null)
+            bulkDocuments.mutate(
+              { action: 'delete', document_ids: visibleSelectedIds },
+              {
+                onSuccess: (result) => {
+                  setBulkResultSummary(summarizeBulkResult(result))
+                  setSelectedDocIds(new Set())
+                  setAnchorId(null)
+                  closeModal()
+                },
+                onError: (e) => setModalError(e.message),
               },
             )
           }}
