@@ -477,8 +477,8 @@
 /* stage-48 F-4 — select 기본 화살표를 지우고(F-4 아래) 대신 그리는 셰브런. 배경 SVG data-URI
    방식은 금지한다 — `background-image`에 색 리터럴이 들어가 불변 규칙 5(색 하드코딩 금지) 위반
    (`currentColor`가 data-URI 안에서는 통하지 않는다) — 대신 border 2변을 회전시켜 그린다(토큰만).
-   래퍼가 select 하나만 담으므로 래퍼 높이 = select 높이라 세로 중앙(top:50%)이 그대로 select
-   중앙이다. */
+   래퍼는 flex(align-items:center — stage-49 복사 버튼 동승)라 래퍼 높이 = 가장 큰 자식(select)
+   높이이고, 세로 중앙(top:50%)이 그대로 select 중앙이다. */
 .note-editor-frame [data-content-type='codeBlock'] > div[contenteditable='false']::after {
   content: '';
   position: absolute;

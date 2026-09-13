@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -112,6 +112,9 @@ export default function DocumentDetailPage() {
   // [참조 복사](stage-49 F-6, 규약 D ⑤) — 노트 편집기에 붙여넣으면 이 문서의 임베드 블록이
   // 되는 참조 문법을 클립보드에 담는다. 성공/실패 라벨을 1.5초 보여준 뒤 원래 라벨로 복원.
   const [refCopyState, setRefCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  // 라벨 복원 타이머 — 연타 시 앞 타이머가 라벨을 일찍 되돌리지 않도록 보관·해제(검토 경미-2).
+  const refCopyTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(refCopyTimer.current), [])
 
   const doc = docQuery.data
 
@@ -192,7 +195,8 @@ export default function DocumentDetailPage() {
             onClick={async () => {
               const ok = await writeClipboardText(`![[${doc.doc_no}]]`)
               setRefCopyState(ok ? 'copied' : 'failed')
-              setTimeout(() => setRefCopyState('idle'), 1500)
+              window.clearTimeout(refCopyTimer.current)
+              refCopyTimer.current = window.setTimeout(() => setRefCopyState('idle'), 1500)
             }}
             title="노트에 붙여넣으면 이 문서의 임베드 블록이 됩니다"
             className="text-xs text-muted hover:text-primary"

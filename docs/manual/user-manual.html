@@ -490,6 +490,11 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <p>문서를 작성·편집할 때 <strong>본문 칸 오른쪽 위의 [＋ 참조 삽입]</strong>을 누르면 문서 검색 팝업이 열립니다.
     <strong>임베드 / 링크 칩</strong> 중 하나를 고르고 문서를 선택하면 <strong>커서 자리에 문법이 그대로 삽입</strong>됩니다.
     편집 칸 아래에는 문법 요약 한 줄이 항상 붙어 있습니다.</p>
+    <p><span class="badge new">v2.0.x</span> <strong>[참조 복사]</strong> — 문서 상세 화면 제목 옆(문서 번호·북마크 옆)의
+    <strong>[참조 복사]</strong>를 누르면 그 문서의 참조(<code>![[DOC-번호]]</code>)가 클립보드에 담깁니다. 노트나 다른 문서를
+    편집하는 자리에 <kbd>Ctrl</kbd>+<kbd>V</kbd>로 붙여넣으면 <strong>문서 임베드 블록</strong>이 바로 들어갑니다(원본이
+    바뀌면 따라 바뀝니다 · <kbd>Ctrl</kbd>+<kbd>Z</kbd>로 되돌리기 가능). 다른 글자와 섞여 있거나 코드 블록 안이면
+    그냥 글자로 붙습니다.</p>
   </div>
   <div class="note">
     <span class="label">읽을 때 알아둘 것</span>
@@ -701,7 +706,11 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <li><strong>코드 블록 외양</strong> <span class="badge new">v2.0.x</span> — 슬래시 메뉴 <kbd>/</kbd>코드로
       넣는 코드 블록이 읽기 화면과 비슷하게 <strong>배경·테두리가 있는 상자</strong>로 구분되어 보이고,
       <strong>언어 선택은 상자 우상단</strong>에 항상 표시됩니다(라벨을 누르면 언어 목록이 열립니다). 다크
-      모드에서도 같은 색 체계를 따릅니다. 구문 강조(색 입히기)는 아직 없습니다.</li>
+      모드에서도 같은 색 체계를 따릅니다.</li>
+    <li><strong>코드 블록 구문 강조 · [복사]</strong> <span class="badge new">v2.0.x</span> — 언어를 고르면
+      편집 중인 코드에 <strong>구문별 색이 입혀집니다</strong>(라이트/다크 모드에 맞춰 바뀝니다 · <code>text</code>는
+      색 없음). 언어 선택 왼쪽의 <strong>[복사]</strong>를 누르면 코드 원문이 줄바꿈 그대로 클립보드에 들어가고
+      "복사됨"이 잠깐 표시됩니다. 색 입히기는 편집 화면에서만 보이며 읽기 화면·인쇄는 종전과 같습니다.</li>
     <li><strong>단나누기(다단) — 2단·3단 고정 열</strong> <span class="badge new">v2.0.x</span> — 슬래시 메뉴
       <kbd>/</kbd>단나누기(검색어 <code>columns</code>·<code>다단</code>, 단 수 지정은 <code>2단</code>·<code>3단</code>)로
       <strong>2단</strong> 또는 <strong>3단</strong> 상자를 넣으면 <strong>단마다 독립된 칸</strong>이 세로 구분선을 사이에 두고
@@ -1836,6 +1845,9 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     설치하면 주소창 없는 전체 화면으로 열리고 아이콘으로 바로 실행됩니다. 폰 화면에서는 하단 탭바
     (홈/커리큘럼/퀴즈/<strong>복습</strong>/오답노트 — 복습 탭은 v1.x 신설, 홈을 거치지 않고 오늘의 복습으로 직행)로
     오가고, 플래시카드 스와이프 등 터치 동작이 준비되어 있습니다.
+    <span class="badge new">v2.0.x</span> 왼쪽 위 <strong>메뉴(☰)</strong>를 열면 홈·커리큘럼·퀴즈·복습·오답노트·
+    <strong>탐색·반입·인쇄·노트</strong>와 LLM 작업·도움말까지 <strong>PC 사이드바와 같은 모든 화면</strong>으로 이동할 수
+    있습니다(항목을 누르면 메뉴가 닫힙니다 · 설정은 오른쪽 위 ⚙️).
   </p>
   <div class="note">
     <span class="label">참고</span>

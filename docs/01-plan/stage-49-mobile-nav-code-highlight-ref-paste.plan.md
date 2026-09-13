@@ -1,11 +1,11 @@
 # Stage 49 — 모바일 전체 내비 드로어 + 코드 블록 구문 강조·복사 + 참조로 붙여넣기 (FB-8 · FB-11-ⓑ · D11-ⓐ) (v2.0.x · 사소)
 
-> 상태: **구현 중**(편성 2026-09-13 → 착수 2026-09-13 · 사용자 확정 대기 항목 0 — 위임 판정 결정 ①~⑧ · 검토·구현 시 실측 분기 2건은 §2 B-③·C-④에 판정 기준을 미리 적어 둠 · **규약 B 결선 방식·청크 원칙은 2026-09-13 구현 중 API 불일치로 실측 개정 — §2 B "← 실측 개정" 블록이 정본**).
+> 상태: **구현·검토·실측 완료(2026-09-13) — DoD 1~5 충족 · 6(사용자 확인) 회신 대기 = 발행 게이트(stage-48과 v2.01.3 한 발행 단위 — §6 ① ⓑ 합류)**(편성 2026-09-13 → 착수 2026-09-13 → 구현·Opus 검토 통과(치명·중요 0 · 경미 3 반영)·브라우저 실측 ⓐ~ⓔ 통과·문서 묶음 D 완료 2026-09-13 · 사용자 확정 대기 항목 0 · **규약 B 결선 방식·청크 원칙은 구현 중 API 불일치로 실측 개정 — §2 B "← 실측 개정" 블록이 정본** · 경위 = §7 · 머지 PR 후기).
 > **버전 영향: 사소**(CHANGELOG 규약 ③ — 새 화면(라우트) 0 · **DDL 0 · API 0**(신규 엔드포인트 0 · 기존 계약 무변) ·
 > 퇴역 0. 실체 = 드로어 항목 확장(FB-8) + 코드 블록 강조·복사 버튼(FB-11-ⓑ) + 붙여넣기 진입 UX 1개(D11-ⓐ) — 전부
 > 기존 표면 위의 다듬기·편의 액션. **신규 프론트 의존 1**(`@blocknote/code-block` — 규약 ③의 핵심 요건이 아니고 D10·R37
-> 규율로 §2에서 별도 통제) → **편성 시점 고정 = 사소**) → 산출 버전 **v2.01.4 예정**(stage-48 = v2.01.3 발행 대기 선행 —
-> 발행 단위 조건은 §6 ①). 마스터 §14 로드맵 M 행 추가 없음(사소 stage는 stage-index가 담당).
+> 규율로 §2에서 별도 통제) → **편성 시점 고정 = 사소**) → 산출 버전 ~~v2.01.4 예정~~ **v2.01.3(발행 대기 · stage-48+49 한
+> 발행 단위 — 완료 시점 2026-09-13에 stage-48 DoD 6 회신이 아직이라 §6 ① ⓑ 합류 · 규약 ② 번호 재부여 없음)**. 마스터 §14 로드맵 M 행 추가 없음(사소 stage는 stage-index가 담당).
 > 생성 경위: `backlog.md` §1 `FB-8`(모바일 드로어 전체 내비 — 별지 §13 FB-8 · 2026-08-22 사용자 제안) · §1 `FB-11-ⓑ`(코드
 > 블록 구문 강조 + 복사 버튼 — 별지 §13 FB-11 ⓑ축 · stage-40에서 "실수요·번들 실측 후 별도 착수 전 결정"으로 존치 · 복사
 > 버튼은 stage-40 ⓐ에서 제외분) · §1 `D11-ⓐ`(참조로 붙여넣기 — 별지 §10 D11 ⓐ · 사용자 확정 2026-08-23 "v2.x 이월" ·
@@ -183,15 +183,15 @@
 
 ### 묶음 F — 프론트 구현 (권장 순서 F-1 → F-2 → F-4 → F-3 — F-3(강조)은 의존 추가·실측 분기가 있어 마지막)
 
-- [ ] F-1. **FB-8 드로어**(규약 A) — `Layout.tsx` 드로어 본문을 `[...NAV_ITEMS, ...DESKTOP_EXTRA_ITEMS, NOTES_NAV_ITEM].map(
+- [x] F-1. **FB-8 드로어**(규약 A) — `Layout.tsx` 드로어 본문을 `[...NAV_ITEMS, ...DESKTOP_EXTRA_ITEMS, NOTES_NAV_ITEM].map(
       (item) => <NavButton item={item} onClick={close} />)` + 하단 그룹(LLM 작업 기존 · 도움말 `<a target="_blank">` 신설 —
       사이드바 `:172~183`과 같은 속성·클래스 토큰)으로 교체 · 패널 `overflow-y-auto` + safe-area 상단 패딩 · 주석 `:237~239`
       정정(FB-8 완료 표기 · "예비 자리" 문구 삭제) · 사이드바·탭바·헤더 JSX 무변(diff = 드로어 블록 + 주석).
-- [ ] F-2. **클립보드 공용 유틸**(규약 C·D 공유) — `frontend/src/utils/clipboardWrite.ts` `writeClipboardText(text: string):
+- [x] F-2. **클립보드 공용 유틸**(규약 C·D 공유 — 검토 경미 ① 반영: 폴백 후 원래 포커스 복원 + `setSelectionRange`) — `frontend/src/utils/clipboardWrite.ts` `writeClipboardText(text: string):
       Promise<boolean>`(`navigator.clipboard?.writeText` → 실패/부재 시 `document.execCommand('copy')` 폴백 — 임시 textarea는
       `position:fixed; opacity:0`·`readonly`·선택 후 즉시 제거 · 둘 다 실패 = `false`) · 머리 주석에 "폰 = 비보안 컨텍스트
       (`http://<IP>:8000`)라 폴백 필수" 명기.
-- [x] F-3. **FB-11-ⓑ 구문 강조**(규약 B) — (코드·빌드·헤드리스 완료 · ④ 시각 강조·⑤ 토글 반영은 브라우저 실측 대기 — 결선 지점은 스펙이 아니라 `extensions.ts` 확장(0.54 API 실측), 사유는 §7·구현 보고)
+- [x] F-3. **FB-11-ⓑ 구문 강조**(규약 B) — (코드·빌드·헤드리스 완료 · ④ 시각 강조·⑤ 토글 반영 = V-3 ⓑ 브라우저 실측 통과 2026-09-13 — 결선 지점은 스펙이 아니라 `extensions.ts` 확장(0.54 API 실측), 사유는 §7 · ⑤ 실측 결과 = `notes.css` **라이트+다크 2규칙**(코어 `.shiki`가 항상 다크를 골라 라이트 결선도 필요 · 변수 참조만))
       ① `npm view @blocknote/code-block@0.54.0 license` + 전이 의존(`shiki`·`@shikijs/*`) 라이선스 확인 → 값 §7 기록(GPL 계열
          발견 시 **중단·보고**) → `npm i -E @blocknote/code-block@0.54.0`(package.json·잠금 파일 diff = 이 1건).
       ② ~~`schema.ts` `codeBlockSpecWithInfo()` — `createCodeBlockSpec({ supportedLanguages: CODE_LANGUAGES, createHighlighter:
@@ -214,21 +214,21 @@
       `text/plain` trim 전체 = embed 마커 1개(`REF_SCAN_RE` + `parseRefMatch` 재사용 · `lastIndex` 리셋 주의 — 전역 플래그 정규식
       · `isDocNo`) → `insertDocEmbedBlock(editor, target, safeLabel)` → `flushNotices()` → `return true` · 머리말 네 갈래 주석에
       ①′ 1줄 추가(stage-34 규약 G 계승 표기) · 링크형·앵커형·부분 일치는 종전 경로(주석에 명기).
-- [ ] F-6. **[참조 복사] 진입점**(규약 D ⑤) — `DocumentDetail.tsx:179~185` 좌측 그룹에 버튼 1개(`writeClipboardText('![[' +
+- [x] F-6. **[참조 복사] 진입점**(규약 D ⑤ — 검토 경미 ② 반영: 라벨 타이머 ref 보관·언마운트 해제) — `DocumentDetail.tsx:179~185` 좌측 그룹에 버튼 1개(`writeClipboardText('![[' +
       doc.doc_no + ']]')` · 라벨 상태 1.5초 · `title` 문구) · 블록 편집 중에도 노출 · 클래스 토큰만 · 모바일 390px에서 헤더
       좌측 그룹 줄바꿈(`flex-wrap` 기존 `:178`) 허용 — 겹침 0.
 
 ### 묶음 V — 검증 (구현 후)
 
-- [ ] V-1. `npm run build` 성공(성공/실패만) + **엔트리 청크(`index-*.js`) 최종값 기록 — 판정 기준 = 규약 B 개정 ①**(편성 기준선
+- [x] V-1. (실측 2026-09-13 — 최종값 §7: 엔트리 1,583,878 B = +5,305(의존 유래 +3,860 통과 · 앱 셸 +1,445) · 편집 청크 gzip 40.72→86.70 kB · 지연 청크 수치) `npm run build` 성공(성공/실패만) + **엔트리 청크(`index-*.js`) 최종값 기록 — 판정 기준 = 규약 B 개정 ①**(편성 기준선
       1,578,573 B 대비 증가분을 **의존 유래(강조 export 보존 +3,836 B + F-4/F-5 +24 B — ≤ 5 kB 통과)** / **앱 셸 기능 코드(F-1 드로어·
       F-6 [참조 복사] — 한도 대상 아님 · 수치만)**로 귀책 분리 · 최종값 = stage-50+ 기준선) · **편집 lazy 청크 `ui-*.js` 증감 min +
       gzip 증가분 1개**(vite 출력 — 규약 B 개정 ②) · **강조 지연 청크(언어·테마) 파일 수·우리 14종 합계·emit만 된 잔여 합계 B** 기록
       (R37 수치 — 별지 §9 R37 행에 1줄 추기는 D-2).
-- [ ] V-2. `scripts/run-tests.ps1 -Full` 무회귀(백엔드 diff 0이라 기대 = stage-48과 동일 624) · 헤드리스 `s33`·`s40`·`s41`·`s47`
+- [x] V-2. (실측 2026-09-13 — pytest 624 · s33 999 · s40 37 · s41-editor 81 · s41-roundtrip 335 · s47 78 · invariant PASS · `schema.ts`/`paste.ts` import 시 shiki 0) `scripts/run-tests.ps1 -Full` 무회귀(백엔드 diff 0이라 기대 = stage-48과 동일 624) · 헤드리스 `s33`·`s40`·`s41`·`s47`
       계열 무회귀(**스키마 import가 shiki를 로드하지 않는지** — 노드 실행 시간·의존 로드 로그로 확인) · `scripts/invariant-scan.ps1`
       **PASS**(`notes.css` 신규 규칙 = 변수 참조만).
-- [ ] V-3. **브라우저 실측**(사용자가 띄운 `localhost:8000` 우선 — 불가 시 임시 포트 자체 기동 허용 · **8000 금지 · 종료 +
+- [x] V-3. (실측 2026-09-13 임시 8765 · 종료·리스너 부재 확인 — ⓐ~ⓔ 전건 통과 · 미실측 기록만 = 수식 블록만 있는 노트의 테마 청크 요청 · 폰 폴백 경로(DoD 6) · 상세 §7) **브라우저 실측**(사용자가 띄운 `localhost:8000` 우선 — 불가 시 임시 포트 자체 기동 허용 · **8000 금지 · 종료 +
       리스너 부재 확인 필수**). ⓐ **드로어**(390px 에뮬) — ☰ → 항목 11개(9 + LLM 작업 + 도움말) 순서·아이콘 · 각 항목 탭 =
       라우트 이동 + 드로어 닫힘 · 현재 라우트 active 강조 · 도움말 = 새 탭 · 640px 세로에서 스크롤 없이 들어감 · 데스크톱
       (≥768px) 사이드바·탭바 diff 0 ⓑ **강조** — 노트에 코드 블록(javascript·python·csharp·bash·text) 삽입 → 토큰 span 생성 ·
@@ -243,19 +243,19 @@
       `![[DOC-0012|별칭]]` 손 입력 복사 → label 별칭 · 마커 + 다른 글자 → 평문 붙여넣기(종전) · 코드 블록 안 → 평문 · 저장 →
       재로드 → 임베드 유지 · 리더(문서 상세 본문 · 노트 프로젝션)에서 임베드 카드 렌더 ⓔ 테스트 노트·문서 변경분 전부
       원상복구(`DELETE /api/notes/{id}` · 문서는 편집 전 상태로).
-- [ ] V-4. **diff 범위** — `git diff --stat -- backend` 0줄 · `alembic/versions` 0 · `package.json`·잠금 파일 diff = `@blocknote/code-block`
+- [x] V-4. (실측 2026-09-13 — backend 0 · alembic 0 · 신규 의존 1) **diff 범위** — `git diff --stat -- backend` 0줄 · `alembic/versions` 0 · `package.json`·잠금 파일 diff = `@blocknote/code-block`
       1건 · `frontend/dist` 제외(`git diff -- . ':!frontend/dist'`).
 
 ### 묶음 D — 문서 (검증 종료 후)
 
-- [ ] D-1. **screens §5 S49 3곳 실측 확정 표기**(공통 레이아웃 단락 · §5.3 불릿 · §5.16 블록 — 편성 추기 → "구현 실측
+- [x] D-1. (2026-09-13 — 3곳 "구현 실측 2026-09-13 Design v1.60" 부기 + §5.16 "다크 1규칙" → 2규칙 정정 · v1.56 줄 아카이브 이동) **screens §5 S49 3곳 실측 확정 표기**(공통 레이아웃 단락 · §5.3 불릿 · §5.16 블록 — 편성 추기 → "구현 실측
       2026-xx-xx" 부기) = **Design v1.60**(색인 `study-app.design.md` 헤더 승급 · 관례대로 밀려나는 v1.56 괄호 줄은
       `docs/04-archive/design-changelog.md` 맨 위로 원문 이동).
-- [ ] D-2. `editor-v2.plan.md` — §13 FB-8·FB-11 행 · §10 D11 행에 `← 완료(stage-49 · 날짜)` 추기(FB-11은 "ⓑ + 복사 버튼 완료 —
+- [x] D-2. (2026-09-13 — 3행 `← 완료(stage-49 · 2026-09-13)` + R37 실측 1줄 + **FB-23 신규 등재**(검토 부수 관찰 — 문서 편집 "편집 닫기" 모달 [닫기] 후 라우팅 미이동 · stage-49 귀책 아님 · 감시)) `editor-v2.plan.md` — §13 FB-8·FB-11 행 · §10 D11 행에 `← 완료(stage-49 · 날짜)` 추기(FB-11은 "ⓑ + 복사 버튼 완료 —
       후속 ② 결함은 존치" · D11은 "ⓐ 완료 · ⓑ 보류·착수 금지 유지") · §9 R37 행에 강조 지연 청크 실측 1줄(V-1 수치).
-- [ ] D-3. 매뉴얼 `docs/manual/user-manual.html` — 모바일 절에 "☰ 메뉴에서 모든 화면으로 이동" 1줄 · 노트 절에 "코드 블록 언어
+- [x] D-3. (2026-09-13 — `#pwa` ☰ 전체 메뉴 1단락 · `#doc-block-editor` 코드 블록 강조·[복사] 불릿 1개(+ "구문 강조는 아직 없습니다" 문구 삭제) · `#doc-refs` 삽입 도우미 tip에 [참조 복사]→붙여넣기 임베드 1단락) 매뉴얼 `docs/manual/user-manual.html` — 모바일 절에 "☰ 메뉴에서 모든 화면으로 이동" 1줄 · 노트 절에 "코드 블록 언어
       선택 시 구문 강조 · [복사]" 1줄 · 문서/노트 절에 "문서 상세 [참조 복사] → 노트에 붙여넣기 = 임베드 블록" 1줄.
-- [ ] D-4. 본 문서 완료 기록(§7)·체크박스 + §6 절차(CHANGELOG·VERSION·stage-index·backlog).
+- [x] D-4. (2026-09-13 — §7 추기 · CHANGELOG v2.01.3 항목 합류 불릿 · stage-index 48·49행 · backlog 3행 종결 이동 + R37 비고 + FB-23 · **VERSION·CLAUDE.md 버전 줄은 DoD 6 회신 후 발행 시**) 본 문서 완료 기록(§7)·체크박스 + §6 절차(CHANGELOG·VERSION·stage-index·backlog).
 
 ## 4. 이 단계에서 하지 않는 것
 
@@ -328,3 +328,35 @@ FB-11 행에 기록하고 FB-11-ⓑ 강조분은 backlog §1에 재존치.
   엔트리 의존 유래 ≤ 5 kB(실측 +3,860 B) · 편집 청크 +146,320 B min 재수용(R37 M31 연장) · 문법·테마 지연 유지 · PWA precache 0
   확인. 연쇄 갱신 = F-3 ②③ · V-1 · V-3 ⓑ · DoD 1·6 ⓑ · §6 ① · screens §5.16 S49 강조 불릿·공통 계약 · backlog §1 FB-11-ⓑ·§3
   R37 비고. 라이선스 실측 = `@blocknote/code-block` **MPL-2.0** · 전이 전부 MIT · GPL 0(F-3 ①).
+- **구현**(2026-09-13 · frontend-dev 분배 — 백엔드 0): F-1 `Layout.tsx` 드로어 = `[...NAV_ITEMS, ...DESKTOP_EXTRA_ITEMS,
+  NOTES_NAV_ITEM]` 9항목 + 하단 LLM 작업·도움말(새 탭) 2항목 · 배열 단일 출처 · 예비 주석 정정 / F-2 `utils/clipboardWrite.ts`
+  `writeClipboardText`(Clipboard API → `execCommand('copy')` 폴백) / F-3 `extensions.ts` `syntaxHighlighter` 정적 import(규약 B
+  실측 개정 ⓐ) + `notes.css` 토큰 색 결선 **라이트 `var(--shiki-light)` + 다크 `var(--shiki-dark)` 2규칙**(코어 `.shiki`가 스킴
+  무관 항상 다크를 골라 라이트 결선도 필요 — F-3 ⑤ "다크 1규칙" 원문 정정 · 변수 참조만 · 리터럴 0) · `@blocknote/code-block@0.54.0`
+  **MPL-2.0** · 전이 트리 44종 = MIT 43 + MPL-2.0 1 · GPL 0 / F-4 `specs/codeCopyButton.ts` render 래핑(`schema.ts` 헤드리스 계약
+  유지) / F-5 `paste.ts` ①′ `parseSoleEmbedMarker`(`REF_SCAN_RE`·`parseRefMatch`·`isDocNo` 재사용) / F-6 `DocumentDetail.tsx`
+  [참조 복사] / 부수 `scripts/s47-mark-escape.mjs` 함수형 팩토리 가정 수정 + `syntaxHighlighting` 등록 검증 케이스(78/78).
+- **V-1 실측**(2026-09-13 · 검토 경미 반영 후 재빌드 최종값): 엔트리 `index-*.js` **1,583,878 B**(편성 기준선 1,578,573 → **+5,305**
+  = 의존 유래 **+3,860**(shiki→`hast-util-to-html`이 `stringify-entities` 추가 export 요구 +3,836 · F-5 `refDomain` 공유 바인딩 +24)
+  + 앱 셸 기능 코드 F-1/F-6·경미 반영 **+1,445**) — 판정 기준 "의존 유래 ≤ 5 kB" **통과** · **신규 기준선 1,583,878 B(stage-50+)**.
+  편집 청크 `ui-*.js` 128.19→**273.11 kB(gzip 40.72→86.70 kB)** = shiki 엔진 본체 · 지연 문법 14종 2,001,574 B(cpp 1,040,636 최대)
+  · 테마 2종 22,583 B · emit만 된 잔여 문법 32종 1,420,323 B(요청 0) · js 청크 17→66.
+- **V-2**: pytest 624 · 헤드리스 s33 999 · s40 37 · s41-editor 81 · s41-roundtrip 335 · s47 78 · invariant PASS(경미 반영 후 재실행
+  PASS) · `schema.ts`/`paste.ts` import 시 shiki 로드 0.
+- **V-3**(임시 포트 8765 자체 기동 · 종료·리스너 부재 확인): ⓐ~ⓔ **전건 통과** — ⓐ 드로어 11항목 순서·닫힘·active·도움말 새 탭·
+  640px 무스크롤·데스크톱 무변 ⓑ `text` span 0 · js·python·csharp·bash 강조 · 언어별 문법 청크 지연 · 코드 블록 없는 노트 = 문법·
+  테마 요청 0 · 다크/라이트 토큰 색 전환(`#F97583`↔`#D73A49` 계산값) · 배경 `--bg` 유지 · 콘솔 오류 0(FB-11 후속 ② `Language  is
+  not supported` **미재현** — 귀책 없음) ⓒ [복사] 라벨 1.5초 · 붙여넣기 원문 줄바꿈 보존 · 포커스 유지 · 겹침 0 · print 규칙 ⓓ 빈
+  문단 치환 · `|별칭` → label · 마커+글자 평문 · 코드 블록 안 평문 · Ctrl+Z 1회 복원 · 저장 재로드 유지 · 문서 블록 표면 동일 ⓔ 노트
+  20 삭제 · 문서 224 원복 · 테마 원복. **미실측(기록만 · 판정 무관)**: 수식 블록만 있는 노트의 테마 청크 요청 · 폰 폴백 경로(DoD 6).
+- **V-4**: `backend`·`alembic/versions` diff 0 · 신규 의존 1(`package.json`·잠금 파일).
+- **Opus 검토**(2026-09-13): **통과** — 치명·중요 0 · 경미 3 **전건 반영**(① `clipboardWrite.ts` execCommand 폴백 후 원래 포커스 복원
+  + `setSelectionRange` ② `DocumentDetail.tsx` 라벨 타이머 ref 보관·해제 ③ `Layout.tsx`·`notes.css` 낡은 주석 정정) · 문서 결함 1
+  = screens §5.16 "다크 결선 1규칙" → 2규칙 정정(D-1 반영). **부수 관찰(stage-49 귀책 아님)**: 문서 편집 "편집 닫기" 확인 모달 [닫기]
+  후 라우팅 미이동·모달만 닫힘(브라우저 자동화 1회 관찰 · 재현 조건 미특정 · `DocBlockEditor.tsx` stage-43 이후 무변 · 데이터 안전성
+  문제 없음) → 별지 §13 **FB-23 [관찰]** 등재 + backlog §2 1행(감시).
+- **문서 묶음 D**(2026-09-13): Design v1.60(screens 3곳 실측 부기 + 2규칙 정정 · v1.56 줄 아카이브) · 별지 §13 FB-8·FB-11 · §10 D11
+  `← 완료` · §9 R37 실측 1줄 · FB-23 신규 · 매뉴얼 3곳 · CHANGELOG **v2.01.3 항목에 합류**(§6 ① ⓑ — stage-48 DoD 6 회신 전이라
+  한 발행 단위 · 발행 게이트에 stage-49 DoD 6 병기) · stage-index 48·49행 "v2.01.3 (발행 대기 · 48+49)" · backlog 3행 §4 종결 이동
+  + §3 R37 비고 + §2 FB-23. **VERSION·CLAUDE.md 버전 줄·git tag = 사용자 DoD 6 회신 후(발행 시).**
+- **커밋**: WIP 스냅샷 `f8fd880`(구현 본체) → 경미 3 반영 + 문서 묶음 D 커밋 → 머지 PR #— (후기).

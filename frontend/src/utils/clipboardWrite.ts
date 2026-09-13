@@ -12,6 +12,9 @@ export async function writeClipboardText(text: string): Promise<boolean> {
     }
   }
 
+  // 폴백은 임시 textarea로 포커스를 옮기므로(폰 = 실제 경로) 복사 뒤 원래 포커스(에디터 등)를
+  // 되돌린다(검토 경미-1). iOS Safari는 `select()`만으로 선택되지 않아 `setSelectionRange`도 건다.
+  const active = document.activeElement as HTMLElement | null
   try {
     const textarea = document.createElement('textarea')
     textarea.value = text
@@ -20,10 +23,13 @@ export async function writeClipboardText(text: string): Promise<boolean> {
     textarea.style.opacity = '0'
     document.body.appendChild(textarea)
     textarea.select()
+    textarea.setSelectionRange(0, text.length)
     const ok = document.execCommand('copy')
     document.body.removeChild(textarea)
+    active?.focus?.()
     return ok
   } catch {
+    active?.focus?.()
     return false
   }
 }

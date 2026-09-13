@@ -26,8 +26,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/review-notes', label: '오답노트', icon: '📌' },
 ]
 
-// 데스크톱 사이드바 전용 추가 항목 — 탐색/반입은 모바일 하단 탭바에 없음(설계 §5 도입부),
-// 데스크톱에서는 계속 접근 가능해야 하므로 여기 유지.
+// 하단 탭바에 없는 추가 항목 — 탐색/반입/인쇄는 모바일 탭바 5개에 없음(설계 §5 도입부 · F39 탭
+// 추가 금지). 데스크톱 사이드바와 모바일 ☰ 드로어(stage-49 FB-8)가 같은 배열을 공유한다.
 const DESKTOP_EXTRA_ITEMS: NavItem[] = [
   { to: '/explore', label: '탐색', icon: '🗂️' },
   { to: '/import', label: '반입', icon: '📥' },
