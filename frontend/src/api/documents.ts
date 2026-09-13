@@ -3,6 +3,8 @@ import { api, ApiError, type Paginated } from './client'
 import { categoryKeys } from './categories'
 import type {
   DocumentBatchResponse,
+  DocumentBulkRequest,
+  DocumentBulkResult,
   DocumentDetail,
   DocumentListFilters,
   DocumentListItem,
@@ -16,6 +18,9 @@ export const documentKeys = {
   list: (filters: DocumentListFilters) => ['documents', 'list', filters] as const,
   detail: (id: number) => ['documents', 'detail', id] as const,
 }
+
+// 일괄 작업 실패 폴백 문구 — 규약 I "폴백 1곳" 단일 출처(S50 관례). ApiError는 서버 message 그대로.
+const BULK_DOCUMENTS_FALLBACK_MESSAGE = '일괄 작업에 실패했습니다.'
 
 function buildQuery(filters: DocumentListFilters): string {
   const params = new URLSearchParams()
@@ -237,6 +242,27 @@ export function useToggleBookmark() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: documentKeys.all })
+    },
+  })
+}
+
+// ---- 일괄 작업 (설계 §4.31, S51 — FB-25) ----
+// 탐색 다중 선택 툴바 + 문서 상세 [이동] 공용. invalidate 범위 = 단건 link/unlink 훅과 동일
+// (documents.all + categories.tree — all 접두가 detail도 덮는다).
+export function useBulkDocuments() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: DocumentBulkRequest) => {
+      try {
+        return await api.post<DocumentBulkResult>('/documents/bulk', body)
+      } catch (e) {
+        if (e instanceof ApiError) throw e
+        throw new Error(BULK_DOCUMENTS_FALLBACK_MESSAGE)
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: documentKeys.all })
+      qc.invalidateQueries({ queryKey: categoryKeys.tree })
     },
   })
 }

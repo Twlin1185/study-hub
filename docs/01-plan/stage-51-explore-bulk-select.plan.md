@@ -87,10 +87,10 @@
 ## 3. 체크리스트
 
 **B. 백엔드 (`backend/`)**
-- [ ] B-1 `schemas/document.py` — `DocumentBulkRequest`(규약 A 필드 · `Literal` action · `model_validator`로 action별 필수 필드·`document_ids` 1~200·중복 제거) · `DocumentBulkResult`(규약 G 7필드).
-- [ ] B-2 `routers/documents.py` — `POST /bulk` 등록(`POST /resolve-embeds` 뒤 · `POST ""` 앞 · **`/{document_id}` 앞 주석 명기**) · `response_model=DocumentBulkResult` · 200 · 얇은 라우트.
-- [ ] B-3 `services/document_service.py` `bulk_documents(db, payload)` — 검사 순서 B(404 문서 `missing_ids` → 404 분류 → 422 `from==to` → 422 `inactive_ids`) → 액션 분기 `_bulk_link`/`_bulk_unlink`/`_bulk_move`/`_bulk_delete`(C~F) → `commit` 1회 · 예외 = 롤백. deep 집합 = `_collect_descendant_ids` 재사용. move dedup = S50 C 규칙(출발 자신 행 우선 → `(category_id, sort_order, document_id)`) + `study_progress` 1행 이관(도착에 있으면 무접촉).
-- [ ] B-4 에러 메시지 = 한국어 + 다음 행동(§3) · `detail` 수치 동봉(`missing_ids`·`inactive_ids`·`category_id`) · 코드 신설 0. 기존 단건 4 엔드포인트·`GET /batch` diff 0 확인.
+- [x] B-1 `schemas/document.py` — `DocumentBulkRequest`(규약 A 필드 · `Literal` action · `model_validator`로 action별 필수 필드·`document_ids` 1~200·중복 제거) · `DocumentBulkResult`(규약 G 7필드).
+- [x] B-2 `routers/documents.py` — `POST /bulk` 등록(`POST /resolve-embeds` 뒤 · `POST ""` 앞 · **`/{document_id}` 앞 주석 명기**) · `response_model=DocumentBulkResult` · 200 · 얇은 라우트.
+- [x] B-3 `services/document_service.py` `bulk_documents(db, payload)` — 검사 순서 B(404 문서 `missing_ids` → 404 분류 → 422 `from==to` → 422 `inactive_ids`) → 액션 분기 `_bulk_link`/`_bulk_unlink`/`_bulk_move`/`_bulk_delete`(C~F) → `commit` 1회 · 예외 = 롤백. deep 집합 = `_collect_descendant_ids` 재사용. move dedup = S50 C 규칙(출발 자신 행 우선 → `(category_id, sort_order, document_id)`) + `study_progress` 1행 이관(도착에 있으면 무접촉).
+- [x] B-4 에러 메시지 = 한국어 + 다음 행동(§3) · `detail` 수치 동봉(`missing_ids`·`inactive_ids`·`category_id`) · 코드 신설 0. 기존 단건 4 엔드포인트·`GET /batch` diff 0 확인.
 
 **F. 프론트 (`frontend/src/`)**
 - [ ] F-1 `api/types.ts` `DocumentBulkAction`·`DocumentBulkRequest`·`DocumentBulkResult` · `api/documents.ts` `useBulkDocuments()`(규약 I 뮤테이션 · invalidate 2범위 · 폴백 문구 1곳).
@@ -102,7 +102,7 @@
 - [ ] F-7 색·간격 = 토큰·기존 유틸 클래스만(불변 규칙 5 — 새 색 0) · 390px에서 체크박스가 북마크·⋯ 버튼과 겹치지 않음.
 
 **V. 검증 (서버 구동 금지 — `2_StartServer.bat` 주인은 사용자 · 브라우저 실측은 사용자가 띄운 `localhost:8000`만)**
-- [ ] V-1 `backend/tests/test_documents_bulk.py` — ① `link` 신규 n건 `linked=n` · 기존 연결 `skipped` · `linked_by='manual'`·`local_note` NULL ② `unlink` 얕은 = from 행만 삭제·다른 분류 연결 잔존·`study_progress` 행 잔존(무접촉) · deep = 하위 노드 행까지 · 대상 0 문서 `skipped` ③ `move` = 필드(`sort_order`·`local_note`·`linked_by`) 보존 · 도착 기존 행 시 도착 유지+`skipped` · deep 다중 연결 dedup(출발 자신 우선) · `study_progress` 이관/도착 존재 시 무접촉 · `attempts.category_id`·`resume_points` 무변 · 출발 링크 0 문서 = 새 연결 생성 0 · `from==to` 422 ④ `delete` = `is_active=0`·링크·북마크·태그 행 수 무변 · 이미 비활성 `skipped` ⑤ 없는 id 1건 포함 → 404 `missing_ids` + **부분 변경 0**(롤백) ⑥ 비활성 문서 + `link` → 422 `inactive_ids` ⑦ 빈 배열·201건·필수 필드 누락 → 422 ⑧ 분류 미존재 404 ⑨ 항등식 G(문서 단위 카운터). `run-tests.ps1 -Path backend/tests/test_documents_bulk.py` 통과 → `-Full` 무회귀.
+- [x] V-1 `backend/tests/test_documents_bulk.py` — ① `link` 신규 n건 `linked=n` · 기존 연결 `skipped` · `linked_by='manual'`·`local_note` NULL ② `unlink` 얕은 = from 행만 삭제·다른 분류 연결 잔존·`study_progress` 행 잔존(무접촉) · deep = 하위 노드 행까지 · 대상 0 문서 `skipped` ③ `move` = 필드(`sort_order`·`local_note`·`linked_by`) 보존 · 도착 기존 행 시 도착 유지+`skipped` · deep 다중 연결 dedup(출발 자신 우선) · `study_progress` 이관/도착 존재 시 무접촉 · `attempts.category_id`·`resume_points` 무변 · 출발 링크 0 문서 = 새 연결 생성 0 · `from==to` 422 ④ `delete` = `is_active=0`·링크·북마크·태그 행 수 무변 · 이미 비활성 `skipped` ⑤ 없는 id 1건 포함 → 404 `missing_ids` + **부분 변경 0**(롤백) ⑥ 비활성 문서 + `link` → 422 `inactive_ids` ⑦ 빈 배열·201건·필수 필드 누락 → 422 ⑧ 분류 미존재 404 ⑨ 항등식 G(문서 단위 카운터). `run-tests.ps1 -Path backend/tests/test_documents_bulk.py` 통과 → `-Full` 무회귀.
 - [ ] V-2 `invariant-scan.ps1` — physical-delete 신규분은 정당(규약 L) → 사용자 승인 후 `-UpdateBaseline` · 그 외 PASS · `npm run build` 성공(성공/실패만 · 신규 의존 0이라 R37 게이트 무관).
 - [ ] V-3 브라우저 실측(사용자 기동 서버 · 노트 무접촉 · 실측용 분류·문서는 새로 만들어 원상 복구): ⓐ 체크 1건 → 툴바 등장·카운트 1 · Shift로 3건 범위 → 3 · 전체 선택 → 목록 수 · 해제 → 툴바 소멸 ⓑ "전체 문서"에서 [이동]·[해제] 비활성 + 툴팁 · 분류 선택 후 활성 · 라벨에 분류명·(하위 포함) ⓒ [분류에 연결] n건 → 트리 `doc_count` +n · 카드 "n곳에서 사용 중" 갱신 · 이미 연결분 요약 "건너뜀" ⓓ [분류 이동](하위 포함 켬) → 출발 트리 `doc_count` 감소·도착 증가 · 문서 상세 usages 경로 교체 · `local_note` 보존 ⓔ [연결 해제] → "단일 문서만" 필터에 노출 ⓕ [삭제] n건 → 목록에서 소멸 · 확인 문구 실수치 ⓖ 필터·분류 변경 시 선택 초기화 ⓗ 문서 상세 [이동] 1동작 ⓘ 390px(iframe 에뮬 가능) 툴바 2줄·체크박스 겹침 0 · 콘솔 에러 0.
 

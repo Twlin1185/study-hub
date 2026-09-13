@@ -185,6 +185,33 @@ export interface DocumentListFilters {
   size?: number
 }
 
+// ---- 문서 일괄 작업 (설계 §4.31, S51 — FB-25) ----
+// POST /api/documents/bulk — 탐색 다중 선택 + 선택 툴바 · 문서 상세 [이동] 공용.
+export type DocumentBulkAction = 'link' | 'unlink' | 'move' | 'delete'
+
+export interface DocumentBulkRequest {
+  action: DocumentBulkAction
+  document_ids: number[]
+  // link = 연결 대상 · unlink/move = 출발(from) · delete는 무시.
+  category_id?: number | null
+  // move 전용(도착).
+  to_category_id?: number | null
+  // unlink/move 전용 — 출발의 하위 트리 링크까지 대상(탐색 "하위 포함" 토글 값 그대로). 기본 false.
+  deep?: boolean
+}
+
+// 고정 7필드 — 해당 없는 카운터는 0. unlink는 unlinked가 "링크 행 수"라 requested 항등식이
+// 성립하지 않는다(그 외 액션은 requested = (linked|moved|deleted) + skipped).
+export interface DocumentBulkResult {
+  action: DocumentBulkAction
+  requested: number
+  linked: number
+  unlinked: number
+  moved: number
+  deleted: number
+  skipped: number
+}
+
 // ---- 반입 Import (설계 §4.3) ----
 
 export type ImportItemStatus = 'ok' | 'duplicate_suspect' | 'error'

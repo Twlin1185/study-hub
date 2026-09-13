@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DOCUMENT_TYPES = {"concept", "question", "past_question", "flashcard"}
 RELATION_TYPES = {"explains", "related", "prerequisite"}
@@ -194,6 +194,49 @@ class LinkCreate(BaseModel):
     category_id: int
     local_note: Optional[str] = None
     sort_order: Optional[int] = 0
+
+
+class DocumentBulkRequest(BaseModel):
+    """문서 일괄 작업 요청 (S51, 설계 §4.31 ②).
+
+    검사 순서의 1단계(pydantic 422)만 여기서 담당한다 — action별 필수 필드·
+    document_ids 상한(1~200)·중복 제거. 404·의미 검증(422)은
+    services/document_service.py `bulk_documents`가 수행한다(검사 순서 B 2~4).
+    """
+
+    action: Literal["link", "unlink", "move", "delete"]
+    document_ids: List[int] = Field(min_length=1, max_length=200)
+    category_id: Optional[int] = None
+    to_category_id: Optional[int] = None
+    deep: bool = False
+
+    @field_validator("document_ids")
+    @classmethod
+    def _dedup_ids(cls, value: List[int]) -> List[int]:
+        # 중복 제거(요청 순서 무관) — 첫 등장 순서를 유지한다.
+        return list(dict.fromkeys(value))
+
+    @model_validator(mode="after")
+    def _check_required_fields(self) -> "DocumentBulkRequest":
+        if self.action in ("link", "unlink") and self.category_id is None:
+            raise ValueError(f"{self.action} 동작은 category_id가 필요합니다")
+        if self.action == "move" and (
+            self.category_id is None or self.to_category_id is None
+        ):
+            raise ValueError("move 동작은 category_id·to_category_id가 모두 필요합니다")
+        return self
+
+
+class DocumentBulkResult(BaseModel):
+    """문서 일괄 작업 응답 (S51, 설계 §4.31 ②) — 고정 7필드, 해당 없는 카운터는 0."""
+
+    action: str
+    requested: int
+    linked: int = 0
+    unlinked: int = 0
+    moved: int = 0
+    deleted: int = 0
+    skipped: int = 0
 
 
 class RelationCreate(BaseModel):

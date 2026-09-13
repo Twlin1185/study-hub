@@ -3,6 +3,7 @@ import type { KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   useAddRelation,
+  useBulkDocuments,
   useDeleteDocument,
   useDeleteRelation,
   useDocument,
@@ -11,11 +12,13 @@ import {
   useUnlinkDocument,
   useUpdateDocument,
 } from '../api/documents'
+import { useCategoryTree } from '../api/categories'
 import type { DocumentDetail, DocumentStyle, DocumentType, RelationType } from '../api/types'
 import MarkdownView from '../components/MarkdownView'
 import InlineRichText from '../components/markdown/InlineRichText'
 import TagChip from '../components/TagChip'
 import ConfirmDialog from '../components/ConfirmDialog'
+import LinkDocumentModal from '../components/LinkDocumentModal'
 import MiniHistoryChart from '../components/MiniHistoryChart'
 import BookmarkButton from '../components/BookmarkButton'
 import AddRelationModal from '../components/AddRelationModal'
@@ -90,6 +93,9 @@ export default function DocumentDetailPage() {
   const unlinkDocument = useUnlinkDocument()
   const addRelation = useAddRelation()
   const deleteRelation = useDeleteRelation()
+  // S51(FB-25 J) — 사용처 [이동] 1버튼. 종전 "해제 + 연결" 2동작 경로는 그대로 남는다.
+  const treeQuery = useCategoryTree()
+  const bulkDocuments = useBulkDocuments()
   // S28(F53 ①·②, 설계 §4.26 ⑤·②-5) — 문서 지정값 > 전역 설정 > 기본 토큰. 문서 로드 전에도
   // 훅은 고정 순서로 불러야 하므로 docQuery.data가 아직 없어도 style은 undefined로 안전하다.
   const { scale: docScale, fontClassName: docFontClass, bgClassName: docBgClass } = useDocStyle(
@@ -107,6 +113,9 @@ export default function DocumentDetailPage() {
   const [relationError, setRelationError] = useState<string | null>(null)
   const [tagInput, setTagInput] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // S51(FB-25 J) — 이동 모달 대상(출발 category_id). null = 닫힘.
+  const [movingFromCategoryId, setMovingFromCategoryId] = useState<number | null>(null)
+  const [moveError, setMoveError] = useState<string | null>(null)
   const [srsDetailOpen, setSrsDetailOpen] = useState(false)
   const [answerRevealed, setAnswerRevealed] = useState(false)
   // [참조 복사](stage-49 F-6, 규약 D ⑤) — 노트 편집기에 붙여넣으면 이 문서의 임베드 블록이
@@ -127,6 +136,8 @@ export default function DocumentDetailPage() {
     setBlockEditing(false)
     setBlockFallbackReason(null)
     setEditing(false)
+    setMovingFromCategoryId(null)
+    setMoveError(null)
   }, [documentId])
 
   if (!documentId) return <p className="p-4 text-sm text-wrong">잘못된 문서 ID입니다.</p>
@@ -363,6 +374,10 @@ export default function DocumentDetailPage() {
                 localNote={usage.local_note}
                 onSaveNote={(note) => updateLocalNote(usage.category_id, note)}
                 onUnlink={() => unlinkDocument.mutate({ id: doc.id, categoryId: usage.category_id })}
+                onMove={() => {
+                  setMoveError(null)
+                  setMovingFromCategoryId(usage.category_id)
+                }}
               />
             ))}
           </ul>
@@ -530,6 +545,37 @@ export default function DocumentDetailPage() {
         />
       )}
 
+      {/* S51(FB-25 J) — 사용처 [이동] = 같은 일괄 API를 ids 1건 move로 호출. 종전 "해제+연결" 2동작
+          경로는 그대로 남는다(제거 0). */}
+      {movingFromCategoryId != null && (
+        <LinkDocumentModal
+          allNodes={treeQuery.data ?? []}
+          title="분류 이동"
+          submitLabel="이동"
+          withNote={false}
+          excludeCategoryId={movingFromCategoryId}
+          submitting={bulkDocuments.isPending}
+          errorMessage={moveError}
+          onClose={() => setMovingFromCategoryId(null)}
+          onSubmit={(toCategoryId) => {
+            setMoveError(null)
+            bulkDocuments.mutate(
+              {
+                action: 'move',
+                document_ids: [doc.id],
+                category_id: movingFromCategoryId,
+                to_category_id: toCategoryId,
+                deep: false,
+              },
+              {
+                onSuccess: () => setMovingFromCategoryId(null),
+                onError: (e) => setMoveError(errMsg(e, '이동에 실패했습니다.')),
+              },
+            )
+          }}
+        />
+      )}
+
       {addRelationOpen && (
         <AddRelationModal
           documentId={doc.id}
@@ -608,11 +654,13 @@ function UsageRow({
   localNote,
   onSaveNote,
   onUnlink,
+  onMove,
 }: {
   path: string
   localNote: string | null
   onSaveNote: (note: string) => void
   onUnlink: () => void
+  onMove: () => void
 }) {
   const [note, setNote] = useState(localNote ?? '')
   const [editing, setEditing] = useState(false)
@@ -650,13 +698,22 @@ function UsageRow({
           </button>
         )}
       </div>
-      <button
-        type="button"
-        onClick={onUnlink}
-        className="shrink-0 rounded border border-border px-2 py-1 text-xs text-wrong hover:bg-surface"
-      >
-        연결 해제
-      </button>
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          onClick={onMove}
+          className="rounded border border-border px-2 py-1 text-xs text-primary hover:bg-surface"
+        >
+          이동
+        </button>
+        <button
+          type="button"
+          onClick={onUnlink}
+          className="rounded border border-border px-2 py-1 text-xs text-wrong hover:bg-surface"
+        >
+          연결 해제
+        </button>
+      </div>
     </li>
   )
 }

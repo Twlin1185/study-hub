@@ -15,6 +15,8 @@ from schemas.convert import (
 )
 from schemas.explain import ExplainDraft, ExplainJobStart, ExplainJobStatus, ExplainRequest
 from schemas.document import (
+    DocumentBulkRequest,
+    DocumentBulkResult,
     DocumentCreate,
     DocumentDetail,
     DocumentListItem,
@@ -88,6 +90,18 @@ def resolve_embeds(
     answer·explanation은 응답 스키마에 존재하지 않는다(불변 규칙 1)."""
     items = embed_service.resolve_embeds(db, payload.doc_nos)
     return ResolveEmbedsResponse(items=items)
+
+
+@router.post("/bulk", response_model=DocumentBulkResult)
+def bulk_documents(
+    payload: DocumentBulkRequest, db: Session = Depends(get_db)
+) -> DocumentBulkResult:
+    """문서 다중 선택 일괄 작업 (S51, 설계 §4.31) — link/unlink/move/delete, 한 트랜잭션.
+
+    `/{document_id}` 경로보다 앞에 등록(`GET /batch` 전례 — 그렇지 않으면 "bulk"가
+    document_id로 파싱된다).
+    """
+    return document_service.bulk_documents(db, payload)
 
 
 @router.post("", response_model=DocumentDetail, status_code=status.HTTP_201_CREATED)

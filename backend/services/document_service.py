@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from typing import Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import cast, func, select, Integer
@@ -11,6 +12,8 @@ from sqlalchemy.orm import Session
 import models
 from exceptions import ConflictError, NotFoundError, ValidationAppError
 from schemas.document import (
+    DocumentBulkRequest,
+    DocumentBulkResult,
     DocumentCreate,
     DocumentDetail,
     DocumentListItem,
@@ -734,3 +737,272 @@ def remove_link(db: Session, document_id: int, category_id: int) -> None:
         )
     db.delete(link)
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# 문서 일괄 작업 (S51, 설계 §4.31) — link/unlink/move/delete, 한 트랜잭션(불변 규칙 2 관례,
+# S50 delete_category와 동일한 "단일 commit·예외는 커밋 전이라 자동 롤백" 패턴).
+# ---------------------------------------------------------------------------
+
+
+def _bulk_link(db: Session, category_id: int, document_ids: List[int]) -> Tuple[int, int]:
+    """규약 C — 없는 행만 생성(모델 기본값 그대로: sort_order=0·local_note=NULL·
+    linked_by='manual'). 이미 있으면 무접촉 skipped."""
+    existing_ids = set(
+        db.execute(
+            select(models.CategoryDocument.document_id).where(
+                models.CategoryDocument.category_id == category_id,
+                models.CategoryDocument.document_id.in_(document_ids),
+            )
+        ).scalars().all()
+    )
+    linked = 0
+    skipped = 0
+    for document_id in document_ids:
+        if document_id in existing_ids:
+            skipped += 1
+            continue
+        db.add(models.CategoryDocument(category_id=category_id, document_id=document_id))
+        linked += 1
+    return linked, skipped
+
+
+def _bulk_unlink(
+    db: Session, from_category_id: int, document_ids: List[int], deep: bool
+) -> Tuple[int, int]:
+    """규약 D — 출발(+deep 하위 트리) 링크 행만 삭제. 부수 테이블 무접촉."""
+    target_category_ids = (
+        _collect_descendant_ids(db, from_category_id) if deep else [from_category_id]
+    )
+    rows = db.execute(
+        select(models.CategoryDocument).where(
+            models.CategoryDocument.document_id.in_(document_ids),
+            models.CategoryDocument.category_id.in_(target_category_ids),
+        )
+    ).scalars().all()
+
+    by_doc: Dict[int, List[models.CategoryDocument]] = defaultdict(list)
+    for row in rows:
+        by_doc[row.document_id].append(row)
+
+    unlinked = 0
+    skipped = 0
+    for document_id in document_ids:
+        doc_rows = by_doc.get(document_id, [])
+        if not doc_rows:
+            skipped += 1
+            continue
+        for row in doc_rows:
+            db.delete(row)
+            unlinked += 1
+    return unlinked, skipped
+
+
+def _bulk_move_study_progress(
+    db: Session,
+    from_category_id: int,
+    target_category_ids: List[int],
+    to_category_id: int,
+    moved_document_ids: List[int],
+) -> None:
+    """규약 E — 이관된 문서에 한해 study_progress 1행을 도착으로 이관(도착에 이미
+    있으면 무접촉 · 나머지 출발 트리의 행은 무접촉 — 분류 행 존속이므로 삭제 0)."""
+    if not moved_document_ids:
+        return
+
+    rows = db.execute(
+        select(models.StudyProgress).where(
+            models.StudyProgress.category_id.in_(target_category_ids),
+            models.StudyProgress.document_id.in_(moved_document_ids),
+        )
+    ).scalars().all()
+
+    by_doc: Dict[int, List[models.StudyProgress]] = defaultdict(list)
+    for row in rows:
+        by_doc[row.document_id].append(row)
+
+    to_doc_ids = set(
+        db.execute(
+            select(models.StudyProgress.document_id).where(
+                models.StudyProgress.category_id == to_category_id,
+                models.StudyProgress.document_id.in_(moved_document_ids),
+            )
+        ).scalars().all()
+    )
+
+    for document_id, doc_rows in by_doc.items():
+        if document_id in to_doc_ids:
+            continue
+        winner = next(
+            (row for row in doc_rows if row.category_id == from_category_id), None
+        )
+        if winner is None:
+            winner = sorted(doc_rows, key=lambda row: (row.category_id, row.document_id))[0]
+        winner.category_id = to_category_id
+
+
+def _bulk_move(
+    db: Session,
+    from_category_id: int,
+    to_category_id: int,
+    document_ids: List[int],
+    deep: bool,
+) -> Tuple[int, int]:
+    """규약 E — 출발(+deep)의 링크를 도착으로 이관, 문서당 1행(S50 `_reparent_category_documents`
+    dedup 규칙 재사용: 출발 자신 행 우선 → (category_id, sort_order, document_id) 첫 행).
+    출발 링크 0 문서 = 새 연결 생성 없이 skipped."""
+    target_category_ids = (
+        _collect_descendant_ids(db, from_category_id) if deep else [from_category_id]
+    )
+    rows = db.execute(
+        select(models.CategoryDocument).where(
+            models.CategoryDocument.document_id.in_(document_ids),
+            models.CategoryDocument.category_id.in_(target_category_ids),
+        )
+    ).scalars().all()
+
+    by_doc: Dict[int, List[models.CategoryDocument]] = defaultdict(list)
+    for row in rows:
+        by_doc[row.document_id].append(row)
+
+    to_doc_ids = set(
+        db.execute(
+            select(models.CategoryDocument.document_id).where(
+                models.CategoryDocument.category_id == to_category_id,
+                models.CategoryDocument.document_id.in_(document_ids),
+            )
+        ).scalars().all()
+    )
+
+    moved = 0
+    skipped = 0
+    moved_document_ids: List[int] = []
+    for document_id in document_ids:
+        doc_rows = by_doc.get(document_id, [])
+        if not doc_rows:
+            skipped += 1
+            continue
+        if document_id in to_doc_ids:
+            for row in doc_rows:
+                db.delete(row)
+            skipped += 1
+            continue
+
+        winner = next(
+            (row for row in doc_rows if row.category_id == from_category_id), None
+        )
+        if winner is None:
+            winner = sorted(
+                doc_rows, key=lambda row: (row.category_id, row.sort_order, row.document_id)
+            )[0]
+        for row in doc_rows:
+            if row is not winner:
+                db.delete(row)
+        winner.category_id = to_category_id
+        moved += 1
+        moved_document_ids.append(document_id)
+
+    db.flush()
+    _bulk_move_study_progress(
+        db, from_category_id, target_category_ids, to_category_id, moved_document_ids
+    )
+    return moved, skipped
+
+
+def _bulk_delete(db: Session, document_ids: List[int]) -> Tuple[int, int]:
+    """규약 F — is_active=0만(단건 soft_delete_document 파리티). 링크·태그·북마크·
+    관계·attempts·srs 전부 무접촉."""
+    documents = db.execute(
+        select(models.Document).where(models.Document.id.in_(document_ids))
+    ).scalars().all()
+    by_id = {document.id: document for document in documents}
+
+    deleted = 0
+    skipped = 0
+    for document_id in document_ids:
+        document = by_id[document_id]
+        if document.is_active:
+            document.is_active = 0
+            deleted += 1
+        else:
+            skipped += 1
+    return deleted, skipped
+
+
+def bulk_documents(db: Session, payload: DocumentBulkRequest) -> DocumentBulkResult:
+    """문서 다중 선택 일괄 작업 진입점 (S51, 설계 §4.31).
+
+    검사 순서(규약 B): pydantic 422(스키마) → 404 문서(missing_ids, all-or-nothing) →
+    404 분류(category_id) → 422 의미(move from==to · 비활성 문서 inactive_ids) →
+    실행 → commit 1회. 어느 단계든 예외는 commit 전이라 자동 롤백(S50 관례).
+    """
+    document_ids = payload.document_ids
+
+    existing_ids = set(
+        db.execute(
+            select(models.Document.id).where(models.Document.id.in_(document_ids))
+        ).scalars().all()
+    )
+    missing_ids = [doc_id for doc_id in document_ids if doc_id not in existing_ids]
+    if missing_ids:
+        raise NotFoundError(
+            "존재하지 않는 문서가 포함되어 있습니다 — 선택을 새로고침한 뒤 다시 시도해주세요",
+            detail={"missing_ids": missing_ids},
+        )
+
+    category_ids_to_check = [
+        cid for cid in (payload.category_id, payload.to_category_id) if cid is not None
+    ]
+    for category_id in category_ids_to_check:
+        if db.get(models.Category, category_id) is None:
+            raise NotFoundError(
+                "분류를 찾을 수 없습니다 — 목록을 새로고침한 뒤 다시 시도해주세요",
+                detail={"category_id": category_id},
+            )
+
+    if payload.action == "move" and payload.category_id == payload.to_category_id:
+        raise ValidationAppError(
+            "출발과 도착 분류가 같습니다 — 다른 분류를 선택해주세요",
+            detail={"category_id": payload.category_id},
+        )
+
+    if payload.action in ("link", "unlink", "move"):
+        inactive_ids = list(
+            db.execute(
+                select(models.Document.id).where(
+                    models.Document.id.in_(document_ids), models.Document.is_active == 0
+                )
+            ).scalars().all()
+        )
+        if inactive_ids:
+            raise ValidationAppError(
+                "삭제된 문서가 포함되어 있습니다 — 선택을 새로고침한 뒤 다시 시도해주세요",
+                detail={"inactive_ids": inactive_ids},
+            )
+
+    linked = unlinked = moved = deleted = skipped = 0
+
+    if payload.action == "link":
+        linked, skipped = _bulk_link(db, payload.category_id, document_ids)
+    elif payload.action == "unlink":
+        unlinked, skipped = _bulk_unlink(
+            db, payload.category_id, document_ids, payload.deep
+        )
+    elif payload.action == "move":
+        moved, skipped = _bulk_move(
+            db, payload.category_id, payload.to_category_id, document_ids, payload.deep
+        )
+    else:  # delete
+        deleted, skipped = _bulk_delete(db, document_ids)
+
+    db.commit()
+
+    return DocumentBulkResult(
+        action=payload.action,
+        requested=len(document_ids),
+        linked=linked,
+        unlinked=unlinked,
+        moved=moved,
+        deleted=deleted,
+        skipped=skipped,
+    )
