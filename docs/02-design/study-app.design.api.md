@@ -5,7 +5,7 @@
 
 ## 4. API 명세
 
-구현 단계 표기: [S1]~[S35] = stage 1~35에서 구현(태그 번호 = stage 번호). (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만. S26·S27은 프론트 전용 — §4 무변경. S28은 신규 엔드포인트 0개 — documents PATCH `style` 필드 + settings 키 추가, §4.26. **S29는 신규 엔드포인트 1개** — 이미지 업로드, §4.27. **S30~S32는 §4 무변경** — S30(WYSIWYG)은 프론트 전용이라 screens §5.3 S30 절이 단독 계약 정본, S31(BlockNote 집중 분석)·S32(에디터 v2 변환 계층)는 API·DDL 0건. **S33은 신규 엔드포인트 5개** — 노트(베타) CRUD, §4.28. **S34는 §4 무변경**(노트 방언 이식 — 프론트 전용, 이미지·검색·임베드 해석은 §4.27·§4.2·§4.19 재사용). **S35는 신규 엔드포인트 0개** — documents 상세·PATCH에 블록 저장 필드 확장(에디터 v2 M34 저장 전환·지연 마이그레이션), §4.29. **S36은 신규 엔드포인트 0개** — documents POST에 블록 필드 확장(에디터 v2 M35 전반부·표면 통합), §4.29 ⑦. **S37은 신규 엔드포인트 1개** — 웹 임베드 메타 조회(M35 후반부·R39), §4.30. **S48은 신규 엔드포인트 1개** — 노트 복제, §4.28 ⑦. **S50은 신규 엔드포인트 0개** — `DELETE /api/categories/{id}`에 선택 쿼리 2개(`on_documents`·`recursive`) + 응답 204→200 통계, §4.1 `[S50]`.)
+구현 단계 표기: [S1]~[S35] = stage 1~35에서 구현(태그 번호 = stage 번호). (S7은 순수 프론트 단계 — 새 엔드포인트 없음, 기존 settings API의 키 추가만. S26·S27은 프론트 전용 — §4 무변경. S28은 신규 엔드포인트 0개 — documents PATCH `style` 필드 + settings 키 추가, §4.26. **S29는 신규 엔드포인트 1개** — 이미지 업로드, §4.27. **S30~S32는 §4 무변경** — S30(WYSIWYG)은 프론트 전용이라 screens §5.3 S30 절이 단독 계약 정본, S31(BlockNote 집중 분석)·S32(에디터 v2 변환 계층)는 API·DDL 0건. **S33은 신규 엔드포인트 5개** — 노트(베타) CRUD, §4.28. **S34는 §4 무변경**(노트 방언 이식 — 프론트 전용, 이미지·검색·임베드 해석은 §4.27·§4.2·§4.19 재사용). **S35는 신규 엔드포인트 0개** — documents 상세·PATCH에 블록 저장 필드 확장(에디터 v2 M34 저장 전환·지연 마이그레이션), §4.29. **S36은 신규 엔드포인트 0개** — documents POST에 블록 필드 확장(에디터 v2 M35 전반부·표면 통합), §4.29 ⑦. **S37은 신규 엔드포인트 1개** — 웹 임베드 메타 조회(M35 후반부·R39), §4.30. **S48은 신규 엔드포인트 1개** — 노트 복제, §4.28 ⑦. **S50은 신규 엔드포인트 0개** — `DELETE /api/categories/{id}`에 선택 쿼리 2개(`on_documents`·`recursive`) + 응답 204→200 통계, §4.1 `[S50]`. **S51은 신규 엔드포인트 1개** — 문서 일괄 작업 `POST /api/documents/bulk`(연결·이동·해제·소프트 삭제 · 한 트랜잭션), §4.31.)
 
 ### 4.1 분류 Categories
 
@@ -49,6 +49,7 @@
 | `DELETE /api/documents/{id}/relations/{to_id}` | 관계 해제 | S4 |
 | `PUT /api/documents/{id}/bookmark` · `DELETE 동일 경로` | 북마크 토글 (F29) | S4 |
 | `GET /api/documents/batch?ids=1,2,3` | 인쇄 뷰 등 다건 조회 | S4 |
+| `POST /api/documents/bulk` | **S51 신설(2026-09-13 편성 · 착수 전)**: 문서 n건(≤200) × `action` 1개(`link`·`unlink`·`move`·`delete`) 일괄 처리 — 한 트랜잭션(부분 성공 0) · 200 + 카운터 7필드 · 삭제 = `is_active=0`만 · 조회용 `GET /batch`와 별개. 세부 = **§4.31 `[S51]`** | **S51** |
 
 > **S35(에디터 v2 M34)**: `GET /api/documents/{id}`·`PATCH /api/documents/{id}`에 블록 저장 필드(`content_blocks`·`explanation_blocks`·`blocks_version`)가 확장된다 — **계약 정본 = §4.29**(신규 엔드포인트 0 · 미전환 문서의 기존 계약은 무변경).
 
@@ -1518,5 +1519,30 @@ backend/services/fetchers/
 - 프로젝션 강등 = **`::web` leaf directive**(확정 기록·근거는 별지 §5.4 신규 커스텀 행 비고 — 종전 "URL 링크" 잠정안의 개정). 왕복·리더 렌더 계약은 stage-37 지시서에서 상세 확정.
 
 **말미 확인**: **DDL 0건 · Alembic 0건 · settings 키 0 · 신규 파이썬 의존 0 목표**(표준 라이브러리/기존 httpx 계열 재사용 — 구현 시 실측) · 잡 아님(동기 — 5초 상한이라 큐 불요).
+
+### 4.31 문서 일괄 작업 — 연결·이동·해제·소프트 삭제 (S51 — FB-25. **편성 추기 2026-09-13 · 착수 전 — 지시서 `stage-51-explore-bulk-select.plan.md` §2 정본**(구현 실측 확정 표기는 완료 시))
+
+> 근거: 별지 `editor-v2.plan.md` §13 **FB-25**(탐색 그리드에서 여러 문서를 골라 한 번에 옮기고·연결하고·지우는 수단 0 · 문서 상세 "분류 이동"은 해제+연결 2동작). 단건 API 4개(§4.2 `links`·`DELETE /{id}`)는 무변 · 기존 `GET /api/documents/batch`는 **조회**(인쇄) 전용이라 이름을 `bulk`(변경 전용)로 구분한다. 다대다 원칙(§5.2 "드래그 = 연결 추가 · 이동 아님")과의 정합: `link`가 연결 추가, `move`는 **사용자가 출발 분류를 명시한 기존 연결의 재배치**(다른 분류의 연결은 그대로 · 새 연결 생성 0).
+
+**① 엔드포인트 — 신규 1개** (`routers/documents.py` — `/{document_id}` 경로보다 앞에 등록 · `GET /batch` 전례)
+
+| 메서드/경로 | 설명 | 단계 |
+|---|---|---|
+| `POST /api/documents/bulk` | body `DocumentBulkRequest` → 한 트랜잭션 실행 → **200** `DocumentBulkResult`. DDL 0 · LLM 0 · `sources/` 무접촉 | S51 |
+
+**② 본문 · 검사 순서 · 동작 계약**
+
+| 항목 | 계약 |
+|---|---|
+| 본문 | `{ action: "link"\|"unlink"\|"move"\|"delete", document_ids: [int…](1~200 · 서버가 중복 제거), category_id?: int(link = 대상 · unlink/move = 출발 · delete = 무시), to_category_id?: int(move 전용), deep?: bool = false(unlink/move — 출발의 하위 트리 링크 포함 · 탐색 "하위 포함" 토글 값 그대로) }`. 상한 200 = `GET /api/documents` `size le=200`과 동일 |
+| 검사 순서 | pydantic 422(값·상한·action별 필수 필드) → **404 문서**(없는 id 1건이라도 전체 거부 · `detail.missing_ids`) → 404 분류(`category_id`·`to_category_id`) → **422 의미**(`move` `from==to` · `link`/`unlink`/`move`에 비활성 문서 포함 `detail.inactive_ids` — `delete`는 비활성 허용) → 실행 → `commit` 1회(예외 = 전체 롤백 · 부분 성공 0). **409 없음** |
+| `link` | `(category_id, doc)` 행 없으면 생성(`sort_order=0`·`local_note=NULL`·`linked_by='manual'` 모델 기본·`linked_rule_id=NULL`) `linked`+1 · 있으면 무접촉 `skipped`+1. 태그 규칙 스캔·`suggestions` 무접촉(단건 `add_link` 동일) · `local_note` 입력 없음 |
+| `unlink` | 대상 = `category_documents` where `doc ∈ ids AND category ∈ (deep ? 출발 하위 트리 : {출발})` 행 삭제 → `unlinked` = 행 수 · 대상 0 문서 = `skipped`+1(멱등 · 200). **부수 테이블 무접촉**(`study_progress`·`resume_points`·`attempts`·`suggestions` — 단건 `remove_link` 파리티 · 분류 행 존속 = FK 무관 · 잔존 진도 행은 트리 진도에 영향 0(링크 경유 조인)·heatmap 기록 보존). 문서 행 무접촉(불변 규칙 3) |
+| `move` | 대상 집합 = `unlink`와 동일. **문서당 1행 이관**(출발 자신 행 우선 → `(category_id, sort_order, document_id)` 첫 행) `UPDATE category_id=to` — `sort_order`·`local_note`·`linked_at`·`linked_by`·`linked_rule_id` **보존** → `moved`+1 · 나머지 대상 행 삭제. 도착에 같은 문서 행이 있으면 **도착 유지·대상 전부 삭제** `skipped`+1. 출발 링크 0 문서 = **새 연결 생성 없이** `skipped`+1. `study_progress`: `(출발 집합, doc)` 1행 → `(to, doc)` 이관 · 도착에 있으면 무접촉(삭제 0). `resume_points`·`attempts.category_id`·`suggestions` 무접촉(분류 행 존속 · 풀이 기록 맥락 = 당시 분류) |
+| `delete` | `documents.is_active=0`만(단건 `DELETE /api/documents/{id}` 파리티) `deleted`+1 · 이미 비활성 `skipped`+1. 링크·태그·북마크·관계·attempts·srs 전부 무접촉 · 물리 삭제 0 |
+| 응답 | **200** `{ "action", "requested": n(중복 제거 후), "linked": n, "unlinked": n, "moved": n, "deleted": n, "skipped": n }` 고정 7필드(해당 없는 카운터 0). 문서 단위 항등 `requested = (linked|moved|deleted) + skipped`(`unlink`는 `unlinked`가 링크 행 수라 예외 · `skipped` = 대상 0 문서 수). 정답·해설 0. 에러 = §3 포맷 · 코드 4종 안(`NOT_FOUND`·`VALIDATION_ERROR`) · `message` = 한국어 + 다음 행동 |
+| 하지 않는 것 | 태그·타입·북마크 일괄(`action` 값 추가는 실수요 후) · 휴지통·복구(D8 이후) · `linked_by` 새 값 · `local_note` 배치 입력 · `unlink`/`move`에서 진도·이어하기·풀이 기록 정리(S50 규약을 문서 단위로 확장하지 않음) · 단건 API 4개·`GET /batch` 계약 변경 |
+
+**말미 확인**: **DDL 0 · Alembic 0 · settings 키 0 · 신규 의존 0** · 프론트 계약 = screens §5.2 S51(탐색 다중 선택·선택 툴바) · §5.3 S51(문서 상세 [이동] = 이 API ids 1건 `move`) · 테스트 = `backend/tests/test_documents_bulk.py`(편성 필수 — 한 트랜잭션·dedup·부수 테이블 무접촉 회귀 방지) · invariant physical-delete 기준선은 링크 행 삭제분만 정당 갱신.
 
 
