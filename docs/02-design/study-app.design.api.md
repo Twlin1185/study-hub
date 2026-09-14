@@ -42,6 +42,7 @@
 | `GET /api/documents/{id}` | 상세 + `tags[]`, `usages[]`(연결 분류 경로+local_note), `relations[]`, `bookmarked`, `stats{attempts, accuracy}` | S1 |
 | `PATCH /api/documents/{id}` | 본문·보기·정답·해설 등 수정 | S1 |
 | `DELETE /api/documents/{id}` | 소프트 삭제 | S1 |
+| `POST /api/documents/{id}/restore` | **소프트 삭제 복원**(`is_active=1` UPDATE만 · 멱등 · 404 · 링크·태그·북마크·학습 기록 무접촉) — 계약 = **§4.32 [S52]**(편성 추기 2026-09-14 · 휴지통 목록은 `GET /api/trash/documents`) | **S52** |
 | `PUT /api/documents/{id}/tags` | `{tags: ["정규화", ...]}` 전체 교체. 없는 태그는 자동 생성 | S1 |
 | `POST /api/documents/{id}/links` | `{category_id, local_note?, sort_order?}` 분류 연결. **이미 연결된 분류면 upsert** — 요청에 포함된 필드만 갱신 (§5.3 local_note 인라인 편집 경로) | S1 |
 | `DELETE /api/documents/{id}/links/{category_id}` | 연결 해제 | S1 |
@@ -1309,7 +1310,7 @@ backend/services/fetchers/
 
 - 재사용 자산 전수: **저장 디렉터리** `sources/images/`(`convert_service.SOURCES_IMAGES_DIR`) · **서빙** `GET /images/{filename:path}`(정규식 + `resolve()`·`is_relative_to` — R16 이행분, **무변경**) · **매직 판별** `_detect_image_magic` · **해시 파일명 규칙** `{sha256[:16]}.{ext}`(`_save_fetch_images`) · **백업** `backup_service`의 `sources/` zip(개정 0). 신규는 **업로드 라우터 1개**뿐이다.
 - 저장 지점 전수: **파일 시스템만**(`sources/images/`). DB 쓰기 0 · DDL 0 · Alembic 0 · settings 키 0 · LLM 0 · 신규 의존 0(백엔드·프론트 공통).
-- **범위 밖 확정(계획서 §14 F54)**: 동영상 업로드 · 외부 사이트 iframe 임베드 · **고아 이미지 정리**(불변 규칙 4 우선 — 디스크 상한은 실사용 실측 후 재검토).
+- **범위 밖 확정(계획서 §14 F54)**: 동영상 업로드 · 외부 사이트 iframe 임베드 · **고아 이미지 정리**(불변 규칙 4 우선 — 디스크 상한은 실사용 실측 후 재검토). **← S52(편성 2026-09-14)**: 고아 이미지 정리는 별지 D8 확정(2단계 · 삭제 주체 = 사용자)에 따라 **§4.32**로 편성 — 불변 규칙 4 개정(업로드·수집 이미지 = 파생물) · 이 절의 업로드·서빙 계약은 무변(휴지통 `.trash/`는 서빙 정규식이 이미 거부).
 
 **구현 앵커 (2026-08-14 — 파일 수준. 행 번호는 구현 시 실측)**
 
@@ -1329,7 +1330,8 @@ backend/services/fetchers/
 | `GET /api/notes` | 목록 — 페이지네이션·검색·소프트 삭제 필터(② 참조). 항목에 본문 필드 **미포함** | S33 |
 | `POST /api/notes` | 생성 — `200 OK` + 노트 표현(**201을 쓰지 않는다** — §4.27 ②의 "구분을 만들지 않는다" 관례 계승) | S33 |
 | `GET /api/notes/{id}` | 단건 — 본문 전체. 삭제분도 `200` + `is_active:false`(목록에서만 기본 제외 — §3) | S33 |
-| `PATCH /api/notes/{id}` | 부분 수정 — `title` · (`content_blocks` + `content`) 쌍. **`is_active`는 받지 않는다**(복구 경로는 베타 범위 밖) | S33 |
+| `PATCH /api/notes/{id}` | 부분 수정 — `title` · (`content_blocks` + `content`) 쌍. **`is_active`는 받지 않는다**(복구 경로는 베타 범위 밖 **← S52 개정(2026-09-14)**: 복구는 아래 전용 `restore` 엔드포인트 — PATCH는 계속 받지 않는다) | S33 |
+| `POST /api/notes/{id}/restore` | **소프트 삭제 복원**(`is_active=1` UPDATE만 · 멱등 · 404 · 본문 무접촉) — 계약 = **§4.32 [S52]**(편성 추기 2026-09-14 · 휴지통 목록은 `GET /api/trash/notes`) | **S52** |
 | `DELETE /api/notes/{id}` | **소프트 삭제**(`is_active=0` UPDATE만 — 물리 삭제 코드 0) · **재삭제 멱등** · 응답 = 삭제된 노트 표현 | S33 |
 | `POST /api/notes/{id}/duplicate` | **복제**(FB-2 잔여 — stage-48 편성 2026-09-12 · 구현 실측 확정 같은 날) — 요청 본문 없음 · `200 OK` + **새 노트의 표현** · 계약 = ⑦ | **S48** |
 
@@ -1400,7 +1402,7 @@ backend/services/fetchers/
 | 백업(F27) | **개정 0건** — 백업은 `study.db` VACUUM INTO라 새 테이블이 자동 포함된다 |
 | 이미지(§4.27) | **재사용** — 노트 표면의 붙여넣기·드롭·삽입 3진입점이 기존 `POST /api/uploads`를 그대로 호출한다(요청당 1장·순차 루프). 신규 업로드 경로 0 |
 | 참조 칩 피커(S34) | **재사용** — 대상 검색 = **`GET /api/search?q=`**(FTS 검색 · item에 `doc_no`·`title`이 이미 있다 — 칩이 필요한 것 전부) · 최근/목록 보조 = `GET /api/documents`(§4.2 필터·페이지네이션) · 제목 조회 = `POST /api/documents/resolve-embeds`(§4.19) 배치. **전부 읽기 전용 사용**이라 `documents` 무접촉 계약과 정합. 신규 API 0 |
-| 소프트 삭제 복구 | **엔드포인트 없음**(베타 범위 밖) — 삭제분 확인은 `include_inactive=1`로만. 휴지통 UI는 실수요 확인 후 계획서 먼저 |
+| 소프트 삭제 복구 | **엔드포인트 없음**(베타 범위 밖) — 삭제분 확인은 `include_inactive=1`로만. 휴지통 UI는 실수요 확인 후 계획서 먼저 **← S52 개정(편성 2026-09-14)**: `POST /api/notes/{id}/restore` + `GET /api/trash/notes` + 휴지통 화면(screens §5.17) — 계약 = §4.32. `include_inactive=1`은 그대로 유지 |
 | 동시 편집 | 낙관적 잠금·버전 충돌 처리 **없음**(단일 사용자 전제 — 별지 §7.2). 마지막 저장이 이긴다 |
 
 **구현 앵커 (2026-08-16 — 파일 수준. 행 번호는 구현 시 실측)**
@@ -1544,5 +1546,81 @@ backend/services/fetchers/
 | 하지 않는 것 | 태그·타입·북마크 일괄(`action` 값 추가는 실수요 후) · 휴지통·복구(D8 이후) · `linked_by` 새 값 · `local_note` 배치 입력 · `unlink`/`move`에서 진도·이어하기·풀이 기록 정리(S50 규약을 문서 단위로 확장하지 않음) · 단건 API 4개·`GET /batch` 계약 변경 |
 
 **말미 확인**: **DDL 0 · Alembic 0 · settings 키 0 · 신규 의존 0** · 프론트 계약 = screens §5.2 S51(탐색 다중 선택·선택 툴바) · §5.3 S51(문서 상세 [이동] = 이 API ids 1건 `move`) · 테스트 = `backend/tests/test_documents_bulk.py`(편성 필수 — 한 트랜잭션·dedup·부수 테이블 무접촉 회귀 방지) · invariant physical-delete 기준선은 링크 행 삭제분만 정당 갱신.
+
+### 4.32 휴지통 — 소프트 삭제 복원 · 고아 이미지 2단계 정리 (S52 — D8-구현 · F61. **편성 추기 2026-09-14(Design v1.65 · 착수 전 · 실측 재개정은 완료 시) — 지시서 `stage-52-trash-orphan-images.plan.md` §2 정본**)
+
+> 별지 `editor-v2.plan.md` §10 D8 확정(2026-08-23 사용자 — 선택지 ⓑ 2단계 정리 · **삭제 주체 = 항상 사용자 · 앱 자동 삭제 0**)의 구현 계약. 마스터 §15 R41 ③④("복구 UI 없음")·§4.28 ⑥ "복구 엔드포인트 없음"·§4.27 말미 "고아 이미지 정리 범위 밖"의 봉인을 이 절이 해제한다. **불변 규칙 4 개정 동반**(계획서 §6.3 4 · `CLAUDE.md` — `sources/images/` 업로드·수집 이미지 = 앱 생성 파생물 · `sources/` 반입 원본은 종전대로 불변). **DDL 0**(계획서 §6.2 무변 · `deleted_at` 없음 — "삭제 시각"은 `updated_at`(소프트 삭제가 `onupdate`로 갱신 — 실측) · Alembic 0) · **신규 엔드포인트 7** · 기존 엔드포인트 무변(`DELETE` 2종 · `GET /images/` 서빙 · `POST /api/uploads` · `POST /api/documents/bulk`) · 파일 **삭제 코드 0**(이동만 · `services/trash_service.py` 1파일) · 에러 §3(코드 4종 불증 · `detail.reason`) · R16(파일명 = 서빙 정규식 fullmatch + `resolve()`·`is_relative_to` 루트 종속 검사).
+
+**① 엔드포인트 — 신규 7개(전부 [S52] · 5개는 `routers/trash.py` `prefix=/api/trash` · 복원 2개는 각 리소스 라우터)**
+
+| 메서드/경로 | 설명 | 단계 |
+|---|---|---|
+| `GET /api/trash/documents?page&size` | 소프트 삭제 문서 목록 — **`is_active=0`만** · `updated_at DESC` · §3 페이지네이션(`Page[DocumentListItem]` 재사용 · 기본 50 · ≤200). `GET /api/documents`의 `include_inactive`(혼합)는 무변 | S52 |
+| `POST /api/documents/{id}/restore` | 문서 복원 — `is_active=1` UPDATE + commit 1회 · `200 DocumentDetail`(기존 표현) · **이미 활성 = 200 그대로(멱등)** · 404 `NOT_FOUND`. 링크·태그·북마크·관계·`attempts`·`srs_cards`·블록 3컬럼 **전부 무접촉**(삭제가 무접촉이었으므로 그대로 되살아남 — 불변 규칙 2·3) | S52 |
+| `GET /api/trash/notes?page&size` | 소프트 삭제 노트 목록 — `is_active=0`만 · `updated_at DESC` · `Page[NoteListItem]` 재사용 | S52 |
+| `POST /api/notes/{id}/restore` | 노트 복원 — `is_active=1` UPDATE만 · `200 NoteOut` · 멱등 · 404. `PATCH`는 계속 `is_active`를 받지 않는다 · 복제(§4.28 ⑦)의 삭제분 404는 그대로(복원 후 복제) | S52 |
+| `GET /api/trash/images?min_age_days=7` | **고아 이미지 스캔 보고서(읽기 전용 · 수동 트리거 · 페이지네이션 없음)** — 응답 ③ | S52 |
+| `POST /api/trash/images/move` | 선택 파일을 `sources/images/{f}` → `sources/images/.trash/{f}`로 **이동**(삭제 아님) — 본문·가드·응답 ④ | S52 |
+| `POST /api/trash/images/restore` | `.trash/{f}` → `images/{f}` 되돌리기 — ④ | S52 |
+
+- **최종 삭제 엔드포인트 없음** — 사용자가 탐색기에서 `sources/images/.trash/` 폴더를 비운다(화면 안내 문구 + 절대 경로). 자동 비우기·용량 상한·보존 기간 트리거 0.
+- **LLM 0 · settings 키 0 · DB 쓰기 = `is_active` UPDATE 2종뿐** · 스캔 결과는 저장하지 않는다.
+
+**② 고아(orphan) 정의 — 지시서 규약 A**
+
+| 항목 | 계약 |
+|---|---|
+| 대상 파일 | `sources/images/` **직속**(하위 폴더 미탐색) 중 서빙 정규식 `^[0-9a-f]{16}\.(gif|png|jpg|jpeg|webp)$` 충족 파일만. 불충족(`.tmp` 등) = 대상 밖 · `other_files` 집계만 |
+| 참조원(합집합 · **`is_active` 무관 전 행**) | ⓐ `documents.content`·`choices`·`explanation`·`content_blocks`·`explanation_blocks` ⓑ `notes.content`·`content_blocks` ⓒ `import/auto/*.json`(`preview_store.AUTO_DIR` — 미승인 미리보기·보존 산출물 · 읽기만 · 파싱 실패 = 건너뜀). 추출 = 원문 문자열 정규식 `/images/([0-9a-f]{16}\.(?:gif|png|jpg|jpeg|webp))` 전역 매치 — **블록 JSON을 해석하지 않는다**(§4.28 원칙 ③ · 마크다운·JSON `"url"`·`{w=}` 접미 전부 같은 패턴) |
+| 소프트 삭제분의 참조 | **살아 있는 참조**(이 절로 복원 가능) — 고아 아님 |
+| 큐넷 수집 이미지 | 업로드 이미지와 **같은 규칙**(앱이 내려받아 생성한 파생물 · 파일명 규칙 동일) |
+| 유예 `min_age_days` | 정수 · 기본 **7** · 0 허용 · ≤365(범위 밖 = 422). mtime이 `now − min_age_days`보다 최근이면 후보 제외(`recent_skipped`) — 편집 중 미저장·반입 진행 중(인메모리 단계) 오판 방지. UI 입력 없음(기본값 고정) |
+| 반입 원본(`sources/` 밖 파일) | **스캔 대상 자체가 아니다**(불변 규칙 4 개정 범위 = `sources/images/`만) |
+
+**③ 스캔 응답 — `200 OK`**
+
+```json
+{ "orphans":  [{ "filename": "3f2a91c7b04e5d18.png", "bytes": 12345, "modified_at": "2026-09-01T10:00:00" }],
+  "trashed":  [{ "filename": "…", "bytes": 0, "modified_at": "…" }],
+  "total_files": 120, "referenced": 110, "recent_skipped": 3, "other_files": 0,
+  "trash_dir": "C:\\…\\sources\\images\\.trash", "min_age_days": 7 }
+```
+
+- `orphans` = ② 고아(`filename` 오름차순) · `trashed` = `.trash/` 현재 내용 · 카운터 항등 `total_files = referenced + len(orphans) + recent_skipped`(`other_files`는 별도). 문서 id·본문·"어느 문서가 쓰는지" 역참조 **0**(YAGNI). 썸네일은 프론트가 `GET /images/{filename}`(휴지통 파일은 서빙 안 됨 — 썸네일 없음).
+
+**④ 이동·되돌리기 — 본문 · 가드 · 응답 (지시서 규약 C)**
+
+| 항목 | 계약 |
+|---|---|
+| 본문 | `{ "filenames": [str, …] }` — 1 ≤ len ≤ 500 · 서버가 중복 제거 · 빈 배열/초과 = 422 `VALIDATION_ERROR` |
+| 경로 가드(R16) | ⓐ 각 파일명 = 서빙 정규식 **fullmatch**(불일치 = **422 `invalid_filename`** `detail.filenames` · 전체 거부 · 부작용 0 — `../x`·`.trash/x`·`abc.png` 전부 여기서 차단) ⓑ `src`·`dst` `resolve()` 후 `is_relative_to(SOURCES_IMAGES_DIR.resolve())` 이중 검사 ⓒ 방향 고정(move = `images/{f}`→`images/.trash/{f}` · restore = 역방향) — 그 외 경로 0 |
+| 참조 재검사(move만) | 요청 파일 전부에 ② 참조 집합을 **다시 계산**(유예 미적용 — 명시 선택은 mtime 무관) → 하나라도 참조 중이면 **422 `still_referenced`**(`detail.filenames`) + **이동 0**(all-or-nothing · 스캔 결과 stale 방어) |
+| 이동 호출 | `shutil.move` **명시 사용**(invariant `fs-mutate` 패턴 검출 의도 — `Path.replace`로 우회 금지) · `services/trash_service.py` 안 2곳(move·restore)만 · `os.remove`·`unlink`·`rmtree` 0 · 기준선 갱신은 이 2곳만 정당(사용자 승인 후 `-UpdateBaseline`) |
+| move 응답 | `200 { "moved": n, "skipped": n }` — 미존재 = `skipped`(멱등 · 404 아님) · `.trash/`에 같은 이름 존재 = 대상 유지·원본 그대로·`skipped`(덮어쓰기 0) |
+| restore 응답 | `200 { "restored": n, "skipped": n }` — `images/{f}`가 이미 있으면(재업로드로 재생성) **휴지통 사본 그대로 두고 `skipped`**(삭제 0) · 미존재 = `skipped` |
+| 서빙 | `.trash/` 파일은 `GET /images/{filename:path}` 정규식이 **이미 404**(`/`·`.` 선두 거부 — `main.py` 무변) · 되돌린 뒤 200 |
+| 업로드 | `POST /api/uploads`는 휴지통을 보지 않는다(같은 해시가 `.trash/`에 있어도 `images/`에 새로 쓴다 — 중복 사본 허용 · 계약 무변) |
+| 백업(F27) | `sources/` zip `rglob`이라 `.trash/`도 **자동 포함**(복원 시 휴지통까지 되살아남 · 코드 개정 0) |
+
+**⑤ 에러 표 (§3 규약 — 코드 집합 4종 불증)**
+
+| 조건 | 상태 | code | detail.reason | message 형태 |
+|---|---|---|---|---|
+| 복원 대상 문서·노트 없음 | 404 | `NOT_FOUND` | — | "문서를 찾을 수 없습니다" / "노트를 찾을 수 없습니다"(기존 문구) |
+| `filenames` 빈 배열·500 초과 · `min_age_days` 범위 밖 | 422 | `VALIDATION_ERROR` | (pydantic) | 기존 관례 |
+| 파일명 정규식 불일치 | 422 | `VALIDATION_ERROR` | `invalid_filename` | "허용되지 않는 파일명이 있습니다(…): 스캔 결과에서 고른 파일만 옮길 수 있습니다" |
+| 참조 중 파일 포함(move) | 422 | `VALIDATION_ERROR` | `still_referenced` | "아직 사용 중인 이미지가 있어 옮기지 않았습니다(…): 스캔을 다시 실행하세요" |
+| 파일 시스템 실패 | 500 | `INTERNAL` | — | 공통 핸들러 |
+
+- 409 없음 · 프론트는 `code`로 분기하지 않고 서버 `message`를 그대로 렌더(§3) · 폴백 문구는 mutationFn 1곳.
+
+**⑥ 하지 않는 것(지시서 §4 정본)**: 최종 삭제 API·휴지통 비우기·자동 정리 · 문서·노트 일괄 복원(bulk `restore` action — 실수요 후 §4.31 추가) · `deleted_at` 컬럼 · 본문 `/images/` 링크 재작성 · 이미지 메타 DB·썸네일 생성 · 분류·태그·백업의 휴지통 · FB-24 ⓒ(`on_documents=delete` — §4.1 봉인 그대로) · `GET /images/` 서빙 규약 변경 · `import/auto/` 정리.
+
+**구현 앵커 (2026-09-14 — 파일 수준. 행 번호는 구현 시 실측)**
+
+- 백엔드: `backend/routers/trash.py`(신규) · `backend/services/trash_service.py`(신규 — 참조 수집·스캔·이동·되돌리기 · 서빙 정규식 상수를 `main.py`와 **공용 1곳**으로) · `backend/schemas/trash.py`(신규) · `routers/documents.py`(`POST /{document_id}/restore`) · `routers/notes.py`(`POST /{note_id}/restore` · `_list_notes` 내부 인자) · `services/document_service.py`(`restore_document` · `list_documents` 내부 `inactive_only`) · `main.py`(라우터 등록 1줄 + 상수 import) · `tests/test_trash.py`(tmp 폴더 픽스처 — 실 `sources/` 무접촉).
+- 프론트: `pages/Trash.tsx`(신규 · lazy) · `api/trash.ts`(신규) · `api/types.ts` · `api/documents.ts` `useRestoreDocument` · `editor2/api/notes.ts` `useRestoreNote` · `App.tsx` 라우트 · `pages/Settings.tsx` 데이터 그룹 카드 · 삭제 확인 문구 4곳 — 화면은 screens §5.17.
+
+**말미 확인**: **DDL 0 · Alembic 0 · settings 키 0 · 신규 의존 0 · 파일 삭제 코드 0** · 프론트 계약 = screens §5.17(휴지통) · §5.11(설정 데이터 카드) · §5.2·§5.3·§5.16(삭제 문구) · 테스트 = `backend/tests/test_trash.py`(편성 필수 — 경로 가드·참조 재검사·복원 무접촉 회귀 방지) · invariant `fs-mutate` 기준선은 `trash_service.py` 2곳만 정당 갱신 · 불변 규칙 4 개정 = 계획서 §6.3 4 + `CLAUDE.md`(편성 시 이행).
 
 
