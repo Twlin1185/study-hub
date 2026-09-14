@@ -596,7 +596,7 @@ CREATE INDEX ix_notes_active_updated ON notes(is_active, updated_at DESC);  -- �
 | **M34. 에디터 v2 — documents 탑재·저장 전환** | `content_blocks` 3컬럼 DDL(R42)·지연 마이그레이션·D1 확정(소스 = 블록 JSON) · 설계 §4.29 — 상세 = 아카이브 + `stage-35-documents-blocks.plan.md` | ✅ 2026-08-19 게이트 통과 |
 | **M35. 에디터 v2 — Notion UX 마감** | 편집 표면 통합·슬래시·표 정렬·찾기/바꾸기 + 신규 블록(TOC·웹 임베드 §4.30·크롭) · stage-36+37 분할 — 상세 = 아카이브 + `stage-36-surface-unify.plan.md`·`stage-37-custom-blocks.plan.md` | ✅ 2026-08-22 게이트 통과 |
 | **M36. 에디터 v2 — 모바일 마감 → v2.00.0** | 모바일·터치 마감 + 캡처 설계 반영 + 프로젝션 손실 목록 정본 + 퇴역 판정 ⓐ — 상세 = 아카이브 + `stage-38-mobile-v2-closeout.plan.md` | ✅ 2026-08-22 — **v2.00.0 발행** |
-| **M37. 탐색 문서 일괄 도구(F60 — FB-25) → v2.02.1** | 다중 선택 + 선택 툴바(연결·이동·해제·소프트 삭제) · `POST /api/documents/bulk` 한 트랜잭션 · 문서 상세 [이동] · DDL 0 — 지시서 `stage-51-explore-bulk-select.plan.md` | ✅ 2026-09-13 구현·검토 완료 — **v2.02.1 발행 대기**(V-3 실측 + DoD 6 회신 · 48·49·50과 동시 발행) |
+| **M37. 탐색 문서 일괄 도구(F60 — FB-25) → v2.02.1** | 다중 선택 + 선택 툴바(연결·이동·해제·소프트 삭제) · `POST /api/documents/bulk` 한 트랜잭션 · 문서 상세 [이동] · DDL 0 — 지시서 `stage-51-explore-bulk-select.plan.md` | ✅ 2026-09-13 구현·검토 완료 — **v2.02.1 v2.02.1 발행(2026-09-14)**(V-3 실측 + DoD 6 회신 치명 0 · 48·49·50과 동시 발행) |
 
 > **v1.x 후보(로드맵 미배정 — 실수요 확인 후 등재)**: ① 한국어 부분어 검색 recall 개선(FTS5 trigram/토크나이저 검토 — "제3정규형"에서 "정규형" 미매칭), ② 백업 복원 후 서버 재시작 강제 UX(구동 중 커넥션 stale 방지). *(2026-08-14 위치 교정 — 표 마지막 행 끝에 붙어 있던 잉여 셀을 표 밖 주석으로 옮김. 문구 무변경.)* **잔여 등록부 = `backlog.md` §1(2026-09-03 — 후보 추가 시 여기 ③④…와 등록부 1행 동반).**
 
