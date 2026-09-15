@@ -241,12 +241,18 @@ def list_documents(
     orphan: bool = False,
     bookmarked: bool = False,
     include_inactive: bool = False,
+    inactive_only: bool = False,
     page: int = 1,
     size: int = 50,
 ) -> Tuple[List[DocumentListItem], int]:
+    """`inactive_only`(내부용, S52 — 공개 API 파라미터 아님) — `GET /api/trash/documents`
+    (`routers/trash.py`)가 쓴다: `is_active=0`만 · `updated_at DESC`(규약 E). 그 외
+    호출부는 기존 `include_inactive` 계약 그대로(혼합 목록)."""
     query = select(models.Document.id).distinct()
 
-    if not include_inactive:
+    if inactive_only:
+        query = query.where(models.Document.is_active == 0)
+    elif not include_inactive:
         query = query.where(models.Document.is_active == 1)
 
     if doc_type:
@@ -278,8 +284,12 @@ def list_documents(
 
     total = db.execute(select(func.count()).select_from(query.subquery())).scalar_one()
 
+    order_col = (
+        models.Document.updated_at.desc() if inactive_only else models.Document.id.desc()
+    )
+
     ids = db.execute(
-        query.order_by(models.Document.id.desc()).offset((page - 1) * size).limit(size)
+        query.order_by(order_col).offset((page - 1) * size).limit(size)
     ).scalars().all()
 
     documents = []
@@ -287,7 +297,7 @@ def list_documents(
         documents = db.execute(
             select(models.Document)
             .where(models.Document.id.in_(ids))
-            .order_by(models.Document.id.desc())
+            .order_by(order_col)
         ).scalars().all()
 
     bookmarked_set = _bookmarked_ids(db, [doc.id for doc in documents])
@@ -424,6 +434,17 @@ def update_document(
 def soft_delete_document(db: Session, document_id: int) -> None:
     document = get_document_or_404(db, document_id)
     document.is_active = 0
+    db.commit()
+
+
+def restore_document(db: Session, document_id: int) -> None:
+    """휴지통 복원 (S52, 설계 §4.32) — `is_active=1` UPDATE + commit 1회.
+
+    이미 활성 문서도 그대로 UPDATE·commit해 멱등(재호출 200). 링크·태그·북마크·
+    관계·attempts·srs_cards·블록 3컬럼은 삭제가 무접촉이었으므로 여기서도 무접촉
+    (불변 규칙 2·3 — 삭제가 건드리지 않았던 것을 복원도 건드리지 않는다)."""
+    document = get_document_or_404(db, document_id)
+    document.is_active = 1
     db.commit()
 
 

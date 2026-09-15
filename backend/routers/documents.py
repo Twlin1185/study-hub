@@ -130,6 +130,13 @@ def delete_document(document_id: int, db: Session = Depends(get_db)) -> None:
     document_service.soft_delete_document(db, document_id)
 
 
+@router.post("/{document_id}/restore", response_model=DocumentDetail)
+def restore_document(document_id: int, db: Session = Depends(get_db)) -> DocumentDetail:
+    """휴지통 복원 (S52, 설계 §4.32) — 이미 활성이어도 200 멱등, 404는 존재하지 않을 때만."""
+    document_service.restore_document(db, document_id)
+    return document_service.get_document_detail(db, document_id)
+
+
 @router.put("/{document_id}/tags", response_model=DocumentDetail)
 def replace_tags(
     document_id: int, payload: TagsReplace, db: Session = Depends(get_db)

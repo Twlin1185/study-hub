@@ -207,7 +207,7 @@ export default function NoteListPage() {
       {pendingDelete && (
         <ConfirmDialog
           title="노트 삭제"
-          message="노트를 삭제할까요? 목록에서 사라집니다."
+          message="노트를 삭제할까요? 목록에서 사라지며, 휴지통(설정 › 데이터)에서 복원할 수 있습니다."
           confirmLabel="삭제"
           danger
           submitting={deleteNote.isPending}

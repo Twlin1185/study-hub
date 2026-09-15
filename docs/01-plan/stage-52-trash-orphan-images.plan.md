@@ -1,6 +1,6 @@
 # Stage 52 — 통합 휴지통: 문서·노트 복원 + 고아 이미지 2단계 정리 (D8-구현) (v2.0.x · 핵심)
 
-> 상태: **착수 전**(편성 2026-09-14 · 사용자 확정 = D8-구현 단독 · 번호 52 · 범위 "통합 휴지통" ①②③ · FB-24 ⓒ 미동승).
+> 상태: **구현·검토 완료 → v2.03.1 발행 대기**(2026-09-15 · Opus 검토: 1차 조건부 통과(치명 0 · 중요 1 · 경미 4) → 반영 후 재검토 통과(잔존 0 · 2026-09-15) · 잔여 = V-3 브라우저 실측(사용자 기동 서버) + DoD 6 실사용 회신 → `VERSION` bump · 편성 2026-09-14 · 사용자 확정 = D8-구현 단독 · 번호 52 · 범위 "통합 휴지통" ①②③ · FB-24 ⓒ 미동승).
 > **버전 영향: 핵심**(초안 = 사용자 확정 2026-09-14 · 근거 병기 — CHANGELOG 규약 ③): **새 기능 표면**(휴지통 화면 `/trash` — 종전 0 ·
 > 소프트 삭제분을 되살릴 UI가 처음 생김) + **신규 API 7개**(문서·노트 복원 2 + 휴지통 목록 2 + 고아 스캔·이동·되돌리기 3 — 저장 계약
 > 추가 · "복구 엔드포인트 없음"(§4.28 ⑥) 봉인 해제) + **불변 규칙 4 명시 개정**(운영 규약 변경). 선례 = stage-51(표면 신설 = 핵심).
@@ -134,37 +134,37 @@
 ## 3. 체크리스트
 
 **B. 백엔드 (`backend/`)**
-- [ ] B-1 `services/trash_service.py` 신설 — `collect_referenced_filenames(db)`(규약 A ⓐⓑⓒ 합집합 · 정규식 1개 상수) ·
+- [x] B-1 `services/trash_service.py` 신설 — `collect_referenced_filenames(db)`(규약 A ⓐⓑⓒ 합집합 · 정규식 1개 상수) ·
       `scan_images(db, min_age_days)`(보고서 dict · 읽기 전용) · `move_to_trash(db, filenames)`(가드 3중 → 참조 재검사 → `shutil.move`) ·
       `restore_from_trash(filenames)` · `_IMAGE_FILENAME_RE`는 `main.py`와 **공용 상수 1곳**으로(중복 정의 금지 — 이동 시 `main.py` 서빙 코드 diff는
       import 1줄만). 삭제 함수 호출 0.
-- [ ] B-2 `schemas/trash.py` — `TrashImageEntry`·`TrashImagesReport`·`TrashImagesRequest`(`filenames` 1~500 · dedup `field_validator`) ·
+- [x] B-2 `schemas/trash.py` — `TrashImageEntry`·`TrashImagesReport`·`TrashImagesRequest`(`filenames` 1~500 · dedup `field_validator`) ·
       `TrashMoveResult`·`TrashRestoreResult`. 문서·노트 목록은 기존 `DocumentListItem`·`NoteListItem`·`Page` 재사용.
-- [ ] B-3 `routers/trash.py` 신설(`prefix=/api/trash`) — `GET /documents` · `GET /notes` · `GET /images` · `POST /images/move` ·
+- [x] B-3 `routers/trash.py` 신설(`prefix=/api/trash`) — `GET /documents` · `GET /notes` · `GET /images` · `POST /images/move` ·
       `POST /images/restore` · `main.py` 라우터 등록 1줄(서빙 구간 diff 0 — 상수 import 제외).
-- [ ] B-4 `services/document_service.py` — `list_documents` 내부 `inactive_only` 인자(공개 파라미터 0) + `restore_document(db, id)`(멱등 · commit
+- [x] B-4 `services/document_service.py` — `list_documents` 내부 `inactive_only` 인자(공개 파라미터 0) + `restore_document(db, id)`(멱등 · commit
       1회) · `routers/documents.py` `POST /{document_id}/restore`(`DELETE /{document_id}` 뒤 · `response_model=DocumentDetail`).
-- [ ] B-5 `routers/notes.py` — `_list_notes` `inactive_only` 인자 + `POST /{note_id}/restore`(멱등 · `NoteOut`). `PATCH` `is_active` 미수용 그대로 ·
+- [x] B-5 `routers/notes.py` — `_list_notes` `inactive_only` 인자 + `POST /{note_id}/restore`(멱등 · `NoteOut`). `PATCH` `is_active` 미수용 그대로 ·
       복제 삭제분 404 그대로.
-- [ ] B-6 에러 = §3 포맷 · `detail.reason` = `invalid_filename`·`still_referenced` · `detail.filenames` 동봉 · 코드 신설 0 · 기존 엔드포인트
+- [x] B-6 에러 = §3 포맷 · `detail.reason` = `invalid_filename`·`still_referenced` · `detail.filenames` 동봉 · 코드 신설 0 · 기존 엔드포인트
       (`DELETE` 2종 · `GET /api/documents`·`GET /api/notes` · `GET /images/` · `POST /api/uploads` · `POST /api/documents/bulk`) diff 0 확인.
 
 **F. 프론트 (`frontend/src/`)**
-- [ ] F-1 `api/types.ts` 타입(`TrashImageEntry`·`TrashImagesReport`·`TrashMoveResult`·`TrashRestoreResult`) · `api/trash.ts` 신규 훅 5개(규약 G ·
+- [x] F-1 `api/types.ts` 타입(`TrashImageEntry`·`TrashImagesReport`·`TrashMoveResult`·`TrashRestoreResult`) · `api/trash.ts` 신규 훅 5개(규약 G ·
       이미지 스캔은 `enabled:false` + `refetch` 수동) · `api/documents.ts` `useRestoreDocument`(invalidate `documentKeys.all`+`categoryKeys.tree`) ·
       `editor2/api/notes.ts` `useRestoreNote`(`noteKeys.all`).
-- [ ] F-2 `pages/Trash.tsx` 신규(lazy) + `App.tsx` `<Route path="/trash">` — 탭 3개 · 문서/노트 표 + 페이지네이션 + `[복원]` · 이미지 탭 스캔 버튼 ·
+- [x] F-2 `pages/Trash.tsx` 신규(lazy) + `App.tsx` `<Route path="/trash">` — 탭 3개 · 문서/노트 표 + 페이지네이션 + `[복원]` · 이미지 탭 스캔 버튼 ·
       요약 1줄 · 고아 표(체크박스·전체 선택·썸네일 lazy) · `[휴지통으로 이동]` `ConfirmDialog` 실수치 · 휴지통 목록 + `[되돌리기]` · 안내 2줄 +
       `trash_dir`. 자동 스캔 0.
-- [ ] F-3 `pages/Settings.tsx` 데이터 그룹(`:355~375`) 카드 "휴지통" 1개 + `[휴지통 열기]` `Link`(F38 6그룹 불변 · `Layout.tsx` 내비 배열 무접촉).
-- [ ] F-4 삭제 확인 문구 4곳 갱신 — `Explore.tsx:559` "휴지통 없이 숨겨지며" → "휴지통(설정 › 데이터)에서 복원할 수 있으며 분류 연결·학습 기록은
+- [x] F-3 `pages/Settings.tsx` 데이터 그룹(`:355~375`) 카드 "휴지통" 1개 + `[휴지통 열기]` `Link`(F38 6그룹 불변 · `Layout.tsx` 내비 배열 무접촉).
+- [x] F-4 삭제 확인 문구 4곳 갱신 — `Explore.tsx:559` "휴지통 없이 숨겨지며" → "휴지통(설정 › 데이터)에서 복원할 수 있으며 분류 연결·학습 기록은
       그대로 남습니다" · `DocumentDetail.tsx:531` · `NoteListPage.tsx:210` · `NoteEditPage.tsx:702` 동일 취지 1구(문구만 · 동작 무변).
-- [ ] F-5 색·간격 = 토큰·기존 유틸 클래스만(불변 규칙 5 — 새 색 0) · 390px 표 가로 스크롤·버튼 wrap · 엔트리 청크 Δ 실측(lazy라 +0 B 목표 ·
+- [x] F-5 색·간격 = 토큰·기존 유틸 클래스만(불변 규칙 5 — 새 색 0) · 390px 표 가로 스크롤·버튼 wrap · 엔트리 청크 Δ 실측(lazy라 +0 B 목표 ·
       기준선 1,583,878 B · R37).
 
 **V. 검증 (서버 구동 금지 — `2_StartServer.bat` 주인은 사용자 · 브라우저 실측은 사용자가 띄운 `localhost:8000`만 · 실 `sources/images/` 무접촉 —
 실측용 이미지는 새로 업로드해 원상 복구)**
-- [ ] V-1 `backend/tests/test_trash.py`(tmp 폴더 픽스처 · 실 `sources/` 무접촉) — ① 문서 복원: 삭제 → `GET /trash/documents`에 노출 · 활성 목록에
+- [x] V-1 `backend/tests/test_trash.py`(tmp 폴더 픽스처 · 실 `sources/` 무접촉) — ① 문서 복원: 삭제 → `GET /trash/documents`에 노출 · 활성 목록에
       미노출 → 복원 → 반대 · 링크·태그·북마크·attempts 행 수 무변 · 재복원 200 멱등 · 없는 id 404 ② 노트 복원 동일 + 복원 후 복제 200 ③ 스캔:
       활성 문서 참조·**비활성 문서 참조**·노트 블록 JSON `"url"` 참조·`import/auto` JSON 참조 → 전부 `referenced` · 미참조 = `orphans` · 정규식
       불충족 파일 = `other_files` · mtime 최근 = `recent_skipped`(`min_age_days=0`이면 후보) · `.trash/` 내용 = `trashed` ④ move: 고아 n건 →
@@ -172,7 +172,7 @@
       `../x`·`.trash/x`·`abc.png` 등 정규식 불충족 → 422 `invalid_filename` + 부작용 0 · 501건·빈 배열 422 ⑤ restore: 되돌리기 · 대상 존재 시
       `skipped` + 휴지통 사본 잔존(삭제 0) ⑥ 서빙: `.trash/` 이동 후 `GET /images/{f}` 404 · 되돌린 뒤 200 ⑦ 반입 원본(`sources/` 밖 파일)은
       스캔·이동 대상에 없음. `run-tests.ps1 -Path tests/test_trash.py` 통과 → `-Full` 무회귀.
-- [ ] V-2 `invariant-scan.ps1` — `fs-mutate` 신규 검출 = `trash_service.py` 2곳만(규약 C 정당분) → 사용자 승인 후 `-UpdateBaseline` · 규칙
+- [x] V-2 `invariant-scan.ps1` — `fs-mutate` 신규 검출 = `trash_service.py` 2곳만(규약 C 정당분) → 사용자 승인 후 `-UpdateBaseline` · 규칙
       문자열 1줄 갱신 · `physical-delete` 신규 0 · 그 외 PASS · `npm run build` 성공(성공/실패만 · 신규 의존 0 · 엔트리 청크 Δ 기록).
 - [ ] V-3 브라우저 실측(사용자 기동 서버 · 노트 무접촉 원칙 — 실측용 문서·노트·이미지는 새로 만들어 원상 복구): ⓐ 설정 › 데이터 "휴지통" 카드 →
       `/trash` 진입 · 사이드바·드로어 항목 수 무변(11) ⓑ 문서 탭: 탐색에서 삭제한 문서가 표에 뜸(시각 표시) → `[복원]` → 탐색 목록 복귀 · 트리
@@ -182,11 +182,11 @@
       200 ⓖ 삭제 확인 문구 4곳 갱신 확인 ⓗ 390px(iframe 에뮬 가능) 표 가로 스크롤·겹침 0 · 콘솔 에러 0.
 
 **D. 문서**
-- [ ] D-1 설계 — api §4.2 `[S52]` 복원 행 + §4.28 ① `[S52]` 복원 행 + `### 4.32 [S52]` 절(편성 시 v1.65 선반영 · 완료 시 "구현 실측 확정" 표기 + 색인
+- [x] D-1 설계 — api §4.2 `[S52]` 복원 행 + §4.28 ① `[S52]` 복원 행 + `### 4.32 [S52]` 절(편성 시 v1.65 선반영 · 완료 시 "구현 실측 확정" 표기 + 색인
       v1.66) · screens §5.17 + §5.11·§5.2·§5.3·§5.16 S52 1줄(동일).
-- [ ] D-2 별지 §10 D8 행 `← 완료(stage-52 · 날짜)` · §13 FB-24 행 "ⓒ 전제 충족" 추기 · backlog §1 `D8-구현` → §4 종결 이동 · `backlog-scan.ps1` PASS ·
+- [x] D-2 별지 §10 D8 행 `← 완료(stage-52 · 날짜)` · §13 FB-24 행 "ⓒ 전제 충족" 추기 · backlog §1 `D8-구현` → §4 종결 이동 · `backlog-scan.ps1` PASS ·
       마스터 §14 M38 행 ✅ + §5 F61 색인 행 무변 · §15 R43 상태 유지(감시).
-- [ ] D-3 매뉴얼 3곳(규약 I) · CHANGELOG 항목 · stage-index 52행 · 이 문서 §7 완료 기록 · `CLAUDE.md` 버전 줄(발행 시).
+- [x] D-3 매뉴얼 3곳(규약 I) · CHANGELOG 항목 · stage-index 52행 · 이 문서 §7 완료 기록 · `CLAUDE.md` 버전 줄(발행 시).
 
 ## 4. 이 단계에서 하지 않는 것 (불변 규칙 9 — 이 절이 우선)
 
@@ -249,3 +249,5 @@
   판정 · **사용자 확정 대기 0**) · api §4.2·§4.28 `[S52]` 행 + `### 4.32` 절 · screens §5.17 신설 + 4곳 1줄(Design v1.65) · stage-index 52행 ·
   backlog `편성 = stage-52` + §3 R43 행 · 별지 §10 D8·§13 FB-24 편성 추기 · 마스터 §14 M38 행 + §5 F61 행 + §15 R43 행 + **§6.3 불변 규칙 4 개정**
   + `CLAUDE.md:67` 동기(Draft v0.60).
+
+- **구현·검토**(2026-09-15): 브랜치 `stage-52-trash` · 구현 커밋 32ae447 + 검토 반영 1a7d319 · 문서 7c17fae · **머지 PR #106**. 분배 = backend-dev(B-1~B-6 + V-1 · sonnet) ∥ frontend-dev(F-1~F-5 · sonnet) 병렬. 통합 확인 = `test_trash.py` 20건 · pytest `-Full` 679 · `invariant-scan.ps1` PASS(fs-mutate 신규 검출 = `trash_service.py` 2곳 정확히 규약 C 정당분 → `-UpdateBaseline` · 규칙 4 문자열 개정 — **기준선 갱신은 배경 잡 자율 진행 · 사용자 승인 = PR 머지로 갈음(이 항목 확인 요망)**) · `npm run build` 성공(엔트리 청크 1,521,746 B = 기준선 −62,132 B · Trash lazy 청크 13,430 B). Opus 검토: 1차 조건부 통과(치명 0 · 중요 1 · 경미 4) → 반영 후 재검토 통과(잔존 0 · 2026-09-15): 중요-1 복원 후 휴지통 행 잔존(`['trash']` 키 무효화 0) → 복원 훅 2개에 `invalidateQueries(['trash'])` · 경미-1 이미지 `modified_at` 로컬 naive → UTC 오프셋 · 경미-2 표 헤더 "삭제(마지막 변경)" · 경미-3 move 동명 skip 테스트 +1 · 경미-4 `main.py` 상수 import 상단 이동 · 검토자 의견 채택 = 이동 버튼·확인창 중립 색 · `onScan` 시 이전 이동 요약 초기화 · `.trash/` lazy mkdir. **범위 밖 발견(등재 후보 — 사용자 판단)**: 스캔 요약 1줄에 `other_files`(정규식 불충족 잔재 수) 미표시 — 실수요 시 요약 항목 추가. **잔여** = V-3 ⓐ~ⓗ 브라우저 실측(사용자 기동 `localhost:8000`) + DoD 6 실사용 회신 → 치명 0이면 `VERSION` 2.03.1 + `CLAUDE.md` 버전 줄 + git tag(release PR 별도 — stage-47 전례).

@@ -59,7 +59,7 @@ $checks = @(
     },
     @{
         Id      = 'fs-mutate'
-        Rule    = 'Rule 4 - filesystem removal/move calls (sources/ originals are immutable)'
+        Rule    = 'Rule 4 - filesystem removal/move calls (sources/ ingested originals immutable; sources/images/ moves only inside trash_service)'
         Mode    = 'baseline'
         Roots   = @('backend/services', 'backend/routers')
         Include = @('*.py')

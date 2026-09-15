@@ -556,7 +556,7 @@ export default function ExplorePage() {
       {modal.kind === 'bulk-delete' && (
         <ConfirmDialog
           title="문서 삭제"
-          message={`${visibleSelectedIds.length}건을 삭제할까요? 문서는 휴지통 없이 숨겨지며 분류 연결·학습 기록은 그대로 남습니다`}
+          message={`${visibleSelectedIds.length}건을 삭제할까요? 휴지통(설정 › 데이터)에서 복원할 수 있으며 분류 연결·학습 기록은 그대로 남습니다`}
           confirmLabel="삭제"
           danger
           submitting={bulkDocuments.isPending}

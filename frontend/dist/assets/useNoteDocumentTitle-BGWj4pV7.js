@@ -1,0 +1,1 @@
+import{a as e,n as t}from"./jsx-runtime-KJkY8l8U.js";var n=e(t(),1),r=`Study Hub`;function i(e){(0,n.useEffect)(()=>{let t=e?.trim();return document.title=t?`노트 · ${t} — ${r}`:`노트 — ${r}`,()=>{document.title=r}},[e])}export{i as t};

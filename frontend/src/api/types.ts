@@ -44,6 +44,8 @@ export interface CategoryDeleteResult {
 }
 
 // 문서 목록 항목 — 명세에 명시된 필드 없음. tags/usage_count/bookmarked를 합리적으로 가정.
+// updated_at(S52 추가 — 백엔드 schemas/document.py DocumentListItem 실물 대조 완료. 휴지통
+// 문서 탭의 "삭제(마지막 변경) 시각" 열에 쓰인다, §5.17).
 export interface DocumentListItem {
   id: number
   doc_no: string
@@ -53,6 +55,7 @@ export interface DocumentListItem {
   tags: string[]
   usage_count: number
   bookmarked: boolean
+  updated_at: string
 }
 
 export interface DocumentUsage {
@@ -1772,4 +1775,34 @@ export interface SplitEnqueueResponse {
 // POST /api/uploads 성공 응답 — 필드는 url 하나뿐(신규 저장·중복 재사용 응답 동일).
 export interface UploadImageResponse {
   url: string
+}
+
+// ---- 통합 휴지통 (설계 §5.17, §4.32, S52 — D8-구현 · F61) ----
+// 문서·노트 휴지통 목록은 기존 Paginated<DocumentListItem>/<NoteListItem>을 그대로 재사용한다
+// (신규 타입 없음). 이미지 스캔·이동·되돌리기 3종만 신규.
+export interface TrashImageEntry {
+  filename: string
+  bytes: number
+  modified_at: string
+}
+
+export interface TrashImagesReport {
+  orphans: TrashImageEntry[]
+  trashed: TrashImageEntry[]
+  total_files: number
+  referenced: number
+  recent_skipped: number
+  other_files: number
+  trash_dir: string
+  min_age_days: number
+}
+
+export interface TrashMoveResult {
+  moved: number
+  skipped: number
+}
+
+export interface TrashRestoreResult {
+  restored: number
+  skipped: number
 }
