@@ -162,7 +162,7 @@ function TrashDocumentsTab() {
               <tr className="border-b border-border text-left text-xs text-muted">
                 <th className="py-2 pr-2 font-medium">제목</th>
                 <th className="py-2 pr-2 font-medium">타입</th>
-                <th className="py-2 pr-2 font-medium">삭제 시각</th>
+                <th className="py-2 pr-2 font-medium">삭제(마지막 변경)</th>
                 <th className="py-2 pr-2 font-medium" />
               </tr>
             </thead>
@@ -242,7 +242,7 @@ function TrashNotesTab() {
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted">
                 <th className="py-2 pr-2 font-medium">제목</th>
-                <th className="py-2 pr-2 font-medium">삭제 시각</th>
+                <th className="py-2 pr-2 font-medium">삭제(마지막 변경)</th>
                 <th className="py-2 pr-2 font-medium" />
               </tr>
             </thead>
@@ -307,6 +307,7 @@ function TrashImagesTab() {
   function onScan() {
     setActionError(null)
     setSelected(new Set())
+    setSummary(null)
     query.refetch().catch(() => {
       /* isError로 렌더 — 여기서는 무시 */
     })
@@ -388,7 +389,7 @@ function TrashImagesTab() {
                   type="button"
                   disabled={selected.size === 0}
                   onClick={() => setConfirmMove(true)}
-                  className="rounded bg-wrong px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
+                  className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
                 >
                   휴지통으로 이동
                 </button>
@@ -481,7 +482,6 @@ function TrashImagesTab() {
           title="휴지통으로 이동"
           message={`${selected.size}개를 휴지통 폴더로 옮길까요? 파일은 지워지지 않습니다`}
           confirmLabel="이동"
-          danger
           submitting={moveToTrash.isPending}
           onClose={() => setConfirmMove(false)}
           onConfirm={onConfirmMove}

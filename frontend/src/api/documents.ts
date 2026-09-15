@@ -138,6 +138,8 @@ export function useRestoreDocument() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: documentKeys.all })
       qc.invalidateQueries({ queryKey: categoryKeys.tree })
+      // 휴지통(/trash) 문서 탭 목록도 함께 무효화 — 복원 후 행이 남아있지 않도록(검토 지적).
+      qc.invalidateQueries({ queryKey: ['trash'] })
     },
   })
 }

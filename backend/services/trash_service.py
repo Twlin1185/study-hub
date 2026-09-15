@@ -98,7 +98,10 @@ def _entry_info(path: Path) -> dict:
     return {
         "filename": path.name,
         "bytes": stat.st_size,
-        "modified_at": dt.datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        # UTC 오프셋 포함(review 지적 — 로컬 시각 isoformat은 프론트가 UTC로 오인해
+        # +9h로 어긋나 표시됨). 유예 판정(min_age_days 비교)은 st_mtime 원값을 그대로
+        # 쓰므로(아래 scan_images) 이 표시용 포맷 변경과 무관하다.
+        "modified_at": dt.datetime.fromtimestamp(stat.st_mtime, dt.timezone.utc).isoformat(),
     }
 
 
@@ -207,14 +210,14 @@ def move_to_trash(db: Session, filenames: Iterable[str]) -> dict:
     trash_dir = _trash_dir()
     pairs = _guarded_pairs(names, images_dir, trash_dir)
 
-    trash_dir.mkdir(parents=True, exist_ok=True)
-
     moved = 0
     skipped = 0
     for src, dst in pairs:
         if not src.is_file() or dst.exists():
             skipped += 1
             continue
+        # 전부 skip이면 `.trash/`를 만들지 않는다 — 실제 첫 이동 직전 lazy mkdir(review 지적).
+        trash_dir.mkdir(parents=True, exist_ok=True)
         shutil.move(str(src), str(dst))
         moved += 1
 

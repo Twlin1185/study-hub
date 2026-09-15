@@ -363,6 +363,24 @@ def test_move_missing_file_is_skipped_not_404(client, dirs):
     assert resp.json() == {"moved": 0, "skipped": 1}
 
 
+def test_move_when_trash_already_has_same_name_is_skipped_no_overwrite(client, dirs):
+    """규약 C — `.trash/`에 같은 이름이 이미 있으면 원본 그대로 두고 skipped(덮어쓰기 0).
+    restore 쪽 대칭 케이스는 test_restore_when_target_exists_is_skipped_and_trash_copy_kept."""
+    images_dir, _ = dirs
+    trash_dir = images_dir / ".trash"
+    trash_dir.mkdir()
+    fname = _fname("dup-in-trash")
+    _write_image(images_dir, fname, age_days=30)
+    (trash_dir / fname).write_bytes(b"existing-trash-bytes")
+
+    resp = client.post("/api/trash/images/move", json={"filenames": [fname]})
+    assert resp.status_code == 200
+    assert resp.json() == {"moved": 0, "skipped": 1}
+    assert (images_dir / fname).exists()  # 원본 잔존
+    assert (images_dir / fname).read_bytes() == b"fake-image-bytes"
+    assert (trash_dir / fname).read_bytes() == b"existing-trash-bytes"  # 휴지통 사본 바이트 무변
+
+
 def test_move_referenced_file_rejected_all_or_nothing(client, db, dirs):
     images_dir, _ = dirs
     referenced = _fname("still-ref")

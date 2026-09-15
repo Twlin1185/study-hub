@@ -155,6 +155,10 @@ export function useRestoreNote() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => api.post<Note>(`/notes/${id}/restore`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: noteKeys.all }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: noteKeys.all })
+      // 휴지통(/trash) 노트 탭 목록도 함께 무효화 — 복원 후 행이 남아있지 않도록(검토 지적).
+      qc.invalidateQueries({ queryKey: ['trash'] })
+    },
   })
 }

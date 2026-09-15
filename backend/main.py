@@ -49,6 +49,7 @@ from routers import (
     web_embed,
 )
 from services import backup_service, settings_service
+from services.trash_service import IMAGE_FILENAME_RE
 
 
 def _maybe_auto_backup() -> None:
@@ -200,8 +201,9 @@ async def get_manual():
 # catch-all로 새어 들어간다 — 정적 index.html만 반환되어 파일 유출은 아니지만 404가
 # 아니므로 결정적이지 않다). SPA catch-all보다 먼저 등록(위 /manual 전례).
 IMAGES_DIR = Path(__file__).resolve().parent.parent / "sources" / "images"
-# 정규식 정본은 services/trash_service.py(S52 — 휴지통 이동·되돌리기와 공용 1곳).
-from services.trash_service import IMAGE_FILENAME_RE as _IMAGE_FILENAME_RE  # noqa: E402
+# 정규식 정본은 services/trash_service.py(S52 — 휴지통 이동·되돌리기와 공용 1곳, import는
+# 파일 상단 import 블록 참고).
+_IMAGE_FILENAME_RE = IMAGE_FILENAME_RE
 
 
 @app.get("/images/{filename:path}", include_in_schema=False)
