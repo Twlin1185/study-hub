@@ -42,7 +42,7 @@
 | `GET /api/documents/{id}` | 상세 + `tags[]`, `usages[]`(연결 분류 경로+local_note), `relations[]`, `bookmarked`, `stats{attempts, accuracy}` | S1 |
 | `PATCH /api/documents/{id}` | 본문·보기·정답·해설 등 수정 | S1 |
 | `DELETE /api/documents/{id}` | 소프트 삭제 | S1 |
-| `POST /api/documents/{id}/restore` | **소프트 삭제 복원**(`is_active=1` UPDATE만 · 멱등 · 404 · 링크·태그·북마크·학습 기록 무접촉) — 계약 = **§4.32 [S52]**(편성 추기 2026-09-14 · 휴지통 목록은 `GET /api/trash/documents`) | **S52** |
+| `POST /api/documents/{id}/restore` | **소프트 삭제 복원**(`is_active=1` UPDATE만 · 멱등 · 404 · 링크·태그·북마크·학습 기록 무접촉) — 계약 = **§4.32 [S52]**(편성 추기 2026-09-14 · 구현 실측 확정 2026-09-15 · 휴지통 목록은 `GET /api/trash/documents`) | **S52** |
 | `PUT /api/documents/{id}/tags` | `{tags: ["정규화", ...]}` 전체 교체. 없는 태그는 자동 생성 | S1 |
 | `POST /api/documents/{id}/links` | `{category_id, local_note?, sort_order?}` 분류 연결. **이미 연결된 분류면 upsert** — 요청에 포함된 필드만 갱신 (§5.3 local_note 인라인 편집 경로) | S1 |
 | `DELETE /api/documents/{id}/links/{category_id}` | 연결 해제 | S1 |
@@ -1331,7 +1331,7 @@ backend/services/fetchers/
 | `POST /api/notes` | 생성 — `200 OK` + 노트 표현(**201을 쓰지 않는다** — §4.27 ②의 "구분을 만들지 않는다" 관례 계승) | S33 |
 | `GET /api/notes/{id}` | 단건 — 본문 전체. 삭제분도 `200` + `is_active:false`(목록에서만 기본 제외 — §3) | S33 |
 | `PATCH /api/notes/{id}` | 부분 수정 — `title` · (`content_blocks` + `content`) 쌍. **`is_active`는 받지 않는다**(복구 경로는 베타 범위 밖 **← S52 개정(2026-09-14)**: 복구는 아래 전용 `restore` 엔드포인트 — PATCH는 계속 받지 않는다) | S33 |
-| `POST /api/notes/{id}/restore` | **소프트 삭제 복원**(`is_active=1` UPDATE만 · 멱등 · 404 · 본문 무접촉) — 계약 = **§4.32 [S52]**(편성 추기 2026-09-14 · 휴지통 목록은 `GET /api/trash/notes`) | **S52** |
+| `POST /api/notes/{id}/restore` | **소프트 삭제 복원**(`is_active=1` UPDATE만 · 멱등 · 404 · 본문 무접촉) — 계약 = **§4.32 [S52]**(편성 추기 2026-09-14 · 구현 실측 확정 2026-09-15 · 휴지통 목록은 `GET /api/trash/notes`) | **S52** |
 | `DELETE /api/notes/{id}` | **소프트 삭제**(`is_active=0` UPDATE만 — 물리 삭제 코드 0) · **재삭제 멱등** · 응답 = 삭제된 노트 표현 | S33 |
 | `POST /api/notes/{id}/duplicate` | **복제**(FB-2 잔여 — stage-48 편성 2026-09-12 · 구현 실측 확정 같은 날) — 요청 본문 없음 · `200 OK` + **새 노트의 표현** · 계약 = ⑦ | **S48** |
 
@@ -1547,7 +1547,9 @@ backend/services/fetchers/
 
 **말미 확인**: **DDL 0 · Alembic 0 · settings 키 0 · 신규 의존 0** · 프론트 계약 = screens §5.2 S51(탐색 다중 선택·선택 툴바) · §5.3 S51(문서 상세 [이동] = 이 API ids 1건 `move`) · 테스트 = `backend/tests/test_documents_bulk.py`(편성 필수 — 한 트랜잭션·dedup·부수 테이블 무접촉 회귀 방지) · invariant physical-delete 기준선은 링크 행 삭제분만 정당 갱신.
 
-### 4.32 휴지통 — 소프트 삭제 복원 · 고아 이미지 2단계 정리 (S52 — D8-구현 · F61. **편성 추기 2026-09-14(Design v1.65 · 착수 전 · 실측 재개정은 완료 시) — 지시서 `stage-52-trash-orphan-images.plan.md` §2 정본**)
+### 4.32 휴지통 — 소프트 삭제 복원 · 고아 이미지 2단계 정리 (S52 — D8-구현 · F61. **편성 추기 2026-09-14(Design v1.65) → 구현 실측 확정 2026-09-15(Design v1.66 — 계약 그대로 구현 · 실측 확정 ⓐ 1건 아래) — 지시서 `stage-52-trash-orphan-images.plan.md` §2·§7 정본**)
+
+> **실측 확정 ⓐ(2026-09-15)**: `modified_at`(③ 스캔 보고서의 `orphans`·`trashed` 항목)은 파일 mtime을 **UTC 오프셋 포함 ISO 8601**(`2026-09-01T10:00:00+00:00`)로 낸다 — 문서·노트 `updated_at`(SQLite `CURRENT_TIMESTAMP` naive UTC)과 프론트 파서(`parseServerDate`)를 공유하므로 오프셋이 있어야 로컬 표시가 맞는다(검토 경미-1). 그 외 ①~⑤ 계약·에러 표 그대로(테스트 `tests/test_trash.py` 20건 고정).
 
 > 별지 `editor-v2.plan.md` §10 D8 확정(2026-08-23 사용자 — 선택지 ⓑ 2단계 정리 · **삭제 주체 = 항상 사용자 · 앱 자동 삭제 0**)의 구현 계약. 마스터 §15 R41 ③④("복구 UI 없음")·§4.28 ⑥ "복구 엔드포인트 없음"·§4.27 말미 "고아 이미지 정리 범위 밖"의 봉인을 이 절이 해제한다. **불변 규칙 4 개정 동반**(계획서 §6.3 4 · `CLAUDE.md` — `sources/images/` 업로드·수집 이미지 = 앱 생성 파생물 · `sources/` 반입 원본은 종전대로 불변). **DDL 0**(계획서 §6.2 무변 · `deleted_at` 없음 — "삭제 시각"은 `updated_at`(소프트 삭제가 `onupdate`로 갱신 — 실측) · Alembic 0) · **신규 엔드포인트 7** · 기존 엔드포인트 무변(`DELETE` 2종 · `GET /images/` 서빙 · `POST /api/uploads` · `POST /api/documents/bulk`) · 파일 **삭제 코드 0**(이동만 · `services/trash_service.py` 1파일) · 에러 §3(코드 4종 불증 · `detail.reason`) · R16(파일명 = 서빙 정규식 fullmatch + `resolve()`·`is_relative_to` 루트 종속 검사).
 
@@ -1580,7 +1582,7 @@ backend/services/fetchers/
 **③ 스캔 응답 — `200 OK`**
 
 ```json
-{ "orphans":  [{ "filename": "3f2a91c7b04e5d18.png", "bytes": 12345, "modified_at": "2026-09-01T10:00:00" }],
+{ "orphans":  [{ "filename": "3f2a91c7b04e5d18.png", "bytes": 12345, "modified_at": "2026-09-01T10:00:00+00:00" }],
   "trashed":  [{ "filename": "…", "bytes": 0, "modified_at": "…" }],
   "total_files": 120, "referenced": 110, "recent_skipped": 3, "other_files": 0,
   "trash_dir": "C:\\…\\sources\\images\\.trash", "min_age_days": 7 }
