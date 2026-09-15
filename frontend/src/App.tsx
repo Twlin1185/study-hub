@@ -31,6 +31,10 @@ const Editor2PocPage = lazy(() => import('./editor2/poc/PocPage'))
 const NoteListPage = lazy(() => import('./editor2/pages/NoteListPage'))
 const NoteEditPage = lazy(() => import('./editor2/pages/NoteEditPage'))
 
+// 통합 휴지통(S52, §5.17) — 저빈도 유지보수 표면. 상시 내비 자리 없이 설정 카드로만 진입하므로
+// 지연 청크로 분리한다(엔트리 청크 +0 B 목표, R37).
+const TrashPage = lazy(() => import('./pages/Trash'))
+
 function App() {
   // 전역 테마 커스텀 주입(S28 — F53 ①, 설계 §4.26 ③·§7) — 신규 스토어 없음, App 최상단 1회.
   useApplyThemeCustom()
@@ -79,6 +83,14 @@ function App() {
           element={
             <Suspense fallback={null}>
               <Editor2PocPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/trash"
+          element={
+            <Suspense fallback={null}>
+              <TrashPage />
             </Suspense>
           }
         />

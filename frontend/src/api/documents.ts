@@ -130,6 +130,18 @@ export function useDeleteDocument() {
   })
 }
 
+// S52(§4.32, F61) — 휴지통(/trash) 문서 탭 [복원]. 멱등(이미 활성 상태여도 200).
+export function useRestoreDocument() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.post<DocumentDetail>(`/documents/${id}/restore`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: documentKeys.all })
+      qc.invalidateQueries({ queryKey: categoryKeys.tree })
+    },
+  })
+}
+
 export function useSetDocumentTags() {
   const qc = useQueryClient()
   return useMutation({

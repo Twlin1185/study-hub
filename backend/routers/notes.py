@@ -130,9 +130,15 @@ def _list_notes(
     include_inactive: bool,
     page: int,
     size: int,
+    inactive_only: bool = False,
 ) -> Tuple[list[NoteListItem], int]:
+    """`inactive_only`(내부용, S52 — 공개 API 파라미터 아님) — `GET /api/trash/notes`
+    (`routers/trash.py`)가 쓴다: `is_active=0`만. 그 외 호출부는 기존
+    `include_inactive` 계약 그대로(혼합 목록)."""
     query = select(models.Note)
-    if not include_inactive:
+    if inactive_only:
+        query = query.where(models.Note.is_active == 0)
+    elif not include_inactive:
         query = query.where(models.Note.is_active == 1)
 
     q = (q or "").strip()
@@ -235,6 +241,17 @@ def delete_note(note_id: int, db: Session = Depends(get_db)) -> NoteOut:
     note = _get_note_or_404(db, note_id)
     if note.is_active:
         note.is_active = 0
+        db.commit()
+        db.refresh(note)
+    return _to_note_out(note)
+
+
+@router.post("/{note_id}/restore", response_model=NoteOut)
+def restore_note(note_id: int, db: Session = Depends(get_db)) -> NoteOut:
+    """휴지통 복원 (S52, 설계 §4.32) — `is_active=1` UPDATE만, 멱등(이미 활성 = 200)."""
+    note = _get_note_or_404(db, note_id)
+    if not note.is_active:
+        note.is_active = 1
         db.commit()
         db.refresh(note)
     return _to_note_out(note)

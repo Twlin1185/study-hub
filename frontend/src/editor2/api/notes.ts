@@ -149,3 +149,12 @@ export function useDuplicateNote() {
     onSuccess: () => qc.invalidateQueries({ queryKey: noteKeys.lists() }),
   })
 }
+
+// S52(§4.32, F61) — 휴지통(/trash) 노트 탭 [복원]. 멱등(이미 활성 상태여도 200).
+export function useRestoreNote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.post<Note>(`/notes/${id}/restore`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: noteKeys.all }),
+  })
+}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useThemeStore } from '../stores/theme'
 import type { ThemeMode } from '../stores/theme'
@@ -372,6 +373,21 @@ export default function SettingsPage() {
             {/* 큐넷 오픈API 서비스키 카드 — 설계 §4.13·§5.11(S14). 데이터 유입(반입 소스) 계열이라
                 이 그룹에 카드로만 추가한다(F38 6그룹 수 불변 — 7번째 그룹 아님). */}
             <QnetKeySection />
+
+            {/* 통합 휴지통 카드 — 설계 §5.17·§4.32(S52). 상시 내비 자리를 쓰지 않는 저빈도
+                유지보수 표면이라 데이터 그룹 안 카드로만 진입한다(F38 6그룹 수 불변). */}
+            <section className="rounded-lg border border-border bg-surface p-4">
+              <h3 className="mb-1 text-sm font-semibold text-primary">휴지통</h3>
+              <p className="mb-3 text-xs text-muted">
+                삭제한 문서·노트 복원 · 안 쓰는 이미지 정리
+              </p>
+              <Link
+                to="/trash"
+                className="inline-block rounded border border-border px-3 py-1.5 text-sm text-primary hover:bg-bg"
+              >
+                휴지통 열기
+              </Link>
+            </section>
           </SettingsSection>
 
           <SettingsSection id="settings-display" title="화면">
