@@ -1549,7 +1549,7 @@ backend/services/fetchers/
 
 ### 4.32 휴지통 — 소프트 삭제 복원 · 고아 이미지 2단계 정리 (S52 — D8-구현 · F61. **편성 추기 2026-09-14(Design v1.65) → 구현 실측 확정 2026-09-15(Design v1.66 — 계약 그대로 구현 · 실측 확정 ⓐ 1건 아래) — 지시서 `stage-52-trash-orphan-images.plan.md` §2·§7 정본**)
 
-> **[S53] 추기(편성 2026-09-27 · Design v1.67 · 착수 전)**: 휴지통 비우기 `POST /api/trash/images/empty` 1개가 ① 표와 **⑦ 블록**으로 추가된다(별지 §10 D8 재론 = 사용자 확정 2026-09-27 · 아래 "최종 삭제 엔드포인트 없음"·⑥ "휴지통 비우기 0" 봉인 해제 · 자동·주기·용량 삭제는 여전히 0 · 정본 = `stage-53-trash-empty-entry.plan.md` §2 A·B). 실측 재개정은 완료 시 v1.68.
+> **[S53] 추기(편성 2026-09-27 · Design v1.67 → 구현 실측 확정 2026-09-27 · Design v1.68 — 계약 그대로 구현 · 편차 = GET 404)**: 휴지통 비우기 `POST /api/trash/images/empty` 1개가 ① 표와 **⑦ 블록**으로 추가된다(별지 §10 D8 재론 = 사용자 확정 2026-09-27 · 아래 "최종 삭제 엔드포인트 없음"·⑥ "휴지통 비우기 0" 봉인 해제 · 자동·주기·용량 삭제는 여전히 0 · 정본 = `stage-53-trash-empty-entry.plan.md` §2 A·B). 실측 확정 = `tests/test_trash.py` 케이스 ⑧ 5건(20 → 25) · 편차 1 = POST 전용 경로에 GET → **404 `NOT_FOUND`**(405 아님 — `main.py` SPA catch-all이 `/api/*` 미매칭 GET을 404 JSON으로 통일하는 앱 전역 관례 · `main.py` 무접촉).
 
 > **실측 확정 ⓐ(2026-09-15)**: `modified_at`(③ 스캔 보고서의 `orphans`·`trashed` 항목)은 파일 mtime을 **UTC 오프셋 포함 ISO 8601**(`2026-09-01T10:00:00+00:00`)로 낸다 — 문서·노트 `updated_at`(SQLite `CURRENT_TIMESTAMP` naive UTC)과 프론트 파서(`parseServerDate`)를 공유하므로 오프셋이 있어야 로컬 표시가 맞는다(검토 경미-1). 그 외 ①~⑤ 계약·에러 표 그대로(테스트 `tests/test_trash.py` 20건 고정).
 
@@ -1566,7 +1566,7 @@ backend/services/fetchers/
 | `GET /api/trash/images?min_age_days=7` | **고아 이미지 스캔 보고서(읽기 전용 · 수동 트리거 · 페이지네이션 없음)** — 응답 ③ | S52 |
 | `POST /api/trash/images/move` | 선택 파일을 `sources/images/{f}` → `sources/images/.trash/{f}`로 **이동**(삭제 아님) — 본문·가드·응답 ④ | S52 |
 | `POST /api/trash/images/restore` | `.trash/{f}` → `images/{f}` 되돌리기 — ④ | S52 |
-| `POST /api/trash/images/empty` | **[S53]** `.trash/` 직속 정규 이미지 파일 **전부 영구 삭제**(본문 없음 · 사용자 명시 클릭 전용 · 되돌릴 수 없음 · 자동 호출 0) — ⑦ | S53 |
+| `POST /api/trash/images/empty` | **[S53]** `.trash/` 직속 정규 이미지 파일 **전부 영구 삭제**(본문 없음 · 사용자 명시 클릭 전용 · 되돌릴 수 없음 · 자동 호출 0) — ⑦ · **구현 실측 확정 2026-09-27**(`routers/trash.py` · `db` 의존 0 · GET = 404) | S53 |
 
 - **최종 삭제 엔드포인트 없음** — 사용자가 탐색기에서 `sources/images/.trash/` 폴더를 비운다(화면 안내 문구 + 절대 경로). 자동 비우기·용량 상한·보존 기간 트리거 0. **← S53 개정(2026-09-27 사용자 확정 · D8 재론)**: 최종 삭제 = 탐색기 **또는** ⑦ `empty`(사용자 명시 클릭 + 확인 모달 한정) · 자동 비우기·용량 상한·보존 기간 트리거는 **여전히 0**.
 - **LLM 0 · settings 키 0 · DB 쓰기 = `is_active` UPDATE 2종뿐** · 스캔 결과는 저장하지 않는다.
@@ -1621,7 +1621,7 @@ backend/services/fetchers/
 
 **⑥ 하지 않는 것(지시서 §4 정본)**: 최종 삭제 API·휴지통 비우기(**← S53으로 해제** — ⑦ · 항목별 영구 삭제·자동 정리는 여전히 0)·자동 정리 · 문서·노트 일괄 복원(bulk `restore` action — 실수요 후 §4.31 추가) · `deleted_at` 컬럼 · 본문 `/images/` 링크 재작성 · 이미지 메타 DB·썸네일 생성 · 분류·태그·백업의 휴지통 · FB-24 ⓒ(`on_documents=delete` — §4.1 봉인 그대로) · `GET /images/` 서빙 규약 변경 · `import/auto/` 정리.
 
-**⑦ [S53] 휴지통 비우기 — `POST /api/trash/images/empty`(편성 추기 2026-09-27 · Design v1.67 · 지시서 `stage-53-trash-empty-entry.plan.md` §2 A·B 정본 · 착수 전 — 실측 확정은 완료 시 v1.68)**
+**⑦ [S53] 휴지통 비우기 — `POST /api/trash/images/empty`(편성 추기 2026-09-27 · Design v1.67 → **구현 실측 확정 2026-09-27 · Design v1.68 — 계약 그대로 구현 · 편차 = GET 404**(§3 `NOT_FOUND` · SPA catch-all 앱 전역 관례 — 405 아님) · 지시서 `stage-53-trash-empty-entry.plan.md` §2 A·B·§7 정본 · 구현 = `trash_service.empty_trash` + `routers/trash.py` + `schemas/trash.py` `TrashEmptyResult` · 테스트 ⑧ 5건)**
 
 | 항목 | 계약 |
 |---|---|
