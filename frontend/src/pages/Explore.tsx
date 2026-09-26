@@ -300,14 +300,14 @@ export default function ExplorePage() {
 
           {/* 휴지통 진입 ⓑ(stage-53, FB-27) — 데스크톱은 "+ 새 문서" 왼쪽, 모바일은 이 행 끝
               (아래 버튼이 hidden md:block이라 자연히 마지막 표시 항목이 된다). */}
-          <Link to="/trash?tab=documents" className="text-xs text-muted hover:text-primary">
+          <Link to="/trash?tab=documents" className="ml-auto text-xs text-muted hover:text-primary">
             🗑️ 휴지통
           </Link>
 
           <button
             type="button"
             onClick={() => setModal({ kind: 'create-document' })}
-            className="ml-auto hidden rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 md:block"
+            className="hidden rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 md:block"
           >
             + 새 문서
           </button>

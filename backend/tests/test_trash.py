@@ -519,7 +519,7 @@ def test_original_sources_outside_images_not_scanned_or_touched(client, db, dirs
 # ---------------------------------------------------------------------------
 # ⑧ 비우기
 # ---------------------------------------------------------------------------
-def test_empty_trash_deletes_regular_files_and_reports_bytes(client, dirs):
+def test_empty_trash_deletes_regular_files_and_reports_bytes(client, dirs, tmp_path):
     images_dir, _ = dirs
     trash_dir = images_dir / ".trash"
     trash_dir.mkdir()
@@ -530,6 +530,15 @@ def test_empty_trash_deletes_regular_files_and_reports_bytes(client, dirs):
     for name, size in zip(names, sizes):
         (trash_dir / name).write_bytes(b"x" * size)
         total += size
+
+    # 무접촉 더미 — 호출 전에 심어서, 비우기 호출이 이 두 파일을 절대 건드리지
+    # 않는지를 같은 호출로 단언한다(휴지통 밖 images/ 직속 + sources/ 밖).
+    dummy_active = _fname("untouched-active")
+    _write_image(images_dir, dummy_active)
+    dummy_active_bytes = (images_dir / dummy_active).read_bytes()
+    outside_original = images_dir.parent / "past-exam.pdf"
+    outside_original.write_bytes(b"original pdf bytes - immutable")
+    outside_before_mtime = outside_original.stat().st_mtime
 
     resp = client.post("/api/trash/images/empty")
     assert resp.status_code == 200, resp.text
@@ -542,13 +551,21 @@ def test_empty_trash_deletes_regular_files_and_reports_bytes(client, dirs):
     for name in names:
         assert not (trash_dir / name).exists()
 
-    # images/ 직속 파일 무접촉(휴지통 밖 확인용 더미 하나 추가로 심음)
-    dummy = _fname("untouched-active")
-    _write_image(images_dir, dummy)
+    # images/ 직속 파일(휴지통 밖) 무접촉
+    assert (images_dir / dummy_active).exists()
+    assert (images_dir / dummy_active).read_bytes() == dummy_active_bytes
+
+    # sources/ 밖(images/ 상위) 반입 원본 무접촉
+    assert outside_original.exists()
+    assert outside_original.stat().st_mtime == outside_before_mtime
+    assert outside_original.read_bytes() == b"original pdf bytes - immutable"
+
+    # 빈 휴지통 재호출도 멱등 {0,0,0} — 두 더미는 여전히 무접촉
     resp2 = client.post("/api/trash/images/empty")
     assert resp2.status_code == 200
     assert resp2.json() == {"deleted": 0, "freed_bytes": 0, "skipped": 0}
-    assert (images_dir / dummy).exists()
+    assert (images_dir / dummy_active).exists()
+    assert outside_original.exists()
 
 
 def test_empty_trash_missing_folder_is_idempotent_no_creation(client, dirs):
@@ -574,6 +591,10 @@ def test_empty_trash_skips_irregular_names_and_subfolders(client, dirs):
     sub.mkdir()
     (sub / _fname("nested")).write_bytes(b"nested-bytes")
 
+    # images/ 직속(휴지통 밖) 무접촉 더미 — 호출 전에 심는다.
+    dummy_active = _fname("keep-active-c")
+    _write_image(images_dir, dummy_active)
+
     resp = client.post("/api/trash/images/empty")
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -585,6 +606,7 @@ def test_empty_trash_skips_irregular_names_and_subfolders(client, dirs):
     assert (trash_dir / "note.txt").exists()
     assert sub.exists()
     assert list(sub.iterdir()) != []
+    assert (images_dir / dummy_active).exists()  # images/ 직속 무접촉
 
 
 def test_empty_trash_then_restore_is_skipped_not_404(client, dirs):

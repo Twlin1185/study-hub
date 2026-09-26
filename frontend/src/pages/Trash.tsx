@@ -470,7 +470,10 @@ function TrashImagesTab() {
             <button
               type="button"
               disabled={trashed.length === 0}
-              onClick={() => setConfirmEmpty(true)}
+              onClick={() => {
+                setActionError(null)
+                setConfirmEmpty(true)
+              }}
               className="rounded border border-wrong px-2 py-1 text-xs text-wrong hover:bg-bg disabled:cursor-not-allowed disabled:opacity-50"
             >
               휴지통 비우기
