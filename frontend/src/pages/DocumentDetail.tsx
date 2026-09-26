@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   useAddRelation,
   useBulkDocuments,
@@ -528,10 +528,19 @@ export default function DocumentDetailPage() {
           title="문서 삭제"
           // 임베드 경고는 알리기만 하고 삭제를 막지 않는다(설계 §4.19 ⑦ — 자리표시자로 해결).
           message={
-            `"${doc.title}" 문서를 삭제할까요? 휴지통(설정 › 데이터)에서 복원할 수 있으며 학습 기록은 보존됩니다` +
+            `"${doc.title}" 문서를 삭제할까요? 휴지통에서 복원할 수 있으며 학습 기록은 보존됩니다` +
             (embeddedBy.length > 0
               ? `\n\n⚠ 이 문서는 ${embeddedBy.length}개 문서에 임베드됨 — 삭제해도 해당 문서는 유지되며, 임베드 자리에는 "삭제된 문서" 표시가 나옵니다.`
               : '')
+          }
+          footer={
+            <Link
+              to="/trash?tab=documents"
+              onClick={() => setConfirmDelete(false)}
+              className="text-xs text-accent underline"
+            >
+              휴지통 열기
+            </Link>
           }
           confirmLabel="삭제"
           danger

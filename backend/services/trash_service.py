@@ -4,8 +4,9 @@
 `routers/notes.py`(`_list_notes`의 `inactive_only`)가 담당한다 — 이 모듈은 고아 이미지
 스캔·이동·되돌리기만 다룬다.
 
-**파일 삭제 코드 0** — `shutil.move`로 `sources/images/` ↔ `sources/images/.trash/`
-사이만 옮긴다(`os.remove`·`unlink`·`rmtree` 없음). `SOURCES_IMAGES_DIR`·`AUTO_DIR`는
+**삭제 = `empty_trash` 1곳**(`os.remove` · `.trash/` 직속 정규 파일만 · 사용자 명시
+호출 전용 — S53). 그 밖은 `shutil.move`로 `sources/images/` ↔ `sources/images/.trash/`
+사이만 옮긴다(`unlink`·`rmtree` 없음). `SOURCES_IMAGES_DIR`·`AUTO_DIR`는
 `convert_service`·`preview_store` 모듈 속성을 **호출 시점에** 읽는다(테스트가
 `monkeypatch.setattr(convert_service, "SOURCES_IMAGES_DIR", tmp_path)`로 격리할 수
 있도록 — `from ... import SOURCES_IMAGES_DIR`로 이름만 복사하면 monkeypatch가
@@ -17,6 +18,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
+import os
 import re
 import shutil
 from pathlib import Path
@@ -28,6 +31,8 @@ from sqlalchemy.orm import Session
 import models
 from exceptions import ValidationAppError
 from services import convert_service, preview_store
+
+logger = logging.getLogger(__name__)
 
 # 서빙 정규식과 공용 상수 — main.py `_IMAGE_FILENAME_RE`가 이 이름을 import한다.
 IMAGE_FILENAME_RE = re.compile(r"^[0-9a-f]{16}\.(gif|png|jpg|jpeg|webp)$")
@@ -242,3 +247,46 @@ def restore_from_trash(filenames: Iterable[str]) -> dict:
         restored += 1
 
     return {"restored": restored, "skipped": skipped}
+
+
+def empty_trash() -> dict:
+    """휴지통 전체 비우기(S53, 지시서 규약 B) — `.trash/` 직속 정규 이름 파일만
+    `os.remove`로 영구 삭제한다. 하위 폴더·비정규 이름·심볼릭 링크는 무접촉·skipped.
+    폴더 자체는 지우지 않는다(다음 `move_to_trash`의 lazy mkdir과 무충돌).
+    참조 재검사 없음 — 휴지통 파일은 서빙되지 않아 정의상 미참조. best-effort:
+    파일 1개 `OSError`는 그 파일만 skipped로 집계하고 계속한다."""
+    trash_dir = _trash_dir()
+    if not trash_dir.exists():
+        return {"deleted": 0, "freed_bytes": 0, "skipped": 0}
+
+    trash_root = trash_dir.resolve()
+
+    deleted = 0
+    freed_bytes = 0
+    skipped = 0
+
+    for entry in trash_dir.iterdir():
+        if entry.is_symlink() or not entry.is_file():
+            skipped += 1
+            continue
+        if not IMAGE_FILENAME_RE.fullmatch(entry.name):
+            skipped += 1
+            continue
+
+        resolved = (trash_dir / entry.name).resolve()
+        if not resolved.is_relative_to(trash_root):
+            skipped += 1
+            continue
+
+        try:
+            size = resolved.stat().st_size
+            os.remove(str(resolved))
+        except OSError:
+            logger.warning("empty_trash: failed to remove %s", resolved, exc_info=True)
+            skipped += 1
+            continue
+
+        deleted += 1
+        freed_bytes += size
+
+    return {"deleted": deleted, "freed_bytes": freed_bytes, "skipped": skipped}

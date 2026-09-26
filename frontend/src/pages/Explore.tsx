@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -72,7 +73,7 @@ export default function ExplorePage() {
   // S51(FB-25) — 탐색 다중 선택. anchorId = Shift 범위 기준점(마지막 비Shift 클릭).
   const [selectedDocIds, setSelectedDocIds] = useState<Set<number>>(new Set())
   const [anchorId, setAnchorId] = useState<number | null>(null)
-  const [bulkResultSummary, setBulkResultSummary] = useState<string | null>(null)
+  const [bulkResultSummary, setBulkResultSummary] = useState<ReactNode | null>(null)
 
   // 문서 상세에서 태그 클릭 → 이동해온 ?tag= 쿼리를 필터에 반영
   useEffect(() => {
@@ -297,10 +298,16 @@ export default function ExplorePage() {
             </label>
           )}
 
+          {/* 휴지통 진입 ⓑ(stage-53, FB-27) — 데스크톱은 "+ 새 문서" 왼쪽, 모바일은 이 행 끝
+              (아래 버튼이 hidden md:block이라 자연히 마지막 표시 항목이 된다). */}
+          <Link to="/trash?tab=documents" className="ml-auto text-xs text-muted hover:text-primary">
+            🗑️ 휴지통
+          </Link>
+
           <button
             type="button"
             onClick={() => setModal({ kind: 'create-document' })}
-            className="ml-auto hidden rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 md:block"
+            className="hidden rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 md:block"
           >
             + 새 문서
           </button>
@@ -556,7 +563,16 @@ export default function ExplorePage() {
       {modal.kind === 'bulk-delete' && (
         <ConfirmDialog
           title="문서 삭제"
-          message={`${visibleSelectedIds.length}건을 삭제할까요? 휴지통(설정 › 데이터)에서 복원할 수 있으며 분류 연결·학습 기록은 그대로 남습니다`}
+          message={`${visibleSelectedIds.length}건을 삭제할까요? 휴지통에서 복원할 수 있으며 분류 연결·학습 기록은 그대로 남습니다`}
+          footer={
+            <Link
+              to="/trash?tab=documents"
+              onClick={closeModal}
+              className="text-xs text-accent underline"
+            >
+              휴지통 열기
+            </Link>
+          }
           confirmLabel="삭제"
           danger
           submitting={bulkDocuments.isPending}
@@ -568,7 +584,14 @@ export default function ExplorePage() {
               { action: 'delete', document_ids: visibleSelectedIds },
               {
                 onSuccess: (result) => {
-                  setBulkResultSummary(summarizeBulkResult(result))
+                  setBulkResultSummary(
+                    <>
+                      {summarizeBulkResult(result)} ·{' '}
+                      <Link to="/trash?tab=documents" className="underline">
+                        휴지통 열기
+                      </Link>
+                    </>,
+                  )
                   setSelectedDocIds(new Set())
                   setAnchorId(null)
                   closeModal()

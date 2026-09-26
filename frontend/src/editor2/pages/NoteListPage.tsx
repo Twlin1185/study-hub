@@ -3,6 +3,7 @@
 // stage-43 G-2(정식 승격) — 베타 딱지 해제. 진입은 데스크톱 사이드바 · 모바일 좌측 드로어 '노트'
 // 항목(`Layout.tsx`) + 직접 URL. 하단 탭바 5개는 불변(F39 관례 — 탭 추가 금지, 규약 B).
 // 색은 전부 토큰(Tailwind 유틸 = tokens.css 변수) — 불변 규칙 5.
+import type { ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import ConfirmDialog from '../../components/ConfirmDialog'
@@ -45,6 +46,8 @@ export default function NoteListPage() {
   const [page, setPage] = useState(1)
   const [pendingDelete, setPendingDelete] = useState<NoteListItem | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  // stage-53(규약 D) — 삭제 완료 알림(휴지통 링크 동봉). 새 노트·복제·다른 삭제·검색 변경 시 소멸.
+  const [notice, setNotice] = useState<ReactNode | null>(null)
 
   // 검색 디바운스(§5.16 목록) — 입력마다 요청하지 않는다.
   useEffect(() => {
@@ -69,6 +72,7 @@ export default function NoteListPage() {
 
   const onCreate = () => {
     setActionError(null)
+    setNotice(null)
     // 빈 노트 = 빈 블록 문서 + 빈 프로젝션(§4.28 ③ — 블록과 프로젝션은 항상 함께 보낸다).
     createNote.mutate(
       { title: '', content_blocks: emptyDocument(), content: '' },
@@ -82,7 +86,17 @@ export default function NoteListPage() {
   const onDelete = () => {
     if (!pendingDelete) return
     deleteNote.mutate(pendingDelete.id, {
-      onSuccess: () => setPendingDelete(null),
+      onSuccess: () => {
+        setPendingDelete(null)
+        setNotice(
+          <>
+            노트를 휴지통으로 옮겼습니다 ·{' '}
+            <Link to="/trash?tab=notes" className="underline">
+              휴지통 열기
+            </Link>
+          </>,
+        )
+      },
       onError: (error) => setActionError(error instanceof Error ? error.message : '노트를 삭제하지 못했습니다'),
     })
   }
@@ -96,25 +110,35 @@ export default function NoteListPage() {
             문서와는 별도로 저장되는 자유 형식 메모입니다
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onCreate}
-          disabled={createNote.isPending}
-          className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
-        >
-          새 노트
-        </button>
+        <div className="flex items-center gap-2">
+          {/* 휴지통 진입 ⓑ(stage-53, FB-27) — [새 노트] 왼쪽. */}
+          <Link to="/trash?tab=notes" className="text-xs text-muted hover:text-primary">
+            휴지통
+          </Link>
+          <button
+            type="button"
+            onClick={onCreate}
+            disabled={createNote.isPending}
+            className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-50"
+          >
+            새 노트
+          </button>
+        </div>
       </header>
 
       <input
         type="search"
         value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        onChange={(e) => {
+          setSearch(e.target.value)
+          setNotice(null)
+        }}
         placeholder="제목·본문 검색"
         className="w-full rounded border border-border bg-surface px-3 py-2 text-sm text-primary placeholder:text-muted"
       />
 
       {actionError && <p className="text-sm text-wrong">{actionError}</p>}
+      {notice && <p className="text-sm text-muted">{notice}</p>}
       {notesQuery.isError && (
         <p className="text-sm text-wrong">
           {notesQuery.error instanceof Error ? notesQuery.error.message : '목록을 불러오지 못했습니다'}
@@ -151,6 +175,7 @@ export default function NoteListPage() {
                   if (duplicateInFlight.current) return
                   duplicateInFlight.current = true
                   setActionError(null)
+                  setNotice(null)
                   duplicateNote.mutate(note.id, {
                     onSuccess: (created) => navigate(`/notes/${created.id}`),
                     onError: (error) =>
@@ -169,6 +194,7 @@ export default function NoteListPage() {
                 type="button"
                 onClick={() => {
                   setActionError(null)
+                  setNotice(null)
                   setPendingDelete(note)
                 }}
                 className="shrink-0 rounded border border-border px-2 py-1 text-xs text-muted hover:bg-bg hover:text-wrong"
@@ -207,7 +233,16 @@ export default function NoteListPage() {
       {pendingDelete && (
         <ConfirmDialog
           title="노트 삭제"
-          message="노트를 삭제할까요? 목록에서 사라지며, 휴지통(설정 › 데이터)에서 복원할 수 있습니다."
+          message="노트를 삭제할까요? 목록에서 사라지며, 휴지통에서 복원할 수 있습니다."
+          footer={
+            <Link
+              to="/trash?tab=notes"
+              onClick={() => setPendingDelete(null)}
+              className="text-xs text-accent underline"
+            >
+              휴지통 열기
+            </Link>
+          }
           confirmLabel="삭제"
           danger
           submitting={deleteNote.isPending}
