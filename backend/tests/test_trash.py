@@ -11,6 +11,10 @@
   ⑤ 되돌리기 — 대상 존재 시 skipped(휴지통 사본 유지), 미존재 skipped.
   ⑥ 서빙 — `.trash/` 이동 후 404, 되돌린 뒤 200.
   ⑦ 반입 원본(sources/ 밖 파일)은 스캔·이동 대상이 아니다.
+  ⑧ 비우기 — 정규 파일 전부 `os.remove`(deleted·freed_bytes 집계) + 비정규·하위 폴더
+     무접촉(skipped), 폴더 없음/빈 폴더는 멱등 `{0,0,0}`, 비운 뒤 restore는 skipped,
+     GET은 404(app-wide SPA catch-all 관례 — 지시서 405 언급과 달리 실측 확정),
+     본문 동봉해도 무시하고 200.
 
 `tmp_path`로 `convert_service.SOURCES_IMAGES_DIR`·`preview_store.AUTO_DIR`·
 `main.IMAGES_DIR`를 monkeypatch — 실 `sources/` 무접촉.
@@ -510,3 +514,109 @@ def test_original_sources_outside_images_not_scanned_or_touched(client, db, dirs
     assert original.exists()
     assert original.stat().st_mtime == before_mtime
     assert original.read_bytes() == b"original pdf bytes - immutable"
+
+
+# ---------------------------------------------------------------------------
+# ⑧ 비우기
+# ---------------------------------------------------------------------------
+def test_empty_trash_deletes_regular_files_and_reports_bytes(client, dirs):
+    images_dir, _ = dirs
+    trash_dir = images_dir / ".trash"
+    trash_dir.mkdir()
+
+    names = [_fname("empty-a"), _fname("empty-b"), _fname("empty-c")]
+    sizes = [5, 9, 13]
+    total = 0
+    for name, size in zip(names, sizes):
+        (trash_dir / name).write_bytes(b"x" * size)
+        total += size
+
+    resp = client.post("/api/trash/images/empty")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body == {"deleted": 3, "freed_bytes": total, "skipped": 0}
+
+    # 폴더는 남고 비어 있음
+    assert trash_dir.exists()
+    assert list(trash_dir.iterdir()) == []
+    for name in names:
+        assert not (trash_dir / name).exists()
+
+    # images/ 직속 파일 무접촉(휴지통 밖 확인용 더미 하나 추가로 심음)
+    dummy = _fname("untouched-active")
+    _write_image(images_dir, dummy)
+    resp2 = client.post("/api/trash/images/empty")
+    assert resp2.status_code == 200
+    assert resp2.json() == {"deleted": 0, "freed_bytes": 0, "skipped": 0}
+    assert (images_dir / dummy).exists()
+
+
+def test_empty_trash_missing_folder_is_idempotent_no_creation(client, dirs):
+    images_dir, _ = dirs
+    trash_dir = images_dir / ".trash"
+    assert not trash_dir.exists()
+
+    resp = client.post("/api/trash/images/empty")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"deleted": 0, "freed_bytes": 0, "skipped": 0}
+    assert not trash_dir.exists()  # 폴더 생성 0
+
+
+def test_empty_trash_skips_irregular_names_and_subfolders(client, dirs):
+    images_dir, _ = dirs
+    trash_dir = images_dir / ".trash"
+    trash_dir.mkdir()
+
+    regular = _fname("keep-regular")
+    (trash_dir / regular).write_bytes(b"regular-bytes")
+    (trash_dir / "note.txt").write_bytes(b"not an image")
+    sub = trash_dir / "sub"
+    sub.mkdir()
+    (sub / _fname("nested")).write_bytes(b"nested-bytes")
+
+    resp = client.post("/api/trash/images/empty")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["deleted"] == 1
+    assert body["skipped"] == 2
+    assert body["freed_bytes"] == len(b"regular-bytes")
+
+    assert not (trash_dir / regular).exists()
+    assert (trash_dir / "note.txt").exists()
+    assert sub.exists()
+    assert list(sub.iterdir()) != []
+
+
+def test_empty_trash_then_restore_is_skipped_not_404(client, dirs):
+    images_dir, _ = dirs
+    trash_dir = images_dir / ".trash"
+    trash_dir.mkdir()
+    fname = _fname("empty-then-restore")
+    (trash_dir / fname).write_bytes(b"gone-soon")
+
+    resp = client.post("/api/trash/images/empty")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] == 1
+
+    restore_resp = client.post("/api/trash/images/restore", json={"filenames": [fname]})
+    assert restore_resp.status_code == 200, restore_resp.text
+    assert restore_resp.json() == {"restored": 0, "skipped": 1}
+
+
+def test_empty_trash_get_is_404_and_body_is_ignored(client, dirs):
+    # 이 앱은 등록되지 않은 메서드/경로 조합의 /api/* GET을 SPA catch-all(main.py:312~317)이
+    # 가로채 404 NOT_FOUND JSON으로 통일한다(405이 아님 — 기존 app-wide 관례, 다른 POST 전용
+    # 엔드포인트도 동일). 지시서는 405을 언급했으나 실측 결과가 이 관례와 일치하므로 그대로 반영.
+    resp_get = client.get("/api/trash/images/empty")
+    assert resp_get.status_code == 404
+    assert resp_get.json()["error"]["code"] == "NOT_FOUND"
+
+    images_dir, _ = dirs
+    trash_dir = images_dir / ".trash"
+    trash_dir.mkdir()
+    fname = _fname("body-ignored")
+    (trash_dir / fname).write_bytes(b"data")
+
+    resp = client.post("/api/trash/images/empty", json={"filenames": [fname]})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] == 1

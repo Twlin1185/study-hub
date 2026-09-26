@@ -1,14 +1,16 @@
 // 통합 휴지통 — `/trash` (설계 §5.17·§4.32, S52 — D8-구현 · F61)
 //
-// 상시 내비 자리를 쓰지 않는 저빈도 유지보수 표면(진입 = 설정 데이터 그룹 카드). 탭 3개
-// [문서]/[노트]/[이미지]는 로컬 상태(URL 쿼리 보존 0). 색은 전부 토큰 클래스(불변 규칙 5).
+// 진입점 4곳(stage-53, FB-27): 설정 데이터 그룹 카드 · 사이드바/드로어 하단 · 탐색·노트 목록 상단
+// · 삭제 확인창 보조 링크. 탭 3개 [문서]/[노트]/[이미지]는 `?tab=`으로 초기값만 받고(마운트 1회),
+// 탭 전환은 URL을 바꾸지 않는다(규약 E). 색은 전부 토큰 클래스(불변 규칙 5).
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { ApiError } from '../api/client'
 import { useRestoreDocument } from '../api/documents'
 import type { DocumentListItem, DocumentType } from '../api/types'
 import {
+  useEmptyImageTrash,
   useMoveImagesToTrash,
   useRestoreImagesFromTrash,
   useTrashDocuments,
@@ -50,8 +52,18 @@ const TABS: { id: TrashTab; label: string }[] = [
   { id: 'images', label: '이미지' },
 ]
 
+function isTrashTab(v: string | null): v is TrashTab {
+  return v === 'documents' || v === 'notes' || v === 'images'
+}
+
 export default function TrashPage() {
-  const [tab, setTab] = useState<TrashTab>('documents')
+  // 규약 E — `?tab=`은 마운트 1회 초기값만(허용 밖·없음 = documents). 탭 클릭은 URL을 바꾸지
+  // 않는다(searchParams 재조회·동기화 0).
+  const [searchParams] = useSearchParams()
+  const [tab, setTab] = useState<TrashTab>(() => {
+    const initial = searchParams.get('tab')
+    return isTrashTab(initial) ? initial : 'documents'
+  })
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
@@ -282,8 +294,10 @@ function TrashImagesTab() {
   const query = useTrashImages()
   const moveToTrash = useMoveImagesToTrash()
   const restoreFromTrash = useRestoreImagesFromTrash()
+  const emptyTrash = useEmptyImageTrash()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirmMove, setConfirmMove] = useState(false)
+  const [confirmEmpty, setConfirmEmpty] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [summary, setSummary] = useState<string | null>(null)
 
@@ -338,10 +352,25 @@ function TrashImagesTab() {
     })
   }
 
+  function onConfirmEmpty() {
+    setActionError(null)
+    emptyTrash.mutate(undefined, {
+      onSuccess: (result) => {
+        setSummary(`영구 삭제 ${result.deleted} · 건너뜀 ${result.skipped} · 확보 ${formatBytes(result.freed_bytes)}`)
+        setConfirmEmpty(false)
+        query.refetch().catch(() => {})
+      },
+      onError: (e) => setActionError(errMsg(e, '휴지통을 비우지 못했습니다.')),
+    })
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <div className="rounded border border-border bg-surface p-3 text-xs text-muted">
-        <p>앱은 이미지를 지우지 않습니다. 고아 이미지를 휴지통 폴더로 옮겨 두면, 최종 삭제는 탐색기에서 아래 폴더를 비우세요.</p>
+        <p>
+          앱은 이미지를 자동으로 지우지 않습니다. 고아 이미지를 휴지통 폴더로 옮겨 두면, 최종
+          삭제는 아래 [휴지통 비우기](되돌릴 수 없음)나 탐색기에서 폴더를 비우는 것으로 합니다.
+        </p>
         {report && (
           <p className="mt-1">
             휴지통 폴더: <code className="rounded bg-bg px-1 text-primary">{report.trash_dir}</code>
@@ -436,7 +465,17 @@ function TrashImagesTab() {
             </>
           )}
 
-          <h2 className="mt-2 text-sm font-semibold text-primary">휴지통 폴더 목록</h2>
+          <div className="mt-2 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-primary">휴지통 폴더 목록</h2>
+            <button
+              type="button"
+              disabled={trashed.length === 0}
+              onClick={() => setConfirmEmpty(true)}
+              className="rounded border border-wrong px-2 py-1 text-xs text-wrong hover:bg-bg disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              휴지통 비우기
+            </button>
+          </div>
           {trashed.length === 0 ? (
             <p className="text-xs text-muted">휴지통 폴더가 비어 있습니다</p>
           ) : (
@@ -485,6 +524,21 @@ function TrashImagesTab() {
           submitting={moveToTrash.isPending}
           onClose={() => setConfirmMove(false)}
           onConfirm={onConfirmMove}
+        />
+      )}
+
+      {confirmEmpty && (
+        <ConfirmDialog
+          title="휴지통 비우기"
+          message={`파일 ${trashed.length}개 · 총 ${formatBytes(
+            trashed.reduce((sum, img) => sum + img.bytes, 0),
+          )}를 영구 삭제할까요?\n되돌릴 수 없습니다.`}
+          confirmLabel="영구 삭제"
+          danger
+          submitting={emptyTrash.isPending}
+          errorMessage={actionError}
+          onClose={() => setConfirmEmpty(false)}
+          onConfirm={onConfirmEmpty}
         />
       )}
     </div>

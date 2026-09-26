@@ -46,3 +46,9 @@ class TrashMoveResult(BaseModel):
 class TrashRestoreResult(BaseModel):
     restored: int
     skipped: int
+
+
+class TrashEmptyResult(BaseModel):
+    deleted: int
+    freed_bytes: int
+    skipped: int

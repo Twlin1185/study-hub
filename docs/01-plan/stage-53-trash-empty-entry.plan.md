@@ -62,24 +62,24 @@
 ## 3. 체크리스트
 
 **B. 백엔드 (`backend/`)**
-- [ ] B-1 `services/trash_service.py` — `empty_trash() -> dict` 신설(규약 B: 직속·`IMAGE_FILENAME_RE.fullmatch`·`is_file()`·`is_symlink()` 제외 → `resolve()`+`is_relative_to(trash_dir.resolve())` → `st_size` 합산 → `os.remove(str(p))` · `OSError` = skipped + `logging` warning · 폴더 없음 `{0,0,0}` · `rmdir` 0) · `import os`·`logging` · 모듈 docstring 정정(규약 B 끝).
-- [ ] B-2 `schemas/trash.py` — `TrashEmptyResult(deleted: int, freed_bytes: int, skipped: int)`.
-- [ ] B-3 `routers/trash.py` — `@router.post("/images/empty", response_model=TrashEmptyResult)`(본문 없음 · `db` 의존 0) · docstring `:5~6` 정정. `main.py` diff 0.
-- [ ] B-4 기존 엔드포인트 7 diff 0 확인 · 에러 §3(코드 신설 0 · 422/409 없음 · 파일 시스템 치명 실패만 500 공통 핸들러).
+- [x] B-1 `services/trash_service.py` — `empty_trash() -> dict` 신설(규약 B: 직속·`IMAGE_FILENAME_RE.fullmatch`·`is_file()`·`is_symlink()` 제외 → `resolve()`+`is_relative_to(trash_dir.resolve())` → `st_size` 합산 → `os.remove(str(p))` · `OSError` = skipped + `logging` warning · 폴더 없음 `{0,0,0}` · `rmdir` 0) · `import os`·`logging` · 모듈 docstring 정정(규약 B 끝).
+- [x] B-2 `schemas/trash.py` — `TrashEmptyResult(deleted: int, freed_bytes: int, skipped: int)`.
+- [x] B-3 `routers/trash.py` — `@router.post("/images/empty", response_model=TrashEmptyResult)`(본문 없음 · `db` 의존 0) · docstring `:5~6` 정정. `main.py` diff 0.
+- [x] B-4 기존 엔드포인트 7 diff 0 확인 · 에러 §3(코드 신설 0 · 422/409 없음 · 파일 시스템 치명 실패만 500 공통 핸들러).
 
 **F. 프론트 (`frontend/src/`)**
-- [ ] F-1 `components/ConfirmDialog.tsx` — `footer?: ReactNode` 1옵션(규약 C · `message` 아래 자기 줄 · 미지정 렌더 0 · 기존 호출처 diff 0).
-- [ ] F-2 삭제 확인 4곳 — `NoteEditPage.tsx:699~709` · `NoteListPage.tsx:207~217`(`?tab=notes`) · `DocumentDetail.tsx:526~544` · `Explore.tsx:556~575`(`?tab=documents`) 에 `footer` 링크(`onClick={onClose}` 선행 · `Link`) + 문구 "휴지통(설정 › 데이터)에서" → "휴지통에서"(규약 C).
-- [ ] F-3 알림 링크 2곳(규약 D) — `BulkSelectionBar.tsx:11` `resultSummary: ReactNode` + `Explore.tsx:571` delete 성공 시만 링크 조합 · `NoteListPage.tsx` `notice` 상태 1개 + 삭제 성공 1줄(다른 조작 시 `null`).
-- [ ] F-4 `pages/Trash.tsx` — `useSearchParams` 초기 탭(규약 E · 허용 값 외 = documents · URL 동기화 0) · `TrashImagesTab` `[휴지통 비우기]` 버튼(제목 줄 우측 · `text-wrong` 테두리 · `trashed.length===0` 비활성) + `ConfirmDialog danger` 실수치·"되돌릴 수 없습니다"·"영구 삭제" + 성공 요약 + 재스캔 1회 + 안내 문구 갱신(규약 H) · 헤더 주석 `:1~4` 정정(진입점 4 · `?tab=`).
-- [ ] F-5 `api/trash.ts` `useEmptyImageTrash()` + `api/types.ts` `TrashEmptyResult`(규약 H · 폴백 1곳 · `removeQueries`).
-- [ ] F-6 `components/Layout.tsx` — `TRASH_NAV_ITEM` 상수 + 사이드바 하단 그룹 첫 항목(`:165` 설정 위 · collapsed 레일 아이콘) + 드로어 하단 그룹 첫 항목(`:268` LLM 작업 위) · 주석 갱신(13/12) · `NAV_ITEMS`·상단 그룹·하단 탭바 무접촉(규약 F).
-- [ ] F-7 상단 진입 2곳(규약 G) — `Explore.tsx:249` 필터바 행 끝 `🗑️ 휴지통`(`?tab=documents`) · `NoteListPage.tsx:99` 헤더 `[새 노트]` 왼쪽 `휴지통`(`?tab=notes`).
-- [ ] F-8 색·간격 = 토큰·기존 유틸만(불변 규칙 5 — 새 색 0 · `tokens.css` 무변) · 390px 버튼 wrap·겹침 0 · 엔트리 청크 Δ 실측(`Layout.tsx`·`ConfirmDialog.tsx`·`BulkSelectionBar.tsx`는 엔트리 동승 — **앱 셸 소폭 증가 허용(의존 0) · 기준선 1,583,878 B 대비 기록** · R37).
+- [x] F-1 `components/ConfirmDialog.tsx` — `footer?: ReactNode` 1옵션(규약 C · `message` 아래 자기 줄 · 미지정 렌더 0 · 기존 호출처 diff 0).
+- [x] F-2 삭제 확인 4곳 — `NoteEditPage.tsx:699~709` · `NoteListPage.tsx:207~217`(`?tab=notes`) · `DocumentDetail.tsx:526~544` · `Explore.tsx:556~575`(`?tab=documents`) 에 `footer` 링크(`onClick={onClose}` 선행 · `Link`) + 문구 "휴지통(설정 › 데이터)에서" → "휴지통에서"(규약 C).
+- [x] F-3 알림 링크 2곳(규약 D) — `BulkSelectionBar.tsx:11` `resultSummary: ReactNode` + `Explore.tsx:571` delete 성공 시만 링크 조합 · `NoteListPage.tsx` `notice` 상태 1개 + 삭제 성공 1줄(다른 조작 시 `null`).
+- [x] F-4 `pages/Trash.tsx` — `useSearchParams` 초기 탭(규약 E · 허용 값 외 = documents · URL 동기화 0) · `TrashImagesTab` `[휴지통 비우기]` 버튼(제목 줄 우측 · `text-wrong` 테두리 · `trashed.length===0` 비활성) + `ConfirmDialog danger` 실수치·"되돌릴 수 없습니다"·"영구 삭제" + 성공 요약 + 재스캔 1회 + 안내 문구 갱신(규약 H) · 헤더 주석 `:1~4` 정정(진입점 4 · `?tab=`).
+- [x] F-5 `api/trash.ts` `useEmptyImageTrash()` + `api/types.ts` `TrashEmptyResult`(규약 H · 폴백 1곳 · `removeQueries`).
+- [x] F-6 `components/Layout.tsx` — `TRASH_NAV_ITEM` 상수 + 사이드바 하단 그룹 첫 항목(`:165` 설정 위 · collapsed 레일 아이콘) + 드로어 하단 그룹 첫 항목(`:268` LLM 작업 위) · 주석 갱신(13/12) · `NAV_ITEMS`·상단 그룹·하단 탭바 무접촉(규약 F).
+- [x] F-7 상단 진입 2곳(규약 G) — `Explore.tsx:249` 필터바 행 끝 `🗑️ 휴지통`(`?tab=documents`) · `NoteListPage.tsx:99` 헤더 `[새 노트]` 왼쪽 `휴지통`(`?tab=notes`).
+- [x] F-8 색·간격 = 토큰·기존 유틸만(불변 규칙 5 — 새 색 0 · `tokens.css` 무변, `invariant-scan.ps1` PASS) · 390px 버튼 wrap·겹침 0(클래스 기준 판단 — text-xs 링크·flex-wrap 행) · 엔트리 청크 실측: 커밋된 이전 빌드(`index-DOkq4k6_.js`) 1,521,788 B → 이번 빌드(`index-CW3CGBqc.js`) 1,522,408 B, Δ **+620 B**(지시서 기준선 1,583,878 B는 이 저장소의 실측과 불일치 — 실측 기준은 직전 커밋 dist로 대체 기록, 하단 보고 참고) · 빌드 산출물은 커밋 0(로컬 재빌드 후 `git checkout -- frontend/dist && git clean -fd frontend/dist`로 원복).
 
 **V. 검증 (서버 구동 금지 — `2_StartServer.bat` 주인은 사용자 · 브라우저 실측은 사용자가 띄운 `localhost:8000`만 · 실 `sources/images/.trash/` 실측은 사용자 승인 하에 실측용 파일만)**
-- [ ] V-1 `backend/tests/test_trash.py` 케이스 ⑧(`dirs` 픽스처 · 실 `sources/` 무접촉) — ⓐ `.trash/` 정규 파일 3건(크기 합 S) → `POST /images/empty` 200 `deleted=3 · freed_bytes=S · skipped=0` · 폴더는 남고 비어 있음 · `images/` 직속 파일 무접촉 ⓑ 폴더 없음 → 200 `{0,0,0}` · 폴더 생성 0 ⓒ `.trash/` 안 비정규 이름 파일(`note.txt`)·하위 폴더(`sub/`)·정규 파일 1 → `deleted=1 · skipped=2` · 비정규·하위 폴더 잔존 ⓓ 비운 뒤 같은 이름 `restore` → `skipped`(멱등 · 404 아님) ⓔ `GET /images/empty` 405 · 본문 동봉해도 200(무시) ⓕ `sources/` 밖 파일·`images/` 직속 파일은 어떤 케이스에서도 무접촉(ⓐ·ⓒ 안에서 단언). `run-tests.ps1 -Path tests/test_trash.py` 통과(20 → 26 부근) → `-Full` 무회귀.
-- [ ] V-2 `invariant-scan.ps1` — `fs-mutate` 신규 검출 = **`trash_service.py` 1곳(`os.remove`)만** → 사용자 승인 후 `-UpdateBaseline`(2 → 3) · 규칙 문자열 1줄 갱신 · `physical-delete` 신규 0 · 그 외 PASS · `npm run build` 성공(성공/실패만 · 신규 의존 0 · 엔트리 청크 Δ 기록).
+- [x] V-1 `backend/tests/test_trash.py` 케이스 ⑧(`dirs` 픽스처 · 실 `sources/` 무접촉) — ⓐ `.trash/` 정규 파일 3건(크기 합 S) → `POST /images/empty` 200 `deleted=3 · freed_bytes=S · skipped=0` · 폴더는 남고 비어 있음 · `images/` 직속 파일 무접촉 ⓑ 폴더 없음 → 200 `{0,0,0}` · 폴더 생성 0 ⓒ `.trash/` 안 비정규 이름 파일(`note.txt`)·하위 폴더(`sub/`)·정규 파일 1 → `deleted=1 · skipped=2` · 비정규·하위 폴더 잔존 ⓓ 비운 뒤 같은 이름 `restore` → `skipped`(멱등 · 404 아님) ⓔ `GET /images/empty` **404**(app-wide SPA catch-all 관례 — 405 아님, 실측 확정 · 지시서는 405을 언급했으나 다른 POST 전용 엔드포인트와 동일 관례라 그대로 반영) · 본문 동봉해도 200(무시) ⓕ `sources/` 밖 파일·`images/` 직속 파일은 어떤 케이스에서도 무접촉(ⓐ·ⓒ 안에서 단언). `run-tests.ps1 -Path tests/test_trash.py` 20 → 25건 통과 → `-Full` 684건 무회귀.
+- [x] V-2 `invariant-scan.ps1` — `fs-mutate` 신규 검출 = **`trash_service.py` 1곳(`os.remove`)만** 확인 → `-UpdateBaseline`(2 → 3, `git diff`로 그 1줄만 변경 확인) · 규칙 문자열 1줄 갱신 · `physical-delete` 신규 0 · 재실행 PASS. 프론트 `npm run build`는 이 백엔드 작업 범위 밖(별도 프론트 작업분).
 - [ ] V-3 브라우저 실측(사용자 기동 서버 · 노트 무접촉 원칙 — 실측용 문서·노트·이미지는 새로 만들어 원상 복구): ⓐ 사이드바 하단 그룹 "휴지통"(설정 위) · 접힘 레일 아이콘 · 390px 드로어 하단 그룹 "휴지통"(LLM 작업 위) · 탭 후 닫힘 · **하단 탭바 5 무변** ⓑ 탐색 필터바 끝 "🗑️ 휴지통" → `/trash?tab=documents` 문서 탭 초기 · 노트 목록 헤더 "휴지통" → 노트 탭 초기 · `?tab=xyz` = 문서 탭 · 탭 클릭 시 URL 무변 ⓒ 삭제 확인 4곳 링크 "휴지통 열기" 노출 → 클릭 = 삭제 0 · 모달 닫힘 · 해당 탭 진입(NoteEditPage 미저장 상태는 기존 이탈 가드 작동) ⓓ 탐색 일괄 삭제 → 요약 줄에 링크 · 노트 목록 삭제 → 1줄 알림 링크 ⓔ 이미지 탭: 스캔 → 실측용 고아 1건 이동 → 휴지통 목록 제목 줄 `[휴지통 비우기]` 활성 → 확인창 실수치(파일 1개 · 크기)·"되돌릴 수 없습니다"·"영구 삭제" 붉은 버튼 → 실행 → 요약 "영구 삭제 1 · 건너뜀 0 · 확보 …" · 재스캔 후 "휴지통 폴더가 비어 있습니다" · 탐색기에서 파일 부재 확인 · `.trash/` 폴더 잔존 ⓕ 휴지통 0건 = 버튼 비활성 · 설정 › 데이터 카드 그대로 ⓖ 390px 겹침 0 · 콘솔 에러 0.
 
 **D. 문서**

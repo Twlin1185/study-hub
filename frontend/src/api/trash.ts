@@ -3,7 +3,13 @@
 // 이미지 스캔은 DB 전 행 텍스트를 읽는 비용이 있어 **자동 호출 0**(enabled:false + 수동 refetch).
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type Paginated } from './client'
-import type { DocumentListItem, TrashImagesReport, TrashMoveResult, TrashRestoreResult } from './types'
+import type {
+  DocumentListItem,
+  TrashEmptyResult,
+  TrashImagesReport,
+  TrashMoveResult,
+  TrashRestoreResult,
+} from './types'
 import type { NoteListItem } from '../editor2/api/notes'
 
 export interface TrashPageFilters {
@@ -27,6 +33,7 @@ export const trashKeys = {
 // 폴백 문구 — 규약 G "mutationFn 1곳" 단일 출처(S50·S51 관례). ApiError는 서버 message 그대로.
 const TRASH_IMAGES_MOVE_FALLBACK = '이미지를 휴지통으로 옮기지 못했습니다.'
 const TRASH_IMAGES_RESTORE_FALLBACK = '이미지를 되돌리지 못했습니다.'
+const TRASH_IMAGES_EMPTY_FALLBACK = '휴지통을 비우지 못했습니다.'
 
 export function useTrashDocuments(filters: TrashPageFilters) {
   return useQuery({
@@ -78,6 +85,24 @@ export function useRestoreImagesFromTrash() {
       } catch (e) {
         if (e instanceof ApiError) throw e
         throw new Error(TRASH_IMAGES_RESTORE_FALLBACK)
+      }
+    },
+    onSuccess: () => {
+      qc.removeQueries({ queryKey: trashKeys.images })
+    },
+  })
+}
+
+// stage-53(F-5) — 휴지통 폴더 전체 영구 삭제(본문 없음 — 마지막 스캔 trashed 전부 대상).
+export function useEmptyImageTrash() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      try {
+        return await api.post<TrashEmptyResult>('/trash/images/empty')
+      } catch (e) {
+        if (e instanceof ApiError) throw e
+        throw new Error(TRASH_IMAGES_EMPTY_FALLBACK)
       }
     },
     onSuccess: () => {

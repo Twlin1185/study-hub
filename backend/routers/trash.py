@@ -2,8 +2,8 @@
 
 소프트 삭제된 문서·노트 목록 조회(복원 엔드포인트 자체는 각 리소스 라우터에 있다
 — `routers/documents.py` `POST /{document_id}/restore`, `routers/notes.py`
-`POST /{note_id}/restore`) + 고아 이미지 스캔·이동·되돌리기. 최종 삭제 엔드포인트는
-없다(사용자가 `sources/images/.trash/`를 탐색기에서 직접 비운다).
+`POST /{note_id}/restore`) + 고아 이미지 스캔·이동·되돌리기·휴지통 비우기(S53
+`POST /images/empty` — 사용자 명시 호출로만 `.trash/` 직속 파일을 영구 삭제).
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from schemas.common import Page
 from schemas.document import DocumentListItem
 from schemas.note import NoteListItem
 from schemas.trash import (
+    TrashEmptyResult,
     TrashImagesReport,
     TrashImagesRequest,
     TrashMoveResult,
@@ -70,3 +71,9 @@ def move_trash_images(
 def restore_trash_images(payload: TrashImagesRequest) -> TrashRestoreResult:
     result = trash_service.restore_from_trash(payload.filenames)
     return TrashRestoreResult(**result)
+
+
+@router.post("/images/empty", response_model=TrashEmptyResult)
+def empty_trash_images() -> TrashEmptyResult:
+    result = trash_service.empty_trash()
+    return TrashEmptyResult(**result)

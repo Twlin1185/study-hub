@@ -1806,3 +1806,10 @@ export interface TrashRestoreResult {
   restored: number
   skipped: number
 }
+
+// stage-53(F-5) — POST /api/trash/images/empty 응답. 본문 없음(전체 비우기, 이동 목록과 무관).
+export interface TrashEmptyResult {
+  deleted: number
+  freed_bytes: number
+  skipped: number
+}

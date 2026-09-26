@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { CategoryNode } from '../api/types'
 
 // S51(FB-25) — 탐색 다중 선택 선택 툴바(설계 §5.2 S51 · 지시서 §2 I). 선택 0이면 미렌더가 기본이나,
@@ -8,7 +9,7 @@ interface BulkSelectionBarProps {
   // 좌측에서 선택한 분류(출발) — null이면 "전체 문서"/"단일 문서만" 상태라 이동·해제 비활성.
   fromNode: CategoryNode | null
   deep: boolean
-  resultSummary: string | null
+  resultSummary: ReactNode | null
   onSelectAllVisible: () => void
   onClear: () => void
   onLink: () => void
