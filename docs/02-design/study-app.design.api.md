@@ -1549,6 +1549,8 @@ backend/services/fetchers/
 
 ### 4.32 휴지통 — 소프트 삭제 복원 · 고아 이미지 2단계 정리 (S52 — D8-구현 · F61. **편성 추기 2026-09-14(Design v1.65) → 구현 실측 확정 2026-09-15(Design v1.66 — 계약 그대로 구현 · 실측 확정 ⓐ 1건 아래) — 지시서 `stage-52-trash-orphan-images.plan.md` §2·§7 정본**)
 
+> **[S53] 추기(편성 2026-09-27 · Design v1.67 · 착수 전)**: 휴지통 비우기 `POST /api/trash/images/empty` 1개가 ① 표와 **⑦ 블록**으로 추가된다(별지 §10 D8 재론 = 사용자 확정 2026-09-27 · 아래 "최종 삭제 엔드포인트 없음"·⑥ "휴지통 비우기 0" 봉인 해제 · 자동·주기·용량 삭제는 여전히 0 · 정본 = `stage-53-trash-empty-entry.plan.md` §2 A·B). 실측 재개정은 완료 시 v1.68.
+
 > **실측 확정 ⓐ(2026-09-15)**: `modified_at`(③ 스캔 보고서의 `orphans`·`trashed` 항목)은 파일 mtime을 **UTC 오프셋 포함 ISO 8601**(`2026-09-01T10:00:00+00:00`)로 낸다 — 문서·노트 `updated_at`(SQLite `CURRENT_TIMESTAMP` naive UTC)과 프론트 파서(`parseServerDate`)를 공유하므로 오프셋이 있어야 로컬 표시가 맞는다(검토 경미-1). 그 외 ①~⑤ 계약·에러 표 그대로(테스트 `tests/test_trash.py` 20건 고정).
 
 > 별지 `editor-v2.plan.md` §10 D8 확정(2026-08-23 사용자 — 선택지 ⓑ 2단계 정리 · **삭제 주체 = 항상 사용자 · 앱 자동 삭제 0**)의 구현 계약. 마스터 §15 R41 ③④("복구 UI 없음")·§4.28 ⑥ "복구 엔드포인트 없음"·§4.27 말미 "고아 이미지 정리 범위 밖"의 봉인을 이 절이 해제한다. **불변 규칙 4 개정 동반**(계획서 §6.3 4 · `CLAUDE.md` — `sources/images/` 업로드·수집 이미지 = 앱 생성 파생물 · `sources/` 반입 원본은 종전대로 불변). **DDL 0**(계획서 §6.2 무변 · `deleted_at` 없음 — "삭제 시각"은 `updated_at`(소프트 삭제가 `onupdate`로 갱신 — 실측) · Alembic 0) · **신규 엔드포인트 7** · 기존 엔드포인트 무변(`DELETE` 2종 · `GET /images/` 서빙 · `POST /api/uploads` · `POST /api/documents/bulk`) · 파일 **삭제 코드 0**(이동만 · `services/trash_service.py` 1파일) · 에러 §3(코드 4종 불증 · `detail.reason`) · R16(파일명 = 서빙 정규식 fullmatch + `resolve()`·`is_relative_to` 루트 종속 검사).
@@ -1564,8 +1566,9 @@ backend/services/fetchers/
 | `GET /api/trash/images?min_age_days=7` | **고아 이미지 스캔 보고서(읽기 전용 · 수동 트리거 · 페이지네이션 없음)** — 응답 ③ | S52 |
 | `POST /api/trash/images/move` | 선택 파일을 `sources/images/{f}` → `sources/images/.trash/{f}`로 **이동**(삭제 아님) — 본문·가드·응답 ④ | S52 |
 | `POST /api/trash/images/restore` | `.trash/{f}` → `images/{f}` 되돌리기 — ④ | S52 |
+| `POST /api/trash/images/empty` | **[S53]** `.trash/` 직속 정규 이미지 파일 **전부 영구 삭제**(본문 없음 · 사용자 명시 클릭 전용 · 되돌릴 수 없음 · 자동 호출 0) — ⑦ | S53 |
 
-- **최종 삭제 엔드포인트 없음** — 사용자가 탐색기에서 `sources/images/.trash/` 폴더를 비운다(화면 안내 문구 + 절대 경로). 자동 비우기·용량 상한·보존 기간 트리거 0.
+- **최종 삭제 엔드포인트 없음** — 사용자가 탐색기에서 `sources/images/.trash/` 폴더를 비운다(화면 안내 문구 + 절대 경로). 자동 비우기·용량 상한·보존 기간 트리거 0. **← S53 개정(2026-09-27 사용자 확정 · D8 재론)**: 최종 삭제 = 탐색기 **또는** ⑦ `empty`(사용자 명시 클릭 + 확인 모달 한정) · 자동 비우기·용량 상한·보존 기간 트리거는 **여전히 0**.
 - **LLM 0 · settings 키 0 · DB 쓰기 = `is_active` UPDATE 2종뿐** · 스캔 결과는 저장하지 않는다.
 
 **② 고아(orphan) 정의 — 지시서 규약 A**
@@ -1616,13 +1619,30 @@ backend/services/fetchers/
 
 - 409 없음 · 프론트는 `code`로 분기하지 않고 서버 `message`를 그대로 렌더(§3) · 폴백 문구는 mutationFn 1곳.
 
-**⑥ 하지 않는 것(지시서 §4 정본)**: 최종 삭제 API·휴지통 비우기·자동 정리 · 문서·노트 일괄 복원(bulk `restore` action — 실수요 후 §4.31 추가) · `deleted_at` 컬럼 · 본문 `/images/` 링크 재작성 · 이미지 메타 DB·썸네일 생성 · 분류·태그·백업의 휴지통 · FB-24 ⓒ(`on_documents=delete` — §4.1 봉인 그대로) · `GET /images/` 서빙 규약 변경 · `import/auto/` 정리.
+**⑥ 하지 않는 것(지시서 §4 정본)**: 최종 삭제 API·휴지통 비우기(**← S53으로 해제** — ⑦ · 항목별 영구 삭제·자동 정리는 여전히 0)·자동 정리 · 문서·노트 일괄 복원(bulk `restore` action — 실수요 후 §4.31 추가) · `deleted_at` 컬럼 · 본문 `/images/` 링크 재작성 · 이미지 메타 DB·썸네일 생성 · 분류·태그·백업의 휴지통 · FB-24 ⓒ(`on_documents=delete` — §4.1 봉인 그대로) · `GET /images/` 서빙 규약 변경 · `import/auto/` 정리.
+
+**⑦ [S53] 휴지통 비우기 — `POST /api/trash/images/empty`(편성 추기 2026-09-27 · Design v1.67 · 지시서 `stage-53-trash-empty-entry.plan.md` §2 A·B 정본 · 착수 전 — 실측 확정은 완료 시 v1.68)**
+
+| 항목 | 계약 |
+|---|---|
+| 요청 | 본문 **없음**(선택 삭제 없음 — 전체 비우기만 · 사용자 확정 ⓐ) · 쿼리 0 · DB 무접촉(`db` 의존 0) |
+| 대상 | `sources/images/.trash/` **직속** 항목 중 서빙 정규식 `^[0-9a-f]{16}\.(gif|png|jpg|jpeg|webp)$` **fullmatch** + `is_file()`(심볼릭 링크 제외)인 파일 전부 — **호출 시점 폴더 실측**(스캔 결과 stale 무관). 하위 폴더·비정규 이름(`.tmp` 등) = 무접촉·`skipped` · 폴더 자체 삭제 0(`rmdir`·`rmtree` 0) · `images/` 직속(휴지통 밖)·`sources/` 반입 원본 무접촉 |
+| 경로 가드(R16) | 각 대상 `resolve()` 후 `is_relative_to(trash_dir.resolve())` 이중 검사(실패 = skipped) · 삭제 호출 = **`os.remove` 명시 1곳**(`services/trash_service.py` `empty_trash` — invariant `fs-mutate` 기준선 2 → 3 정당분 · 다른 파일 신규 검출 = 결함) |
+| 참조 재검사 | **0** — 휴지통 파일은 서빙되지 않아 정의상 미참조(참조 중이면 ④ move 422로 진입 불가 · 되돌리기 후에만 재참조) |
+| 실패 처리 | **best-effort** — 파일 1개 `OSError`는 그 파일만 `skipped` + 서버 warning 로그 후 계속(되돌릴 수 없는 조작이라 all-or-nothing 불성립) · 폴더 없음 = 200 `{0,0,0}`(멱등 · 폴더 생성 0) |
+| 응답 | `200 { "deleted": n, "freed_bytes": n, "skipped": n }` — `deleted` = `os.remove` 성공 수 · `freed_bytes` = 삭제 직전 `st_size` 합 · `skipped` = 비정규·하위 폴더·가드 실패·OSError 합산 |
+| 에러 | §3 포맷 · 코드 신설 0 · 422/409 없음(입력 0) · 치명 파일 시스템 실패만 500 `INTERNAL` 공통 핸들러 |
+| 메서드 근거 | 같은 라우터의 부작용 조작(`/images/move`·`/restore`)이 POST 동사 관례 · §4.1 `DELETE /{id}`는 단건 리소스 삭제 관례라 컬렉션 부작용에 미사용 · `DELETE /api/trash/images`는 "이미지 삭제"(휴지통 밖 `images/`)로 오독 여지 → 동사 경로 `empty` |
+| 화면 | screens §5.17 S53 — `[이미지]` 탭 휴지통 폴더 목록 제목 줄 `[휴지통 비우기]` · `ConfirmDialog danger` 실수치 "파일 n개 · 총 크기" + "되돌릴 수 없습니다" · 성공 후 재스캔 1회 · 자동 호출 0 |
+| 하지 않는 것 | 항목별 영구 삭제 · 본문(`filenames`) 수용 · 자동·주기·용량 상한·보존 기간 삭제 · 문서·노트 물리 삭제(불변 규칙 3) · `.trash/` 폴더 삭제 · 스캔 강제 |
+
+**S53 구현 앵커**: `backend/services/trash_service.py`(`empty_trash`) · `routers/trash.py`(`POST /images/empty`) · `schemas/trash.py`(`TrashEmptyResult`) · `tests/test_trash.py`(케이스 ⑧) · 프론트 `api/trash.ts` `useEmptyImageTrash` · `api/types.ts` · `pages/Trash.tsx` — 진입점·`?tab=`·모달 링크는 screens §5.17 S53.
 
 **구현 앵커 (2026-09-14 — 파일 수준. 행 번호는 구현 시 실측)**
 
 - 백엔드: `backend/routers/trash.py`(신규) · `backend/services/trash_service.py`(신규 — 참조 수집·스캔·이동·되돌리기 · 서빙 정규식 상수를 `main.py`와 **공용 1곳**으로) · `backend/schemas/trash.py`(신규) · `routers/documents.py`(`POST /{document_id}/restore`) · `routers/notes.py`(`POST /{note_id}/restore` · `_list_notes` 내부 인자) · `services/document_service.py`(`restore_document` · `list_documents` 내부 `inactive_only`) · `main.py`(라우터 등록 1줄 + 상수 import) · `tests/test_trash.py`(tmp 폴더 픽스처 — 실 `sources/` 무접촉).
 - 프론트: `pages/Trash.tsx`(신규 · lazy) · `api/trash.ts`(신규) · `api/types.ts` · `api/documents.ts` `useRestoreDocument` · `editor2/api/notes.ts` `useRestoreNote` · `App.tsx` 라우트 · `pages/Settings.tsx` 데이터 그룹 카드 · 삭제 확인 문구 4곳 — 화면은 screens §5.17.
 
-**말미 확인**: **DDL 0 · Alembic 0 · settings 키 0 · 신규 의존 0 · 파일 삭제 코드 0** · 프론트 계약 = screens §5.17(휴지통) · §5.11(설정 데이터 카드) · §5.2·§5.3·§5.16(삭제 문구) · 테스트 = `backend/tests/test_trash.py`(편성 필수 — 경로 가드·참조 재검사·복원 무접촉 회귀 방지) · invariant `fs-mutate` 기준선은 `trash_service.py` 2곳만 정당 갱신 · 불변 규칙 4 개정 = 계획서 §6.3 4 + `CLAUDE.md`(편성 시 이행).
+**말미 확인**: **DDL 0 · Alembic 0 · settings 키 0 · 신규 의존 0 · 파일 삭제 코드 0** · 프론트 계약 = screens §5.17(휴지통) · §5.11(설정 데이터 카드) · §5.2·§5.3·§5.16(삭제 문구) · 테스트 = `backend/tests/test_trash.py`(편성 필수 — 경로 가드·참조 재검사·복원 무접촉 회귀 방지) · invariant `fs-mutate` 기준선은 `trash_service.py` 2곳(**← S53: 3곳** — `os.remove` 1 추가)만 정당 갱신 · 불변 규칙 4 개정 = 계획서 §6.3 4 + `CLAUDE.md`(편성 시 이행 · **← S53 재개정 2026-09-27 동일 2곳**). **← S53 파일 삭제 코드 = `empty_trash` 1곳(사용자 명시 호출 전용)** — ⑦.
 
 
