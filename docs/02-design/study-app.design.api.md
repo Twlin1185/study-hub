@@ -1039,6 +1039,8 @@ backend/services/fetchers/
 > 근거: 계획서 §14 F48(단일 출처 — 배경(2026-08-03 사용자 요청 4건)·ⓐⓑⓒⓓ·순서 관계). 구현 중 이 계약과 어긋나는 필요(특히 DDL·잡 영속화)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-22 DoD).
 > 원칙 재확인: **잡 큐의 정본은 §4.10·§4.11** — 인메모리 잡 레코드(`convert_service._JOBS`·TTL)·convert 잡 큐 **동시 1개**는 불변이고, 이 절은 그 위에 **조회·제어 계층**을 얹는다(잡 실행·진행 계약(§4.11 `progress`·`error_info`) 무변경). 전 잡 kind 8종(convert(파일·URL)·fetch·regenerate·answer_key·explain·applied_exam·improve_proposal·improve_regression)이 **같은 잡 큐·레코드를 공유**하므로 목록 1개가 전 kind를 덮는다(현행 실측). 서버 완성 문장·원문 노출 금지(§4.11) · 에러 규약 §3 · **이 절의 신규 엔드포인트는 전부 LLM 호출 0·DB 쓰기 0**(인메모리 조회·플래그 — 비용 0).
 
+> **[S54] 추기(편성 2026-09-27 · Design v1.69 — 후보안 · 사용자 확정 대기)**: 캡처 정제 잡 kind **`capture_refine`**(§4.33)이 같은 큐·레코드에 합류한다(kind 9 → **10**종 · 순수 추가). `ref = { capture_id }` · `label` = 서버 완성("캡처 정제 — 사진 09-27 14:03") · ⓒ 요청 단위 `model?` 적용 지점 8 → **9곳**(`POST /api/capture/{id}/refine`) · 취소·일시정지·목록 계약 무변 · 프론트 `jobRoutes.ts` → `/capture/{capture_id}`. 정본 = `stage-54-capture-slice-1.plan.md` §2 G.
+
 **착수 전 결정 ①~⑥ 확정 (2026-08-03)**
 
 - **① 전역 잡 목록 = 신규 `GET /api/llm/jobs` 1개 확정** — 인메모리 잡 레코드에서 **파생**(별도 저장·이력 테이블 없음). 항목 `label`은 **서버가 완성한 한국어 문구**(예: "『2023_2회_기출.pdf』 변환" — §4.10 `notes` 관례: 프론트 포맷 분기 금지), `ref`는 kind별 참조 id(아래 ⓓ 표 — 화면 이동·복원의 키). 종료(done·error·cancelled) 잡은 **기존 잡 TTL(1시간) 내 레코드만** 노출 — 신규 보존 없음, **서버 재시작 시 목록 전체 소실을 수용**(정직 명시 — 변환 결과 자체는 F40-① 디스크 보존이 방어, §4.3).
@@ -1644,5 +1646,79 @@ backend/services/fetchers/
 - 프론트: `pages/Trash.tsx`(신규 · lazy) · `api/trash.ts`(신규) · `api/types.ts` · `api/documents.ts` `useRestoreDocument` · `editor2/api/notes.ts` `useRestoreNote` · `App.tsx` 라우트 · `pages/Settings.tsx` 데이터 그룹 카드 · 삭제 확인 문구 4곳 — 화면은 screens §5.17.
 
 **말미 확인**: **DDL 0 · Alembic 0 · settings 키 0 · 신규 의존 0 · 파일 삭제 코드 0** · 프론트 계약 = screens §5.17(휴지통) · §5.11(설정 데이터 카드) · §5.2·§5.3·§5.16(삭제 문구) · 테스트 = `backend/tests/test_trash.py`(편성 필수 — 경로 가드·참조 재검사·복원 무접촉 회귀 방지) · invariant `fs-mutate` 기준선은 `trash_service.py` 2곳(**← S53: 3곳** — `os.remove` 1 추가)만 정당 갱신 · 불변 규칙 4 개정 = 계획서 §6.3 4 + `CLAUDE.md`(편성 시 이행 · **← S53 재개정 2026-09-27 동일 2곳**). **← S53 파일 삭제 코드 = `empty_trash` 1곳(사용자 명시 호출 전용)** — ⑦.
+
+### 4.33 캡처 파이프라인 1단계 — 획득·원본 보관·LLM 정제 잡·리뷰·노트 삽입 (S54 — F62 · M39. **편성 추기 2026-09-27(Design v1.69) — 후보안(사용자 확정 대기 `capture.plan.md` §10 D-C1~D-C5 · 확정 전 코드 0) · 지시서 `stage-54-capture-slice-1.plan.md` §2 정본 · 캡처 전체 정본 = `capture.plan.md`**)
+
+> **후보안 표기**: 이 절의 계약은 권고안(1단계 = 사진 `photo` · 정제 = 기존 LLM 비전 엔진 재사용 · 착지 = notes · 영속 = `capture_items` 테이블)을 전제로 쓰였다. D-C1(소스 종류)·D-C3(정제 엔진)·D-C5(착지)가 다르게 확정되면 착수 문서화 시 이 절을 개정한다(Design 판번 +1). **DDL 1**(`capture_items` — 후보 DDL = `capture.plan.md` §5 · 마스터 §6.2 등재는 확정 후 · Alembic 1건 예고 · §15 R47) · 신규 엔드포인트 **8** · 잡 kind **+1**(`capture_refine` — §4.24 `[S54]` 추기) · 신규 의존 0(권고안) · 에러 §3(코드 4종 불증 · `detail.reason`) · R16(id 기반 서빙 + 루트 종속 검사) · 별지 `editor-v2.plan.md` §5.5 수명주기 **불변 골격** 이행.
+
+**① 엔드포인트 — 신규 8개(전부 `routers/capture.py` `prefix=/api/capture`)**
+
+| 메서드/경로 | 설명 | 단계 |
+|---|---|---|
+| `POST /api/capture` | **획득** — multipart `file`(필수) + `kind`(`photo` — 1단계 허용값 · 그 외 422 `unsupported_kind`) + `captured_at?`(ISO 8601 · 클라이언트 `File.lastModified` · 없으면 서버 수신 시각 UTC). 서버 = 매직 바이트 판별(`png\|jpg\|jpeg\|gif\|webp` · 불일치 422 `unsupported_media`) · 20MB 상한(초과 422 `too_large` · `_SizeLimitedMultiPartParser` 재사용) · SHA-256 · `sources/capture/{hash12}_{safe_name}` 쓰기(있으면 건너뜀 — 원본 불변) → `capture_items` INSERT(status `stored`). `200 CaptureItem`(201 미사용 — §4.27 ② 관례) | S54 |
+| `GET /api/capture?status=&page&size` | 목록 — §3 페이지네이션(`Page[CaptureItem]` · 기본 50 · ≤200) · `status` 미지정 = **`discarded` 제외** 전부 · `status=discarded`로 버린 항목 열람 · 정렬 `created_at DESC` | S54 |
+| `GET /api/capture/{id}` | 상세 — `CaptureItem` + `raw_text`·`draft_md`·`error_info` · 404 | S54 |
+| `GET /api/capture/{id}/original` | **원본 서빙**(리뷰 썸네일·확대) — 행의 `original_ref`를 `CAPTURE_DIR / ref`로 해석 · `resolve()` + `is_relative_to(CAPTURE_DIR.resolve())` + `is_file()` 불충족 = 404(R16 · 사용자 입력 경로 0) · `FileResponse` · `Content-Type` = 행 `mime` · 캐시 헤더 = 기본(개인용) | S54 |
+| `POST /api/capture/{id}/refine` | **정제 잡 등록** — 본문 `{ engine?: string, model?: string }`(§4.23 `engine` 규칙 · §4.24 ④ `model?` 규칙 4개 그대로 — 9곳째) · 비전 불가 엔진(codex) = 422 `engine_no_vision`(문구 = `codex_adapter.py:286` 기존 문장 재사용) · status `stored\|drafted → refining` · 같은 캡처 `refining` 중 = 409 `bad_transition` · `202 { job_id }` · 잡 = 기존 큐 kind `capture_refine`(동시 1개 · TTL 1시간 · 취소 = §4.24 ②) | S54 |
+| `GET /api/capture/jobs/{job_id}` | 잡 상태 — `{ status: queued\|running\|done\|error\|cancelled, progress?, error_info?, result?: { capture_id } }`(§4.11 `progress`·`error_info` 계약 그대로 · 원문·산출 본문 미노출 — 산출은 ③ 행에서) · TTL 만료 404 | S54 |
+| `POST /api/capture/{id}/insert` | **노트 삽입 — 한 트랜잭션**(④) — `drafted`만(그 외 409 `bad_transition`) · `200 { capture: CaptureItem, note_id }` | S54 |
+| `POST /api/capture/{id}/discard` · `POST /api/capture/{id}/restore` | `stored\|drafted → discarded` / `discarded → 직전 상태`(`draft_md` 있으면 `drafted` 아니면 `stored`) · 멱등(같은 상태 = 200 그대로) · **파일 무접촉 · 물리 삭제 0** · `inserted`는 discard 불가(409) | S54 |
+
+- 물리 삭제 엔드포인트 없음 · `PATCH`(초안 편집) 없음(편집은 삽입 후 노트에서) · `is_active` 없음(`discarded`가 소프트 상태) · **LLM 호출은 `refine`뿐** · settings 키 0.
+
+**② 상태 전이(`capture.plan.md` §7 ② 정본 — 그 외 전이 = 409 `CONFLICT` · `detail.reason: 'bad_transition'`)**
+
+| 출발 → 도착 | 트리거 |
+|---|---|
+| `stored → refining` · `drafted → refining` | `POST /{id}/refine`(재정제는 done 시 종전 초안 덮어씀) |
+| `refining → drafted` | 잡 done — `raw_text`·`draft_md`·`engine`·`model`·status **한 UPDATE** · `error_info` NULL |
+| `refining → stored` | 잡 error·cancelled — `error_info` 기록(§4.11 형식) · 초안 무변(재정제 전 종전 초안은 `draft_md`에 남되 status는 `stored` — 화면은 "이전 초안" 표기) |
+| `drafted → inserted` | `POST /{id}/insert` · **종착**(재삽입 0 — 노트에서 복사) |
+| `stored\|drafted → discarded` / `discarded → 직전` | discard / restore |
+
+**③ `CaptureItem` 응답 형식**
+
+```json
+{ "id": 12, "kind": "photo", "status": "drafted",
+  "original_ref": "capture/3f2a91c7b04e_IMG_1234.jpg", "mime": "image/jpeg", "bytes": 2841233,
+  "captured_at": "2026-09-27T05:03:11+00:00", "created_at": "...", "updated_at": "...",
+  "engine": "claude-cli", "model": null,
+  "raw_text": "…판독 원문(정제 전)…", "draft_md": "## 정규화\n- 제1정규형: …",
+  "target_note_id": null, "error_info": null }
+```
+
+- 목록 항목은 `raw_text`·`draft_md` **생략**(`has_draft: bool`로 대체 — 페이로드 절약) · 정답·해설·문서 필드 **부재**(불변 규칙 1 — 캡처는 문서·퀴즈와 무관) · `model` = 유효 적용값(§4.23 ⑤ 산출 · null = 미전달).
+
+**④ 삽입 계약 — `POST /api/capture/{id}/insert` (지시서 규약 H·I · `capture.plan.md` §7 ⑥)**
+
+| 항목 | 계약 |
+|---|---|
+| 본문 | `{ note_id?: int, new_note?: { title: string }, content_blocks: string, content: string }` — `note_id`·`new_note` 정확히 하나(둘 다·둘 다 없음 = 422) · `content_blocks` = 앱 중립 블록 JSON 문자열(`{version, blocks}` — **클라이언트가 만든 최종 노트 전체**: 기존 노트면 기존 블록 + 초안 블록 append · 새 노트면 초안 블록만) · `content` = 같은 문서의 Markdown 프로젝션(클라이언트 변환기 산출 — 서버가 만들지 않는다 §4.28 ②③) |
+| 서버 처리 | 한 트랜잭션: (a) `new_note` → `notes` INSERT(제목 · `content_blocks` · `content` · `blocks_version` = JSON `version`) / `note_id` → 활성 노트 UPDATE **전체 치환**(`PATCH /api/notes/{id}` 의미론 · 비활성·부재 = 404) (b) `capture_items` status `inserted` + `target_note_id` · 실패 시 전부 롤백 |
+| 블록 검증 | **0**(§4.28 원칙 — 딥 검증·provenance 유무 검사 없음 · 서버는 블록을 해석하지 않는다) |
+| provenance | 클라이언트가 초안 최상위 블록 전부에 `meta.provenance = { source:'capture', kind, capturedAt, model, sourceRef:'capture/{hash12}_{name}' }` 스탬프(필드명 정본 = `blocks.ts` · `source` 가산 — D-C8) · 사이드카ⓐ 보존 경로 무변 · 리더 표시 0(D5 착수 금지) |
+| 응답 | `200 { capture, note_id }` · 후속 = 프론트 `noteKeys.all`·`captureKeys.all` invalidate |
+| 자동 삽입 | **0** — 사용자 클릭 전용(별지 §5.5 불변 · F45 수신함 정신) |
+
+**⑤ 에러 표(§3 규약 — 코드 집합 4종 불증)**
+
+| 조건 | 상태 | code | detail.reason | message 형태 |
+|---|---|---|---|---|
+| 캡처·노트·잡 없음(TTL 만료 포함) | 404 | `NOT_FOUND` | — | "캡처를 찾을 수 없습니다" / "노트를 찾을 수 없습니다"(기존) / "작업을 찾을 수 없습니다"(기존) |
+| `kind` 허용 외 | 422 | `VALIDATION_ERROR` | `unsupported_kind` | "이 단계에서는 사진 캡처만 지원합니다" |
+| 매직 바이트 불일치 | 422 | `VALIDATION_ERROR` | `unsupported_media` | "지원하지 않는 이미지 형식입니다(png·jpg·gif·webp)" |
+| 20MB 초과 | 422 | `VALIDATION_ERROR` | `too_large` | "사진이 너무 큽니다(20MB 이하만 올릴 수 있습니다)" |
+| 비전 불가 엔진 | 422 | `VALIDATION_ERROR` | `engine_no_vision` | `codex_adapter.py:286` 기존 문장 |
+| `engine` auto인데 `model` · 소목록 밖 `model` | 422 | `VALIDATION_ERROR` | (§4.24 ④ 그대로) | 기존 문장 |
+| 전이 불가(`refining` 중 재정제 · `inserted` discard 등) | 409 | `CONFLICT` | `bad_transition` | "지금 상태({상태 한글})에서는 할 수 없는 작업입니다" |
+| `note_id`·`new_note` 동시/부재 · 본문 형식 | 422 | `VALIDATION_ERROR` | (pydantic) | 기존 관례 |
+| 엔진 실패 | (잡 `error`) | — | §4.11 `error_info` | 잡 상태로 표출(HTTP 오류 아님) |
+| 파일 시스템 실패 | 500 | `INTERNAL` | — | 공통 핸들러 |
+
+**⑥ 하지 않는 것(지시서 §4 정본)**: 녹음·STT · 메모 · documents 삽입 · 초안 `PATCH` · 물리 삭제·휴지통 탭 · 자동 정제·자동 삽입·일괄 정제 · `sources/images/` 사본·원본 사진 동반 삽입 · EXIF · FTS · 오프라인 큐 · HTTPS.
+
+**구현 앵커(2026-09-27 — 파일 수준 · 행 번호는 구현 시 실측)**: 백엔드 `routers/capture.py`·`services/capture_service.py`·`schemas/capture.py`(신규) · `models.py` `CaptureItem` · `alembic/versions/<rev>_s54_capture_items.py` · `services/convert_service.py`(kind `capture_refine` · `_job_ref` · `model?` 9곳째) · `services/import_service.py`(`_save_source_file` 폴더 인자 공용화) · `prompts/capture_refine.md` · `main.py` 라우터 1줄 · `tests/test_capture.py`. 프론트 = screens §5.18.
+
+**말미 확인**: **DDL 1(확정 후 §6.2 + Alembic) · 신규 엔드포인트 8 · 잡 kind +1 · 신규 의존 0(권고안) · 파일 조작 = 쓰기 1곳(move/remove 0) · 응답 정답·해설 0 · 자동 삽입 0.**
 
 

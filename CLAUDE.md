@@ -4,7 +4,7 @@
 (FastAPI + SQLite + React). 개인용, 홈 네트워크 전용.
 
 **현재 버전 v2.03.1** (2026-09-27 발행) — 버전 단일 출처 = 루트 `VERSION` · 규약·이력 =
-`docs/03-release/CHANGELOG.md`. **다음**: 미편성 — 잔여 할 일은 `docs/01-plan/backlog.md`(후보를 여기
+`docs/03-release/CHANGELOG.md`. **다음**: stage-54 캡처 1단계(편성 · 사용자 확정 대기 — `capture.plan.md`) — 잔여 할 일은 `docs/01-plan/backlog.md`(후보를 여기
 나열하지 않는다). 진척·경위는 stage-index·stage 문서에만.
 
 ## 작업 사이클 (stage는 "할 일을 정한 뒤" 쓰는 산출물)
