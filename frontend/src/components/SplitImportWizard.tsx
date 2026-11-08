@@ -22,7 +22,7 @@ import type {
 
 // 설계 §4.25(S23, F49) — 대용량 원본 LLM 분할 반입 위저드. 5단계 컨셉(계획서 §14 F49) 중
 // 0단계(추출)는 원본 확보 시 즉시·자동으로 수행되고(이 컴포넌트의 'source'→분석 진입), 1~3단계를
-// 이 컴포넌트가 담당한다(4단계 조각별 미리보기 승인은 기존 ImportQueue→반입 preview 화면이
+// 이 컴포넌트가 담당한다(4단계 조각별 미리보기 승인은 반입 건 목록 카드→반입 preview 화면이
 // 그대로 담당 — 신규 진행 UI 없음, 체크리스트). 전자동 반입 없음(R7) — 분할안 확인(2단계)과
 // 비용 확인(3단계)은 생략할 수 없다.
 
@@ -90,6 +90,8 @@ interface SplitImportWizardProps {
   // stage-42(B2-2, §4.25 ②) — 원 항목의 categoryPath를 공통 상위 경로 초기값으로 넘긴다(분할
   // 조각이 기본값 그대로도 원 항목과 같은 분류 경로 하나로 모이게).
   initialCommonPath?: string | null
+  // stage-56(설계 §4.34 ②) — 있으면 분할 시작을 `POST /api/import/split?run_id=`로 그 반입 건에 연결한다.
+  runId?: number | null
   onCancel: () => void
   // splitId(두 번째 인자, stage-reviewer 표적 확인 [관찰 (a)]) — 호출부가 이 split_id를 가진
   // 큐 항목 "전부"를 정리할 수 있게 함께 넘긴다(같은 split을 재사용한 두 앵커가 남아 같은
@@ -101,7 +103,7 @@ interface SplitImportWizardProps {
   ) => void
   // 재진입 앵커(사용자 실사용 피드백 반영) — split_id를 확보(POST 성공·재사용 선택 포함)할
   // 때마다 알려 호출부가 출발점이 된 too_large 항목에 이 id를 심게 한다("분할 진행 중" 전환).
-  onSplitStarted?: (splitId: string) => void
+  onSplitStarted?: (splitId: string, runId?: number) => void
   // split이 서버에서 만료(404 — TTL 1h·디스크 최근 20건 초과)된 채로 재진입했을 때 알린다 —
   // 호출부가 앵커 항목의 split_id를 지워 원래 실패 상태로 되돌린다([분할 반입] 재시도 가능).
   onSplitExpired?: () => void
@@ -111,6 +113,7 @@ export default function SplitImportWizard({
   initialSource,
   resumeSplitId,
   initialCommonPath,
+  runId,
   onCancel,
   onEnqueued,
   onSplitStarted,
@@ -158,7 +161,7 @@ export default function SplitImportWizard({
     setStep(shouldAutoAdvance(data) ? 'chunks' : 'analyze')
     // 재진입 앵커(사용자 실사용 피드백 반영) — split_id를 확보한 즉시 호출부에 알려 too_large
     // 항목을 "분할 진행 중"으로 전환한다(위저드를 닫아도 이 id로 이어서 열 수 있게).
-    onSplitStarted?.(data.split_id)
+    onSplitStarted?.(data.split_id, data.run_id)
   }
 
   // 진입 시 원본이 이미 있으면(too_large [분할 반입]) 곧바로 분할 시작을 시도한다 — 재마운트당
@@ -166,7 +169,7 @@ export default function SplitImportWizard({
   useEffect(() => {
     if (startedRef.current || resumeSplitId || !initialSource) return
     startedRef.current = true
-    startMutation.mutate(initialSource, { onSuccess: applyStart })
+    startMutation.mutate({ ...initialSource, runId }, { onSuccess: applyStart })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -207,9 +210,9 @@ export default function SplitImportWizard({
 
   function handleManualSubmit() {
     if (manualFile) {
-      startMutation.mutate({ kind: 'file', file: manualFile }, { onSuccess: applyStart })
+      startMutation.mutate({ kind: 'file', file: manualFile, runId }, { onSuccess: applyStart })
     } else if (manualUrl.trim()) {
-      startMutation.mutate({ kind: 'url', url: manualUrl.trim() }, { onSuccess: applyStart })
+      startMutation.mutate({ kind: 'url', url: manualUrl.trim(), runId }, { onSuccess: applyStart })
     }
   }
 

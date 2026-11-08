@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useFetchAdapters, useFetchCerts, useFetchExams, useFetchImport } from '../api/fetch'
-import { isJobLost, jobUnavailable, useConvertJob, useConvertedPreview } from '../api/convert'
+import { jobUnavailable, useConvertJob, useConvertedPreview } from '../api/convert'
 import { ApiError } from '../api/client'
-import { clearStoredConvertJob, getStoredConvertJob, setStoredConvertJob } from '../utils/convertJob'
 import LlmJobProgress from './LlmJobProgress'
 import LlmErrorInfoView from './LlmErrorInfo'
 import LlmLimitBanner from './LlmLimitBanner'
@@ -61,13 +60,18 @@ interface FetchImportWizardProps {
   onFallbackToUrl: () => void
   // "준비 중" 안내 대안 버튼 — 원본 파일 반입(자동 변환) 모드로 전환.
   onFallbackToFile: () => void
+  // stage-56(설계 §4.34 ②) — 실행 요청 성공 시 응답의 반입 건 id를 알린다(호출부가 새 카드를 강조).
+  onRunStarted?: (runId?: number) => void
 }
 
-export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onFallbackToFile }: FetchImportWizardProps) {
-  const stored = getStoredConvertJob()
-  const resumed = stored?.sourceKind === 'fetch' ? stored : null
-
-  const [subStep, setSubStep] = useState<FetchSubStep>(resumed ? 'execute' : 'cert')
+export default function FetchImportWizard({
+  onPreviewReady,
+  onFallbackToUrl,
+  onFallbackToFile,
+  onRunStarted,
+}: FetchImportWizardProps) {
+  // stage-56 — 새로고침 복원은 서버 반입 건(run)이 정본이라 localStorage 슬롯을 더 이상 쓰지 않는다.
+  const [subStep, setSubStep] = useState<FetchSubStep>('cert')
   const [searchInput, setSearchInput] = useState('')
   const [committedQuery, setCommittedQuery] = useState('')
   const [selectedCert, setSelectedCert] = useState<FetchCertResult | null>(null)
@@ -84,7 +88,7 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
   // S22(설계 §4.24 ④·⑤, F48) — 요청 단위 모델 오버라이드. 미선택(null) = 설정값.
   const [model, setModel] = useState<string | null>(null)
   const [agreed, setAgreed] = useState(false)
-  const [jobId, setJobId] = useState<string | null>(resumed?.jobId ?? null)
+  const [jobId, setJobId] = useState<string | null>(null)
 
   const adaptersQuery = useFetchAdapters()
   const certsQuery = useFetchCerts(committedQuery)
@@ -100,19 +104,10 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
 
   useEffect(() => {
     if (previewFetch.data) {
-      clearStoredConvertJob()
       onPreviewReady(previewFetch.data, jobQuery.data?.notes)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewFetch.data])
-
-  // 잡이 사라진 것이 확인되면 저장된 기록을 즉시 지운다 — 화면의 안내는 이번 방문에서
-  // 그대로 보이되(무슨 일이 있었는지 알려야 하므로), 다시 열 때마다 죽은 잡을 조회해
-  // 같은 안내가 반복되지는 않게 한다.
-  useEffect(() => {
-    if (jobId != null && isJobLost(jobQuery)) clearStoredConvertJob()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, jobQuery.isError])
 
   function adapterName(id: FetchAdapterId): string {
     return adaptersQuery.data?.find((a) => a.id === id)?.name ?? ADAPTER_FALLBACK_NAME[id]
@@ -193,15 +188,14 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
       {
         onSuccess: (data) => {
           setJobId(data.job_id)
-          setStoredConvertJob({ jobId: data.job_id, sourceKind: 'fetch', fetchLabel: selectedExam.label })
           setSubStep('execute')
+          onRunStarted?.(data.run_id)
         },
       },
     )
   }
 
   function resetAll() {
-    clearStoredConvertJob()
     setSubStep('cert')
     setSearchInput('')
     setCommittedQuery('')

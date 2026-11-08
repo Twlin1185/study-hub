@@ -17,7 +17,7 @@ from starlette import status
 from database import get_db
 from exceptions import ValidationAppError
 from schemas.convert import ConvertJobStart, ConvertJobStatus
-from services import convert_service, llm_engine_service
+from services import convert_service, import_run_service, llm_engine_service
 
 router = APIRouter(prefix="/api/convert", tags=["convert"])
 
@@ -85,25 +85,44 @@ async def start_convert(request: Request, db: Session = Depends(get_db)) -> Conv
     # 분류 경로는 잡 생성 전에 검증한다 — 위반이면 파일 저장·큐 투입 없이 즉시 422(설계 §4.11).
     category_path = convert_service.normalize_category_path(category_path)
 
+    # S56(F63, 설계 §4.34 ②) — 반입 건(run)을 먼저 열고 잡에 `_run_id`를 심는다(응답 run_id 가산).
     if url:
-        job_id = convert_service.start_convert_job_from_url(
-            db=db, url=url, engine=engine, category_path=category_path, model=model
+        clean_url = url.strip()
+        job_id, run_id = import_run_service.start_with_run(
+            db,
+            lambda rid: convert_service.start_convert_job_from_url(
+                db=db, url=url, engine=engine, category_path=category_path, model=model, run_id=rid
+            ),
+            kind="convert_url",
+            label=f"『{clean_url}』 변환",
+            status="queued",
+            source_url=clean_url,
+            category_path=category_path,
         )
     elif upload_bytes:
         if not upload_filename:
             raise ValidationAppError("업로드 파일명이 비어 있습니다")
-        job_id = convert_service.start_convert_job(
-            db=db,
-            upload_filename=upload_filename,
-            upload_bytes=upload_bytes,
-            engine=engine,
+        job_id, run_id = import_run_service.start_with_run(
+            db,
+            lambda rid: convert_service.start_convert_job(
+                db=db,
+                upload_filename=upload_filename,
+                upload_bytes=upload_bytes,
+                engine=engine,
+                category_path=category_path,
+                model=model,
+                run_id=rid,
+            ),
+            kind="convert_file",
+            label=f"『{upload_filename}』 변환",
+            status="queued",
+            source_name=upload_filename,
             category_path=category_path,
-            model=model,
         )
     else:
         raise ValidationAppError("file 업로드 또는 url 중 하나가 필요합니다")
 
-    return ConvertJobStart(job_id=job_id)
+    return ConvertJobStart(job_id=job_id, run_id=run_id)
 
 
 @router.get("/{job_id}", response_model=ConvertJobStatus)

@@ -25,7 +25,12 @@ const JOB_KIND_ROUTES: Partial<Record<LlmJobKind, (ref: LlmJobRef) => string | n
       : '/import?mode=split_import',
 }
 
-export function jobCenterRoute(item: Pick<LlmJobItem, 'kind' | 'ref'>): string | null {
+// stage-56(F-4, 설계 §5.9 [S56] E) — 항목에 run_id가 있으면 반입 계열 4종은 전부 반입 건 딥링크로
+// 간다(/import?run=). run_id가 없으면(레거시 잡 호환) 아래 표의 현행 라우트.
+const RUN_LINK_KINDS: ReadonlySet<LlmJobKind> = new Set<LlmJobKind>(['convert', 'fetch', 'split_analyze', 'answer_key'])
+
+export function jobCenterRoute(item: Pick<LlmJobItem, 'kind' | 'ref' | 'run_id'>): string | null {
+  if (item.run_id != null && RUN_LINK_KINDS.has(item.kind)) return `/import?run=${item.run_id}`
   const fn = JOB_KIND_ROUTES[item.kind]
   if (!fn) return null
   return fn(item.ref ?? {})

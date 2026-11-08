@@ -67,6 +67,8 @@ class ErrorInfo(BaseModel):
 
 class ConvertJobStart(BaseModel):
     job_id: str
+    # S56(F63, 설계 §4.34 ②) — 반입 건(run) id 순수 가산(run 기록 실패 시 null).
+    run_id: Optional[int] = None
 
 
 class ConvertJobStatus(BaseModel):

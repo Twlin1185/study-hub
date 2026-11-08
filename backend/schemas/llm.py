@@ -112,6 +112,8 @@ class JobListItem(BaseModel):
     progress: Optional[JobProgress] = None  # running만
     error_info: Optional[ErrorInfo] = None  # error만
     ref: Dict[str, Any] = Field(default_factory=dict)  # kind별 참조 id(§4.24 ⓓ)
+    # S56(F63, 설계 §4.24 [S56]) — 반입 건 id(잡 레코드 `_run_id` 그대로 · DB 조회 0).
+    run_id: Optional[int] = None
 
 
 class JobListResponse(BaseModel):

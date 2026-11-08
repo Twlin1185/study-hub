@@ -29,6 +29,7 @@ from routers import (
     documents,
     exam,
     fetch,
+    import_runs,
     imports,
     improve,
     llm,
@@ -48,7 +49,7 @@ from routers import (
     uploads,
     web_embed,
 )
-from services import backup_service, settings_service
+from services import backup_service, import_run_service, settings_service
 from services.trash_service import IMAGE_FILENAME_RE
 
 
@@ -69,9 +70,20 @@ def _maybe_auto_backup() -> None:
         db.close()
 
 
+def _expire_stale_import_runs() -> None:
+    """S56(F63, 설계 §4.34 ③ · R48 ②) — 기동 시 진행 중으로 남은 반입 건(`queued|converting|
+    splitting|committing`)을 `expired`로 닫는다(인메모리 잡은 재시작으로 소멸 — 잡 재발견 0).
+    자동 백업 훅과 같은 best-effort — 실패가 기동을 막지 않는다."""
+    try:
+        import_run_service.expire_stale_runs()
+    except Exception:  # noqa: BLE001 - 정리 실패가 앱 기동을 막아서는 안 된다
+        pass
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     _maybe_auto_backup()
+    _expire_stale_import_runs()
     yield
 
 
@@ -79,6 +91,7 @@ app = FastAPI(title="Study Hub API", lifespan=_lifespan)
 
 app.include_router(categories.router)
 app.include_router(documents.router)
+app.include_router(import_runs.router)  # S56 — /api/import/runs(imports.router와 경로 충돌 0)
 app.include_router(imports.router)
 app.include_router(tags.router)
 app.include_router(study.router)

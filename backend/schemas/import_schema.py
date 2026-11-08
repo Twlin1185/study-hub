@@ -100,6 +100,9 @@ class PreviewResponse(BaseModel):
     # S13(F40-①): 디스크 보존본에서 복구된 미리보기 — 화면 상단 소표기용
     # ("이전 미리보기를 복구했습니다 — 중복 판정은 현재 DB 기준입니다", 설계 §4.3)
     recovered: bool = False
+    # S56(F63, 설계 §4.34 ②) — `POST /api/import/preview`(사용자 JSON 업로드)만 채운다
+    # (json_upload run id). 조회·병합 응답은 null.
+    run_id: Optional[int] = None
 
 
 class PreviewMergeRequest(BaseModel):

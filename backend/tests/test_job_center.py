@@ -23,6 +23,7 @@ from database import Base
 from exceptions import ConflictError, NotFoundError, ValidationAppError
 from services import convert_service as cs
 from services import llm_engine_service as engine_svc
+from services import improve_service
 from services import settings_service
 
 
@@ -494,6 +495,9 @@ def test_ten_entrypoints_apply_requested_model_via_common_helper(
 
     monkeypatch.setattr(engine_svc, "is_engine_available", lambda eid: True)
     monkeypatch.setattr(split_service, "SPLIT_DIR", tmp_path / "import" / "split")
+    # stage-56 B-8 실측(FB-31) — regenerate 진입점이 실패 사례 수집 훅을 거쳐 실제 improve/cases/에
+    # user_report를 누적시켰다(count 77→83). CASES_DIR도 tmp_path로 격리한다.
+    monkeypatch.setattr(improve_service, "CASES_DIR", tmp_path / "improve" / "cases")
     cs.pause_queue()
 
     doc_regen = _make_question_document(db, "q-regen-model")

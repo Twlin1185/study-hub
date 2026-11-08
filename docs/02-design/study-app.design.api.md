@@ -1739,7 +1739,7 @@ backend/services/fetchers/
 | `POST /api/fetch/import`(§4.13) | `fetch` | `queued` | `source_name` = 회차 라벨 |
 | `POST /api/import/split?run_id=`(§4.25) | 연결 또는 신설(소스 종류) | `splitting` | `run_id`가 있으면 그 run에 연결(**`failed`+`error_kind='too_large'`만 허용** · 그 외 409 `bad_transition`) · `enqueue`의 조각 convert 잡 전부 `_run_id` |
 | `POST /api/import/preview`(§4.3 — 사용자 변환 JSON) | `json_upload` | `review_ready` | `preview_id` 즉시 · 보존본 없음(§4.3 S13 규칙 그대로) |
-| `POST /api/imports/answer-key`(§4.20) | `answer_key` | `queued` | `answer_key_id` · `category_path` = 범위 분류 |
+| `POST /api/import/answer-key`(§4.20 — 표기 정정 2026-11-08: 라우터 prefix `/api/import`) | `answer_key` | `queued` | `answer_key_id` · `category_path` = 범위 분류 |
 
 `GET /api/llm/jobs` 항목 `run_id?`(§4.24 `[S56]`). `import/commit` · `preview/merge` · preview 복구 · `answer-key/{id}/apply` · 잡 종료·취소는 **서버 내부 훅**이 run을 전이시킨다(요청 계약 무변). preview_id → run 역조회 = `import_runs.preview_id` 일치 ∪ 분할 run의 `summary.previews[]` 포함(역조회 실패 = 레거시 preview — 훅 조용히 생략).
 

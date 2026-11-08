@@ -63,6 +63,8 @@ class SplitStartResult(BaseModel):
     reuse: Optional[SplitReuse] = None
     # [경미-5] 휴리스틱 후보 0건 → 균등 분할 폴백 여부(조용한 폴백 금지 — 명시 필드).
     fallback: Optional[SplitFallback] = None
+    # S56(F63, 설계 §4.34 ②) — 반입 건(run) id 순수 가산(run 기록 실패 시 null).
+    run_id: Optional[int] = None
 
 
 class SplitAnalyzeRequest(BaseModel):

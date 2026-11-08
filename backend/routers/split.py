@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 from starlette import status
 
@@ -21,14 +21,23 @@ from schemas.split import (
     SplitStartResult,
     SplitStateResponse,
 )
-from services import convert_service, split_service
+from services import convert_service, import_run_service, split_service
 
 router = APIRouter(prefix="/api/import/split", tags=["import-split"])
 
 
 @router.post("", response_model=SplitStartResult)
-async def start_split(request: Request) -> SplitStartResult:
-    """분할 시작 — 동기·LLM 0(§4.25). multipart(`file`) 또는 JSON/폼(`url`) 중 하나."""
+async def start_split(
+    request: Request,
+    run_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+) -> SplitStartResult:
+    """분할 시작 — 동기·LLM 0(§4.25). multipart(`file`) 또는 JSON/폼(`url`) 중 하나.
+
+    S56(F63, 설계 §4.34 ②) — `?run_id=`가 있으면 그 반입 건에 연결(`failed`+`too_large`만 ·
+    그 외 409 `bad_transition`), 없으면 소스 종류로 신설 · 상태 `splitting` · `split_started`."""
+    if run_id is not None:
+        import_run_service.assert_split_attachable(db, run_id)
     content_type = request.headers.get("content-type", "")
     url: Optional[str] = None
     upload_filename: Optional[str] = None
@@ -62,6 +71,17 @@ async def start_split(request: Request) -> SplitStartResult:
     result = split_service.start_split(
         upload_filename=upload_filename, upload_bytes=upload_bytes, url=url
     )
+    clean_url = url.strip() if url else None
+    result["run_id"] = import_run_service.note_split_started(
+        db,
+        run_id=run_id,
+        split_id=result["split_id"],
+        chunks=len(result.get("chunks") or []),
+        kind="convert_url" if clean_url else "convert_file",
+        label=f"『{clean_url or upload_filename}』 변환",
+        source_name=None if clean_url else upload_filename,
+        source_url=clean_url,
+    )
     return SplitStartResult(**result)
 
 
@@ -76,8 +96,15 @@ def start_analyze(
 ) -> SplitAnalyzeStart:
     """LLM 정밀 분석 잡 시작(kind `'split_analyze'`) — 9번째 `assert_engine_selectable`
     적용 지점(§4.23 ⓒ·§4.24 ⓒ·§4.25 개정 표)."""
+    run_id = import_run_service.find_run_id_safely(  # S56 — 반입 건 연결(없으면 생략)
+        lambda: import_run_service.find_by_split_id(db, split_id)
+    )
     job_id = convert_service.start_split_analyze_job(
-        db, split_id=split_id, engine=payload.engine, model=payload.model
+        db,
+        split_id=split_id,
+        engine=payload.engine,
+        model=payload.model,
+        run_id=run_id,
     )
     return SplitAnalyzeStart(job_id=job_id)
 
@@ -87,7 +114,14 @@ def enqueue(
     split_id: str, payload: SplitEnqueueRequest, db: Session = Depends(get_db)
 ) -> SplitEnqueueResult:
     """선택 조각 투입 — 기존 convert 잡 N개 등록(ImportQueue 계약 그대로, §4.25)."""
+    run_id = import_run_service.find_run_id_safely(  # S56 — 조각 잡 전부 `_run_id`
+        lambda: import_run_service.find_by_split_id(db, split_id)
+    )
     result = split_service.enqueue_split(
-        db, split_id, selections=payload.selections, category_paths=payload.category_paths
+        db,
+        split_id,
+        selections=payload.selections,
+        category_paths=payload.category_paths,
+        run_id=run_id,
     )
     return SplitEnqueueResult(**result)

@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from database import BASE_DIR
 from exceptions import ConflictError, NotFoundError, ValidationAppError
-from services import convert_service, doc_extract, import_service, preview_store
+from services import convert_service, doc_extract, import_run_service, import_service, preview_store
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -718,6 +718,7 @@ def enqueue_split(
     *,
     selections: List[List[str]],
     category_paths: Optional[Dict[str, str]] = None,
+    run_id: Optional[int] = None,
 ) -> dict:
     """`POST /api/import/split/{split_id}/enqueue` — 그룹 = 단일 또는 인접 chunk_id 연속
     구간([합치기]). 오프셋 결정론 재절단(`원문[start:end]`) 후 기존 convert 잡 N개 등록."""
@@ -773,7 +774,9 @@ def enqueue_split(
 
     text = _reextract_text(state)
     jobs_out: List[dict] = []
-    for group in groups:
+    # S56(F63, 설계 §4.34 ③) — 반입 건 조각 순번 기준(같은 run에 여러 번 투입해도 이어 센다).
+    chunk_base = import_run_service.chunks_total(db, run_id) if run_id is not None else 0
+    for group_no, group in enumerate(groups, start=1):
         start, end = group[0]["start"], group[-1]["end"]
         piece_text = text[start:end]  # 결정론 재절단 — 원문[start:end]
         chunk_ids = [c["chunk_id"] for c in group]
@@ -791,6 +794,10 @@ def enqueue_split(
             skip_source_save=True,  # §4.25 "조각 잡은 원본을 재저장하지 않는다"
             split_id=split_id,
             split_chunk_ids=chunk_ids,
+            run_id=run_id,
+            split_chunk_index=(chunk_base + group_no) if run_id is not None else None,
         )
         jobs_out.append({"job_id": job_id, "chunk_ids": chunk_ids, "label": label})
+    # S56(F63) — `split_enqueued {chunks, job_ids}` · `splitting` 유지(best-effort).
+    import_run_service.note_split_enqueued(db, run_id, [j["job_id"] for j in jobs_out])
     return {"jobs": jobs_out}

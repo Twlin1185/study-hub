@@ -18,6 +18,7 @@ const POLL_INTERVAL_MS = 2000
 // 병합 쓰기). 캐시 키는 리소스 경로(설계 §7).
 
 export function useUploadAnswerKey() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ file, categoryId }: { file: File; categoryId: number }) => {
       const form = new FormData()
@@ -25,6 +26,8 @@ export function useUploadAnswerKey() {
       form.append('category_id', String(categoryId))
       return api.postForm<AnswerKeyUploadResponse>('/import/answer-key', form)
     },
+    // stage-56 — 업로드가 서버에서 answer_key 반입 건(run)을 신설하므로 목록을 새로 읽는다.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['import', 'runs'] }),
   })
 }
 
@@ -37,7 +40,10 @@ export function useStartAnswerKeyProcess() {
   return useMutation({
     mutationFn: ({ keyId, engine, model }: { keyId: string; engine?: LlmEngine; model?: string }) =>
       api.post<ConvertJobStartResponse>(`/import/answer-key/${keyId}/process`, { engine, model }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: llmJobsKey }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: llmJobsKey })
+      qc.invalidateQueries({ queryKey: ['import', 'runs'] })
+    },
   })
 }
 

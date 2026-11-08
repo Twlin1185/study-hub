@@ -22,7 +22,7 @@ from schemas.import_schema import (
     PreviewMergeRequest,
     PreviewResponse,
 )
-from services import answer_key_service, import_service
+from services import answer_key_service, import_run_service, import_service, tree_utils
 
 router = APIRouter(prefix="/api/import", tags=["import"])
 
@@ -41,12 +41,27 @@ async def preview(
     if source_file is not None and source_file.filename:
         source_bytes = await source_file.read()
         source_filename = source_file.filename
-    return import_service.create_preview(
+    response = import_service.create_preview(
         db,
         json_bytes=json_bytes,
         source_filename=source_filename,
         source_bytes=source_bytes,
     )
+    # S56(F63, 설계 §4.34 ②) — 사용자 변환 JSON 업로드 = `json_upload` run · 즉시 `review_ready`.
+    json_name = file.filename or "반입 JSON"
+    run_id = import_run_service.open_run(
+        db,
+        kind="json_upload",
+        label=f"『{json_name}』 변환 JSON 반입",
+        status="review_ready",
+        source_name=json_name,
+        event_message="변환 JSON을 올렸습니다 — 미리보기에서 검토하세요",
+        event_detail={"preview_id": response.preview_id},
+        summary=import_run_service.preview_summary(response.preview_id),
+        preview_id=response.preview_id,
+    )
+    # 캐시된 응답 객체를 오염시키지 않도록 사본에만 run_id를 싣는다.
+    return response.model_copy(update={"run_id": run_id})
 
 
 @router.post("/commit", response_model=CommitResult)
@@ -92,9 +107,23 @@ async def upload_answer_key(
 ) -> AnswerKeyUploadResult:
     """판별·추출만 수행(LLM 호출 0·비용 0). C군·판별 불가는 §3 에러(422)로 즉시 반환."""
     data = await file.read()
-    return answer_key_service.upload_answer_key(
-        db, filename=file.filename or "answer_key", data=data, category_id=category_id
+    filename = file.filename or "answer_key"
+    result = answer_key_service.upload_answer_key(
+        db, filename=filename, data=data, category_id=category_id
     )
+    # S56(F63, 설계 §4.34 ②) — 답지 run(`answer_key` · `queued` · 범위 분류 경로 · 원 run 링크 0).
+    run_id = import_run_service.open_run(
+        db,
+        kind="answer_key",
+        label=f"『{filename}』 답지 가공",
+        status="queued",
+        source_name=filename,
+        category_path=tree_utils.category_path(db, category_id) or None,
+        event_message="답지를 올렸습니다 — 가공을 시작하세요",
+        event_detail={"key_id": result.key_id, "category_id": category_id},
+        answer_key_id=result.key_id,
+    )
+    return result.model_copy(update={"run_id": run_id})
 
 
 @router.post(
