@@ -1,0 +1,156 @@
+# Stage 56 — 반입 건(import runs) 영속 + 타임라인 카드 + 레거시 큐 이관 (FB-28 2단계 · FB-31 동승 · F63 · M40 · R48) (v2.0.x · 핵심)
+
+> 상태: **착수 전**(편성 2026-11-08 · 번호 56 · **사용자 확정 대기 0** — 착수 전 결정 D-I1~D-I8은 사용자 위임("일단 계획서부터 해서 알아서 진행해봐" · 2026-11-08)으로 **권고안을 확정값으로 기록** · 각 결정에 대안·기각 근거 1줄 · **사용자 이견 시 해당 규약만 교체**). stage-55(1단계 · 사소 · v2.03.2 **발행 대기**)의 2단계 · stage-54(캡처 · 편성 보류)와 무접촉·독립.
+> **버전 영향: 핵심**(CHANGELOG 머리 규약 ③ — "저장 계약(DDL/API) 변경·새 기능 표면"): **DDL 2 테이블**(`import_runs`·`import_run_events` — 마스터 §6.2 등재 + Alembic 1건 · 불변 규칙 6) · **신규 API 4**(§4.34) + 기존 시작 API 5곳 응답 `run_id` 가산 + 잡 항목 `run_id` · `/import` 첫 화면이 **"반입 건 목록"으로 바뀜**(새 라우트 0 · 같은 `/import`) · 기능 퇴역 1(localStorage 변환 대기열 → 1회 이관 후 퇴역). → 산출 버전 = 규약 ② MM+1 = **v2.04.1 예정 — 단, stage-54 캡처(v2.04.1 예정 · 편성 보류)와 완료 순서에 따라 번호 결정(규약 ② 선점 없음 — 먼저 완료·발행하는 핵심 stage가 v2.04.1)**. 마스터 §14 **M40** 행 + §5 **F63** 행 + §15 **R48** 행 추가(핵심 → 로드맵 의무).
+> 생성 경위: `backlog.md` §1 **FB-28**(별지 §13 514행 — 2단계 `import_runs` 타임라인 카드 · 1단계는 stage-55로 종결 2026-11-08) + §2 **FB-31**(별지 §13 517행 — 실패 사례 `user_report` 77회 누적 · 반입 건과 미연결 → "FB-28 2단계 run 연결로 흡수" 조건 충족 · **동승 — 감시 유지**). stage-55 §4가 2단계로 명시 이월한 것 전부(`import_runs`·run_id·타임라인 카드·`/import` 반입 건 목록·작업 센터 → run 카드·localStorage 큐 이관·폐기·작업 센터↔대기열 중복 정리·`Import.tsx` 구조 분해·분할 재진입 state 정리·FB-31)가 이 stage의 범위다.
+> 정본 포인터: 저장 계약 = 마스터 **§6.2 `import_runs`·`import_run_events` DDL**(Alembic `…_s56_import_runs.py`) · API 계약 = api **§4.34 `[S56]`**(엔드포인트 4 · 시작 API 응답 `run_id` · 상태 전이 표 · 잡 항목 `run_id`) + §4.24 `[S56]` 추기 + §4.3 `[S56]` 포인터 · 화면 계약 = screens **§5.9 `[S56]` 블록**(반입 건 목록 카드·[새 반입]·타임라인·딥링크·이관·폰) + §5.14 2구(**Design v1.72**) · 리스크 = 마스터 §15 **R48**(잡↔run 드리프트·재시작 고착·R18 정합) · 불변 규칙 1(응답에 정답·해설 0)·2(커밋 한 트랜잭션 관례 승계)·3(dismiss = 소프트)·5(토큰만)·6(DDL 절차)·8(§3 에러·페이지네이션)·9 · R7(미리보기 승인 게이트 불변) · R18(`import/auto/` 50건 · preview 비테이블화 유지) · R37(엔트리 청크 Δ 기록 — 기준선 1,524,813 B) · 발행 절차 = CHANGELOG 머리 규약 ⑤.
+
+## 1. 범위 (백엔드 DDL 2 + API 4 + 훅 · 프론트 `/import` 재구성 · 코드 실측 2026-11-08)
+
+| 대상 ID(등록부 · 출처) | 성격 | 요지 | 현행 코드 실측(Grep 근거) |
+|---|---|---|---|
+| **FB-28 2단계 ① 영속 실체**(backlog §1 25행 · 별지 §13 514행) | DDL 2 + 서비스 | 반입 1건 = `import_runs` 1행(원본 1건의 제출) + `import_run_events` 타임라인 · 잡·미리보기·분할의 TTL·보존 상수는 **무변**(run = 포인터 + 요약) | 반입 과정 테이블 **0** — DB는 `sources`(파일 1행 · §6.2 249행)뿐. 5표면: ⓐ `frontend/src/pages/Import.tsx`(**1,550줄**) `EntryMode` 컴포넌트 state ⓑ localStorage 큐 `utils/convertQueue.ts:12~13`(`study-hub:convert-queue` · 구 `study-hub:convert-job`) · `StoredQueueEntry:20~51`(`id, jobId, sourceKind(file\|url\|fetch\|split):18, fileName?, url?, fetchLabel?, categoryPath?, previewId?, committed?, startError?, createdAt, splitId?, splitTotal?`) · `hooks/useConvertQueue.ts:84`(훅 · `ConvertQueue:493`) ⓒ 잡 `backend/services/convert_service.py` `JOB_TTL:69`(1h) · `_JOBS:80` 인메모리 · 종료 지점 `_process_job:1277`(done `:1317` · error `:1343` · 실패 사례 수집 훅 `:1373~1394`) · 취소 `:1475` · 목록 `_job_ref:1558`(`{preview_id, split_id}`) · `_job_list_item:1583`(`job_id, kind, status, label, engine, model, created_at, started_at, finished_at, progress, error_info, ref`) · 워커 스레드에서 이미 `SessionLocal()` 사용(`:1037`·`:1879`·`:2232`) ⓓ 분할 `services/split_service.py` `KEEP_MAX:56`(20건) · `STATE_TTL:57`(1h) · `start_split:393` · `enqueue_split:715`(조각 → `convert_service.start_convert_job:785`) ⓔ 미리보기 `services/import_service.py` `PREVIEW_TTL:60`(1h) · `_COMMITTED_MAX:74`(500) · `_mark_committed:78`·`_ensure_not_committed:85` · `create_preview:537`(`preserve=True` → `import/auto/`) · 복구 `:808` · `merge_previews:915` · `commit_import:1095`. ORM `backend/models.py` 마지막 모델 `Note:316`(`__tablename__:324`) · Alembic head `alembic/versions/9b1e0f7c4a2d_s35_documents_blocks.py`(노트 신설 전례 `630a4c2531e8_s33_notes.py`) |
+| **FB-28 2단계 ② run 생성·전이 지점** | 시작 API 5곳 + 훅 | 기존 시작 엔드포인트가 run을 만들고 응답에 `run_id` 가산 · 종료·분할·병합·커밋·답지 적용이 전이 기록 | `routers/convert.py:29~30` `POST /api/convert`(파일·URL → `start_convert_job:2371`·`start_convert_job_from_url:2433`) · `routers/fetch.py:64~65` `POST /api/fetch/import`(`start_fetch_job:2253`) · `routers/split.py:29~30` `POST /api/import/split`(`start_split`) · `:85~86` `enqueue` · `routers/imports.py:30~31` `POST /api/import/preview`(사용자 JSON) · `:52~53` `commit` · `:57~58` `preview/merge` · `:65~66` `get_preview`(복구) · `:87~88` `POST /api/imports/answer-key`(`answer_key_service.upload_answer_key:107` → `start_processing:167` → `start_answer_key_job:2945`) · `:119~120` `apply`(`apply_answer_key:421`). 응답 스키마 `schemas/convert.py:68 ConvertJobStart` · `schemas/fetch.py:87 FetchJobStart` · `schemas/split.py:57 SplitStartResult` · `schemas/import_schema.py:95 PreviewResponse`·`:138 CommitRequest`·`:152 CommitResult` · `schemas/answer_key.py:33 AnswerKeyUploadResult` · 잡 항목 `schemas/llm.py:98 JobListItem`(`ref:114`). 기동 훅 자리 = `backend/main.py:72~78` `_lifespan`(현행 자동 백업 1건) |
+| **FB-28 2단계 ③ `/import` = 반입 건 목록** | 화면 재구성 | 카드 1장 = run 1건(상태·라벨·소스·분류·최근 이벤트·진행·액션·타임라인) + [새 반입] 패널(stage-55 소스 세그먼트 접힘/펼침) · 폰 동일 | `Import.tsx:8~10,19`(`readQueue`·`useConvertQueue`·`MAX_QUEUE_BATCH`·`ImportQueueList`·`ImportQueueSummary` import) · `:127`(`queue = useConvertQueue()`) · 요약 `:474`·`:614`·`:636` · 목록 `:492` · `components/ImportQueue.tsx:272`(`ImportQueueList`) · `:445`(`ImportQueueSummary`) · 분할 재진입 state `:141~173`(`splitIdParam:142` · `splitInitialSource:149` · `splitResumeId:153` · `splitAnchorEntryId:157` · `splitExpiredNotice:158` · `splitInitialCommonPath:160` + 앵커 매칭 effect `:164~173` + `handleSplitImport:278~294`) · stage-55 산출(소스 세그먼트·`EngineSelectCollapsible`·Stepper 조건·답지 보조 진입)은 **무변 재사용**(정본 `stage-55-import-unified-view.plan.md` §2 A~F) |
+| **FB-28 2단계 ④ 작업 센터 → run 카드** | 라우팅 상수 1곳 | `jobRoutes.ts` convert·fetch·split_analyze·answer_key → `/import?run=<run_id>`(항목 `run_id` 있을 때) · 레거시 잡은 현행 | `frontend/src/utils/jobRoutes.ts:10~26`(`convert·fetch → '/import'` · `answer_key → '/import?mode=answer_key'` · `split_analyze → '/import?mode=split_import&split_id='`) · `api/types.ts:1591 LlmJobKind`(9종) · `:1606 LlmJobRef` · `:1624 LlmJobItem` · 라우터 `routers/llm.py:87` `GET /api/llm/jobs` |
+| **FB-28 2단계 ⑤ 레거시 큐 이관·퇴역** | 1회 이관 + 파일 삭제 | localStorage 큐 → `POST /api/import/runs/adopt` 1회 → 키 제거 · `ImportQueue.tsx`·`useConvertQueue.ts`·`convertQueue.ts`·`convertJob.ts` 참조 0 후 삭제 | 참조 파일 10(실측): `pages/Import.tsx` · `components/ImportQueue.tsx` · `hooks/useConvertQueue.ts` · `utils/convertQueue.ts` · `utils/convertJob.ts:9`(`readQueue, writeQueue` import — 함께 퇴역 판정) · 주석만 참조 = `api/llm.ts:47` · `api/import.ts:40` · `api/split.ts:15,17,66` · `components/JobCenterPanel.tsx:15` · `components/SplitImportWizard.tsx:25`(주석 갱신) |
+| **FB-31 동승**(backlog §2 34행 · 별지 §13 517행) | 연결 + 감시 유지 | 실패 사례(§4.22)에 `run_id?` 가산 · run 상세에 `failure_cases[]` · 카드 타임라인 → 제안함 링크 · 77회 = dedupe `count` 동작 판정 · 제안함 탭 이동 0 | `backend/services/improve_service.py:117`(JSON 파일 쓰기) · `_dedup_key:192~199`(report = `(kind, document_id)`) · `count+1:261` · `collect_report_case:370~385`(`kind='user_report'` · **`document={"id":…}` 이미 기록** — "미연결"은 카드 UI 수준의 관찰) · 수집 훅 = `convert_service.py:1373~1394`(convert·fetch·split_analyze 실패 — `job` 레코드 접근 가능 → `_run_id` 전달 지점) |
+
+**DDL 2(§6.2 등재 + Alembic 1) · 신규 엔드포인트 4 · 기존 응답 순수 가산 6(시작 API 5 + 잡 항목) · 잡 kind 0 · settings 키 0 · localStorage 키 신설 0(기존 2키는 이관 후 제거) · 새 라우트 0(`/import` + `?run=`) · 신규 의존 0 · 응답에 정답·해설 0(불변 규칙 1 — run·events는 id·수치·서버 문구만) · R7 승인 게이트 무변 · 자동 커밋 0.**
+
+## 2. 확정 규약 (착수 전 결정 — **위임 확정(2026-11-08 사용자 "알아서 진행") · 이견 시 변경** · 이 문서가 정본)
+
+- **D-I1. 실체·입도 = run 1행 = 원본 1건의 제출** (위임 확정 · 이견 시 변경)
+  - `kind` 5종: `convert_file`(파일 1개) · `convert_url`(URL 1개) · `fetch`(사이트 회차 1개) · `json_upload`(사용자 변환 JSON 업로드 1개 — 즉시 `review_ready`) · `answer_key`(답지 적용 1건 — 범위 분류 id는 `category_path`에 기록 · **이전 run과 링크 없음**).
+  - **분할은 같은 run 안의 단계**(`split_id` 컬럼 + 조각 convert 잡들·병합 preview는 이벤트 · 자식 run 없음). 조각 preview id 목록은 `summary_json.previews[]`에 서버가 누적한다.
+  - 대안 기각: ⓑ "조각마다 자식 run" — 카드가 N장으로 갈라져 "하나로 묶어 본다"(FB-28 원문)에 역행 · ⓒ "답지를 원 run에 연결" — 답지 적용 범위는 분류 단위라 run 1:1 대응이 성립하지 않음(단순화).
+- **D-I2. 저장 모델 = 테이블 2개 `import_runs` + `import_run_events`**(불변 규칙 6 → §6.2 DDL 등재 완료 · Alembic 1건 `alembic/versions/<rev>_s56_import_runs.py` · `down_revision = 9b1e0f7c4a2d`(실측 `alembic heads`로 확인) · downgrade = 두 테이블 DROP)
+  - DDL 정본 = 마스터 §6.2(이 stage 편성 시 등재). 요약: `import_runs(id, kind, label(서버 완성 — §4.10 notes 관례), source_name, source_url, category_path, status, job_id, preview_id, split_id, answer_key_id, error_kind, error_message, summary_json, is_active DEFAULT 1, created_at, updated_at, committed_at)` · `import_run_events(id, run_id FK, at, type, message, detail_json)` · 인덱스 `ix_import_runs_active_updated(is_active, updated_at DESC)` · **`ix_import_runs_preview(preview_id)`**(commit·merge·복구 훅의 역조회 — 권고안에 없던 추가 · 사유: 클라이언트 commit 요청 계약을 바꾸지 않으려면 서버가 preview_id → run을 찾아야 한다) · `ix_import_run_events_run(run_id, at)`.
+  - `status` enum = `queued | converting | splitting | review_ready | committing | committed | failed | cancelled | expired`. **권고안의 `dismissed` 상태는 제외** — [목록에서 지우기]는 `is_active=0`으로만 표현(상태는 이력 그대로 — 중복 표현 제거). `committing`은 커밋 트랜잭션 내부의 논리 상태(영속 노출은 크래시 중단 시뿐 · 기동 정리 대상).
+  - `type` enum = `created | adopted | job_started | job_failed | job_cancelled | split_started | split_analyzed | split_enqueued | preview_ready | preview_recovered | preview_merged | committed | answer_key_applied | dismissed | expired`. **권고안의 `job_progress_milestone` 기각**(라이브 진행은 jobs 조인으로 — 이벤트 행 폭증 방지 · YAGNI) · `job_cancelled`·`split_analyzed`·`adopted` 추가.
+  - `summary_json` = **서버가 쓰고 서버가 읽는 JSON** `{previews:[{preview_id, chunk_index?, committed_at?}], commits:[{preview_id, created, merged, skipped, errored, document_ids[], category_ids[]}], document_ids[], category_ids[]}` — 편집기 블록 JSON "서버 불해석"(§4.28)과 **무관**(그 원칙은 클라이언트 소유 블록 스키마 이중화 금지가 취지 · 이 JSON은 서버 소유). `detail_json`도 id·수치만(정답·해설·LLM 산출 원문 0 — 불변 규칙 1).
+  - 대안 기각: ⓑ 단일 테이블 + 이벤트 JSON 배열 — 이벤트 추가가 행 재작성 · 타임라인 조회가 SQL로 자연스럽지 않음 · ⓒ 파일 사이드카(`import/runs/*.json`) — `capture.plan.md` §5 D-C6과 같은 근거(상태 전이 = 파일 재작성 · 목록·필터 SQL · 백업 자동 포함 R41 ③) · ⓓ `sources` 테이블 확장 — `sources`는 "파일 1행 → 문서" 의미라 URL·사이트·답지와 혼합됨.
+- **D-I3. run 보존 수명 = 영구 · 자동 삭제 0** (위임 확정 · 이견 시 변경)
+  - `import/auto/` **50건 상수(R18)** · preview TTL 1h · 잡 TTL 1h · 분할 20건 = **전부 무변**. run은 "포인터 + 요약"만 들고, 보존 JSON이 사라진 `review_ready` run은 상세 응답 `preview_available:false`로 알리고 카드는 [검토] 비활성 + "보존 만료" 1줄 + 생성 문서 바로가기(있으면)로 대체. **R18 입장("preview는 임시 상태 — 테이블화하지 않는다") 번복 아님** — preview 본문은 여전히 DB 밖.
+  - 백업 = `study.db` VACUUM INTO **자동 포함**(코드 0 · R41 ③ 전례). 목록 = §3 페이지네이션(`?page=&size=` · 기본 50 · `{items, total, page, size}`). 행 누적 완화 = [목록에서 지우기](소프트 · 불변 규칙 3) — 복원 UI는 실수요 확인 후(R41 ④ 관례 · 이 stage 0).
+  - 대안 기각: ⓑ "최근 N건 자동 정리(R18 50건 정합)" — 반입 이력은 사용자 자료의 **출처 기록**이라 자동 소멸이 부적절(불변 규칙 3·4 정신) · 디스크 비용은 행당 수백 바이트.
+- **D-I4. run 생성 = 기존 시작 API 내부(신규 "시작 API" 0) · 전이 = 서버 훅** (위임 확정)
+  - 생성 5곳(응답에 `run_id: int` **순수 가산**): `POST /api/convert`(파일 → `convert_file` · URL → `convert_url` · 둘 다 `queued`) · `POST /api/fetch/import`(`fetch` · `queued`) · `POST /api/import/split`(**`?run_id=` 쿼리 선택** — 있으면 그 run에 연결(`failed`+`too_large` run만 허용 · 그 외 409 `bad_transition`) · 없으면 소스 종류로 신설 · 상태 `splitting` · 이벤트 `split_started`) · `POST /api/import/preview`(사용자 JSON 업로드 → `json_upload` · 즉시 `review_ready` + `preview_id`) · `POST /api/imports/answer-key`(`answer_key` · `queued` · `answer_key_id`).
+  - 잡 레코드에 `_run_id`를 심는다(`start_convert_job`·`start_convert_job_from_url`·`start_fetch_job`·`start_answer_key_job`·`start_split_analyze_job` + `enqueue_split`의 조각 convert 잡 전부 — 인자 `run_id: Optional[int] = None` 순수 추가).
+  - 전이 훅(전부 **best-effort + 경고 로그** — 잡 결과·원 플로우 무영향 · 워커 스레드는 `SessionLocal()` 별도 세션(현행 관례 `:1037`)):
+    | 지점 | 이벤트 | 상태 |
+    |---|---|---|
+    | 워커가 잡을 집음(`_dequeued_at` 기록 지점) | `job_started` {job_id} | `queued → converting`(분할 조각 잡은 상태 무변 · 이벤트만) |
+    | `_process_job` done(convert·fetch) | `preview_ready` {preview_id, chunk_index?} | `converting → review_ready` · 분할 run은 `summary.previews[]` 누적 후 `splitting → review_ready`(첫 조각부터 — 카드가 "조각 k/N" 표시) |
+    | `_process_job` done(answer_key) | `preview_ready`(매칭 결과) | `converting → review_ready` |
+    | `_process_job` done(split_analyze) | `split_analyzed` {chunks} | 무변(`splitting`) |
+    | `_process_job` error | `job_failed` {error_kind, message} | `→ failed` · `error_kind = error_info.kind`(예 `too_large`) · `error_message = error_info.message`(사람 말 — 엔진 원문 0) |
+    | `cancel_job` 확정 | `job_cancelled` | `→ cancelled` |
+    | `enqueue_split` 성공 | `split_enqueued` {chunks N, job_ids} | `splitting` 유지 |
+    | `merge_previews` 성공 | `preview_merged` {preview_ids, merged_preview_id} | `run.preview_id = merged` · `review_ready` 유지 |
+    | `get_preview` 캐시 미스 복구 성공 | `preview_recovered` | 무변 |
+    | **`commit_import` 성공** | `committed` {preview_id, created, merged, skipped, errored, document_ids, category_ids} | **커밋 트랜잭션 안에서**(같은 `db` 세션 · `commit_import`의 기존 commit 1회에 포함 — 불변 규칙 2와 같은 "한 트랜잭션" 관례 · 커밋 실패 시 run 미갱신) `review_ready → committed` + `summary.commits[]`·`document_ids` 합집합 · `committed_at` · 분할 run은 조각 preview 커밋마다 이벤트 + `previews[].committed_at` · **전 조각(또는 병합 preview) 커밋 완료 시 `committed`** |
+    | `apply_answer_key` 성공 | `answer_key_applied` {applied, document_ids} | `review_ready → committed`(같은 트랜잭션) |
+    | 기동(`main.py` lifespan) | `expired` {reason: 'server_restart'} | `queued\|converting\|splitting\|committing → expired`(R48 — 잡 재발견 0 · 산출된 조각 preview·생성 문서는 카드에 그대로) |
+    | `POST …/dismiss` | `dismissed` | 상태 무변 · `is_active=0` |
+  - preview_id → run 역조회 = `import_runs.preview_id` 일치 **또는** `summary.previews[]` 포함(분할 조각 — 활성 run 중 `split_id IS NOT NULL`만 Python 측 스캔 · 소량). 역조회 실패(레거시 preview · 이관 전 큐) = 훅 조용히 생략.
+  - 잡 목록 `GET /api/llm/jobs` 항목에 `run_id?` 가산(`_job_list_item`에서 `job.get("_run_id")` 그대로 — **DB 조회 0 유지** · §4.24 ⓐ 순수 추가).
+  - 대안 기각: ⓑ 신규 `POST /api/import/runs`(클라이언트가 run을 먼저 만들고 잡을 붙임) — 왕복 2회 · 클라이언트가 run을 안 만들면 고아 잡 · 현행 시작 API 호출부 전수를 바꿔야 함.
+- **D-I5. 신규 조회·제어 API 4(§4.34 `[S56]` — `routers/import_runs.py` `prefix=/api/import/runs` · `main.py` 라우터 1줄)** (위임 확정)
+  - `GET /api/import/runs?status=&page=&size=` — 활성(`is_active=1`) run · `updated_at DESC` · 항목 = run 컬럼 + `last_event{type, message, at}` · **라이브 잡 진행은 싣지 않음**(클라이언트가 `job_id`로 jobs 전역 쿼리와 조인 — 쿼리 키 공유 · 중복 폴링 0).
+  - `GET /api/import/runs/{id}` — `{run, events[], documents:[{id, doc_no, title, is_active}], failure_cases:[{case_id, kind, count, last_seen_at}], preview_available: bool}` · `documents` = `summary.document_ids` 조회(비활성 포함 · 배지용) · `failure_cases` = 사례 파일 중 `run_id == id` ∪ (`kind=='user_report'` ∧ `document.id ∈ document_ids`)(D-I7) · `preview_available` = 캐시 또는 `import/auto/` 보존본 존재(복구 호출 0 — 존재 검사만).
+  - `POST /api/import/runs/{id}/dismiss` — `is_active=0` + 이벤트 · 진행 중(`queued|converting|splitting|committing`) = **409 `CONFLICT` `bad_transition`** · 없음·이미 비활성 = 404 · 응답 `{id, is_active:false}`.
+  - `POST /api/import/runs/adopt` — body `{entries: StoredQueueEntry[]}`(프론트 타입 그대로 · 서버는 느슨 검증 — 미지 필드 무시) · **`previewId` 있고 `committed` 아닌 항목만** `review_ready` run 생성(kind = `file→convert_file` · `url→convert_url` · `fetch→fetch` · `split→convert_file`(조각 — 개별 run · 병합 복원 0) · label = 서버 완성 "『{fileName}』 변환(이관)" 등 · `category_path` 승계 · 이벤트 `adopted` {legacy_id}) · 같은 `preview_id`의 run이 이미 있으면 skip(멱등) · 나머지(진행 중·실패·커밋 완료)는 **버림**(잡은 이미 소멸 · 커밋분은 문서로 남아 있음) · 응답 `{created, skipped}` · **1회성 — 다음 핵심 stage에서 퇴역 후보로 명기**(§4.34 말미). 에러 포맷·페이지네이션 = 설계 §3.
+  - 대안 기각: ⓑ 클라이언트가 레거시 큐를 그냥 버림 — 검토 대기 중인 변환 결과(LLM 비용 치른 것)를 잃음 · ⓒ 서버 재시도 API(`/retry`) — [다시 시도]는 **새 run**으로 충분(D-I6 · 옛 run은 이력).
+- **D-I6. 화면(§5.9 `[S56]`) = `/import` 첫 화면 = 반입 건 목록 + [새 반입]** (위임 확정 · 이견 시 변경)
+  - **카드 1장 = run 1건**: 상태 배지(토큰 색 · enum → 한국어는 프론트 매핑 허용 — §5.14 관례) · `label` · 소스 1줄 · 분류 경로 · 최근 이벤트 1줄(`last_event.message` 그대로) · 진행 중 `LlmJobProgress`(jobs 조인 · 잡 소멸 시 생략) · 실패 `error_message` 1줄.
+  - **액션(상태별)**: `review_ready` [검토](기존 미리보기 ② 진입 — `GET /api/import/preview/{preview_id}` · 복구 S13 그대로 · `preview_available:false`면 비활성 + "보존 만료") · 분할 run = 조각별 [검토]·[합쳐서 검토](현행 `merge`) · `failed`+`error_kind='too_large'` [분할 반입](위저드 · `?run_id=` 연결 · 파일 run = 재선택 · URL run = `source_url` 자동) · `failed|cancelled|expired` [다시 시도] = **새 run**(URL·사이트 = 저장된 payload 재제출 · 파일·JSON = [새 반입] 안내) · 진행 중 [취소](jobs cancel · 확인 문구 §5.14) · 진행 중 아닌 전 상태 [목록에서 지우기](dismiss · 확인 없음) · 전 상태 [자세히](타임라인 펼침 = `events[]` + 생성 문서 링크 + "실패 사례 n건 → 제안함 › 반입 개선").
+  - **[새 반입]**: 목록 상단 버튼 → stage-55 소스 세그먼트 4 + 시작 패널(규약 A~F 그대로)을 **접힘/펼침** — run 0건이면 기본 펼침 · 시작 성공(`run_id`) → 접힘 + 새 카드 맨 위 강조 · 답지 보조 진입(`?mode=answer_key`)·분할 딥링크 유지.
+  - **딥링크 `?run=<id>`**: 카드 스크롤 + 강조 · 첫 페이지에 없으면 단건 조회로 상단 고정. `jobRoutes.ts`: `item.run_id` 있으면 convert·fetch·split_analyze·answer_key → `/import?run=` · 없으면 현행(레거시 잡 호환 · `?mode=split_import&split_id=` 처리도 1 릴리스 유지).
+  - **레거시 이관(1회)**: `/import` 마운트 시 localStorage 2키 존재 → `adopt` → 성공 시 **키 제거** + 토스트 "이전 대기열 n건을 반입 건 목록으로 옮겼습니다"(실패 시 키 유지 · 다음 진입 재시도).
+  - **퇴역·대체**: `components/ImportQueue.tsx`·`hooks/useConvertQueue.ts`·`utils/convertQueue.ts`·`utils/convertJob.ts` → `api/importRuns.ts` + `hooks/useImportRuns.ts`로 대체 · **참조 0 실측 후 파일 삭제** · 대기열 요약(S55 F)은 run 목록 요약 1줄("검토 대기 n · 진행 중 m")로 대체.
+  - **구조 분해(파일 경계 권고 · 동작 무변)**: `pages/Import.tsx`(1,550줄) → `pages/import/ImportPage.tsx`(라우트·step·`?mode`·`?run`) + `RunList.tsx` + `RunCard.tsx` + `RunTimeline.tsx` + `NewImportPanel.tsx`(S55 세그먼트·`StartConvertPanel`·위저드 분기) + 기존 `PreviewStep`·`ResultStep` 분리(내용 무변). 분할 재진입 state 6~8개(`splitInitialSource`·`splitResumeId`·`splitAnchorEntryId`·`splitExpiredNotice`·`splitInitialCommonPath`·앵커 effect) → **run 1건의 `split_id`·`status`·`source_url`·`category_path`**로 대체(위저드 props `{runId, resumeSplitId, initialSource, commonPath}`).
+  - **무변**: 미리보기 ② `ItemRow`·승인 체크·분류 경로 · 결과 ③ · R7 승인 게이트 · 답지·분할 위저드 내부 · `EngineSelectCollapsible` · `?mode=` 값 · 하단 탭바 5 · 폰 390px 1열(액션 줄바꿈 허용).
+  - 대안 기각: ⓑ 현행 "시작 패널 상단 + 대기열 하단" 유지하고 대기열만 run으로 교체 — 첫 화면 높이 문제(FB-28 실측 58%) 재발 · "내 반입이 어디까지 갔나"가 첫 화면이 아님 · ⓒ 별도 라우트 `/import/runs` — 표면 2개로 갈라짐(FB-28 원문 역행).
+- **D-I7. FB-31 거취 = run 연결 + 감시 유지(제안함 탭 이동 0)** (위임 확정)
+  - 실패 사례 레코드(JSON 파일 · DDL 0)에 `run_id?` 가산 — 수집 훅 `convert_service.py:1373~1394`에서 `job.get("_run_id")`를 `collect_job_failure(..., run_id=)`로 전달(순수 추가). `user_report`는 **이미 `document.id`를 기록**(실측 `:381`) → run 연결은 상세 조회 시 `document.id ∈ summary.document_ids`로 계산(기록 추가 0).
+  - 카드 타임라인 "실패 사례 n건 → 제안함 › 반입 개선"(`/suggestions?tab=improve`) · 제안함 "반입 개선" 탭 위치·내용 무변.
+  - 77회 누적 = dedupe `(kind, document_id)` 키의 `count` 누적(`:192~199`·`:261`)으로 **정상 동작 추정** — 구현 중 `RegenerateJobPanel` 신고 경로 1회 실측으로 확정(B-8) · 결함이면 이 stage에서 수정(사소 동승) · 아니면 **감시 유지**(등록부 §2 잔류 · 비고 추기 · 종결 아님).
+- **D-I8. R7 미리보기 승인 게이트 불변** — 자동 커밋 0 · 커밋은 사용자가 미리보기 ②에서 승인한 뒤 ③로 가는 현행 흐름 그대로 · 채점·학습 루프(attempts·review_notes·srs) 무접촉 · quiz/session 응답 무변(불변 규칙 1).
+- **신규 리스크 R48**(마스터 §15 전문 행 등재 완료 · 등록부 §3 1행): `import_runs`·`import_run_events` 신설 + 잡 종료 훅 DB 쓰기 — ① 인메모리 잡 ↔ DB run 상태 드리프트(훅 best-effort + 경고 · 커밋만 한 트랜잭션 · 상태 정본 = run) ② 재시작 고착(기동 훅 1개 `expired` 정리 · 잡 재발견 0 명시) ③ R18 정합(번복 아님 — preview 비테이블화 유지).
+
+## 3. 체크리스트
+
+**B. 백엔드 (`backend/`)**
+- [ ] B-1 `models.py` `ImportRun`·`ImportRunEvent`(`Note` 뒤 · §6.2 DDL 그대로 · `onupdate` updated_at) + Alembic `alembic/versions/<rev>_s56_import_runs.py`(`down_revision` = 현행 head 실측 · upgrade = 2 테이블 + 인덱스 3 · downgrade = DROP 2) · 빈 DB `alembic upgrade head` + 기존 DB **사본**에 upgrade → downgrade → upgrade 왕복 확인(실 `study.db` 무접촉).
+- [ ] B-2 `services/import_run_service.py` 신설 — `create_run(db, *, kind, label, source_name, source_url, category_path, status, **ids) -> ImportRun` · `record_event(db, run_id, type, message, detail=None)` · `set_status(db, run_id, status, **fields)` · `find_by_job_id(db, job_id)` · `find_by_preview_id(db, preview_id)`(컬럼 일치 ∪ 분할 run `summary.previews[]`) · `attach_preview(db, run_id, preview_id, chunk_index=None)` · `mark_committed(db, preview_id, result: CommitResult)`(**같은 세션 · flush만 — commit은 호출자**) · `expire_stale_runs(db)` · `list_runs(db, status, page, size)` · `get_detail(db, run_id)`(documents·failure_cases·preview_available) · `adopt_legacy(db, entries) -> {created, skipped}` · 라벨 합성은 각 시작 지점의 기존 `_label` 문구 재사용(§4.10 관례 · 프론트 조립 0). 응답 직렬화에 정답·해설·LLM 원문 필드 **부재**(불변 규칙 1).
+- [ ] B-3 시작 엔드포인트 5곳 run 생성 + 응답 `run_id` 가산 — `routers/convert.py` `start_convert`(파일/URL 분기 → kind) · `routers/fetch.py` `start_import` · `routers/split.py` `start_split`(`run_id: Optional[int] = Query(None)` · 연결 허용 조건 `failed`+`too_large` 외 409) · `routers/imports.py` `preview`(json_upload · `review_ready`) · `upload_answer_key`(answer_key) · 스키마 6곳(`ConvertJobStart`·`FetchJobStart`·`SplitStartResult`·`PreviewResponse`·`AnswerKeyUploadResult` `run_id: Optional[int] = None` + `JobListItem.run_id`) · `start_*_job`·`enqueue_split` `run_id` 인자 → `job["_run_id"]`.
+- [ ] B-4 전이 훅(D-I4 표 전수 · 전부 try/except + `_LOGGER.warning` · 잡 결과 무영향): 워커 dequeue → `job_started` · `_process_job` done/error → `preview_ready`/`split_analyzed`/`job_failed` · `cancel_job` → `job_cancelled` · `enqueue_split` → `split_enqueued` · `merge_previews` → `preview_merged`(+`run.preview_id`) · `get_preview` 복구 → `preview_recovered` · **`commit_import` → `mark_committed` 같은 트랜잭션**(기존 commit 1회 · 분할 전 조각 완료 판정) · `apply_answer_key` → `answer_key_applied`(같은 트랜잭션). 역조회 실패 = 조용히 생략.
+- [ ] B-5 `routers/import_runs.py`(`prefix=/api/import/runs` · `main.py` include 1줄) — `GET ""`(§3 페이지네이션 · `status?` 필터) · `GET /{id}` · `POST /{id}/dismiss`(409 `bad_transition` · 404) · `POST /adopt`(멱등 skip) · `schemas/import_runs.py`(응답 모델 · `summary`는 구조화 필드로 노출 — raw JSON 문자열 노출 0).
+- [ ] B-6 `convert_service._job_list_item` `run_id` 가산(`job.get("_run_id")` · DB 0) · `schemas/llm.py JobListItem.run_id: Optional[int]`.
+- [ ] B-7 `main.py _lifespan` 기동 시 `import_run_service.expire_stale_runs()`(`queued|converting|splitting|committing` → `expired` + 이벤트 · 자동 백업 훅과 같은 best-effort 패턴 · 실패가 기동을 막지 않음).
+- [ ] B-8 FB-31 — `improve_service.collect_job_failure(..., run_id: Optional[int] = None)` → 레코드 `run_id` 필드(기존 파일 = 필드 부재 허용) · `_record_case` 시그니처 순수 추가 · `get_detail` `failure_cases` 계산(사례 목록 읽기 함수 재사용 · 파일 쓰기 0) · **신고 경로 1회 실측**(`RegenerateJobPanel` 신고 → 같은 문서 재신고 시 `count+1`인지 · 다른 문서면 새 사례인지) → 결과를 §7과 별지 FB-31 행에 1줄 기록(결함이면 수정 동승).
+- [ ] B-9 `tests/test_import_runs.py` — ① 시작 5경로 run 생성·`run_id` 응답(잡 실행은 모킹) ② 전이 표 단언(`job_started`·`preview_ready`·`job_failed(error_kind)`·`job_cancelled`) ③ 분할 run 조각 누적 → 전 조각 커밋 시 `committed` ④ **커밋 한 트랜잭션**(commit 도중 예외 주입 → run 상태·events 미갱신 단언) ⑤ dismiss 진행 중 409 · 완료 run 200 · 재dismiss 404 ⑥ adopt(previewId 있음·미커밋만 생성 · 중복 skip · 응답 counts) ⑦ `expire_stale_runs` 대상·비대상 ⑧ 목록 페이지네이션·비활성 제외 ⑨ 응답 JSON에 `answer`·`explanation` 키 부재(불변 규칙 1) · `run-tests.ps1 -Full` 회귀(`sm2.py` 무접촉).
+
+**F. 프론트 (`frontend/src/`)**
+- [ ] F-1 `api/importRuns.ts`(`listRuns`·`getRun`·`dismissRun`·`adoptLegacy` · 쿼리 키 `['import','runs',…]`) + `api/types.ts`(`ImportRun`·`ImportRunEvent`·`ImportRunDetail`·`ImportRunStatus` enum · `LlmJobItem.run_id?` · 시작 응답 타입 `run_id?`) + `hooks/useImportRuns.ts`(목록 폴링 — 진행 중 run 있을 때만 짧은 간격 · jobs 전역 쿼리와 `job_id` 조인 · `?run=` 단건 보강).
+- [ ] F-2 `pages/import/RunList.tsx`·`RunCard.tsx`·`RunTimeline.tsx`(D-I6 카드·액션·타임라인 · 상태 배지 토큰만 · 서버 문구 그대로 · 실패 사례 링크 · 생성 문서 링크 · 분할 조각 k/N).
+- [ ] F-3 `pages/import/NewImportPanel.tsx` — stage-55 세그먼트·`StartConvertPanel`·`FetchImportWizard`·`AnswerKeyImportWizard` 분기 이식(내용 무변) · 접힘/펼침(run 0건 기본 펼침) · 시작 성공 → 접힘 + 카드 강조 · 답지 보조 진입·`?mode=` 처리 유지.
+- [ ] F-4 `utils/jobRoutes.ts` — `run_id` 분기(convert·fetch·split_analyze·answer_key → `/import?run=`) · 없으면 현행 · `JobCenterPanel` 무변.
+- [ ] F-5 레거시 이관 — `pages/import/ImportPage.tsx` 마운트 1회: localStorage `study-hub:convert-queue`·`study-hub:convert-job` 읽기(구 형식 파서는 `convertQueue.ts`의 `readQueue` 로직을 이관 모듈 `utils/legacyQueueAdopt.ts`로 **최소 복사** 후 원본 삭제) → `adoptLegacy` → 성공 시 두 키 제거 + 토스트 · 실패 시 유지.
+- [ ] F-6 퇴역 — `components/ImportQueue.tsx`·`hooks/useConvertQueue.ts`·`utils/convertQueue.ts`·`utils/convertJob.ts` 삭제 · 주석 참조 5파일(`api/llm.ts:47`·`api/import.ts:40`·`api/split.ts:15,17,66`·`components/JobCenterPanel.tsx:15`·`components/SplitImportWizard.tsx:25`) 문구 갱신 · `grep -r "convertQueue\|useConvertQueue\|ImportQueue\|convertJob'" src` = **0** 실측.
+- [ ] F-7 `pages/Import.tsx` → `pages/import/ImportPage.tsx` + `PreviewStep.tsx`·`ResultStep.tsx` 분리(내용 무변 · `App.tsx` 라우트 import 경로 1줄) · 분할 재진입 state → run 기반 props(`SplitImportWizard` props 순수 추가 `runId?` · `onSplitStarted` 응답 `run_id` 반영) · `?mode=split_import&split_id=` 레거시 처리 유지(1 릴리스).
+- [ ] F-8 폰 390px 1열 · 액션 줄바꿈 허용 · 색·간격 = 토큰·기존 유틸만(불변 규칙 5 · `tokens.css` 무변 · 새 색 리터럴 0) · 엔트리 청크 Δ 기록(R37 — 기준선 1,524,813 B · Import 라우트 청크 분리 유지 · `jobRoutes`·`types` = 앱 셸).
+
+**V. 검증 (서버 구동 금지 — `2_StartServer.bat` 주인은 사용자 · 자체 검증은 임시 포트(8000 금지) 짧게 + 종료·리스너 부재 확인 · 실 `study.db`·`sources/` 무접촉 — 빈 DB 사본)**
+- [ ] V-1 `npm run build` 성공 · `invariant-scan.ps1` PASS(신규 위반 0 · 기준선 갱신 0 — DB 쓰기 훅은 규칙 대상 아님을 결과로 확인 · FAIL이면 보고) · `run-tests.ps1 -Full` 전건 통과(`test_import_runs.py` 포함) · Alembic 왕복(B-1).
+- [ ] V-2 브라우저 실측(임시 서버 · 빈 DB · 데스크톱 + 390px 에뮬 · 콘솔 `pattern` 필터): ⓐ `/import` 첫 진입(run 0) = 빈 목록 문구 + [새 반입] **펼침** ⓑ 파일 변환 시작 → 응답 `run_id` → 패널 접힘 + 카드 `queued/converting` + `LlmJobProgress`(jobs 조인) → 완료 시 `review_ready` + 최근 이벤트 1줄 ⓒ [검토] → 기존 미리보기 ② → 커밋 → 카드 `committed` + [자세히] 타임라인(`created → job_started → preview_ready → committed`) + 생성 문서 링크 ⓓ 실패 유도(비지원 포맷) → `failed` + `error_message` + [다시 시도]/[목록에서 지우기] · too_large(상한 초과 텍스트) → [분할 반입] → 위저드 `?run_id=` 연결 → 조각 k/N → [합쳐서 검토] → 커밋 → `committed` ⓔ 사용자 JSON 업로드 → `json_upload` run 즉시 `review_ready` ⓕ **레거시 이관** — localStorage에 `StoredQueueEntry` 2건(previewId 있음/없음) 심고 재진입 → `adopt` → 카드 1장 + 토스트 + 키 제거 ⓖ 작업 센터 [화면으로 이동] → `/import?run=` 카드 강조·스크롤 · 레거시 잡(run_id 없음) 현행 라우트 ⓗ dismiss → 목록 제거 · 진행 중 dismiss = 409 메시지 ⓘ **서버 재시작**(임시 서버 재기동) → `converting` run `expired` + 이벤트 · 산출 조각 preview 카드 유지 ⓙ 390px 1열 · 카드 액션 줄바꿈 · 콘솔 오류 0.
+
+**D. 문서**
+- [ ] D-1 매뉴얼 `docs/manual/user-manual.html` — §5 자료 넣기(반입 건 목록·카드 액션·[새 반입]·타임라인) · §18 폰에서 쓰기(같은 목록) · §20 FAQ("이전 대기열이 어디 갔나" = 이관 · "만료" 의미) · §22 LLM 작업 센터([화면으로 이동] → 카드) · §23 대용량 분할 반입(run 카드에서 [분할 반입]).
+- [ ] D-2 설계 — api §4.34·§4.24·§4.3 `[S56]`과 screens §5.9·§5.14 "편성 추기" → "구현 실측 확정" 표기(편차 1구씩) · 색인 상태 줄 **v1.73**(밀리는 판은 `docs/04-archive/design-changelog.md` 맨 위로 이동만) · 마스터 §6.2 DDL이 구현과 다르면 §6.2 정정 + R48 추기.
+- [ ] D-3 `docs/03-release/CHANGELOG.md` 항목(§6 ①) · `stage-index.md` 56행 · 이 문서 §7 완료 기록 · 체크박스 `[x]`.
+- [ ] D-4 `backlog.md` — FB-28 §1 → §4 종결 이동 · FB-31 비고 추기(감시 유지 또는 결함 수정 종결) · R48 §3 상태 "감시(구현 완료)" · 기준일 줄 · `scripts/backlog-scan.ps1` PASS.
+- [ ] D-5 출처 추기 — 별지 §13 FB-28 `← 완료(stage-56 · 2단계 · 날짜 · …)` · FB-31 `← stage-56 실측(…)` · 마스터 §14 M40 ✅ · §5 F63 "구현 완료" 1구 · §15 R48 실측 추기 · `CLAUDE.md` 머리 버전 줄·`VERSION`(발행 시).
+
+## 4. 이 단계에서 하지 않는 것 (불변 규칙 9 — 이 절이 우선)
+
+- **미리보기 ②·커밋 ③ UI 내부 diff 0** — `ItemRow`·승인 체크·분류 경로 지정·변환 신뢰 배지·반입 성공/실패 판정 로직 무변 · **R7 승인 게이트 불변 · 자동 커밋 0**. 커밋 요청 스키마(`CommitRequest`) 무변(run 연결은 서버 역조회).
+- **잡 큐 의미 변경 0** — 동시 1개 · `JOB_TTL` 1h · 인메모리 잡 레코드(§4.24 ① "이력 테이블 없음"은 잡에 한해 유지) · 잡 재발견·재큐잉 0 · 취소·일시정지 계약 무변.
+- **`import/auto/` 50건 상수(R18)·`PREVIEW_TTL`·`_COMMITTED_MAX`·분할 `KEEP_MAX`·`STATE_TTL` 변경 0** — preview 본문 테이블화 0(R18 입장 유지). run 자동 삭제·보존 기간 트리거 0.
+- **답지 run ↔ 원 반입 run 링크 0**(D-I1) · 분류 제안(§4.9) run 연결 0(별지 514행 "분류 제안(§4.9)" 언급분은 **이월** — `suggestions` 테이블 무접촉 · 실수요 시 등재).
+- **서버 재시도 엔드포인트 0**([다시 시도] = 새 run) · run 복원(`is_active` 되돌리기) UI·API 0(R41 ④ 관례) · 목록 검색·기간 필터 0(`status` 필터만).
+- **다중 기기 실시간 동기화 0** — 폴링만(WebSocket·SSE 0) · PWA 오프라인 큐 0.
+- **제안함 "반입 개선" 탭 이동·개편 0**(FB-31 — 링크만) · 실패 사례 저장 방식(JSON 파일) 변경 0 · DDL 0.
+- **FB-30 플래시카드·복습 3표면 0** · 하단 탭바 5 무변 · 사이드바·드로어 구성 무변 · 홈 위젯 "최근 반입" 신설 0(실수요 시 등재).
+- **stage-54 캡처 무접촉** — `capture.plan.md`·`stage-54-*`·api §4.33·screens §5.18 diff 0 · 캡처 항목을 run에 넣지 않는다.
+- **`EngineSelect`·`EngineSelectCollapsible`·하위 위저드 3개 내부 로직 diff 0**(`SplitImportWizard`는 props 순수 추가만) · `?mode=` 값 추가·변경 0 · 새 라우트 0.
+- **신규 의존 0**(D10 · R40) · 색 리터럴 0 · `tokens.css` 무변.
+
+## 5. DoD (완료 정의)
+
+**자동 검증(에이전트 수행):**
+1. Alembic 왕복(빈 DB + 기존 DB 사본) 성공 · `run-tests.ps1 -Full` 전건 통과(`test_import_runs.py` ①~⑨ 포함) · `npm run build` 성공 · `invariant-scan.ps1` PASS(기준선 갱신 0).
+2. 응답 봉인 — run 목록·상세·adopt·시작 API 응답 JSON에 `answer`·`explanation`·LLM 산출 원문 키 **부재**(테스트 ⑨ + 코드 검토) · 에러 포맷·페이지네이션 §3 준수.
+3. 퇴역 실측 — `frontend/src`에서 `convertQueue`·`useConvertQueue`·`ImportQueue`·`convertJob` 참조 **0** · localStorage 반입 키 쓰기 코드 0(이관 모듈의 읽기·제거만) · `Import.tsx` 단일 파일 1,550줄 → 분해(파일당 상한은 재량 · 동작 무변).
+4. 브라우저 V-2 ⓐ~ⓙ 전건 통과(임시 서버·빈 DB · 종료 확인) · 엔트리 청크 Δ 기록(R37).
+5. 문서 묶음 D-1~D-5(매뉴얼 · Design v1.73 · CHANGELOG · stage-index · backlog · 별지 · 마스터 M40/F63/R48 추기).
+
+**사용자 확인(게이트 본체):**
+6. **실사용** — ⓐ 실제 기출 1건을 [새 반입]으로 넣어 카드가 `변환 중 → 검토 대기 → 반입 완료`로 바뀌고 타임라인·생성 문서 링크가 맞음 ⓑ 기존(이관 전) 대기열이 있었다면 이관 토스트 + 카드로 복원되어 [검토]가 이어짐 ⓒ 작업 센터 [화면으로 이동]이 그 카드로 감 ⓓ **폰 실기기** — PC에서 시작한 반입 건이 폰 `/import`에 **같은 목록**으로 보임(FB-28 ⓑ 기기 종속 해소) · 1열 · 치명 0 ⓔ 서버 재시작 후 진행 중이던 건이 "만료"로 보이고 이미 변환된 것은 검토 가능 · **치명 결함 0 회신** = 발행 게이트. 이견 시 D-I1~D-I8 해당 규약만 교체.
+
+**게이트**: 1~5 전건 + 6 치명 0 → 발행(§6 ①). **착수 게이트**: 없음(사용자 확정 대기 0 — 위임 확정).
+
+## 6. 완료 시 절차 (CHANGELOG 머리 규약 ⑤)
+
+1. `docs/03-release/CHANGELOG.md` — **핵심 → MM+1 항목 1개**. **번호·합류 판정**: ⓐ stage-54(핵심 · v2.04.1 예정)가 이 stage보다 **먼저 완료·발행**돼 있으면 이 stage = **v2.05.1** · 아니면 **v2.04.1**(규약 ② 선점 없음 — stage-54 문서의 "v2.04.1 예정"은 그 시점의 다음 가용 MM으로 읽는다) ⓑ **stage-55(사소 · v2.03.2)가 미발행인 채로 이 stage가 완료되면 stage-53 §6 ① ⓑ 전례대로 한 발행 단위로 합류**(`VERSION`은 핵심 번호 1회 · tag 1개 · CHANGELOG의 v2.03.2 항목은 "합류 — 단독 발행 생략" 표기) · stage-55가 이미 발행됐으면 단독. 불릿 = 반입 건 영속(DDL 2) · 시작 API `run_id` · 전이 훅(커밋 한 트랜잭션) · API 4 · `/import` 반입 건 목록 카드 + [새 반입] · 작업 센터 `?run=` · 레거시 큐 1회 이관 후 퇴역 · FB-31 run 연결 · 기동 `expired` 정리(R48).
+2. 루트 `VERSION` — 사용자 회신(DoD 6) 후 · git tag(release PR 별도 — stage-47 전례) · `CLAUDE.md` 머리 버전 줄 1곳.
+3. `stage-index.md` 56행 갱신(완료·일자·산출 버전 · 합류 여부).
+4. `backlog.md` — **FB-28** 행 §1 → §4 종결(`종결(stage-56 · 날짜)` · 1·2단계 전부) · **FB-31** = 결함 아니면 §2 잔류 + 비고 `← stage-56 run 연결 완료 · 감시 유지` / 결함 수정 시 §4 종결 · **R48** §3 상태 갱신 · 기준일 줄 · `backlog-scan.ps1` PASS.
+5. 출처 추기 — 별지 §13 FB-28 `← 완료(stage-56 · 2단계 · 날짜 · …)` · FB-31 `← stage-56 실측(…)` · 마스터 §14 **M40 ✅** + §5 F63 1구 + §15 R48 실측 추기(기동 정리 실측 · 드리프트 관찰 0 여부).
+6. 설계 — api §4.34·§4.24·§4.3 · screens §5.9·§5.14 확정 표기 · 색인 상태 줄 v1.73(밀리는 판 archive 이동만) · §6.2 DDL ↔ 구현 대조.
+7. 매뉴얼(D-1) · 다음 핵심 stage 편성 시 `POST /api/import/runs/adopt` **퇴역 후보**를 backlog에 1행 등재(이 절차의 의무 — "1회성" 봉인).
+
+## 7. 완료 기록 (구현·검증·문서 경위 정본 — 착수 후 추기)
+
+- **편성**(2026-11-08): 지시서 확정 — FB-28 2단계(`import_runs`·`import_run_events`) + FB-31 동승 · 버전 영향 **핵심**(v2.04.1 예정 — stage-54와 완료 순서) · 착수 전 결정 D-I1~D-I8 **사용자 위임 확정**("알아서 진행" · 이견 시 변경 · 권고안 대비 조정 4 = status `dismissed` 제외·이벤트 `job_progress_milestone` 기각(+`job_cancelled`·`split_analyzed`·`adopted`)·인덱스 `ix_import_runs_preview` 추가·[다시 시도] = 새 run) · **사용자 확정 대기 0** · 마스터 §6.2 DDL 2 등재 + §5 F63 + §14 M40 + §15 R48(Draft v0.63) · api §4.34 신설 + §4.24·§4.3 `[S56]` · screens §5.9 `[S56]` 블록 + §5.14 2구 + §5 도입부 1구(Design v1.72) · stage-index 56행 · backlog FB-28 편성·FB-31 동승·R48 §3·기준일 · 별지 §13 FB-28·FB-31 편성 추기.

@@ -56,6 +56,8 @@
 
 ### 4.3 반입 Import (S2 · S6 — convert 연결 · **S13 — F40-① 변환 결과 보존·복구**)
 
+> **[S56] 포인터(편성 2026-11-08 · Design v1.72 · 착수 전)**: 이 절의 시작 API(`POST /api/import/preview` — 사용자 JSON 업로드)와 §4.10 `POST /api/convert` · §4.13 `POST /api/fetch/import` · §4.25 `POST /api/import/split` · §4.20 `POST /api/imports/answer-key` 응답에 **`run_id`(int)가 순수 가산**되고, `commit`·`preview/merge`·preview 복구는 **서버 내부 훅**이 반입 건(run) 상태를 전이시킨다(클라이언트 요청 계약 무변 · `commit`은 같은 트랜잭션). 반입 건 계약 전체 = **§4.34**. 이 절의 preview TTL·`import/auto/` 보존(R18)·복구 규칙은 무변.
+
 | 메서드/경로 | 설명 | 단계 |
 |---|---|---|
 | `POST /api/import/preview` | multipart로 JSON 파일 업로드 → 서버가 파싱·검증 후 미리보기 리포트. 원본 파일(`source_file`)을 같이 올리면 sources/에 보관 | S2 |
@@ -1041,6 +1043,8 @@ backend/services/fetchers/
 
 > **[S54] 추기(편성 2026-09-27 · Design v1.69 — 후보안 · 사용자 확정 대기)**: 캡처 정제 잡 kind **`capture_refine`**(§4.33)이 같은 큐·레코드에 합류한다(kind 9 → **10**종 · 순수 추가). `ref = { capture_id }` · `label` = 서버 완성("캡처 정제 — 사진 09-27 14:03") · ⓒ 요청 단위 `model?` 적용 지점 8 → **9곳**(`POST /api/capture/{id}/refine`) · 취소·일시정지·목록 계약 무변 · 프론트 `jobRoutes.ts` → `/capture/{capture_id}`. 정본 = `stage-54-capture-slice-1.plan.md` §2 G.
 
+> **[S56] 추기(편성 2026-11-08 · Design v1.72 · 착수 전)**: 잡 목록 항목에 **`run_id?: int | null` 순수 가산** — 반입 계열 잡(convert·fetch·split_analyze·answer_key)이 반입 건(§4.34)에 속하면 시작 시 잡 레코드에 심은 `_run_id`를 그대로 옮긴다(**DB 조회 0 유지** — ① "인메모리 파생·DB 쓰기 0" 불변 · 다른 kind·레거시 잡 = null). `ref` 표(ⓓ) 무변. 프론트 `jobRoutes.ts`: `run_id`가 있으면 위 4 kind 전부 → **`/import?run=<run_id>`**(카드 강조) · 없으면 현행 라우트(레거시 잡 호환). 잡 목록은 여전히 TTL 1h·재시작 소실 — **영속 이력은 run(§4.34)이 맡는다**(이 절 ①의 "이력 테이블 없음" 입장은 잡 레코드에 한해 유지). 정본 = `stage-56-import-runs.plan.md` §2 D-I4·D-I6.
+
 **착수 전 결정 ①~⑥ 확정 (2026-08-03)**
 
 - **① 전역 잡 목록 = 신규 `GET /api/llm/jobs` 1개 확정** — 인메모리 잡 레코드에서 **파생**(별도 저장·이력 테이블 없음). 항목 `label`은 **서버가 완성한 한국어 문구**(예: "『2023_2회_기출.pdf』 변환" — §4.10 `notes` 관례: 프론트 포맷 분기 금지), `ref`는 kind별 참조 id(아래 ⓓ 표 — 화면 이동·복원의 키). 종료(done·error·cancelled) 잡은 **기존 잡 TTL(1시간) 내 레코드만** 노출 — 신규 보존 없음, **서버 재시작 시 목록 전체 소실을 수용**(정직 명시 — 변환 결과 자체는 F40-① 디스크 보존이 방어, §4.3).
@@ -1720,5 +1724,80 @@ backend/services/fetchers/
 **구현 앵커(2026-09-27 — 파일 수준 · 행 번호는 구현 시 실측)**: 백엔드 `routers/capture.py`·`services/capture_service.py`·`schemas/capture.py`(신규) · `models.py` `CaptureItem` · `alembic/versions/<rev>_s54_capture_items.py` · `services/convert_service.py`(kind `capture_refine` · `_job_ref` · `model?` 9곳째) · `services/import_service.py`(`_save_source_file` 폴더 인자 공용화) · `prompts/capture_refine.md` · `main.py` 라우터 1줄 · `tests/test_capture.py`. 프론트 = screens §5.18.
 
 **말미 확인**: **DDL 1(확정 후 §6.2 + Alembic) · 신규 엔드포인트 8 · 잡 kind +1 · 신규 의존 0(권고안) · 파일 조작 = 쓰기 1곳(move/remove 0) · 응답 정답·해설 0 · 자동 삽입 0.**
+
+### 4.34 반입 건(import runs) — 영속·타임라인·레거시 이관 (S56 — F63 · M40. **편성 추기 2026-11-08 · Design v1.72 — 착수 전 · 사용자 확정 대기 0(위임 확정 D-I1~D-I8 · 이견 시 변경) · 지시서 `stage-56-import-runs.plan.md` §2 정본**)
+
+> 원칙: **잡 큐(§4.10·§4.11·§4.24 — 인메모리 · TTL 1h · 동시 1개)·미리보기(§4.3 — TTL 1h + `import/auto/` 50건 R18)·분할(§4.25 — TTL 1h + 20건)은 무변** — 이 절은 그 위에 "반입 1건"의 **영속 실체(run)** 를 얹는다. run은 포인터(`job_id`·`preview_id`·`split_id`·`answer_key_id`)와 요약(`summary`)만 들고 **preview 본문은 테이블화하지 않는다**(R18 입장 유지 — 번복 아님). 응답은 id·수치·서버 완성 문구만(정답·해설·LLM 산출 원문 0 — 불변 규칙 1) · 에러·페이지네이션 §3 · 문구는 서버 값 그대로 렌더(§4.10 `notes` 관례) · 출처 = 별지 §13 FB-28 2단계 + FB-31 · 리스크 R48.
+
+**① 저장(마스터 §6.2 정본 — DDL 2 · Alembic 1 `…_s56_import_runs.py` · R48)**: `import_runs`(`kind`·`label`·`source_name`·`source_url`·`category_path`·`status`·`job_id`·`preview_id`·`split_id`·`answer_key_id`·`error_kind`·`error_message`·`summary_json`·`is_active`·`created_at`·`updated_at`·`committed_at`) + `import_run_events`(`run_id`·`at`·`type`·`message`·`detail_json`). `kind` = `convert_file | convert_url | fetch | json_upload | answer_key` · `status` = `queued | converting | splitting | review_ready | committing | committed | failed | cancelled | expired` · [목록에서 지우기] = `is_active=0`(상태 무변 · 소프트 — 불변 규칙 3). **분할은 같은 run의 단계**(조각 preview id는 `summary.previews[]` 누적 · 자식 run 0) · **답지는 별도 run**(원 반입 run과 링크 0). `summary_json`은 서버가 쓰고 서버가 읽는 JSON(§4.28 "블록 JSON 서버 불해석"과 무관 — 그 원칙은 클라이언트 소유 블록 스키마 이중화 금지가 취지).
+
+**② 기존 시작 API 응답 `run_id` 순수 가산(신규 "시작 API" 0)**
+
+| 시작 엔드포인트 | run `kind` | 초기 `status` | 비고 |
+|---|---|---|---|
+| `POST /api/convert`(§4.10 — 파일 / URL) | `convert_file` / `convert_url` | `queued` | 잡 레코드 `_run_id` · `label` = 기존 잡 `_label` 재사용 |
+| `POST /api/fetch/import`(§4.13) | `fetch` | `queued` | `source_name` = 회차 라벨 |
+| `POST /api/import/split?run_id=`(§4.25) | 연결 또는 신설(소스 종류) | `splitting` | `run_id`가 있으면 그 run에 연결(**`failed`+`error_kind='too_large'`만 허용** · 그 외 409 `bad_transition`) · `enqueue`의 조각 convert 잡 전부 `_run_id` |
+| `POST /api/import/preview`(§4.3 — 사용자 변환 JSON) | `json_upload` | `review_ready` | `preview_id` 즉시 · 보존본 없음(§4.3 S13 규칙 그대로) |
+| `POST /api/imports/answer-key`(§4.20) | `answer_key` | `queued` | `answer_key_id` · `category_path` = 범위 분류 |
+
+`GET /api/llm/jobs` 항목 `run_id?`(§4.24 `[S56]`). `import/commit` · `preview/merge` · preview 복구 · `answer-key/{id}/apply` · 잡 종료·취소는 **서버 내부 훅**이 run을 전이시킨다(요청 계약 무변). preview_id → run 역조회 = `import_runs.preview_id` 일치 ∪ 분할 run의 `summary.previews[]` 포함(역조회 실패 = 레거시 preview — 훅 조용히 생략).
+
+**③ 상태 전이 표(이벤트 `type` · 훅은 전부 best-effort + 경고 로그 · 잡 결과 무영향 · **커밋·답지 적용만 같은 트랜잭션**)**
+
+| 지점 | 이벤트(`detail` 요지) | 전이 |
+|---|---|---|
+| 시작 API ② | `created` | → 초기 상태 |
+| 워커 dequeue | `job_started {job_id}` | `queued → converting`(분할 조각 잡 = 이벤트만) |
+| convert·fetch 잡 done | `preview_ready {preview_id, chunk_index?}` | `converting → review_ready` · 분할 run `splitting → review_ready`(첫 조각부터 · `summary.previews[]` 누적 — 카드 "조각 k/N") |
+| answer_key 잡 done | `preview_ready` | `converting → review_ready`(매칭 결과 검토) |
+| split_analyze 잡 done | `split_analyzed {chunks}` | 무변(`splitting`) |
+| 잡 error | `job_failed {error_kind, message}` | `→ failed`(`error_kind` = `error_info.kind` 예 `too_large` · `error_message` = `error_info.message` — 엔진 원문 0) |
+| 취소 확정(§4.24 ②) | `job_cancelled` | `→ cancelled` |
+| `split/{id}/enqueue` | `split_enqueued {chunks, job_ids}` | `splitting` 유지 |
+| `preview/merge` | `preview_merged {preview_ids, merged_preview_id}` | `run.preview_id = merged` · `review_ready` 유지 |
+| `GET preview/{id}` 캐시 미스 복구 | `preview_recovered` | 무변 |
+| **`import/commit`** | `committed {preview_id, created, merged, skipped, errored, document_ids, category_ids}` | **커밋 트랜잭션 안**(같은 세션 · 기존 commit 1회 · 실패 시 run 미갱신 — 불변 규칙 2 관례) · `review_ready → committed` + `committed_at` + `summary.commits[]`·`document_ids` 합집합 · 분할 run = 조각 커밋마다 이벤트 · **전 조각(또는 병합 preview) 커밋 완료 시 `committed`** |
+| `answer-key/{id}/apply` | `answer_key_applied {applied, document_ids}` | `review_ready → committed`(같은 트랜잭션) |
+| 서버 기동(`main.py` lifespan) | `expired {reason:'server_restart'}` | `queued\|converting\|splitting\|committing → expired`(**잡 재발견 0** · 이미 산출된 조각 preview·생성 문서 바로가기는 카드에 유지 — R48) |
+| `runs/{id}/dismiss` | `dismissed` | 상태 무변 · `is_active=0` |
+| `runs/adopt` | `adopted {legacy_id}` | 신설 `review_ready` |
+
+**④ 신규 엔드포인트 4(`routers/import_runs.py` · `prefix=/api/import/runs` · `main.py` include 1줄 · LLM 0)**
+
+| 메서드/경로 | 설명 |
+|---|---|
+| `GET /api/import/runs?status=&page=&size=` | 활성(`is_active=1`) run 목록 · `updated_at DESC` · §3 페이지네이션(`{items, total, page, size}` · 기본 50) · `status?` 필터 · 항목 = run 컬럼 + `summary`(구조화) + `last_event{type, message, at}` · **라이브 잡 진행은 싣지 않음**(클라이언트가 `job_id`로 `GET /api/llm/jobs` 전역 쿼리와 조인 — 쿼리 키 공유 · 중복 폴링 0) |
+| `GET /api/import/runs/{id}` | `{run, events[], documents[{id, doc_no, title, is_active}], failure_cases[{case_id, kind, count, last_seen_at}], preview_available}` · `documents` = `summary.document_ids` 조회(비활성 포함 — "휴지통" 배지용) · `failure_cases` = §4.22 사례 중 `run_id == id` ∪ (`kind=='user_report'` ∧ `document.id ∈ summary.document_ids`)(FB-31 연결) · `preview_available` = 캐시 또는 `import/auto/` 보존본 **존재 검사만**(복구 호출 0) · 비활성 run도 조회 가능 |
+| `POST /api/import/runs/{id}/dismiss` | 소프트 제거 `is_active=0` + 이벤트 `dismissed` · 진행 중(`queued\|converting\|splitting\|committing`) = **409 `CONFLICT` `bad_transition`** · 없음·이미 비활성 = 404 · 응답 `{id, is_active:false}` · 복원 API 0(R41 ④ 관례 — 실수요 시) |
+| `POST /api/import/runs/adopt` | **레거시 localStorage 큐 1회 이관** — body `{entries:[StoredQueueEntry…]}`(프론트 타입 그대로 · 느슨 검증 · 미지 필드 무시) · **`previewId` 있고 `committed` 아닌 항목만** `review_ready` run 생성(kind 매핑 `file→convert_file` · `url→convert_url` · `fetch→fetch` · `split→convert_file`(조각 개별 · 병합 복원 0) · `label` 서버 완성 "『{fileName}』 변환(이관)" 류 · `category_path` 승계 · 이벤트 `adopted`) · 같은 `preview_id` run 존재 = skip(멱등) · 나머지(진행 중·실패·커밋 완료)는 버림 · 응답 `{created, skipped}` · **1회성 — 다음 핵심 stage 편성 시 퇴역 후보를 `backlog.md`에 등재(지시서 §6 7 의무)** |
+
+목록 항목 예(`GET /api/import/runs` `items[]`):
+```json
+{
+  "id": 12, "kind": "convert_file", "label": "『2023_2회_기출.pdf』 변환",
+  "source_name": "2023_2회_기출.pdf", "source_url": null, "category_path": "정보처리기사/2023/2회",
+  "status": "review_ready", "job_id": "job_ab12", "preview_id": "pv_9f3c", "split_id": null, "answer_key_id": null,
+  "error_kind": null, "error_message": null,
+  "summary": { "previews": [{ "preview_id": "pv_9f3c" }], "commits": [], "document_ids": [], "category_ids": [] },
+  "is_active": true, "created_at": "2026-11-08T10:12:00", "updated_at": "2026-11-08T10:15:31", "committed_at": null,
+  "last_event": { "type": "preview_ready", "message": "변환이 끝났습니다 — 미리보기에서 검토하세요", "at": "2026-11-08T10:15:31" }
+}
+```
+
+**⑤ 에러 표(§3 규약 — 코드 집합 불증)**
+
+| 조건 | 상태 | code | detail.reason |
+|---|---|---|---|
+| run 없음 · 비활성 run dismiss | 404 | `NOT_FOUND` | — |
+| 진행 중 run dismiss · `split?run_id=` 연결 불가 상태 | 409 | `CONFLICT` | `bad_transition` |
+| `status` 필터 값 외 · `adopt` body 형식 | 422 | `VALIDATION_ERROR` | (pydantic) |
+| 훅 DB 쓰기 실패 | (HTTP 오류 아님) | — | 경고 로그 · 잡·커밋 결과 무영향(커밋 훅만 같은 트랜잭션이라 커밋과 함께 실패) |
+
+**⑥ 하지 않는 것(지시서 §4 정본)**: 서버 재시도 API([다시 시도] = 새 run) · run 복원 · 자동 삭제·보존 기간 · preview 본문 테이블화 · 잡 재큐잉·재발견 · 답지↔원 run 링크 · 분류 제안(§4.9) 연결 · 실시간 푸시(폴링만) · 제안함 탭 이동.
+
+**구현 앵커(2026-11-08 — 파일 수준 · 행 번호는 구현 시 실측)**: `models.py` `ImportRun`·`ImportRunEvent` · `alembic/versions/<rev>_s56_import_runs.py` · `services/import_run_service.py`(신규) · `routers/import_runs.py`·`schemas/import_runs.py`(신규) · `routers/convert.py`·`fetch.py`·`split.py`·`imports.py`(run 생성 · 응답 `run_id`) · `services/convert_service.py`(`start_*_job` `run_id` 인자 · `_process_job`·`cancel_job` 훅 · `_job_list_item` `run_id`) · `services/split_service.py`(`enqueue_split`) · `services/import_service.py`(`merge_previews`·복구·`commit_import` 훅) · `services/answer_key_service.py`(`apply_answer_key`) · `services/improve_service.py`(`collect_job_failure(run_id=)`) · `main.py`(lifespan 정리 훅 + 라우터 1줄) · `tests/test_import_runs.py`. 프론트 = screens §5.9 `[S56]`.
+
+**말미 확인**: **DDL 2(§6.2 등재 · Alembic 1) · 신규 엔드포인트 4 · 기존 응답 순수 가산 6(시작 API 5 + 잡 항목) · 잡 kind 0 · 신규 의존 0 · 파일 조작 0 · 응답 정답·해설 0 · 자동 커밋 0(R7).**
 
 
