@@ -12,25 +12,26 @@ import type {
 // 설계 §4.25(S23, F49) — 대용량 원본 LLM 분할 반입. 4개 신규 엔드포인트:
 //   POST /import/split(동기·LLM 0) → POST .../analyze(kind 'split_analyze' 잡) →
 //   GET .../{split_id}(상태·분할안) → POST .../enqueue(선택 조각을 기존 convert 잡 N개로 등록).
-// 캐시 키 = 리소스 경로(설계 §7). 조각 변환 잡은 기존 convert 큐(api/convert.ts·useConvertQueue)가
-// 그대로 폴링하므로 이 파일에는 enqueue 응답의 job_id를 그 대기열에 편입하는 로직이 없다
-// (호출부인 SplitImportWizard·useConvertQueue.addJobs가 담당).
+// 캐시 키 = 리소스 경로(설계 §7). 조각 변환 잡은 기존 convert 잡 큐가 처리하고, S56부터 서버의
+// 반입 건(run, api/importRuns.ts)이 조각 진행·검토 대기를 정본으로 추적한다(클라이언트 편입 로직 없음).
 
 const POLL_INTERVAL_MS = 2000
 
-export type SplitStartInput = { kind: 'file'; file: File } | { kind: 'url'; url: string }
+// runId(stage-56, 설계 §4.34 ②) — 있으면 `POST /import/split?run_id=`로 그 반입 건(failed+too_large)에 연결한다.
+export type SplitStartInput = ({ kind: 'file'; file: File } | { kind: 'url'; url: string }) & { runId?: number | null }
 
 // too_large 판별·추출·SSRF·MIME은 서버가 §4.18 게이트를 재사용(§4.25 ⓐ) — 프론트는 convert
 // 시작과 동일하게 multipart(file) 또는 JSON({url})만 가려 보낸다.
 export function useStartSplit() {
   return useMutation({
     mutationFn: (input: SplitStartInput) => {
+      const path = input.runId != null ? `/import/split?run_id=${input.runId}` : '/import/split'
       if (input.kind === 'file') {
         const form = new FormData()
         form.append('file', input.file)
-        return api.postForm<SplitStartResponse>('/import/split', form)
+        return api.postForm<SplitStartResponse>(path, form)
       }
-      return api.post<SplitStartResponse>('/import/split', { url: input.url })
+      return api.post<SplitStartResponse>(path, { url: input.url })
     },
   })
 }
@@ -63,7 +64,7 @@ export function useSplitStatus(splitId: string | null, enabled = true) {
 }
 
 // 선택 조각 투입 — 응답 jobs[]는 기존 convert 잡 큐에 편입될 job_id·label만 담는다(신규 진행
-// UI 없음 — ImportQueue 화면 합류, §4.25 체크리스트).
+// UI 없음 — 반입 건 목록 카드로 합류, §4.25 체크리스트).
 export function useSplitEnqueue() {
   const qc = useQueryClient()
   return useMutation({

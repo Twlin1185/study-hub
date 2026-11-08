@@ -345,3 +345,68 @@ class Note(Base):
     __table_args__ = (
         Index("ix_notes_active_updated", "is_active", text("updated_at DESC")),
     )
+
+
+class ImportRun(Base):
+    """반입 건(run) — 원본 1건의 제출 1행 (S56 — F63 · M40 · R48, 설계 §4.34).
+
+    잡(인메모리·TTL 1h)·미리보기(TTL 1h + import/auto/ 50건 R18)·분할(TTL 1h + 20건)은
+    무변 — run은 그 포인터(job_id·preview_id·split_id·answer_key_id)와 요약(summary_json)만
+    든다(preview 본문 테이블화 0). summary_json은 서버가 쓰고 서버가 읽는 JSON
+    {previews[], commits[], document_ids[], category_ids[]} — 정답·해설·LLM 산출 원문 0.
+    [목록에서 지우기] = is_active=0(상태 무변 · 소프트 — 불변 규칙 3).
+    """
+
+    __tablename__ = "import_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # 'convert_file'|'convert_url'|'fetch'|'json_upload'|'answer_key'
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    source_name: Mapped[str | None] = mapped_column(Text)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    category_path: Mapped[str | None] = mapped_column(Text)
+    # 'queued'|'converting'|'splitting'|'review_ready'|'committing'|'committed'|'failed'|
+    # 'cancelled'|'expired'
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    job_id: Mapped[str | None] = mapped_column(Text)
+    preview_id: Mapped[str | None] = mapped_column(Text)
+    split_id: Mapped[str | None] = mapped_column(Text)
+    answer_key_id: Mapped[str | None] = mapped_column(Text)
+    error_kind: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    summary_json: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+    committed_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+    # updated_at DESC — 계획서 §6.2·Alembic DDL과 일치(Note 전례 — text()로 방향 명시).
+    __table_args__ = (
+        Index("ix_import_runs_active_updated", "is_active", text("updated_at DESC")),
+        Index("ix_import_runs_preview", "preview_id"),
+    )
+
+
+class ImportRunEvent(Base):
+    """반입 건 타임라인 이벤트 (S56, 설계 §4.34 ③) — message는 서버 완성 1줄,
+    detail_json은 id·수치만(정답·해설·LLM 산출 원문 0 — 불변 규칙 1)."""
+
+    __tablename__ = "import_run_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("import_runs.id"), nullable=False)
+    at: Mapped[dt.datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    detail_json: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (Index("ix_import_run_events_run", "run_id", "at"),)

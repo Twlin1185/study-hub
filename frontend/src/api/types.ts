@@ -301,6 +301,7 @@ export interface ImportItemOverride {
 
 export interface ImportPreviewResponse {
   preview_id: string
+  run_id?: number // stage-56 가산 — POST /import/preview(사용자 변환 JSON) 응답에만
   source: ImportSource
   summary: ImportSummary
   items: ImportItem[]
@@ -1145,6 +1146,8 @@ export type ConvertJobStatus = 'running' | 'done' | 'error' | 'cancelled'
 
 export interface ConvertJobStartResponse {
   job_id: string
+  // stage-56(API §4.34 ②) — 반입 건(run) id. 순수 가산(비반입 시작에는 없음).
+  run_id?: number
 }
 
 // "완료 시 곧장 반입 preview로 연결"(§4.10) — result_preview_id는 GET /api/import/preview/{id}로
@@ -1197,6 +1200,7 @@ export interface AnswerKeyTarget {
 
 export interface AnswerKeyUploadResponse {
   key_id: string
+  run_id?: number // stage-56 가산(API §4.34 ②)
   filename: string
   file_type: string
   extract_available: boolean
@@ -1634,6 +1638,7 @@ export interface LlmJobItem {
   progress?: JobProgress | null
   error_info?: LlmErrorInfo | null
   ref: LlmJobRef
+  run_id?: number // stage-56 가산(API §4.34 ②) — 반입 건에 속한 잡이면 id
 }
 
 export interface LlmJobQueueInfo {
@@ -1711,6 +1716,7 @@ export interface SplitReuseInfo {
 // 초과는 422(서버 완성 문장, message 그대로 렌더 — 프론트 포맷 분기 금지).
 export interface SplitStartResponse {
   split_id: string
+  run_id?: number // stage-56 가산 — 연결 또는 신설된 반입 건(API §4.34 ②)
   source_chars: number
   confidence: SplitConfidence
   chunks: SplitChunk[]
@@ -1811,5 +1817,106 @@ export interface TrashRestoreResult {
 export interface TrashEmptyResult {
   deleted: number
   freed_bytes: number
+  skipped: number
+}
+
+// ---- 반입 건(import runs) — 영속·타임라인·레거시 이관 (설계 §4.34, S56 — F63) ----
+// 서버가 완성한 label·message·error_message는 그대로 렌더한다(포맷 분기 0). 상태 enum -> 한국어 배지만 프론트 매핑.
+export type ImportRunKind = 'convert_file' | 'convert_url' | 'fetch' | 'json_upload' | 'answer_key'
+
+export type ImportRunStatus =
+  | 'queued'
+  | 'converting'
+  | 'splitting'
+  | 'review_ready'
+  | 'committing'
+  | 'committed'
+  | 'failed'
+  | 'cancelled'
+  | 'expired'
+
+export interface ImportRunSummary {
+  previews: { preview_id: string; chunk_index?: number | null; committed_at?: string | null }[]
+  commits: unknown[]
+  document_ids: number[]
+  category_ids: number[]
+  // 분할 run 전용 — 투입 조각 수 N · 실패·취소 조각 수(카드 "조각 k/N").
+  chunks_total?: number | null
+  chunks_failed?: number | null
+  // 사이트 반입 run의 시작 요청 값 — [다시 시도] 새 run 재제출 근거.
+  fetch_request?: {
+    adapter?: string | null
+    cert_ref?: string | null
+    exam_ref?: string | null
+    source_url?: string | null
+    exam_key?: string | null
+  } | null
+}
+
+export interface ImportRunLastEvent {
+  type: string
+  message: string
+  at: string
+}
+
+export interface ImportRun {
+  id: number
+  kind: ImportRunKind
+  label: string
+  source_name: string | null
+  source_url: string | null
+  category_path: string | null
+  status: ImportRunStatus
+  job_id: string | null
+  preview_id: string | null
+  split_id: string | null
+  answer_key_id: string | null
+  error_kind: string | null
+  error_message: string | null
+  summary: ImportRunSummary
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  committed_at: string | null
+  last_event?: ImportRunLastEvent | null
+}
+
+export interface ImportRunEvent {
+  id: number
+  type: string
+  message: string
+  at: string
+  detail?: Record<string, unknown> | null
+}
+
+export interface ImportRunDocument {
+  id: number
+  doc_no: string
+  title: string
+  is_active: boolean
+}
+
+export interface ImportRunFailureCase {
+  case_id: number
+  kind: string
+  count: number
+  last_seen_at: string
+}
+
+export interface ImportRunDetail {
+  run: ImportRun
+  events: ImportRunEvent[]
+  documents: ImportRunDocument[]
+  failure_cases: ImportRunFailureCase[]
+  preview_available: boolean
+}
+
+export interface ImportRunDismissResponse {
+  id: number
+  is_active: false
+}
+
+export interface ImportRunAdoptResponse {
+  created: number
   skipped: number
 }

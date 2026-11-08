@@ -44,7 +44,7 @@ export function activeJobCount(data: LlmJobsResponse | undefined): number {
 }
 
 // POST /api/llm/jobs/{id}/cancel — queued=즉시 제거(비용 0)/running=중단(부분 과금, 확인
-// 다이얼로그는 JobCenterPanel·ImportQueue 공용). 409(이미 종료)·404(미존재·만료)는 서버 message를
+// 다이얼로그는 JobCenterPanel·반입 건 카드 공용). 409(이미 종료)·404(미존재·만료)는 서버 message를
 // 그대로 렌더하는 것이 호출부 책임 — 여기서는 성공 시 목록만 무효화한다.
 export function useCancelLlmJob() {
   const qc = useQueryClient()

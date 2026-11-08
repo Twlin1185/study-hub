@@ -22,7 +22,7 @@ from schemas.fetch import (
     QnetKeyRequest,
     QnetKeyResponse,
 )
-from services import convert_service, fetch_service, qnet_api
+from services import convert_service, fetch_service, import_run_service, qnet_api
 
 router = APIRouter(prefix="/api/fetch", tags=["fetch"])
 
@@ -63,14 +63,30 @@ def delete_qnet_key() -> QnetKeyResponse:
 
 @router.post("/import", response_model=FetchJobStart, status_code=status.HTTP_202_ACCEPTED)
 def start_import(payload: FetchImportRequest, db: Session = Depends(get_db)) -> FetchJobStart:
-    job_id = convert_service.start_fetch_job(
-        db=db,
-        adapter_id=payload.adapter,
-        cert_ref=payload.cert_ref,
-        exam_ref=payload.exam_ref,
-        source_url=payload.source_url,
-        engine=payload.engine,
-        exam_key=payload.exam_key,
-        model=payload.model,
+    # S56(F63, 설계 §4.34 ②) — 반입 건(run) 생성 + 응답 run_id 가산. `source_name` = 회차 라벨.
+    job_id, run_id = import_run_service.start_with_run(
+        db,
+        lambda rid: convert_service.start_fetch_job(
+            db=db,
+            adapter_id=payload.adapter,
+            cert_ref=payload.cert_ref,
+            exam_ref=payload.exam_ref,
+            source_url=payload.source_url,
+            engine=payload.engine,
+            exam_key=payload.exam_key,
+            model=payload.model,
+            run_id=rid,
+        ),
+        kind="fetch",
+        label=f"『{payload.cert_ref} {payload.exam_ref}』 사이트 반입",
+        status="queued",
+        source_name=f"{payload.cert_ref} {payload.exam_ref}",
+        summary=import_run_service.fetch_summary(
+            adapter=payload.adapter,
+            cert_ref=payload.cert_ref,
+            exam_ref=payload.exam_ref,
+            source_url=payload.source_url,
+            exam_key=payload.exam_key,
+        ),
     )
-    return FetchJobStart(job_id=job_id)
+    return FetchJobStart(job_id=job_id, run_id=run_id)

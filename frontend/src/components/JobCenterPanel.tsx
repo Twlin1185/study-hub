@@ -12,8 +12,8 @@ function errMsg(e: unknown, fallback: string) {
 }
 
 // 상태 배지 문구·색은 프론트가 정한 고정 라벨(§4.10 "notes" 관례는 label·에러 message 같은
-// 자유 문장에만 적용 — 유한한 status enum을 한국어로 옮기는 것은 다른 화면(ImportQueue
-// STATUS_LABEL 등)과 동일한 통상 UI 관례). item.label·error_info.message는 서버 값 그대로 렌더.
+// 자유 문장에만 적용 — 유한한 status enum을 한국어로 옮기는 것은 다른 화면(반입 건 카드
+// 상태 배지 등)과 동일한 통상 UI 관례). item.label·error_info.message는 서버 값 그대로 렌더.
 function statusLabel(status: LlmJobItem['status'], queuePosition: number | null): string {
   switch (status) {
     case 'running':

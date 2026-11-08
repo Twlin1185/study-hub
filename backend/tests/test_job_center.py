@@ -23,7 +23,15 @@ from database import Base
 from exceptions import ConflictError, NotFoundError, ValidationAppError
 from services import convert_service as cs
 from services import llm_engine_service as engine_svc
+from services import improve_service
 from services import settings_service
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cases_dir(tmp_path, monkeypatch):
+    """stage-56 B-8 실측(FB-31) — 이 모듈의 regenerate·convert 진입점 테스트가 실패 사례 수집 훅을
+    거쳐 실제 `improve/cases/`에 user_report를 누적시켰다(count 77→83). 모듈 전체를 tmp_path로 격리."""
+    monkeypatch.setattr(improve_service, "CASES_DIR", tmp_path / "improve" / "cases")
 
 
 @pytest.fixture()

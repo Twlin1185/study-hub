@@ -246,7 +246,10 @@ def _record_case(
     preview_ref: Optional[str] = None,
     detail: dict,
     output_text: Optional[str] = None,
+    run_id: Optional[int] = None,
 ) -> str:
+    """`run_id`(S56 FB-31 — 순수 추가): 실패를 낸 반입 건(run) id. 기존 파일은 필드 부재 허용 ·
+    중복 병합(count+1) 시에는 최신 run으로 갱신한다(값이 있을 때만)."""
     _ensure_dirs()
     hash12 = _hash12_of(source_bytes)
     document_id = document.get("id") if document else None
@@ -263,6 +266,8 @@ def _record_case(
         data["detail"] = detail
         if preview_ref:
             data["preview_ref"] = preview_ref
+        if run_id is not None:
+            data["run_id"] = run_id
         _write_json(existing_path, data)
         return data["case_id"]
 
@@ -288,6 +293,8 @@ def _record_case(
         "llm_output_path": None,
         "regressions": [],
     }
+    if run_id is not None:
+        record["run_id"] = run_id  # S56(FB-31) — 반입 건 연결(없으면 필드 부재 — 기존 레코드와 동형)
     if output_text:
         try:
             _case_output_path(case_id).write_text(output_text, encoding="utf-8")
@@ -307,6 +314,7 @@ def collect_job_failure(
     source_filename: Optional[str] = None,
     source_bytes: Optional[bytes] = None,
     output_text: Optional[str] = None,
+    run_id: Optional[int] = None,
 ) -> None:
     """convert·fetch·split_analyze 잡 실패 수집(①, S23 F49 ㉳ — §4.22 수집 지점 확장) —
     `error_info.kind`가 대상 3종일 때만(제외: too_large·rate_limit·미설치/로그인/타임아웃
@@ -332,6 +340,7 @@ def collect_job_failure(
             source_bytes=source_bytes,
             detail=detail,
             output_text=output_text if kind == "invalid_output" else None,
+            run_id=run_id,
         )
     except Exception:  # noqa: BLE001 - 수집 실패가 잡 실패 처리 자체를 막으면 안 된다
         _LOGGER.warning("실패 사례 수집 중 오류(원 플로우 영향 없음)", exc_info=True)
@@ -396,6 +405,14 @@ def list_cases(kind: Optional[str], page: int, size: int) -> Tuple[List[dict], i
     total = len(records)
     start = (page - 1) * size
     return records[start : start + size], total
+
+
+def list_case_records_readonly() -> List[dict]:
+    """S56(FB-31, 설계 §4.34 ④) — 반입 건 상세의 `failure_cases` 계산용 읽기 전용 목록.
+    `_list_case_files`와 달리 폴더를 만들지 않는다(조회 경로 파일 쓰기 0)."""
+    if not CASES_DIR.exists():
+        return []
+    return _load_records(sorted(CASES_DIR.glob("fc_*.json")))
 
 
 def get_case_or_404(case_id: str) -> dict:

@@ -32,7 +32,14 @@ from schemas.answer_key import (
     AnswerKeyTarget,
     AnswerKeyUploadResult,
 )
-from services import convert_service, document_service, import_service, source_match, tree_utils
+from services import (
+    convert_service,
+    document_service,
+    import_run_service,
+    import_service,
+    source_match,
+    tree_utils,
+)
 
 KEY_TTL = dt.timedelta(hours=1)
 
@@ -178,6 +185,10 @@ def start_processing(db: Session, key_id: str, *, engine: str = "auto", model: O
             raise ConflictError(
                 "이미 답지 가공이 진행 중입니다", detail={"job_id": existing_job_id}
             )
+    # S56(F63, 설계 §4.34 ②) — 업로드 시 만든 답지 run을 잡에 연결(역조회 실패 = 연결 없이 진행).
+    run_id = import_run_service.find_run_id_safely(
+        lambda: import_run_service.find_by_answer_key_id(db, key_id)
+    )
     job_id = convert_service.start_answer_key_job(
         db,
         source_filename=state["filename"],
@@ -185,7 +196,9 @@ def start_processing(db: Session, key_id: str, *, engine: str = "auto", model: O
         engine=engine,
         key_id=key_id,
         model=model,
+        run_id=run_id,
     )
+    import_run_service.note_job_assigned(db, run_id, job_id)
     with _KEYS_LOCK:
         current = _KEYS.get(key_id)
         if current is not None:
@@ -437,6 +450,7 @@ def apply_answer_key(db: Session, key_id: str, document_ids: Sequence[int]) -> A
     docs_by_id = {doc.id: doc for doc in documents}
 
     updated = 0
+    updated_ids: List[int] = []  # S56(F63) — 반입 건 요약용(응답 계약 무변)
     skipped: List[dict] = []
     for doc_id in document_ids:
         entry = matched_by_doc.get(doc_id)
@@ -462,7 +476,13 @@ def apply_answer_key(db: Session, key_id: str, document_ids: Sequence[int]) -> A
 
         document.source_detail = _merge_source_detail(document.source_detail, state["filename"])
         updated += 1
+        updated_ids.append(doc_id)
 
+    # S56(F63, 설계 §4.34 ③) — `answer_key_applied` · `review_ready → committed`(같은 트랜잭션 ·
+    # flush만 — 아래 commit 1회에 포함).
+    import_run_service.mark_answer_key_applied(
+        db, key_id, applied=updated, document_ids=updated_ids
+    )
     db.commit()
     return AnswerKeyApplyResult(
         updated=updated, skipped=[AnswerKeySkipped(**s) for s in skipped]

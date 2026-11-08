@@ -46,6 +46,7 @@ from services import (
     doc_extract,
     document_service,
     fetch_service,
+    import_run_service,
     import_service,
     llm_engine_service,
     net_safety,
@@ -1267,6 +1268,15 @@ def _worker_loop() -> None:
                 continue
             job["_dequeued_at"] = dt.datetime.now()
             _CURRENT_JOB_ID = job_id
+            started_snapshot = _run_hook_snapshot(job_id, job)
+        # S56(F63, 설계 §4.34 ③) — 반입 건 `job_started` 훅(락 밖 · best-effort · 잡 무영향).
+        if started_snapshot is not None:
+            import_run_service.hook_job_started(
+                started_snapshot["run_id"],
+                job_id=job_id,
+                job_kind=started_snapshot["kind"],
+                is_split_piece=started_snapshot["is_split_piece"],
+            )
         try:
             _process_job(job_id)
         finally:
@@ -1274,11 +1284,36 @@ def _worker_loop() -> None:
                 _CURRENT_JOB_ID = None
 
 
+def _run_hook_snapshot(job_id: str, job: dict) -> Optional[dict]:
+    """S56(F63) — 반입 건 훅에 넘길 값 스냅샷(`_JOBS_LOCK` 아래에서 호출 — DB IO는 락 밖).
+    `_run_id`가 없는 잡(레거시·반입 무관 kind) = None → 훅 생략(DB 접근 0)."""
+    run_id = job.get("_run_id")
+    if run_id is None:
+        return None
+    kind = job.get("kind")
+    result = job.get("result")
+    result = result if isinstance(result, dict) else {}
+    error_info = job.get("_error_info")
+    error_info = error_info if isinstance(error_info, dict) else {}
+    return {
+        "run_id": run_id,
+        "job_id": job_id,
+        "kind": kind,
+        "is_split_piece": kind == "convert" and job.get("_split_id") is not None,
+        "preview_id": result.get("result_preview_id"),
+        "chunk_index": job.get("_split_chunk_index"),
+        "chunks": result.get("chunk_count"),
+        "error_kind": error_info.get("kind"),
+        "error_message": error_info.get("message"),
+    }
+
+
 def _process_job(job_id: str) -> None:
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
     if job is None:
         return  # TTL 만료로 이미 지워졌으면 조용히 무시
+    done_snapshot: Optional[dict] = None
     try:
         if job["kind"] == "convert":
             result = _do_convert(job_id, job)
@@ -1322,6 +1357,18 @@ def _process_job(job_id: str) -> None:
                 _record_eta_sample(
                     job["kind"], job.get("_input_size") or 0, int((now - started).total_seconds() * 1000)
                 )
+                done_snapshot = _run_hook_snapshot(job_id, job)
+        # S56(F63, 설계 §4.34 ③) — 완료 훅(convert·fetch → preview_ready · answer_key →
+        # preview_ready · split_analyze → split_analyzed). 락 밖 · best-effort · 잡 무영향.
+        if done_snapshot is not None:
+            import_run_service.hook_job_done(
+                done_snapshot["run_id"],
+                job_id=job_id,
+                job_kind=done_snapshot["kind"],
+                preview_id=done_snapshot["preview_id"],
+                chunk_index=done_snapshot["chunk_index"],
+                chunks=done_snapshot["chunks"],
+            )
     except _JobCancelled:
         # S22(F48 ②) — 취소 확정 후 조기 종료 신호. 잡 상태는 `cancel_job`이 이미
         # 'cancelled'로 확정해 두었다 — 여기서는 아무 것도 기록하지 않는다(오류 아님).
@@ -1333,6 +1380,8 @@ def _process_job(job_id: str) -> None:
         collect_source_filename: Optional[str] = None
         collect_source_bytes: Optional[bytes] = None
         collect_raw_output: Optional[str] = None
+        collect_run_id: Optional[int] = None
+        failed_snapshot: Optional[dict] = None
         with _JOBS_LOCK:
             job = _JOBS.get(job_id)
             if job is not None and job.get("status") == "cancelled":
@@ -1370,8 +1419,10 @@ def _process_job(job_id: str) -> None:
                 # 두지 않는다). S23(F49 ㉳, §4.22 수집 지점 확장) — split_analyze 잡 실패도
                 # 같은 규칙(대상 kind는 invalid_output 등 3종, too_large·환경 실패 제외)으로
                 # 수집한다.
+                failed_snapshot = _run_hook_snapshot(job_id, job)
                 if job.get("kind") in ("convert", "fetch", "split_analyze"):
                     collect_job_kind = job.get("kind")
+                    collect_run_id = job.get("_run_id")  # S56(FB-31) — 사례 ↔ 반입 건 연결
                     collect_error_info = job.get("_error_info")
                     collect_engine = job.get("_engine")
                     collect_source_filename = job.get("_source_filename")
@@ -1391,6 +1442,17 @@ def _process_job(job_id: str) -> None:
                 source_filename=collect_source_filename,
                 source_bytes=collect_source_bytes,
                 output_text=collect_raw_output,
+                run_id=collect_run_id,
+            )
+        # S56(F63, 설계 §4.34 ③) — `job_failed {error_kind, message}` 훅(락 밖 · best-effort).
+        if failed_snapshot is not None:
+            import_run_service.hook_job_failed(
+                failed_snapshot["run_id"],
+                job_id=job_id,
+                job_kind=failed_snapshot["kind"],
+                error_kind=failed_snapshot["error_kind"],
+                error_message=failed_snapshot["error_message"],
+                is_split_piece=failed_snapshot["is_split_piece"],
             )
     finally:
         tmp_path = job.get("_tmp_path") if job else None
@@ -1485,6 +1547,7 @@ def cancel_job(job_id: str) -> dict:
         if job_id == _CURRENT_JOB_ID:
             proc_to_kill = job.get("_proc")
             stream_to_close = job.get("_api_stream")
+        cancelled_snapshot = _run_hook_snapshot(job_id, job)
 
     if proc_to_kill is not None:
         _terminate_process_tree(proc_to_kill)
@@ -1493,6 +1556,15 @@ def cancel_job(job_id: str) -> dict:
             stream_to_close.close()
         except Exception:  # noqa: BLE001 - 스트림 종료 실패는 취소 확정에 영향 없음
             _LOGGER.warning("API 엔진 스트림 종료 중 오류(취소는 이미 확정됨)", exc_info=True)
+
+    # S56(F63, 설계 §4.34 ③) — `job_cancelled` 훅(취소 확정 후 · best-effort).
+    if cancelled_snapshot is not None:
+        import_run_service.hook_job_cancelled(
+            cancelled_snapshot["run_id"],
+            job_id=job_id,
+            job_kind=cancelled_snapshot["kind"],
+            is_split_piece=cancelled_snapshot["is_split_piece"],
+        )
 
     return {"status": "cancelled", "usage": usage_snapshot}
 
@@ -1599,6 +1671,8 @@ def _job_list_item(job_id: str, job: dict, *, current_job_id: Optional[str]) -> 
         "progress": _progress_snapshot(job) if status == "running" else None,
         "error_info": job.get("_error_info") if status == "error" else None,
         "ref": _job_ref(job),
+        # S56(F63, 설계 §4.24 [S56]) — 반입 건 id(시작 API가 심은 값 그대로 · DB 조회 0).
+        "run_id": job.get("_run_id"),
     }
 
 
@@ -2261,6 +2335,7 @@ def start_fetch_job(
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     exam_key: Optional[str] = None,
     model: Optional[str] = None,
+    run_id: Optional[int] = None,
 ) -> str:
     """사이트 반입 잡(kind='fetch') 시작 — convert 잡 큐 재사용(동시 1개). 진행·결과 조회는
     기존 `GET /api/convert/{job_id}`. phase는 'fetching'부터 시작한다(설계 §4.13)."""
@@ -2295,6 +2370,7 @@ def start_fetch_job(
             # S22(F48 ①) — label 서버 합성(kind별 — 회차 라벨 수준. 완료 후 상세 회차명은
             # 미리보기에서 확인 — 목록은 조회 시점에 확정 가능한 값만 쓴다, LLM 0·DB 0 유지).
             "_label": f"『{cert_ref} {exam_ref}』 사이트 반입",
+            "_run_id": run_id,  # S56(F63)
         }
     )
     with _JOBS_LOCK:
@@ -2365,6 +2441,8 @@ def _new_job_base(kind: str, *, resolved_engine: str, requested_engine: str, mod
         "_api_stream": None,  # 현재 실행 중인 API 엔진 스트림 핸들(취소 시 연결 종료용)
         "_dequeued_at": None,  # 워커가 실제로 이 잡을 집어든 시각(목록의 started_at — §4.24 ①)
         "_finished_at": None,  # 종료(done·error·cancelled) 확정 시각(목록의 finished_at·정렬 키)
+        # S56(F63, 설계 §4.34 ②) — 반입 건(run) id(시작 API·분할 투입이 심는다 · 없으면 훅 생략).
+        "_run_id": None,
     }
 
 
@@ -2381,6 +2459,8 @@ def start_convert_job(
     skip_source_save: bool = False,
     split_id: Optional[str] = None,
     split_chunk_ids: Optional[List[str]] = None,
+    run_id: Optional[int] = None,
+    split_chunk_index: Optional[int] = None,
 ) -> str:
     """S23(F49, 설계 §4.25) — `label`·`skip_source_save`·`split_id`·`split_chunk_ids`는
     분할 반입의 조각 투입(`split_service.enqueue_split`) 전용 확장(기본값은 기존 호출부
@@ -2421,6 +2501,9 @@ def start_convert_job(
             "_skip_source_save": skip_source_save,
             "_split_id": split_id,
             "_split_chunk_ids": list(split_chunk_ids) if split_chunk_ids else None,
+            # S56(F63) — 반입 건 연결 + 분할 조각 순번(카드 "조각 k/N" · 1부터).
+            "_run_id": run_id,
+            "_split_chunk_index": split_chunk_index,
         }
     )
     with _JOBS_LOCK:
@@ -2438,6 +2521,7 @@ def start_convert_job_from_url(
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     category_path: Optional[str] = None,
     model: Optional[str] = None,
+    run_id: Optional[int] = None,
 ) -> str:
     """URL 반입(F35 1단계) — 다운로드도 워커에서 수행(요청 스레드 블로킹 금지),
     phase='downloading'부터 잡으로 처리한다."""
@@ -2465,6 +2549,7 @@ def start_convert_job_from_url(
             "_category_path": category_path,
             # S22(F48 ①) — label 서버 합성(kind별 — URL을 파일명 대체 수준으로 표기).
             "_label": f"『{url.strip()}』 변환",
+            "_run_id": run_id,  # S56(F63)
         }
     )
     with _JOBS_LOCK:
@@ -2472,6 +2557,13 @@ def start_convert_job_from_url(
     _ensure_worker()
     _QUEUE.put(job_id)
     return job_id
+
+
+def job_label(job_id: str) -> Optional[str]:
+    """S56(F63) — 잡의 서버 완성 라벨(`_label`) 조회(반입 건 label을 같은 문구로 맞춘다)."""
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        return job.get("_label") if job is not None else None
 
 
 def get_convert_job(job_id: str) -> dict:
@@ -2951,6 +3043,7 @@ def start_answer_key_job(
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     key_id: Optional[str] = None,
     model: Optional[str] = None,
+    run_id: Optional[int] = None,
 ) -> str:
     """답지 가공 잡 시작(convert 잡 큐 재사용 — kind='answer_key', 동시 1개).
 
@@ -2977,6 +3070,7 @@ def start_answer_key_job(
             "_key_id": key_id,
             # S22(F48 ①) — label 서버 합성(kind별 — 파일명 수준, LLM 산출 미포함).
             "_label": f"『{source_filename}』 답지 가공",
+            "_run_id": run_id,  # S56(F63)
         }
     )
     with _JOBS_LOCK:
@@ -3893,6 +3987,7 @@ def start_split_analyze_job(
     engine: str = "auto",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     model: Optional[str] = None,
+    run_id: Optional[int] = None,
 ) -> str:
     """분할 정밀 분석 잡 시작(공유 잡 큐 재사용 — kind='split_analyze', 동시 1개). 9번째
     `assert_engine_selectable` 적용 지점(§4.23 ⓒ·§4.24 ⓒ 표 갱신, §4.25 개정 표)."""
@@ -3918,6 +4013,7 @@ def start_split_analyze_job(
             "_prompt": prompt,
             # S22(F48 ①) — label 서버 합성(§4.25 ㉱ 확정 예시 그대로).
             "_label": f"『{state['source_filename']}』 분할 정밀 분석",
+            "_run_id": run_id,  # S56(F63)
         }
     )
     with _JOBS_LOCK:

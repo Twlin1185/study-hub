@@ -45,7 +45,7 @@ from schemas.import_schema import (
     SuggestCategoryResult,
     SuggestRelationResult,
 )
-from services import embed_service, preview_store, source_match, tag_rule_service
+from services import embed_service, import_run_service, preview_store, source_match, tag_rule_service
 from services.document_service import _generate_doc_no
 from services.tag_service import get_or_create_tag
 
@@ -883,6 +883,8 @@ def get_preview(db: Session, preview_id: str) -> PreviewResponse:
 
     recovered = recover_preview(db, preview_id)
     if recovered is not None:
+        # S56(F63, 설계 §4.34 ③) — `preview_recovered` 훅(상태 무변 · best-effort).
+        import_run_service.note_preview_recovered(db, preview_id)
         return recovered
 
     raise NotFoundError(
@@ -950,7 +952,7 @@ def merge_previews(db: Session, preview_ids: List[str]) -> PreviewResponse:
         {"format_version": 1, "source": {}, "documents": documents}, ensure_ascii=False
     ).encode("utf-8")
 
-    return create_preview(
+    merged = create_preview(
         db,
         json_bytes=merged_json,
         source_filename=f"{first_filename} (분할 병합 {len(states)}조각)",
@@ -958,6 +960,9 @@ def merge_previews(db: Session, preview_ids: List[str]) -> PreviewResponse:
         preserve=True,
         warnings_override=warnings_override,
     )
+    # S56(F63, 설계 §4.34 ③) — `preview_merged` 훅(run.preview_id = 병합 id · best-effort).
+    import_run_service.note_preview_merged(db, list(preview_ids), merged.preview_id)
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -1122,6 +1127,9 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
     new_docs: List[NewDocumentRef] = []
     categories_created: List[str] = []
     relations_created = 0
+    # S56(F63) — 반입 건 요약용(생성 + 병합 대상 문서 id · 오류 항목 수). 응답 계약 무변.
+    touched_doc_ids: List[int] = []
+    errored = 0
 
     try:
         # --- 원본 sources 기록 (트랜잭션 내부) ---
@@ -1147,6 +1155,7 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
             # 오류 항목은 결정과 무관하게 자동 제외 (부분 반입 — DoD 5)
             if citem["status"] == "error":
                 skipped += 1
+                errored += 1
                 continue
             if decision is None or decision.action == "skip":
                 skipped += 1
@@ -1214,6 +1223,8 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
             # embeds 인덱스 동기화(§4.19 ⑥) — 커밋으로 생성·병합된 문서 전부, commit_import와
             # 같은 트랜잭션(트랜잭션 전체는 아래 db.commit()에서 한 번에 확정된다).
             embed_service.sync_embeds_for_document(db, target_document)
+            if target_id not in touched_doc_ids:
+                touched_doc_ids.append(target_id)
 
             categories_created.extend(
                 _apply_categories(
@@ -1231,6 +1242,38 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
             # (설계 §4.9, 계획서 §11). commit_import 트랜잭션 안에서 함께 처리한다.
             tag_rule_service.scan_document(db, target_id)
 
+        result = CommitResult(
+            created=created,
+            merged=merged,
+            skipped=skipped,
+            new_documents=new_docs,
+            categories_created=sorted(set(categories_created)),
+            relations_created=relations_created,
+            recovered=was_recovered,
+        )
+        # S56(F63, 설계 §4.34 ③) — 반입 건 `committed` 전이는 **이 트랜잭션 안**(같은 세션 ·
+        # flush만 — 아래 commit 1회에 포함 · 커밋 실패 시 run도 미갱신, 불변 규칙 2 관례).
+        db.flush()
+        category_ids: List[int] = []
+        if touched_doc_ids:
+            category_ids = sorted(
+                set(
+                    db.scalars(
+                        select(models.CategoryDocument.category_id).where(
+                            models.CategoryDocument.document_id.in_(touched_doc_ids)
+                        )
+                    ).all()
+                )
+            )
+        import_run_service.mark_committed(
+            db,
+            req.preview_id,
+            result,
+            document_ids=touched_doc_ids,
+            category_ids=category_ids,
+            errored=errored,
+        )
+
         db.commit()
     except Exception:
         db.rollback()
@@ -1240,12 +1283,4 @@ def commit_import(db: Session, req: CommitRequest) -> CommitResult:
     _PREVIEW_CACHE.pop(req.preview_id, None)
     _mark_committed(req.preview_id)
 
-    return CommitResult(
-        created=created,
-        merged=merged,
-        skipped=skipped,
-        new_documents=new_docs,
-        categories_created=sorted(set(categories_created)),
-        relations_created=relations_created,
-        recovered=was_recovered,
-    )
+    return result
