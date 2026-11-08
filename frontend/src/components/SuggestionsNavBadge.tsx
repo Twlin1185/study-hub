@@ -6,7 +6,7 @@ import { useImproveProposals } from '../api/improve'
 // 진입점을 제공한다(0건이면 숨김이 아니라 배지 없이 아이콘만 — 언제든 규칙 관리 결과를 확인할
 // 수 있도록 진입점 자체는 유지). S20(§4.22 ③): [분류 연결]·[반입 개선] 두 pending 수신함을
 // 합산한다 — 제안함이 "화면" 층에서 일반화됐을 뿐 배지는 여전히 하나(결정 ①).
-export default function SuggestionsNavBadge({ compact }: { compact?: boolean }) {
+export default function SuggestionsNavBadge({ compact, onClick }: { compact?: boolean; onClick?: () => void }) {
   const suggestionsQuery = useSuggestions()
   const improveProposalsQuery = useImproveProposals('pending')
   const count = (suggestionsQuery.data?.length ?? 0) + (improveProposalsQuery.data?.length ?? 0)
@@ -15,6 +15,7 @@ export default function SuggestionsNavBadge({ compact }: { compact?: boolean }) 
     return (
       <NavLink
         to="/suggestions"
+        onClick={onClick}
         aria-label="제안함"
         className="relative rounded p-1.5 text-muted hover:bg-bg hover:text-primary"
       >
@@ -31,6 +32,7 @@ export default function SuggestionsNavBadge({ compact }: { compact?: boolean }) 
   return (
     <NavLink
       to="/suggestions"
+      onClick={onClick}
       className={({ isActive }) =>
         `flex items-center gap-2 rounded px-3 py-2 text-sm transition-colors ${
           isActive ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-bg hover:text-primary'

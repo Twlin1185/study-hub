@@ -93,7 +93,7 @@ export default function HomePage() {
       {hasNoData && (
         <div className="mb-5 flex flex-col items-start gap-2 rounded-lg border border-border bg-surface p-5">
           <p className="text-sm font-medium text-primary">아직 학습 데이터가 없습니다.</p>
-          <p className="text-sm text-muted">기출 JSON을 반입해 시작하세요.</p>
+          <p className="text-sm text-muted">기출 원본 파일(PDF·이미지 등)이나 URL을 반입해 시작하세요.</p>
           <Link
             to="/import"
             className="mt-1 rounded bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90"

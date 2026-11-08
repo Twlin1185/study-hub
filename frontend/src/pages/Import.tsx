@@ -9,7 +9,7 @@ import { readQueue } from '../utils/convertQueue'
 import { useConvertQueue, MAX_QUEUE_BATCH } from '../hooks/useConvertQueue'
 import type { ConvertQueue, QueueItem } from '../hooks/useConvertQueue'
 import LlmLimitBanner from '../components/LlmLimitBanner'
-import EngineSelect from '../components/EngineSelect'
+import EngineSelectCollapsible from '../components/EngineSelectCollapsible'
 import Stepper from '../components/Stepper'
 import ConfirmDialog from '../components/ConfirmDialog'
 import FetchImportWizard from '../components/FetchImportWizard'
@@ -116,7 +116,7 @@ function buildInitialDecisions(items: ImportItem[]): Record<number, ItemDecision
 // 진입 모드로 초기화한다(설계 §4.11 진행 가시화 · §5.9 F40-② 복원 요구).
 function initialEntryMode(): EntryMode {
   const entries = readQueue().filter((e) => !e.committed)
-  if (entries.length === 0) return 'json'
+  if (entries.length === 0) return 'convert'
   const fetchOnly = entries.every((e) => e.sourceKind === 'fetch')
   if (fetchOnly) return 'fetch'
   const last = [...entries].reverse().find((e) => e.sourceKind !== 'fetch')
@@ -127,7 +127,7 @@ export default function ImportPage() {
   const queue = useConvertQueue()
   // S22(설계 §4.24 ⓓ, F48) — 작업 센터 [화면으로 이동]이 `?mode=answer_key`로 답지 위저드를
   // 곧바로 연다(대기열 복원보다 우선 — 명시적으로 그 화면을 지목한 진입이므로).
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [entryMode, setEntryMode] = useState<EntryMode>(() => {
     const mode = searchParams.get('mode')
     if (mode === 'answer_key') return 'answer_key'
@@ -234,7 +234,7 @@ export default function ImportPage() {
 
   function resetWizard() {
     backToSelect()
-    setEntryMode('json')
+    setEntryMode('convert')
     setJsonFile(null)
     setSourceFile(null)
     setResult(null)
@@ -370,14 +370,27 @@ export default function ImportPage() {
 
   return (
     <div className="mx-auto max-w-4xl p-4">
-      <h1 className="mb-1 text-xl font-semibold text-primary">반입</h1>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h1 className="text-xl font-semibold text-primary">반입</h1>
+        {step === 'select' && entryMode !== 'answer_key' && entryMode !== 'split_import' && (
+          <button
+            type="button"
+            onClick={() => setEntryMode('answer_key')}
+            className="text-xs text-accent hover:underline"
+          >
+            답지·해설지로 정답 채우기 →
+          </button>
+        )}
+      </div>
       <p className="mb-4 text-sm text-muted">
-        Claude Code로 변환한 기출 JSON을 미리보고 검증한 뒤 DB에 적재합니다.
+        기출 원본(파일·URL·사이트)을 반입 JSON으로 변환해 미리보기에서 확인한 뒤 DB에 적재합니다. 이미 변환된 JSON도 넣을 수 있습니다.
       </p>
 
-      <div className="mb-5">
-        <StepIndicator step={step} onNavigate={handleStepNavigate} />
-      </div>
+      {!(step === 'select' && (entryMode === 'fetch' || entryMode === 'answer_key' || entryMode === 'split_import')) && (
+        <div className="mb-5">
+          <StepIndicator step={step} onNavigate={handleStepNavigate} />
+        </div>
+      )}
 
       {confirmRestart && (
         <ConfirmDialog
@@ -414,26 +427,49 @@ export default function ImportPage() {
 
       {step === 'select' && (
         <>
-          <div className="mb-3 flex flex-wrap gap-2">
-            <ModeTab active={entryMode === 'json'} onClick={() => setEntryMode('json')}>
-              반입 JSON 파일 선택
-            </ModeTab>
-            <ModeTab active={entryMode === 'convert'} onClick={() => setEntryMode('convert')}>
-              원본 파일로 시작 (자동 변환)
-            </ModeTab>
-            <ModeTab active={entryMode === 'url'} onClick={() => setEntryMode('url')}>
-              URL로 시작
-            </ModeTab>
-            <ModeTab active={entryMode === 'fetch'} onClick={() => setEntryMode('fetch')}>
-              사이트에서 가져오기
-            </ModeTab>
-            <ModeTab active={entryMode === 'answer_key'} onClick={() => setEntryMode('answer_key')}>
-              답지·해설지 반입
-            </ModeTab>
-          </div>
+          {entryMode !== 'answer_key' && entryMode !== 'split_import' && (
+            <div className="mb-3">
+              <p className="mb-1 text-xs font-semibold text-muted">새 반입</p>
+              <div className="flex flex-nowrap gap-2 overflow-x-auto">
+                <ModeTab active={entryMode === 'convert'} onClick={() => setEntryMode('convert')}>
+                  파일
+                </ModeTab>
+                <ModeTab active={entryMode === 'url'} onClick={() => setEntryMode('url')}>
+                  URL
+                </ModeTab>
+                <ModeTab active={entryMode === 'fetch'} onClick={() => setEntryMode('fetch')}>
+                  사이트(큐넷)
+                </ModeTab>
+                <ModeTab active={entryMode === 'json'} onClick={() => setEntryMode('json')}>
+                  변환된 JSON
+                </ModeTab>
+              </div>
+            </div>
+          )}
+          {entryMode === 'answer_key' && (
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-primary">답지·해설지 반입</p>
+              <button
+                type="button"
+                onClick={() => {
+                  // 검토 반영 — 딥링크(?mode=answer_key)로 들어왔다 나갈 때 파라미터를 지워, 작업 센터
+                  // [화면으로 이동]으로 같은 URL에 재진입해도 modeParam 변화가 생겨 답지 화면이 다시 열린다.
+                  if (searchParams.has('mode')) {
+                    const next = new URLSearchParams(searchParams)
+                    next.delete('mode')
+                    setSearchParams(next, { replace: true })
+                  }
+                  setEntryMode('convert')
+                }}
+                className="text-xs text-accent hover:underline"
+              >
+                ← 새 반입으로
+              </button>
+            </div>
+          )}
 
           {/* 다른 탭에 있어도 대기열이 살아 있음을 잊지 않게 한다(§5.9 접힌 요약) */}
-          {(entryMode === 'json' || entryMode === 'fetch') && (
+          {entryMode !== 'convert' && entryMode !== 'url' && (
             <div className="mb-3">
               <ImportQueueSummary items={queue.items} onBackToQueue={backToQueue} />
             </div>
@@ -635,7 +671,7 @@ function ModeTab({
 
 const STEP_ORDER: WizardStep[] = ['select', 'preview', 'result']
 const STEP_LABELS: Record<WizardStep, string> = {
-  select: '파일 선택',
+  select: '소스 선택',
   preview: '미리보기',
   result: '결과',
 }
@@ -757,8 +793,7 @@ function StartConvertPanel({ sourceKind, queue }: StartConvertPanelProps) {
       <CategoryPathField value={commonPath} onChange={setCommonPath} sharedNotice={files.length > 1} />
 
       <div>
-        <p className="mb-1 text-xs font-semibold text-muted">사용 엔진</p>
-        <EngineSelect value={engine} onChange={setEngine} modelValue={model} onModelChange={setModel} />
+        <EngineSelectCollapsible value={engine} onChange={setEngine} modelValue={model} onModelChange={setModel} />
       </div>
 
       {sourceKind === 'file' && files.length > 1 && (

@@ -42,6 +42,8 @@ const NOTES_NAV_ITEM: NavItem = { to: '/notes', label: '노트', icon: '📓' }
 // 휴지통 진입점 ⓒ(stage-53, FB-27) — 사이드바 하단·모바일 드로어 하단 그룹 공용 단일 출처
 // (리터럴 복제 0).
 const TRASH_NAV_ITEM: NavItem = { to: '/trash', label: '휴지통', icon: '🗑️' }
+// 설정 진입점(stage-55 규약 G) — 사이드바·드로어 하단 그룹 공용 단일 출처.
+const SETTINGS_NAV_ITEM: NavItem = { to: '/settings', label: '설정', icon: '⚙️' }
 
 function NavButton({
   item,
@@ -169,7 +171,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div className="mt-auto flex flex-col gap-1">
           {/* 휴지통 진입점 ⓒ(stage-53, FB-27) — 하단 그룹 맨 위(설정 위). */}
           <NavButton item={TRASH_NAV_ITEM} collapsed={collapsed} />
-          <NavButton item={{ to: '/settings', label: '설정', icon: '⚙️' }} collapsed={collapsed} />
+          <NavButton item={SETTINGS_NAV_ITEM} collapsed={collapsed} />
           {/* LLM 작업 센터 진입점(S22, F48, 설계 §5·§4.24 ⑥) — 도움말 항목 위(F39 배치 관례).
               라우트 이동이 아닌 전역 패널이라 NavButton(NavLink)이 아닌 버튼. */}
           <JobCenterButton onClick={() => setJobCenterOpen(true)} compact={collapsed} />
@@ -240,12 +242,11 @@ export default function Layout({ children }: { children: ReactNode }) {
         </nav>
       </div>
 
-      {/* 좌측 드로어(모바일 전용, FB-8 완료) — 사이드바(:154~183)와 동일한 상단 항목
-          (NAV_ITEMS 5 + DESKTOP_EXTRA_ITEMS 3 + 노트 1 = 9) + 하단 그룹을 그대로 미러링한다.
-          사이드바 하단 = 휴지통·설정·LLM 작업·도움말(9+4=13), 드로어 하단 = 휴지통·LLM
-          작업·도움말(9+3=12, stage-53 FB-27 — 설정 미포함 유지). 하단 탭바 5개는 불변(§5
-          공통 레이아웃, F39 관례) — 이 드로어와의 중복 노출은 의도된 것이다. 설정은 헤더에
-          이미 있어 드로어에는 넣지 않는다. */}
+      {/* 좌측 드로어(모바일 전용, FB-8 완료) — 사이드바(:154~183)와 동일 구성을 미러링한다.
+          상단 = NAV_ITEMS 5 + DESKTOP_EXTRA_ITEMS 3 + 노트 1 + 제안함 1 = 10, 하단 = 휴지통·설정·
+          LLM 작업·도움말 4 (10+4=14, stage-55 규약 G — 사이드바와 동일 구성). 하단 탭바 5개는
+          불변(§5 공통 레이아웃, F39 관례) — 이 드로어와의 중복 노출은 의도된 것이다. 헤더 📮·⚙️
+          아이콘도 병존 유지. */}
       {mobileDrawerOpen && (
         <div
           className="fixed inset-0 z-50 flex bg-black/40 md:hidden print:hidden"
@@ -273,10 +274,11 @@ export default function Layout({ children }: { children: ReactNode }) {
             {[...NAV_ITEMS, ...DESKTOP_EXTRA_ITEMS, NOTES_NAV_ITEM].map((item) => (
               <NavButton key={item.to} item={item} onClick={() => setMobileDrawerOpen(false)} />
             ))}
+            <SuggestionsNavBadge onClick={() => setMobileDrawerOpen(false)} />
             <div className="mt-auto flex flex-col gap-1 pt-1">
-              {/* 휴지통 진입점 ⓒ(stage-53, FB-27) — 드로어 하단 그룹 맨 위(설정은 미포함 유지 —
-                  헤더에 이미 있음, :240 주석). */}
+              {/* 휴지통 진입점 ⓒ(stage-53, FB-27) — 드로어 하단 그룹 맨 위(설정이 바로 다음). */}
               <NavButton item={TRASH_NAV_ITEM} onClick={() => setMobileDrawerOpen(false)} />
+              <NavButton item={SETTINGS_NAV_ITEM} onClick={() => setMobileDrawerOpen(false)} />
               {/* LLM 작업 센터 진입점(S22, F48) — 사이드바 :167~169와 같은 배치(도움말 위). */}
               <JobCenterButton
                 onClick={() => {

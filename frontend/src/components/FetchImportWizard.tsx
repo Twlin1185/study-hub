@@ -8,6 +8,7 @@ import LlmJobProgress from './LlmJobProgress'
 import LlmErrorInfoView from './LlmErrorInfo'
 import LlmLimitBanner from './LlmLimitBanner'
 import EngineSelect from './EngineSelect'
+import QnetKeySection from './settings/QnetKeySection'
 import Stepper from './Stepper'
 import type { StepperStep } from './Stepper'
 import type {
@@ -263,14 +264,20 @@ export default function FetchImportWizard({ onPreviewReady, onFallbackToUrl, onF
   if (subStep === 'cert' && allAdaptersUnavailable) {
     return (
       <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
-        <p className="text-sm font-medium text-primary">사이트에서 가져오기 — 준비 중</p>
+        <p className="text-sm font-medium text-primary">
+          {qnetKeyMissing ? '사이트에서 가져오기 — 서비스키 등록 필요' : '사이트에서 가져오기 — 준비 중'}
+        </p>
         {qnetKeyMissing ? (
-          <p className="text-sm text-muted">
-            설정 &gt; 데이터에서 공공데이터포털 서비스키를 등록하세요.{' '}
-            <Link to="/settings" className="text-accent hover:underline">
-              설정으로 이동
-            </Link>
-          </p>
+          <>
+            <p className="text-sm text-muted">
+              큐넷 공개문제를 가져오려면 공공데이터포털 서비스키를 한 번 등록하세요. 등록한 키는{' '}
+              <Link to="/settings" className="text-accent hover:underline">
+                설정 &rsaquo; 데이터
+              </Link>
+              에서도 관리할 수 있습니다.
+            </p>
+            <QnetKeySection />
+          </>
         ) : (
           <p className="text-sm text-muted">
             지금은 자동으로 가져올 수 있는 사이트가 없습니다. 회차 파일이나 URL로 반입해 주세요.
