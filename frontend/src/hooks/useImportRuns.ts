@@ -5,7 +5,7 @@ import { startConvertRequest } from '../api/convert'
 import type { StartConvertInput } from '../api/convert'
 import { importRunKeys, isRunInProgress, listRuns, useRunDetail } from '../api/importRuns'
 import { llmJobsKey, useLlmJobs } from '../api/llm'
-import type { ImportRun, LlmEngine, LlmErrorInfo, LlmJobItem } from '../api/types'
+import type { ImportRun, LlmEngine, LlmErrorInfo, LlmJobItem, LlmJobsResponse } from '../api/types'
 
 // 반입 건 목록(설계 §4.34, §5.9 [S56]) — 서버가 정본. 진행 중 run이 있을 때만 짧은 간격으로 폴링하고
 // 없으면 폴링 0(탭 복귀·마운트 시 갱신은 기본 동작). 라이브 잡 진행은 서버가 싣지 않으므로
@@ -33,6 +33,7 @@ export interface UseImportRunsResult {
 }
 
 export function useImportRuns(pinnedRunId: number | null): UseImportRunsResult {
+  const qc = useQueryClient()
   const query = useInfiniteQuery({
     queryKey: [...importRunKeys.all, 'list'] as const,
     initialPageParam: 1,
@@ -40,7 +41,17 @@ export function useImportRuns(pinnedRunId: number | null): UseImportRunsResult {
     getNextPageParam: (last) => (last.page * last.size < last.total ? last.page + 1 : undefined),
     refetchInterval: (q) => {
       const pages = q.state.data?.pages ?? []
-      const active = pages.some((p) => p.items.some((r) => isRunInProgress(r.status)))
+      const jobs = qc.getQueryData<LlmJobsResponse>(llmJobsKey)?.items ?? []
+      const liveJobIds = new Set(jobs.filter((j) => j.status === 'queued' || j.status === 'running').map((j) => j.job_id))
+      // 진행 중 상태 · 분할 조각이 아직 덜 모인 run(첫 조각에서 review_ready가 돼도 계속) · 살아 있는 잡이 붙은 run.
+      const active = pages.some((p) =>
+        p.items.some((r) => {
+          if (isRunInProgress(r.status)) return true
+          const s = r.summary
+          if (s.chunks_total != null && s.previews.length + (s.chunks_failed ?? 0) < s.chunks_total) return true
+          return r.job_id != null && liveJobIds.has(r.job_id)
+        }),
+      )
       return active ? RUNS_ACTIVE_POLL_MS : false
     },
   })

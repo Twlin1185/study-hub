@@ -523,16 +523,33 @@ def test_commit_failure_rolls_back_run_transition(client, Session):
     run = _run(Session, run_id)
     assert run.status == "committed"
     assert _event_types(Session, run_id)[-1] == "committed"
+    assert _summary(Session, run_id)["previews"][0]["committed_at"]  # 비분할도 항목에 기록
 
 
 # ---------------------------------------------------------------------------
 # ⑤ dismiss
 # ---------------------------------------------------------------------------
 def test_dismiss_rules(client, Session):
-    queued = _new_run(Session)
-    res = client.post(f"/api/import/runs/{queued}/dismiss")
-    assert res.status_code == 409
-    assert res.json()["error"]["detail"]["reason"] == "bad_transition"
+    # 진행 중 + 활성 잡 존재 = 409.
+    job_id = f"tst_{uuid.uuid4().hex[:8]}"
+    job = cs._new_job_base("convert", resolved_engine="claude-cli", requested_engine="auto", model=None)
+    with cs._JOBS_LOCK:
+        cs._JOBS[job_id] = job
+    try:
+        queued = _new_run(Session, job_id=job_id)
+        res = client.post(f"/api/import/runs/{queued}/dismiss")
+        assert res.status_code == 409
+        assert res.json()["error"]["detail"]["reason"] == "bad_transition"
+    finally:
+        with cs._JOBS_LOCK:
+            cs._JOBS.pop(job_id, None)
+
+    # 진행 중이나 잡 없음(잡 소멸·분할 위저드 닫음 등) = 200 + detail.reason no_active_job.
+    stuck = _new_run(Session, status="splitting")
+    res = client.post(f"/api/import/runs/{stuck}/dismiss")
+    assert res.status_code == 200 and res.json() == {"id": stuck, "is_active": False}
+    events = client.get(f"/api/import/runs/{stuck}").json()["events"]
+    assert events[-1]["type"] == "dismissed" and events[-1]["detail"] == {"reason": "no_active_job"}
 
     done = _new_run(Session, status="committed")
     res = client.post(f"/api/import/runs/{done}/dismiss")

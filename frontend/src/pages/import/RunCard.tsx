@@ -99,7 +99,7 @@ export default function RunCard({
     reviewable && detail && !detail.preview_available ? '보존 만료 — 다시 반입하세요' : null
   const splitTotal = run.summary.chunks_total ?? (detail ? splitTotalFromEvents(detail.events) : null)
   const chunksFailed = run.summary.chunks_failed ?? 0
-  const canMerge = reviewable && isSplit && previews.length >= 2 && (splitTotal == null || previews.length >= splitTotal)
+  const canMerge = reviewable && isSplit && previews.length >= 2 && (splitTotal == null || previews.length + chunksFailed >= splitTotal)
 
   // 카드 [검토] 대상 — run.preview_id(단일·병합본) 우선, 없으면 조각이 1개뿐인 분할 run의 그 조각.
   const mainPreviewId = run.preview_id ?? (previews.length === 1 ? previews[0].preview_id : null)
@@ -123,6 +123,8 @@ export default function RunCard({
     dismissMutation.mutate(run.id, { onError: (e) => setLocalError(errMsg(e, '목록에서 지우지 못했습니다.')) })
   }
 
+  // 잡이 없거나 TTL로 사라진 진행 중 run — 빠져나갈 길로 [목록에서 지우기]를 연다(409면 서버 메시지 표시).
+  const hasLiveJob = run.job_id != null && job != null && (job.status === 'running' || job.status === 'queued')
   const showProgress = inProgress && job != null && (job.status === 'running' || job.status === 'queued')
   const cardReviewError = reviewError && reviewError.runId === run.id ? reviewError.message : null
 
@@ -193,7 +195,7 @@ export default function RunCard({
             onClick={() => onReview(run, '')}
             className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90"
           >
-            검토
+            답지 화면 열기
           </button>
         )}
         {canMerge && !run.preview_id && (
@@ -234,16 +236,25 @@ export default function RunCard({
             다시 시도
           </button>
         )}
+        {run.status === 'splitting' && run.split_id && (
+          <button
+            type="button"
+            onClick={() => onSplitImport(run)}
+            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90"
+          >
+            분할 이어서
+          </button>
+        )}
         {inProgress && run.job_id && (
           <button
             type="button"
             onClick={() => onCancelRequest(run)}
             className="rounded border border-border px-3 py-1.5 text-xs text-wrong hover:bg-bg"
           >
-            취소
+            {isSplit ? '마지막 조각 취소' : '취소'}
           </button>
         )}
-        {!inProgress && (
+        {(!inProgress || !hasLiveJob) && (
           <button
             type="button"
             disabled={dismissMutation.isPending}

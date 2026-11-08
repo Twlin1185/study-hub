@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { parseServerDate } from '../../editor2/api/notes'
 import type { ImportRun, ImportRunDetail, ImportRunEvent } from '../../api/types'
 
 // 반입 건 타임라인(설계 §5.9 [S56] C) — [자세히] 펼침. events[] 시간순(점 + message + 상대 시각) ·
@@ -7,7 +8,7 @@ import type { ImportRun, ImportRunDetail, ImportRunEvent } from '../../api/types
 
 export function formatRelative(iso: string | null | undefined): string {
   if (!iso) return ''
-  const t = new Date(iso).getTime()
+  const t = parseServerDate(iso).getTime()
   if (Number.isNaN(t)) return iso
   const diffSec = Math.floor((Date.now() - t) / 1000)
   if (diffSec < 45) return '방금 전'
@@ -111,7 +112,7 @@ export default function RunTimeline({
                   <span className="text-primary">조각 {p.chunk_index ?? i + 1}</span>
                   <span className="flex items-center gap-2">
                     <span className={committed ? 'text-correct' : 'text-muted'}>{committed ? '반입 완료' : '검토 대기'}</span>
-                    {!committed && (
+                    {!committed && run.status !== 'committed' && !(run.preview_id && isCommittedPreview(run, run.preview_id)) && (
                       <button
                         type="button"
                         disabled={reviewDisabledReason != null || reviewingPreviewId === p.preview_id}

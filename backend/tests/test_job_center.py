@@ -27,6 +27,13 @@ from services import improve_service
 from services import settings_service
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cases_dir(tmp_path, monkeypatch):
+    """stage-56 B-8 실측(FB-31) — 이 모듈의 regenerate·convert 진입점 테스트가 실패 사례 수집 훅을
+    거쳐 실제 `improve/cases/`에 user_report를 누적시켰다(count 77→83). 모듈 전체를 tmp_path로 격리."""
+    monkeypatch.setattr(improve_service, "CASES_DIR", tmp_path / "improve" / "cases")
+
+
 @pytest.fixture()
 def db():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
@@ -495,9 +502,6 @@ def test_ten_entrypoints_apply_requested_model_via_common_helper(
 
     monkeypatch.setattr(engine_svc, "is_engine_available", lambda eid: True)
     monkeypatch.setattr(split_service, "SPLIT_DIR", tmp_path / "import" / "split")
-    # stage-56 B-8 실측(FB-31) — regenerate 진입점이 실패 사례 수집 훅을 거쳐 실제 improve/cases/에
-    # user_report를 누적시켰다(count 77→83). CASES_DIR도 tmp_path로 격리한다.
-    monkeypatch.setattr(improve_service, "CASES_DIR", tmp_path / "improve" / "cases")
     cs.pause_queue()
 
     doc_regen = _make_question_document(db, "q-regen-model")

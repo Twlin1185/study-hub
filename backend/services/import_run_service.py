@@ -335,6 +335,9 @@ def mark_committed(
 
     done = True
     message = _committed_message(created, merged, skipped)
+    for entry in summary["previews"]:  # 비분할·병합 preview도 해당 항목에 커밋 시각 기록
+        if isinstance(entry, dict) and entry.get("preview_id") == preview_id:
+            entry["committed_at"] = now.isoformat()
     if run.split_id is not None and preview_id != run.preview_id:
         # 분할 조각 preview 커밋 — 해당 조각에 committed_at 기록 후 전 조각 완료 판정.
         chunk_index: Optional[int] = None
@@ -590,8 +593,10 @@ def hook_job_started(run_id: int, *, job_id: str, job_kind: str, is_split_piece:
         if run is None:
             return
         message = "조각 변환을 시작했습니다" if is_split_piece else _STARTED_MESSAGES.get(job_kind, "작업을 시작했습니다")
-        if run.split_id is None and run.status in ("queued", "review_ready", "failed", "cancelled"):
-            # review_ready·failed·cancelled = 답지 재가공(같은 key_id로 재실행) 경로.
+        # 다른 kind는 queued → converting만 · answer_key는 재가공(같은 key_id로 재실행) 경로라
+        # review_ready·failed·cancelled에서도 converting으로 되돌린다.
+        allowed = ("queued", "review_ready", "failed", "cancelled") if job_kind == "answer_key" else ("queued",)
+        if run.split_id is None and run.status in allowed:
             run.status = "converting"
             run.error_kind = None
             run.error_message = None
@@ -977,18 +982,34 @@ def get_detail(db: Session, run_id: int) -> dict:
     }
 
 
+def _has_active_job(job_id: Optional[str]) -> bool:
+    """인메모리 잡 레코드가 있고 종료 전(목록 파생 상태 queued|running — 내부 literal 'running')."""
+    if not job_id:
+        return False
+    from services import convert_service
+
+    with convert_service._JOBS_LOCK:
+        job = convert_service._JOBS.get(job_id)
+        return job is not None and job.get("status") not in ("done", "error", "cancelled")
+
+
 def dismiss_run(db: Session, run_id: int) -> dict:
     """[목록에서 지우기] — `is_active=0` + `dismissed`(상태 무변 · 소프트 — 불변 규칙 3)."""
     run = db.get(models.ImportRun, run_id)
     if run is None or not run.is_active:
         raise NotFoundError("반입 건을 찾을 수 없습니다", detail={"run_id": run_id})
+    detail: Optional[dict] = None
     if run.status in IN_PROGRESS_STATUSES:
-        raise ConflictError(
-            "진행 중인 반입 건은 목록에서 지울 수 없습니다 — 먼저 취소하세요",
-            detail={"reason": "bad_transition", "run_id": run_id, "status": run.status},
-        )
+        # 409는 "진행 중 ∧ 연결된 활성 잡 존재"만 — 잡 없이 진행 중으로 남은 run(분할 위저드
+        # 닫음 · 답지 업로드 직후 · 훅 실패 잔존)은 지울 수 있어야 한다(굳음 방지).
+        if _has_active_job(run.job_id):
+            raise ConflictError(
+                "진행 중인 반입 건은 목록에서 지울 수 없습니다 — 먼저 취소하세요",
+                detail={"reason": "bad_transition", "run_id": run_id, "status": run.status},
+            )
+        detail = {"reason": "no_active_job"}
     run.is_active = 0
-    record_event(db, run.id, "dismissed", "목록에서 지웠습니다", None, run=run)
+    record_event(db, run.id, "dismissed", "목록에서 지웠습니다", detail, run=run)
     db.commit()
     return {"id": run.id, "is_active": False}
 
