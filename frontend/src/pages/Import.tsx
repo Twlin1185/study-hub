@@ -127,7 +127,7 @@ export default function ImportPage() {
   const queue = useConvertQueue()
   // S22(설계 §4.24 ⓓ, F48) — 작업 센터 [화면으로 이동]이 `?mode=answer_key`로 답지 위저드를
   // 곧바로 연다(대기열 복원보다 우선 — 명시적으로 그 화면을 지목한 진입이므로).
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [entryMode, setEntryMode] = useState<EntryMode>(() => {
     const mode = searchParams.get('mode')
     if (mode === 'answer_key') return 'answer_key'
@@ -451,7 +451,16 @@ export default function ImportPage() {
               <p className="text-sm font-semibold text-primary">답지·해설지 반입</p>
               <button
                 type="button"
-                onClick={() => setEntryMode('convert')}
+                onClick={() => {
+                  // 검토 반영 — 딥링크(?mode=answer_key)로 들어왔다 나갈 때 파라미터를 지워, 작업 센터
+                  // [화면으로 이동]으로 같은 URL에 재진입해도 modeParam 변화가 생겨 답지 화면이 다시 열린다.
+                  if (searchParams.has('mode')) {
+                    const next = new URLSearchParams(searchParams)
+                    next.delete('mode')
+                    setSearchParams(next, { replace: true })
+                  }
+                  setEntryMode('convert')
+                }}
                 className="text-xs text-accent hover:underline"
               >
                 ← 새 반입으로

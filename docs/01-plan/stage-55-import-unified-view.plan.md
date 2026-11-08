@@ -1,6 +1,6 @@
 # Stage 55 — 반입 화면 통합 1단계: 소스 선택 1동작 + Stepper 1개 + 큐넷 키 인라인 등록 + 드로어 가산 (FB-28 1단계 · FB-29 · FB-30 드로어분) (v2.0.x · 사소)
 
-> 상태: **착수 전** — 편성 2026-11-08(문서만·코드 0) · 번호 55 · **사용자 확정 대기 0(편성 보류 아님)** — 판단이 갈리는 UX 선택 3건은 §2에 **권고안으로 확정 + 대안 표**를 남겼다(**사용자 이견 시 변경** — 착수 전·실사용 회신 어느 시점이든 해당 규약만 교체 · 자율 진행 세션이라 질의 불가). stage-54(캡처 · 편성 보류)와 무접촉·독립.
+> 상태: **구현·검토 완료 — 발행 대기(DoD 5 사용자 실사용·폰 실기기 회신 치명 0 → `VERSION` 2.03.2 + CLAUDE.md 버전 줄)**(2026-11-08 · 편성 커밋 `d729a88` · 구현 커밋 `e5fac91` · 검토 반영+완료 절차 = 후속 커밋 1개 · **Opus 검토 조건부 통과 → 치명 0 · 중요 0 · 경미 4 전건 반영** + 의심 1건 실측 재현 후 보강 · **브라우저 실측 V-2 ⓐ~ⓙ 통과**(ⓖ는 빈 큐 환경이라 코드 검토 갈음 · 임시 포트 8765 · 빈 DB · 390px iframe 에뮬 — 종료·리스너 부재 확인) · DoD 1~4 충족 · 문서 묶음 D-1~D-5 이행 — §7). 편성 2026-11-08 · 번호 55 · **사용자 확정 대기 0** — UX 선택 3건(§2 A·B·D)은 권고안으로 확정 + 대안 표(**사용자 이견 시 변경** — 실사용 회신 시 해당 규약만 교체). stage-54(캡처 · 편성 보류)와 무접촉·독립.
 > **버전 영향: 사소**(CHANGELOG 머리 규약 ③ — "사소 = 버그픽스·다듬기·정비"): 기존 `/import`·`/settings`(무변)·내비 표면 **다듬기** · **새 화면 0 · 새 라우트 0 · 신규 API 0(`POST /api/fetch/qnet-key` 재사용) · DDL 0 · 신규 의존 0** · 기능 퇴역 0(진입 모드 6종·`?mode=` 딥링크 전부 유지 — 배치·문구만 변경). → 산출 버전 = 규약 ② PP+1 = **v2.03.2 예정**. 마스터 §14 M 행 **추가 없음**(사소 — stage-index가 담당) · §5 F 행 추가 없음.
 > 생성 경위: `backlog.md` §1 **FB-28**(별지 §13 514행 — "하나의 반입 프로세스를 하나로 묶어서 한번에 볼 수 있도록" · 2026-11-08 전수 점검 · **1단계만** — 2단계 `import_runs`는 핵심·DDL 1이라 이 stage 제외) + **FB-29**(별지 §13 515행 — 큐넷 서비스키 등록 위치 · 권고 ⓐ 인라인 등록 채택) + **FB-30 드로어분**(별지 §13 516행 — 드로어에 제안함·설정 가산 · 플래시카드 진입·복습 3표면 재론은 제외). 세 건 모두 사소 · 같은 "찾기 어려움" 계열 → 1 stage 동승. FB-31은 감시 유지(무접촉).
 > 정본 포인터: 화면 계약 = screens **§5.9 `[S55]` 블록**(진입 구조·Stepper·엔진 접기·문구·대기열 요약·인라인 키 등록) + §5.11 큐넷 카드 1구 + §5 도입부 드로어 1구 + §5.1 빈 상태 문구 1구(**Design v1.70**) · API 계약 = api **무접촉**(§4.13 `fetch/qnet-key` 재사용) · 불변 규칙 5(토큰만)·6(DDL 0)·8(에러 §3 — 기존 응답 그대로)·9 · R7(미리보기 승인 게이트 불변) · R37(엔트리 청크 Δ 기록) · 발행 절차 = CHANGELOG 머리 규약 ⑤.
@@ -25,7 +25,7 @@
   - 선택 단계(`step === 'select'`) 맨 위 = 캡션 `새 반입`(`text-xs font-semibold text-muted`) + **세그먼트 4개 1줄**: `파일`(→ `convert`) · `URL`(→ `url`) · `사이트(큐넷)`(→ `fetch`) · `변환된 JSON`(→ `json`) — 순서 = 정본 경로 우선(파일·URL이 S13 이후 정본 · JSON은 "이미 변환된 결과" 보조). 기존 `ModeTab` 재사용(`rounded-full` 토큰 클래스 무변) · 행 = `flex flex-nowrap gap-2`(390px − 좌우 패딩 32px = 358px 안에 4개 · 짧은 라벨이 1줄을 보장 — 줄바꿈 대비 `overflow-x-auto` 1클래스 허용).
   - **답지·해설지 반입은 소스 축이 아니다**(반입 **후** 보완) → 세그먼트에서 빼고 **페이지 제목 줄 우측 텍스트 링크** `답지·해설지로 정답 채우기 →`(`text-xs text-accent hover:underline` · `<h1>반입</h1>`과 `flex justify-between` 1줄) = `setEntryMode('answer_key')`. 선택 단계 + `entryMode`가 `answer_key`·`split_import`가 아닐 때만 노출.
   - **답지 모드 화면**: 세그먼트 **숨김** · 위저드 위 1줄 = `답지·해설지 반입` 소제목 + `[← 새 반입으로]`(`setEntryMode('convert')`) · 기존 소개문 `:499~502` 유지. **분할 모드**도 세그먼트 숨김(진입 = 대기열 too_large·딥링크 전용 — 현행 위저드 `onCancel`이 복귀 담당 · 추가 버튼 0).
-  - **기본 소스 = 파일**: `initialEntryMode()` 큐 비었을 때 `'json'` → **`'convert'`**(`:119`) · `resetWizard()` `setEntryMode('json')` → **`'convert'`**(`:237`). `EntryMode` 타입·`?mode=answer_key|split_import` 초기값·재반응 `:131~146`·`backToQueue`·`jobRoutes.ts` **diff 0**(딥링크 계약 무변).
+  - **기본 소스 = 파일**: `initialEntryMode()` 큐 비었을 때 `'json'` → **`'convert'`**(`:119`) · `resetWizard()` `setEntryMode('json')` → **`'convert'`**(`:237`). `EntryMode` 타입·`?mode=answer_key|split_import` 초기값·재반응 `:131~146`·`backToQueue`·`jobRoutes.ts` **diff 0**(딥링크 계약 무변). **← 보강(2026-11-08 · 검토 의심 → 390px 에뮬 재현)**: `[← 새 반입으로]`는 URL의 `?mode`를 함께 지운다(`setSearchParams(…, {replace:true})` · `:131~146` 재반응 로직 무변) — 지우지 않으면 작업 센터 [화면으로 이동]으로 **같은 URL 재진입** 시 `modeParam`이 불변이라 답지 화면이 다시 열리지 않는다(수정 후 재진입 정상 실측).
   - 대안 표(권고 = ⓐ):
 
     | 안 | 형태 | 장점 | 단점 |
@@ -35,7 +35,7 @@
     | ⓒ 카드형 소스 4(2×2 · 아이콘+설명) | 큰 카드 선택 후 패널 | 처음 쓰는 사람에게 친절 | 첫 화면 높이 증가(FB-28 실측 58% 문제 재발) · 재방문 시 1탭 추가 |
 - **B. Stepper = 모드별 1개 — 하위 위저드를 가진 모드는 페이지 Stepper를 숨긴다** (결정 ② · **사용자 이견 시 변경**)
   - 페이지 `StepIndicator`(`:378~380`) 렌더 조건 = **`!(step === 'select' && (entryMode === 'fetch' || entryMode === 'answer_key' || entryMode === 'split_import'))`**. 즉 파일·URL·JSON = 페이지 3단(소스 선택 → 미리보기 → 결과) 1개 · 사이트 = 선택 단계에선 하위 4단 1개 → `result_preview_id`로 미리보기 합류(§5.9 S10 ④) 시점부터 페이지 3단 1개(하위 위저드 언마운트 — 동시 표시 0) · 답지 = 하위 6단 1개(페이지 미리보기에 합류하지 않음) · 분할 = 하위 4단 1개(완료 시 대기열로 복귀).
-  - 페이지 단계 라벨 `select: '파일 선택'` → **`'소스 선택'`**(`:638` · 미리보기·결과 무변). 하위 위저드 3개·`Stepper.tsx` **diff 0**.
+  - 페이지 단계 라벨 `select: '파일 선택'` → **`'소스 선택'`**(`:638` · 미리보기·결과 무변). 하위 위저드 3개·`Stepper.tsx` **diff 0**. **← 실측 추기(2026-11-08 · 검토 경미 1)**: 사이트 소스에서 전 어댑터 unavailable(키 미등록 포함)이면 위저드가 안내 화면을 조기 반환해 하위 Stepper도 없다 → 그 화면은 **Stepper 0**(안내 화면이라 정당 · "하위 4단 1개"는 키 등록 상태 기준 · V-2 ⓒ 동일 해석).
   - 대안 표(권고 = ⓐ):
 
     | 안 | 형태 | 장점 | 단점 |
@@ -44,12 +44,12 @@
     | ⓑ 하위 단계를 페이지 Stepper에 병합(사이트 = 자격증·회차·확인·실행·미리보기·결과 6단) | 위저드 Stepper 제거 + 페이지 단계 동적 | 흐름 1개로 끝까지 연속 | 위저드 3개 상태를 페이지로 끌어올림 — `Import.tsx` 비대 가속 · 1단계 범위 초과 |
 - **C. 엔진 블록 = 요약 1줄 + [변경] — 래퍼 컴포넌트 신설 · `EngineSelect` diff 0** (결정 ③)
   - 신설 `components/EngineSelectCollapsible.tsx`(props = `EngineSelect`의 `value`·`onChange`·`modelValue`·`onModelChange` 그대로 전달). 접힌 상태 1줄 = `사용 엔진: {요약}` + `[변경]`(`text-xs text-accent`) · 요약 = `value === 'auto'` → **`자동 → {해석 엔진 label}`**(해석 = `status.priority` 순서로 `engines`에서 **첫 `available && enabled`** — 서버 auto 해석 규칙(§4.17①·§4.23)의 프론트 파생 · 신규 API 0) · 구체 엔진 → `{label}` · 모델 지정 시 `· {모델 label}` 부가. 펼침 = 기존 `<EngineSelect>` 그대로 + `[접기]`.
-  - **강제 펼침(경고를 숨기지 않는다)**: ⓐ `auto`인데 해석 가능한 엔진 0 ⓑ 현재 선택 구체 엔진이 `available:false`·`enabled:false` → 접기 불가 · 펼친 `EngineSelect`가 사유·[다시 확인]을 그대로 보인다. 상태 로딩 중 = `사용 엔진: 확인 중…`.
+  - **강제 펼침(경고를 숨기지 않는다)**: ⓐ `auto`인데 해석 가능한 엔진 0 ⓑ 현재 선택 구체 엔진이 `available:false`·`enabled:false` → 접기 불가 · 펼친 `EngineSelect`가 사유·[다시 확인]을 그대로 보인다. 상태 로딩 중 = `사용 엔진: 확인 중…`. **← 추기(2026-11-08 · 검토 경미 4)**: 상태 조회 **오류**(`isError`)면 '확인 중…' 고착 대신 `EngineSelect`를 펼친 채 보인다(종전 동작 동등 · [다시 확인] 경로 유지).
   - 펼침 상태 = 컴포넌트 로컬(`useState(false)` · 저장 0 · localStorage 0). 사용처 = **`StartConvertPanel` 1곳만**(`:759~762` 교체) — 사이트 ③ 확인 단계·답지·AI 응용 등 나머지 6곳은 **현행 `EngineSelect` 유지**(확인 단계는 엔진을 보여 주는 것 자체가 목적).
 - **D. 큐넷 키 = 사이트 소스 안내 화면 안 인라인 등록(FB-29 ⓐ) — `QnetKeySection` 그대로 재사용 · 설정 카드 유지** (결정 ④ · **사용자 이견 시 변경**)
   - `FetchImportWizard.tsx` `qnetKeyMissing`(`:262`) 분기: 제목 `사이트에서 가져오기 — 준비 중` → **`사이트에서 가져오기 — 서비스키 등록 필요`** · 문구 `:268~273` → **"큐넷 공개문제를 가져오려면 공공데이터포털 서비스키를 한 번 등록하세요. 등록한 키는 설정 › 데이터에서도 관리할 수 있습니다."**(`/settings` 링크는 문장 끝 "설정 › 데이터" 텍스트 링크로 유지) + 그 아래 **`<QnetKeySection />`**(입력·즉석 검증·실패 사유·커버리지 한계·발급 안내 — 카드 그대로) + 기존 대안 버튼(URL·파일) 유지.
   - 등록 성공 → `useSetQnetKey` `onSuccess`가 `['fetch','adapters']` invalidate(`api/fetch.ts:60`) → `allAdaptersUnavailable` 거짓 → **위저드 ① 자격증 검색이 자동으로 나타난다**(추가 상태·코드 0). 키는 있는데 다른 사유로 unavailable(`qnetKeyMissing` 거짓) = 현행 "준비 중" 문구 무변.
-  - `QnetKeySection.tsx`·`Settings.tsx` **diff 0**(설정 그룹 ⑤ 카드 위치·F38 6그룹 수 불변 — FB-29 ⓑ "카드 이동" 기각).
+  - `QnetKeySection.tsx`·`Settings.tsx` **diff 0**(설정 그룹 ⑤ 카드 위치·F38 6그룹 수 불변 — FB-29 ⓑ "카드 이동" 기각). **← 실측 예외(2026-11-08 · 검토 경미 2)**: `QnetKeySection.tsx:45` 설명문의 옛 라벨 "[사이트에서 가져오기]"가 인라인 카드에 그대로 노출 → **문구 1줄만** "[사이트(큐넷)] 소스"로 정정(로직·props diff 0 · §4·DoD 2의 diff 0 명단에서 이 1줄 예외).
   - 대안 표(권고 = ⓐ):
 
     | 안 | 형태 | 장점 | 단점 |
@@ -67,34 +67,34 @@
   - **상단 그룹 끝**(노트 다음) = `<SuggestionsNavBadge onClick={() => setMobileDrawerOpen(false)} />`(비compact — 📮 + "제안함" + 배지 · 사이드바 `:167`과 같은 위치). `SuggestionsNavBadge.tsx`에 **`onClick?: () => void` 1옵션**(compact·비compact 두 `NavLink`에 전달 · 미지정 = 현행 · 기존 호출처 2곳 diff 0).
   - **하단 그룹** = **휴지통 → 설정 → LLM 작업 → 도움말**(사이드바 `:169~190`과 같은 순서). 설정 = `SETTINGS_NAV_ITEM` 상수 신설(`{ to: '/settings', label: '설정', icon: '⚙️' }`) — 사이드바 리터럴 `:172`도 이 상수로 교체(단일 출처 · 리터럴 복제 0 · 사이드바 렌더 결과 diff 0).
   - 드로어 주석 `:243~248` 갱신("9+3=12 · 설정 미포함" → "10+4=14 · 사이드바와 동일 구성"). `NAV_ITEMS`·하단 탭바 5·헤더 📮⚙️·사이드바 표시 **무변**. 높이: 14항목 ≈ 기존 12항목 + 2행 — 844px(폰 실기기 기준) 무스크롤 목표 · 640px 이하는 기존 `overflow-y-auto`로 스크롤 허용(S49 "640px 무스크롤" 실측 조건은 이 stage에서 완화 — §7 기록).
-- **H. 매뉴얼** (결정 ⑧) — `docs/manual/user-manual.html` `#import` 절(870행~): 876행 방법 A~D 도입 문단(탭 → "새 반입의 소스 4개 — 파일·URL·사이트(큐넷)·변환된 JSON") · 916행 "원본 파일로 시작" → "새 반입 › [파일]" · 1014·2008행 "반입 JSON 파일 선택" → "[변환된 JSON]" · 1060~1093행 방법 D "탭" → "소스" + "1) 서비스키 등록" = **반입 화면에서 바로 등록 가능**(설정 › 데이터 경로 병기) · 1157~1161행 답지 "[답지·해설지 반입] 탭" → "반입 제목 줄 오른쪽 [답지·해설지로 정답 채우기]" · 1952행 소제목 "변환(원본 파일로 시작)" → "변환([파일]·[URL])" · 1987행 "탭에 안내 화면만" → "사이트 소스에 등록 안내만 — 그 자리에서 키 등록" + 모바일 메뉴 문단 1864행(☰ 메뉴 항목 나열)에 "제안함·설정" 추가 1구. 완료 시 반영(D-1).
+- **H. 매뉴얼** (결정 ⑧) — `docs/manual/user-manual.html` `#import` 절(870행~): 876행 방법 A~D 도입 문단(탭 → "새 반입의 소스 4개 — 파일·URL·사이트(큐넷)·변환된 JSON") · 916행 "원본 파일로 시작" → "새 반입 › [파일]" · 1014·2008행 "반입 JSON 파일 선택" → "[변환된 JSON]" · 1060~1093행 방법 D "탭" → "소스" + "1) 서비스키 등록" = **반입 화면에서 바로 등록 가능**(설정 › 데이터 경로 병기) · 1157~1161행 답지 "[답지·해설지 반입] 탭" → "반입 제목 줄 오른쪽 [답지·해설지로 정답 채우기]" · 1952행 소제목 "변환(원본 파일로 시작)" → "변환([파일]·[URL])" · 1987행 "탭에 안내 화면만" → "사이트 소스에 등록 안내만 — 그 자리에서 키 등록" + 모바일 메뉴 문단 1864행(☰ 메뉴 항목 나열)에 "제안함·설정" 추가 1구. 완료 시 반영(D-1). **← 추기(2026-11-08 · 검토 경미 3)**: 985행 방법 C "URL로 시작" → "새 반입 › [URL]" 1구 추가(총 11곳 · 이행 완료).
 
 ## 3. 체크리스트
 
 **B. 백엔드 (`backend/`)**
-- [ ] B-0 백엔드 diff 0 확인(`git diff --stat -- backend` 빈 출력 · `routers/fetch.py:49,57` 무접촉 · Alembic 0).
+- [x] B-0 백엔드 diff 0 확인(`git diff --stat -- backend` 빈 출력 · `routers/fetch.py:49,57` 무접촉 · Alembic 0).
 
 **F. 프론트 (`frontend/src/`)**
-- [ ] F-1 `pages/Import.tsx` 진입 구조(규약 A) — `ModeTab` 행 `:417~433` → 캡션 `새 반입` + 세그먼트 4(`파일`·`URL`·`사이트(큐넷)`·`변환된 JSON` · `flex-nowrap`) · 답지·분할 모드에서 세그먼트 숨김 · 제목 줄 `:373` `flex justify-between` + 우측 `답지·해설지로 정답 채우기 →` 링크(선택 단계 + 답지·분할 아닐 때) · 답지 모드 소제목 + `[← 새 반입으로]` · `initialEntryMode` `:119`·`resetWizard` `:237` 기본값 `'convert'` · `EntryMode`·`?mode=` 처리 `:131~146` diff 0.
-- [ ] F-2 `pages/Import.tsx` Stepper(규약 B) — `StepIndicator` `:378~380` 렌더 조건(select + fetch·answer_key·split_import면 숨김) · `STEP_LABELS.select` `:638` = `'소스 선택'`. 하위 위저드 3파일·`Stepper.tsx` diff 0.
-- [ ] F-3 `components/EngineSelectCollapsible.tsx` 신설(규약 C — 요약 1줄 · `자동 → {해석 label}` · 강제 펼침 2조건 · 로딩 문구 · `[변경]`/`[접기]` · 로컬 상태) + `Import.tsx` `StartConvertPanel` `:759~762` 교체(라벨 `사용 엔진` `p` 제거 — 래퍼 1줄에 흡수). `EngineSelect.tsx` diff 0.
-- [ ] F-4 문구(규약 E) — `Import.tsx:375` · `pages/Home.tsx:96`.
-- [ ] F-5 대기열 요약 조건(규약 F) — `Import.tsx:436` `entryMode !== 'convert' && entryMode !== 'url'`.
-- [ ] F-6 `components/FetchImportWizard.tsx` 인라인 키 등록(규약 D) — `qnetKeyMissing` 분기 `:263~298` 제목·문구 교체 + `<QnetKeySection />` 렌더(import `./settings/QnetKeySection`) + 대안 버튼 유지 · 키 등록 외 unavailable 문구 무변 · `QnetKeySection.tsx`·`Settings.tsx` diff 0.
-- [ ] F-7 `components/SuggestionsNavBadge.tsx` — `onClick?: () => void` 1옵션(두 `NavLink` 전달 · 미지정 = 현행).
-- [ ] F-8 `components/Layout.tsx`(규약 G) — `SETTINGS_NAV_ITEM` 상수 + 사이드바 `:172` 리터럴 교체(렌더 diff 0) · 드로어 상단 그룹 끝 `SuggestionsNavBadge`(비compact · 닫힘 `onClick`) · 드로어 하단 그룹 휴지통 다음 `NavButton item={SETTINGS_NAV_ITEM}`(닫힘 `onClick`) · 주석 `:243~248` 갱신 · `NAV_ITEMS`·하단 탭바·헤더 무접촉.
-- [ ] F-9 색·간격 = 토큰·기존 유틸 클래스만(불변 규칙 5 · `tokens.css` 무변 · 새 색 리터럴 0) · 엔트리 청크 Δ 기록(R37 — 직전 커밋 dist 대비 · Layout·SuggestionsNavBadge = 앱 셸 · Import·FetchImportWizard = 라우트 청크) · 빌드 산출물 커밋 정책은 저장소 관례(stage-53 F-8)대로.
+- [x] F-1 `pages/Import.tsx` 진입 구조(규약 A) — `ModeTab` 행 `:417~433` → 캡션 `새 반입` + 세그먼트 4(`파일`·`URL`·`사이트(큐넷)`·`변환된 JSON` · `flex-nowrap`) · 답지·분할 모드에서 세그먼트 숨김 · 제목 줄 `:373` `flex justify-between` + 우측 `답지·해설지로 정답 채우기 →` 링크(선택 단계 + 답지·분할 아닐 때) · 답지 모드 소제목 + `[← 새 반입으로]` · `initialEntryMode` `:119`·`resetWizard` `:237` 기본값 `'convert'` · `EntryMode`·`?mode=` 처리 `:131~146` diff 0.
+- [x] F-2 `pages/Import.tsx` Stepper(규약 B) — `StepIndicator` `:378~380` 렌더 조건(select + fetch·answer_key·split_import면 숨김) · `STEP_LABELS.select` `:638` = `'소스 선택'`. 하위 위저드 3파일·`Stepper.tsx` diff 0.
+- [x] F-3 `components/EngineSelectCollapsible.tsx` 신설(규약 C — 요약 1줄 · `자동 → {해석 label}` · 강제 펼침 2조건 · 로딩 문구 · `[변경]`/`[접기]` · 로컬 상태) + `Import.tsx` `StartConvertPanel` `:759~762` 교체(라벨 `사용 엔진` `p` 제거 — 래퍼 1줄에 흡수). `EngineSelect.tsx` diff 0.
+- [x] F-4 문구(규약 E) — `Import.tsx:375` · `pages/Home.tsx:96`.
+- [x] F-5 대기열 요약 조건(규약 F) — `Import.tsx:436` `entryMode !== 'convert' && entryMode !== 'url'`.
+- [x] F-6 `components/FetchImportWizard.tsx` 인라인 키 등록(규약 D) — `qnetKeyMissing` 분기 `:263~298` 제목·문구 교체 + `<QnetKeySection />` 렌더(import `./settings/QnetKeySection`) + 대안 버튼 유지 · 키 등록 외 unavailable 문구 무변 · `QnetKeySection.tsx`·`Settings.tsx` diff 0.
+- [x] F-7 `components/SuggestionsNavBadge.tsx` — `onClick?: () => void` 1옵션(두 `NavLink` 전달 · 미지정 = 현행).
+- [x] F-8 `components/Layout.tsx`(규약 G) — `SETTINGS_NAV_ITEM` 상수 + 사이드바 `:172` 리터럴 교체(렌더 diff 0) · 드로어 상단 그룹 끝 `SuggestionsNavBadge`(비compact · 닫힘 `onClick`) · 드로어 하단 그룹 휴지통 다음 `NavButton item={SETTINGS_NAV_ITEM}`(닫힘 `onClick`) · 주석 `:243~248` 갱신 · `NAV_ITEMS`·하단 탭바·헤더 무접촉.
+- [x] F-9 색·간격 = 토큰·기존 유틸 클래스만(불변 규칙 5 · `tokens.css` 무변 · 새 색 리터럴 0) · 엔트리 청크 Δ 기록(R37 — 직전 커밋 dist 대비 · Layout·SuggestionsNavBadge = 앱 셸 · Import·FetchImportWizard = 라우트 청크) · 빌드 산출물 커밋 정책은 저장소 관례(stage-53 F-8)대로.
 
 **V. 검증 (서버 구동 금지 — `2_StartServer.bat` 주인은 사용자 · 브라우저 실측은 사용자가 띄운 `localhost:8000`만 · 실 데이터 무접촉 — 반입 커밋 0 · 키 등록 실측은 사용자 승인 하에만)**
-- [ ] V-1 `npm run build` 성공(성공/실패만) · `invariant-scan.ps1` PASS(신규 위반 0 — 기준선 갱신 0) · `run-tests.ps1` 생략 가능(백엔드 diff 0 — B-0으로 갈음 · 불변 규칙 7 대상 `sm2.py` 무접촉).
-- [ ] V-2 브라우저 실측(사용자 기동 서버 · 데스크톱 폭 + 390px 에뮬): ⓐ `/import` 첫 진입(빈 큐) = 세그먼트 `파일` 선택 상태 · 페이지 Stepper 1개(라벨 "소스 선택") · 설명문 새 문구 ⓑ **390px 세그먼트 1줄(꺾임 0)** · 제목 줄 답지 링크 1줄 · 전체 1열 ⓒ `사이트(큐넷)` = 페이지 Stepper **숨김** · 하위 4단 1개만 · (키 미등록 환경이면) "서비스키 등록 필요" + `QnetKeySection` 인라인 카드 + 대안 버튼 — **실제 키 입력은 하지 않음**(사용자 승인 시만 · 키 보유 환경이면 분기 미노출이 정상 — 이 경우 ⓒ는 "키 등록 상태에서 자격증 검색 화면 + Stepper 1개" 확인으로 갈음) ⓓ 답지 링크 → 세그먼트·페이지 Stepper 숨김 · 6단 Stepper 1개 · `[← 새 반입으로]` 복귀 · 390px 첫 화면에서 위저드 첫 입력이 접힘 없이 보임(FB-28 실측 58% 대비 개선 수치 기록) ⓔ `/import?mode=answer_key` 직접 진입 = 답지 화면(딥링크 무변) · 작업 센터 [화면으로 이동] 동일 ⓕ `파일` 엔진 블록 = `사용 엔진: 자동 → Claude CLI`(실측 환경 기준) 1줄 + `[변경]` → 펼침 = 기존 엔진 목록·게이팅 사유 · `[접기]` · 구체 엔진·모델 선택 후 요약 반영 ⓖ 대기열에 항목이 있을 때 `변환된 JSON`·`사이트`·답지 모드에 요약 줄 노출 · 빈 큐면 없음 ⓗ 홈 빈 상태 문구(데이터 0 환경이 아니면 코드 리뷰로 갈음 — 실 DB 비우기 금지) ⓘ 390px 드로어 = 상단 10(… 노트 → 제안함 + 배지) · 하단 4(휴지통 → 설정 → LLM 작업 → 도움말) · 제안함·설정 탭 = 이동 + 닫힘 · active 강조 · **하단 탭바 5 무변** · 헤더 📮⚙️ 무변 · 데스크톱 사이드바 표시 diff 0 ⓙ 콘솔 에러 0(`pattern` 필터).
+- [x] V-1 `npm run build` 성공(성공/실패만) · `invariant-scan.ps1` PASS(신규 위반 0 — 기준선 갱신 0) · `run-tests.ps1` 생략 가능(백엔드 diff 0 — B-0으로 갈음 · 불변 규칙 7 대상 `sm2.py` 무접촉).
+- [x] V-2 브라우저 실측(사용자 기동 서버 · 데스크톱 폭 + 390px 에뮬): ⓐ `/import` 첫 진입(빈 큐) = 세그먼트 `파일` 선택 상태 · 페이지 Stepper 1개(라벨 "소스 선택") · 설명문 새 문구 ⓑ **390px 세그먼트 1줄(꺾임 0)** · 제목 줄 답지 링크 1줄 · 전체 1열 ⓒ `사이트(큐넷)` = 페이지 Stepper **숨김** · 하위 4단 1개만 · (키 미등록 환경이면) "서비스키 등록 필요" + `QnetKeySection` 인라인 카드 + 대안 버튼 — **실제 키 입력은 하지 않음**(사용자 승인 시만 · 키 보유 환경이면 분기 미노출이 정상 — 이 경우 ⓒ는 "키 등록 상태에서 자격증 검색 화면 + Stepper 1개" 확인으로 갈음) ⓓ 답지 링크 → 세그먼트·페이지 Stepper 숨김 · 6단 Stepper 1개 · `[← 새 반입으로]` 복귀 · 390px 첫 화면에서 위저드 첫 입력이 접힘 없이 보임(FB-28 실측 58% 대비 개선 수치 기록) ⓔ `/import?mode=answer_key` 직접 진입 = 답지 화면(딥링크 무변) · 작업 센터 [화면으로 이동] 동일 ⓕ `파일` 엔진 블록 = `사용 엔진: 자동 → Claude CLI`(실측 환경 기준) 1줄 + `[변경]` → 펼침 = 기존 엔진 목록·게이팅 사유 · `[접기]` · 구체 엔진·모델 선택 후 요약 반영 ⓖ 대기열에 항목이 있을 때 `변환된 JSON`·`사이트`·답지 모드에 요약 줄 노출 · 빈 큐면 없음 ⓗ 홈 빈 상태 문구(데이터 0 환경이 아니면 코드 리뷰로 갈음 — 실 DB 비우기 금지) ⓘ 390px 드로어 = 상단 10(… 노트 → 제안함 + 배지) · 하단 4(휴지통 → 설정 → LLM 작업 → 도움말) · 제안함·설정 탭 = 이동 + 닫힘 · active 강조 · **하단 탭바 5 무변** · 헤더 📮⚙️ 무변 · 데스크톱 사이드바 표시 diff 0 ⓙ 콘솔 에러 0(`pattern` 필터).
 
 **D. 문서**
-- [ ] D-1 매뉴얼 `docs/manual/user-manual.html` 반입 절·트러블슈팅·모바일 메뉴(규약 H).
-- [ ] D-2 설계 — screens §5.9 `[S55]` 블록·§5.11·§5 도입부·§5.1 "편성 추기" → "구현 실측 확정" 표기(편차 있으면 1구) · 색인 상태 줄 **v1.71**(최근 3건 규칙으로 밀리는 판은 `docs/04-archive/design-changelog.md` 맨 위로 이동만).
-- [ ] D-3 `docs/03-release/CHANGELOG.md` 항목(§6 ①) · `stage-index.md` 55행 · 이 문서 §7 완료 기록 · 체크박스 `[x]`.
-- [ ] D-4 `backlog.md` — FB-29·FB-30(드로어분)·FB-28(1단계) 처리(§6 ④) · 기준일 줄 · `scripts/backlog-scan.ps1` PASS.
-- [ ] D-5 출처 추기 — 별지 §13 FB-28·FB-29·FB-30 배정 셀 끝 `← 완료(stage-55 · 날짜 · …)` · `CLAUDE.md` 머리 버전 줄·`VERSION`(발행 시 — 사용자 회신 후).
+- [x] D-1 매뉴얼 `docs/manual/user-manual.html` 반입 절·트러블슈팅·모바일 메뉴(규약 H).
+- [x] D-2 설계 — screens §5.9 `[S55]` 블록·§5.11·§5 도입부·§5.1 "편성 추기" → "구현 실측 확정" 표기(편차 있으면 1구) · 색인 상태 줄 **v1.71**(최근 3건 규칙으로 밀리는 판은 `docs/04-archive/design-changelog.md` 맨 위로 이동만).
+- [x] D-3 `docs/03-release/CHANGELOG.md` 항목(§6 ①) · `stage-index.md` 55행 · 이 문서 §7 완료 기록 · 체크박스 `[x]`.
+- [x] D-4 `backlog.md` — FB-29·FB-30(드로어분)·FB-28(1단계) 처리(§6 ④) · 기준일 줄 · `scripts/backlog-scan.ps1` PASS.
+- [x] D-5 출처 추기 — 별지 §13 FB-28·FB-29·FB-30 배정 셀 끝 `← 완료(stage-55 · 날짜 · …)` · `CLAUDE.md` 머리 버전 줄·`VERSION`(발행 시 — 사용자 회신 후).
 
 ## 4. 이 단계에서 하지 않는 것 (불변 규칙 9 — 이 절이 우선)
 
@@ -112,7 +112,7 @@
 
 **자동 검증(에이전트 수행):**
 1. `npm run build` 성공 · `invariant-scan.ps1` PASS(기준선 갱신 0) · 백엔드 diff 0(B-0).
-2. 프론트 diff = `pages/Import.tsx`·`pages/Home.tsx`·`components/FetchImportWizard.tsx`·`components/EngineSelectCollapsible.tsx`(신규)·`components/SuggestionsNavBadge.tsx`·`components/Layout.tsx` **6파일 안** · `EngineSelect.tsx`·`QnetKeySection.tsx`·`Settings.tsx`·`AnswerKeyImportWizard.tsx`·`SplitImportWizard.tsx`·`ImportQueue.tsx`·`Stepper.tsx`·`jobRoutes.ts`·`App.tsx` 무접촉 · 새 색 리터럴 0 · 엔트리 청크 Δ 기록(R37).
+2. 프론트 diff = `pages/Import.tsx`·`pages/Home.tsx`·`components/FetchImportWizard.tsx`·`components/EngineSelectCollapsible.tsx`(신규)·`components/SuggestionsNavBadge.tsx`·`components/Layout.tsx` **6파일 안** · `EngineSelect.tsx`·`QnetKeySection.tsx`(설명문 1줄 예외 — 규약 D 추기)·`Settings.tsx`·`AnswerKeyImportWizard.tsx`·`SplitImportWizard.tsx`·`ImportQueue.tsx`·`Stepper.tsx`·`jobRoutes.ts`·`App.tsx` 무접촉 · 새 색 리터럴 0 · 엔트리 청크 Δ 기록(R37).
 3. 브라우저 V-2 ⓐ~ⓙ 전건 통과(실 데이터 무접촉 · 키 입력 0 — 사용자 승인 시 예외).
 4. 문서 묶음 D-1~D-5(매뉴얼 · Design v1.71 · CHANGELOG · stage-index · backlog · 별지 FB `← 완료`).
 
@@ -134,3 +134,7 @@
 ## 7. 완료 기록 (구현·검증·문서 경위 정본 — 착수 후 추기)
 
 - **편성**(2026-11-08): 지시서 확정 — 묶음 FB-28 1단계 + FB-29(ⓐ 인라인 등록) + FB-30 드로어분 · 버전 영향 사소(v2.03.2 예정) · 위임 판정 규약 A~H(UX 선택 A·B·D는 권고안 확정 + 대안 표 — 사용자 이견 시 변경) · **사용자 확정 대기 0** · S49 규약 A·S53 규약 F "설정은 드로어 미포함" 번복(규약 G 사유) · screens §5.9 `[S55]` 블록 + §5.11·§5 도입부·§5.1 1구(Design v1.70) · api 무접촉 · stage-index 55행 · backlog FB-28·29·30 상태 + 기준일 · 별지 §13 FB-28·29·30 편성 추기 · 로드맵 M 행 추가 없음(사소).
+- **구현**(2026-11-08 · 커밋 `e5fac91` · 브랜치 `stage-55-import-unified-view`): frontend-dev 2묶음 병렬(F-1~F-5 `Import.tsx`·`Home.tsx`·`EngineSelectCollapsible.tsx` 신설 / F-6~F-8 `FetchImportWizard.tsx`·`SuggestionsNavBadge.tsx`·`Layout.tsx`) · 규약 A~G 편차 0 · `npx tsc --noEmit` 통과 · 매뉴얼 규약 H 10곳(메인 직접) · **B-0 백엔드 diff 0** · `npm run build` 성공 · `invariant-scan.ps1` PASS(기준선 갱신 0) · 엔트리 청크 1,522,408 → 1,524,494 B.
+- **검토**(2026-11-08 · Opus `stage-reviewer`): **조건부 통과 — 치명 0 · 중요 0 · 경미 4** ① 키 미등록 안내 화면 Stepper 0(규약 B·V-2 ⓒ 추기로 정당화) ② `QnetKeySection:45` 옛 라벨 → 문구 1줄 정정(§4 diff 0 예외 · 규약 D 추기) ③ 매뉴얼 985행 "URL로 시작" 누락 → 정정(규약 H 추기) ④ 엔진 상태 조회 오류 시 '확인 중…' 고착 → `isError`면 `EngineSelect` 펼침(규약 C 추기) — **전건 반영**. 의심 1건(답지 복귀 후 같은 URL 재진입 시 답지 화면 미재개) = 390px 에뮬로 **재현 확인** → `[← 새 반입으로]`가 `?mode` 제거(규약 A 보강). 등재 권고(코드 동작 무관 · 다음 사소 stage 동승 후보): 옛 라벨 주석 `Import.tsx:685`·`api/convert.ts:63`·`FetchImportWizard.tsx:23` · `Layout.tsx` 드로어 주석의 사이드바 라인 참조 어긋남.
+- **브라우저 실측 V-2**(2026-11-08 · 임시 포트 8765 · 워크트리 빌드 · 빈 DB(`alembic upgrade head`) · 데스크톱 1060px + 390×844 iframe 에뮬 · 종료 후 리스너 부재 확인): ⓐ 통과(세그먼트 4 · `파일` 선택 · Stepper 1 "소스 선택" · 새 설명문) ⓑ 통과(**세그먼트 4개 offsetTop 동일 · 행 scrollWidth=clientWidth 358 · 문서 가로 스크롤 0** · 제목 줄+답지 링크 1줄 · 첫 입력 498px) ⓒ 통과(키 미등록 → "서비스키 등록 필요" + `QnetKeySection` 인라인 + 대안 버튼 · Stepper 0 — 경미 1 해석) ⓓ 통과(세그먼트 숨김 · 6단 Stepper 1개 · 소제목 · **첫 입력 top 306px — FB-28 실측 494px 대비 −188px** · 복귀 정상) ⓔ 통과(`?mode=answer_key` 직접 진입 = 답지 · 복귀 시 URL `/import` · 같은 URL 재진입 = 답지 재개 — 보강 후) ⓕ 통과("사용 엔진: 자동 → Claude CLI" ↔ [변경] 펼침(Claude API 키 미등록·Codex 설치 필요·[다시 확인] 노출) ↔ [접기]) ⓖ **코드 검토 갈음**(빈 큐 — 조건식 검토자 확인) ⓗ 통과(홈 빈 상태 새 문구) ⓘ 통과(**드로어 14항목** 홈·커리큘럼·퀴즈·복습·오답노트·탐색·반입·인쇄·노트·제안함 / 휴지통·설정·LLM 작업·도움말 · 844px 무스크롤 · 설정 탭 = `/settings` 이동 + 닫힘 · 하단 탭 5) ⓙ 콘솔 오류 0. 검토 반영 후 재빌드: 엔트리 청크 **1,524,813 B(Δ 기준선 대비 +2,405 B · 앱 셸 · 의존 0 → R37 기준선 stage-56+)** · invariant PASS.
+- **완료 절차**(2026-11-08): 체크박스 전건 `[x]` · CHANGELOG v2.03.2 항목(발행 대기) · stage-index 55행 · backlog FB-29 §4 종결 · FB-28 `미편성(2단계 — 1단계 종결)` · FB-30 `미배정(…드로어분 종결)` · 별지 §13 FB-28·29·30 `← 완료` · screens §5.9·§5.11·§5 도입부·§5.1 확정 표기 + Design v1.71(v1.67 archive 이동) · 매뉴얼 11곳. **잔여 = DoD 5**(사용자 실사용·폰 실기기 회신 — 규약 A·B·D 대안 선택 포함) → 치명 0이면 `VERSION` 2.03.2 + CLAUDE.md 버전 줄 + tag.

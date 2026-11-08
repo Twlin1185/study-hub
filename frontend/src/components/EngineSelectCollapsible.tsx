@@ -12,6 +12,16 @@ export default function EngineSelectCollapsible({ value, onChange, modelValue, o
   const status = statusQuery.data
 
   if (!status) {
+    // 검토 반영(경미 4) — 상태 조회 실패 시 '확인 중…'에 고착되지 않도록 EngineSelect를 펼친 채 보인다
+    // (종전 동작과 동일 · [자동]만이라도 선택 가능 · 재조회는 EngineSelect의 [다시 확인]).
+    if (statusQuery.isError) {
+      return (
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-semibold text-muted">사용 엔진</span>
+          <EngineSelect value={value} onChange={onChange} modelValue={modelValue} onModelChange={onModelChange} />
+        </div>
+      )
+    }
     return <p className="text-xs text-muted">사용 엔진: 확인 중…</p>
   }
 

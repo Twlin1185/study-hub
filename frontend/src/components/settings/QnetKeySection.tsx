@@ -42,7 +42,7 @@ export default function QnetKeySection() {
     <section className="rounded-lg border border-border bg-surface p-4">
       <h3 className="mb-1 text-sm font-semibold text-primary">큐넷 오픈API</h3>
       <p className="mb-3 text-xs text-muted">
-        공공데이터포털 서비스키를 등록하면 반입 화면의 [사이트에서 가져오기]에서 큐넷 국가자격
+        공공데이터포털 서비스키를 등록하면 반입 화면의 [사이트(큐넷)] 소스에서 큐넷 국가자격
         공개문제(실기 작업형·도면)를 검색해 가져올 수 있습니다.
       </p>
 
