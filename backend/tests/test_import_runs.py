@@ -746,6 +746,7 @@ def test_job_item_run_label(client, Session, fake_jobs):
     run_id = res.json()["run_id"]
     job_id = res.json()["job_id"]
     run_label = _run(Session, run_id).label
+    assert run_label  # 둘 다 None이면 아래 비교가 공허해진다(검토 경미 ③)
     with cs._JOBS_LOCK:
         job = cs._JOBS[job_id]
         assert cs._job_list_item(job_id, job, current_job_id=None)["run_label"] == run_label

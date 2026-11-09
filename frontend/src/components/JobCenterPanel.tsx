@@ -237,7 +237,6 @@ export default function JobCenterPanel({ open, onClose }: JobCenterPanelProps) {
     })
   }
 
-
   return (
     <>
       <div
