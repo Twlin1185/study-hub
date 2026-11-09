@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useHeatmap } from '../../api/stats'
 import Heatmap from '../Heatmap'
+import { toLocalDateKey } from '../../utils/serverDate'
 
 const MAX_WEEKS = 26
 const MIN_WEEKS = 8
@@ -9,7 +10,7 @@ const WEEK_PX = 16
 const LABEL_PX = 20
 
 function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  return toLocalDateKey(d)
 }
 
 // 오늘 기준 최근 26주 범위(일요일 정렬) — 데이터는 최대 범위로 1회만 조회하고

@@ -133,9 +133,9 @@
 
 **F. 프론트 (`frontend/src/`)**
 - [ ] F-1 `api/types.ts` — `ImportRun.preview_available?: boolean | null`(FB-32) · `LlmJobItem.run_label?: string | null`(FB-36 · `run_id` 다음 줄).
-- [ ] F-2 (FB-32 · 규약 B) `pages/import/RunCard.tsx` — `previewAvailable`·`reviewDisabledReason` 식 교체(`:97~99`) · 접힌 상태 사유 1줄(`text-xs text-warning`) · [검토]·[합쳐서 검토] `disabled` 식과 [변환 JSON 내려받기] 조건 무변 · `RunTimeline.tsx` diff 0.
-- [ ] F-3 (FB-33 · 규약 C) `utils/serverDate.ts` 신설(`parseServerDate` 이동 + `toLocalDateKey` + 머리 주석 "서버 시각 표기 2종") · `editor2/api/notes.ts`는 정의 삭제 + 재수출 1줄(기존 import 3곳 경로 diff 0).
-- [ ] F-4 (FB-33 · 규약 C) 날짜 키 7지점 — `components/Heatmap.tsx:12` · `components/home/HeatmapWidget.tsx:12` · `pages/Print.tsx:18·24` · `components/print/QuizPrintView.tsx:55` · `components/print/ConceptPrintView.tsx:45` → `toLocalDateKey` · `components/print/WrongNotePrintView.tsx:24` → `toLocalDateKey(parseServerDate(…))`(NaN이면 종전 절단). **분류 ① 9곳·②③ 무접촉**(§1 표).
+- [x] F-2 (FB-32 · 규약 B) `pages/import/RunCard.tsx` — `previewAvailable`·`reviewDisabledReason` 식 교체(`:97~99`) · 접힌 상태 사유 1줄(`text-xs text-warning`) · [검토]·[합쳐서 검토] `disabled` 식과 [변환 JSON 내려받기] 조건 무변 · `RunTimeline.tsx` diff 0.
+- [x] F-3 (FB-33 · 규약 C) `utils/serverDate.ts` 신설(`parseServerDate` 이동 + `toLocalDateKey` + 머리 주석 "서버 시각 표기 2종") · `editor2/api/notes.ts`는 정의 삭제 + 재수출 1줄(기존 import 3곳 경로 diff 0).
+- [x] F-4 (FB-33 · 규약 C) 날짜 키 7지점 — `components/Heatmap.tsx:12` · `components/home/HeatmapWidget.tsx:12` · `pages/Print.tsx:18·24` · `components/print/QuizPrintView.tsx:55` · `components/print/ConceptPrintView.tsx:45` → `toLocalDateKey` · `components/print/WrongNotePrintView.tsx:24` → `toLocalDateKey(parseServerDate(…))`(NaN이면 종전 절단). **분류 ① 9곳·②③ 무접촉**(§1 표).
 - [ ] F-5 (FB-36 · 규약 G) `utils/jobGroups.ts` 신설 — `groupJobsByRun(items)`(2개 이상만 그룹 · 첫 등장 자리 · 서버 순서 보존 · 라벨 폴백).
 - [ ] F-6 (FB-36 · 규약 G) `components/JobCenterRunGroup.tsx` 신설(헤더 라벨·집계·접기·[카드로 이동]·[모두 취소]·[목록에서 지우기]) + `components/JobCenterPanel.tsx` — 잡 1행 렌더 공유 · 전역 대기 순번 맵 · 그룹 접힘 로컬 상태 · 일괄 취소(대기 → 실행 중 순 · 실행 중 포함 시 기존 확인 다이얼로그 재사용)·일괄 지우기(순차 · 409·404 건너뜀) · 그룹 안 [화면으로 이동] 숨김. `api/llm.ts`·`utils/jobRoutes.ts`·`LlmJobProgress.tsx`·`ConfirmDialog.tsx` diff 0.
 - [ ] F-7 색·간격 = 토큰·기존 유틸 클래스만(불변 규칙 5 · `tokens.css` 무변 · 새 색 리터럴 0) · `npx tsc --noEmit` 통과 · 엔트리 청크 Δ 기록(R37 — 직전 커밋 dist 대비 · `JobCenterPanel`·`serverDate` = 앱 셸) · 빌드 산출물 커밋 정책은 저장소 관례대로.

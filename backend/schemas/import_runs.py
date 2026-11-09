@@ -86,6 +86,7 @@ class ImportRunItem(BaseModel):
     updated_at: Optional[str] = None
     committed_at: Optional[str] = None
     last_event: Optional[ImportRunLastEvent] = None
+    preview_available: Optional[bool] = None
 
 
 class ImportRunEventItem(BaseModel):

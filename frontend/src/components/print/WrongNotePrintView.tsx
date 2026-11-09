@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useAllReviewNotes } from '../../api/reviewNotes'
 import { groupByCategoryPath } from '../../utils/reviewNoteGroups'
+import { parseServerDate, toLocalDateKey } from '../../utils/serverDate'
 import MarkdownView from '../MarkdownView'
 import InlineRichText from '../markdown/InlineRichText'
 
@@ -21,7 +22,8 @@ export default function WrongNotePrintView({ categoryId, dateFrom, dateTo, inclu
   const filtered = useMemo(() => {
     const items = notesQuery.data ?? []
     return items.filter((n) => {
-      const created = n.created_at.slice(0, 10)
+      const parsed = parseServerDate(n.created_at)
+      const created = Number.isNaN(parsed.getTime()) ? n.created_at.slice(0, 10) : toLocalDateKey(parsed)
       if (dateFrom && created < dateFrom) return false
       if (dateTo && created > dateTo) return false
       return true

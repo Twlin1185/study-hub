@@ -8,6 +8,7 @@ import { useFontScale } from '../../hooks/useFontScale'
 import { resolveDocStyle } from '../../utils/docStyle'
 import { useLeafStudyTracks } from './useLeafStudyTracks'
 import { CIRCLED_DIGITS } from '../../utils/answerFormat'
+import { toLocalDateKey } from '../../utils/serverDate'
 
 interface QuizPrintViewProps {
   categoryId: number
@@ -52,7 +53,7 @@ export default function QuizPrintView({ categoryId, includeExplanation, answerSp
     <div>
       <h1 className="mb-1 text-2xl font-bold text-primary">{rootNode.name} — 문제집</h1>
       <p className="mb-6 text-xs text-muted">
-        생성일 {new Date().toISOString().slice(0, 10)} · 총 {flatItems.length}문항
+        생성일 {toLocalDateKey(new Date())} · 총 {flatItems.length}문항
       </p>
 
       {/* 문제 섹션 */}

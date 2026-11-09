@@ -5,6 +5,7 @@ import CategoryScopePicker from '../components/CategoryScopePicker'
 import ConceptPrintView from '../components/print/ConceptPrintView'
 import QuizPrintView from '../components/print/QuizPrintView'
 import WrongNotePrintView from '../components/print/WrongNotePrintView'
+import { toLocalDateKey } from '../utils/serverDate'
 
 type PrintType = 'concept' | 'quiz' | 'wrong'
 
@@ -15,13 +16,13 @@ const TYPE_OPTIONS: { value: PrintType; label: string }[] = [
 ]
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return toLocalDateKey(new Date())
 }
 
 function monthAgoIso(): string {
   const d = new Date()
   d.setMonth(d.getMonth() - 1)
-  return d.toISOString().slice(0, 10)
+  return toLocalDateKey(d)
 }
 
 // 설계 §5.10, 계획 §12 — 인쇄 뷰. 옵션 패널은 화면 전용(print:hidden), 본문은 A4 폭 렌더 +

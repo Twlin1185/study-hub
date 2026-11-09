@@ -106,6 +106,7 @@ def start_analyze(
         model=payload.model,
         run_id=run_id,
     )
+    import_run_service.plant_run_label(db, run_id, [job_id])
     return SplitAnalyzeStart(job_id=job_id)
 
 

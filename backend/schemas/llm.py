@@ -114,6 +114,8 @@ class JobListItem(BaseModel):
     ref: Dict[str, Any] = Field(default_factory=dict)  # kind별 참조 id(§4.24 ⓓ)
     # S56(F63, 설계 §4.24 [S56]) — 반입 건 id(잡 레코드 `_run_id` 그대로 · DB 조회 0).
     run_id: Optional[int] = None
+    # S57(FB-36) — 반입 건 라벨 스냅숏(잡 레코드 `_run_label` 그대로 · DB 0). 잡 `label`과 별개.
+    run_label: Optional[str] = None
 
 
 class JobListResponse(BaseModel):

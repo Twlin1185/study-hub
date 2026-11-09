@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom'
 import { useCancelLlmJob, useDismissLlmJob, useLlmJobs, usePauseLlmQueue, useResumeLlmQueue } from '../api/llm'
 import { ApiError } from '../api/client'
 import { jobCenterRoute } from '../utils/jobRoutes'
+import { groupJobsByRun } from '../utils/jobGroups'
 import ConfirmDialog from './ConfirmDialog'
+import JobCenterRunGroup from './JobCenterRunGroup'
 import LlmJobProgress from './LlmJobProgress'
 import type { LlmJobItem } from '../api/types'
 
@@ -66,11 +68,145 @@ export default function JobCenterPanel({ open, onClose }: JobCenterPanelProps) {
 
   const [confirmTarget, setConfirmTarget] = useState<LlmJobItem | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [collapsedRuns, setCollapsedRuns] = useState<Set<number>>(new Set())
+  const [batchBusy, setBatchBusy] = useState(false)
+  const [confirmBatch, setConfirmBatch] = useState<LlmJobItem[] | null>(null)
 
   if (!open) return null
 
   const items = jobsQuery.data?.items ?? []
   const paused = jobsQuery.data?.queue.paused ?? false
+
+  // 대기 순번 = 그룹화 전 전역 순번.
+  const queuePos = new Map<string, number>()
+  let qn = 0
+  for (const it of items) if (it.status === 'queued') queuePos.set(it.job_id, ++qn)
+
+  function toggleRun(runId: number) {
+    setCollapsedRuns((prev) => {
+      const next = new Set(prev)
+      if (next.has(runId)) next.delete(runId)
+      else next.add(runId)
+      return next
+    })
+  }
+
+  // 순차 호출 — 409·404 건너뜀, 그 외 오류는 계속 진행 후 첫 오류 message 표시.
+  async function runSequential(ids: string[], call: (id: string) => Promise<unknown>, fallback: string) {
+    setActionError(null)
+    setBatchBusy(true)
+    let firstError: string | null = null
+    for (const id of ids) {
+      try {
+        await call(id)
+      } catch (e) {
+        if (e instanceof ApiError && (e.status === 409 || e.status === 404)) continue
+        if (firstError == null) firstError = errMsg(e, fallback)
+      }
+    }
+    setBatchBusy(false)
+    if (firstError) setActionError(firstError)
+  }
+
+  async function cancelAll(group: LlmJobItem[]) {
+    // 대기 전부 먼저 → 실행 중 마지막.
+    const ordered = [
+      ...group.filter((i) => i.status === 'queued'),
+      ...group.filter((i) => i.status === 'running'),
+    ]
+    await runSequential(
+      ordered.map((i) => i.job_id),
+      (id) => cancelMutation.mutateAsync(id),
+      '취소에 실패했습니다.',
+    )
+  }
+
+  function requestCancelAll(group: LlmJobItem[]) {
+    setActionError(null)
+    if (group.some((i) => i.status === 'running')) {
+      setConfirmBatch(group)
+      return
+    }
+    void cancelAll(group)
+  }
+
+  function confirmCancelAll() {
+    const group = confirmBatch
+    setConfirmBatch(null)
+    if (group) void cancelAll(group)
+  }
+
+  function dismissAll(group: LlmJobItem[]) {
+    const ids = group
+      .filter((i) => i.status === 'done' || i.status === 'error' || i.status === 'cancelled')
+      .map((i) => i.job_id)
+    void runSequential(ids, (id) => dismissMutation.mutateAsync(id), '목록에서 지우지 못했습니다.')
+  }
+
+  function renderRow(item: LlmJobItem, inGroup: boolean) {
+    const route = inGroup ? null : jobCenterRoute(item)
+    const cancellable = item.status === 'running' || item.status === 'queued'
+    const dismissible = item.status === 'done' || item.status === 'error' || item.status === 'cancelled'
+    return (
+      <li key={item.job_id} className="rounded-lg border border-border bg-surface p-3">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadgeClass(item.status)}`}
+          >
+            {statusLabel(item.status, queuePos.get(item.job_id) ?? null)}
+          </span>
+          {/* label은 서버 완성 문장 그대로(§4.10 notes 관례 — 포맷 분기 금지). */}
+          <span className="min-w-0 flex-1 break-words text-sm font-medium text-primary">
+            {item.label}
+          </span>
+        </div>
+
+        {item.status === 'running' && (
+          <div className="mb-2">
+            <LlmJobProgress progress={item.progress} includeDownloading includeFetching />
+          </div>
+        )}
+
+        {item.status === 'error' && item.error_info?.message && (
+          <p className="mb-2 text-xs text-wrong">{item.error_info.message}</p>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          {route && (
+            <Link
+              to={route}
+              onClick={onClose}
+              className="rounded border border-border px-2.5 py-1 text-xs text-primary hover:bg-bg"
+            >
+              화면으로 이동
+            </Link>
+          )}
+          {cancellable && (
+            <button
+              type="button"
+              onClick={() => requestCancel(item)}
+              disabled={cancelMutation.isPending}
+              className="rounded border border-border px-2.5 py-1 text-xs text-wrong hover:bg-bg disabled:opacity-50"
+            >
+              취소
+            </button>
+          )}
+          {/* stage-42(B2-1, §4.24) — 종료 잡 일반화: [분할 반입]이 자동으로 정리하지
+              못한 실패·완료·취소 잡도 사용자가 직접 목록에서 지울 수 있다. */}
+          {dismissible && (
+            <button
+              type="button"
+              onClick={() => requestDismiss(item.job_id)}
+              disabled={dismissMutation.isPending}
+              className="rounded border border-border px-2.5 py-1 text-xs text-primary hover:bg-bg disabled:opacity-50"
+            >
+              목록에서 지우기
+            </button>
+          )}
+        </div>
+      </li>
+    )
+  }
 
   function requestCancel(item: LlmJobItem) {
     setActionError(null)
@@ -101,7 +237,6 @@ export default function JobCenterPanel({ open, onClose }: JobCenterPanelProps) {
     })
   }
 
-  let queuedIndex = 0
 
   return (
     <>
@@ -168,71 +303,26 @@ export default function JobCenterPanel({ open, onClose }: JobCenterPanelProps) {
           )}
 
           <ul className="flex flex-col gap-3">
-            {items.map((item) => {
-              if (item.status === 'queued') queuedIndex += 1
-              const route = jobCenterRoute(item)
-              const cancellable = item.status === 'running' || item.status === 'queued'
-              const dismissible = item.status === 'done' || item.status === 'error' || item.status === 'cancelled'
-              return (
-                <li key={item.job_id} className="rounded-lg border border-border bg-surface p-3">
-                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadgeClass(item.status)}`}
-                    >
-                      {statusLabel(item.status, item.status === 'queued' ? queuedIndex : null)}
-                    </span>
-                    {/* label은 서버 완성 문장 그대로(§4.10 notes 관례 — 포맷 분기 금지). */}
-                    <span className="min-w-0 flex-1 break-words text-sm font-medium text-primary">
-                      {item.label}
-                    </span>
-                  </div>
-
-                  {item.status === 'running' && (
-                    <div className="mb-2">
-                      <LlmJobProgress progress={item.progress} includeDownloading includeFetching />
-                    </div>
-                  )}
-
-                  {item.status === 'error' && item.error_info?.message && (
-                    <p className="mb-2 text-xs text-wrong">{item.error_info.message}</p>
-                  )}
-
-                  <div className="flex flex-wrap gap-2">
-                    {route && (
-                      <Link
-                        to={route}
-                        onClick={onClose}
-                        className="rounded border border-border px-2.5 py-1 text-xs text-primary hover:bg-bg"
-                      >
-                        화면으로 이동
-                      </Link>
-                    )}
-                    {cancellable && (
-                      <button
-                        type="button"
-                        onClick={() => requestCancel(item)}
-                        disabled={cancelMutation.isPending}
-                        className="rounded border border-border px-2.5 py-1 text-xs text-wrong hover:bg-bg disabled:opacity-50"
-                      >
-                        취소
-                      </button>
-                    )}
-                    {/* stage-42(B2-1, §4.24) — 종료 잡 일반화: [분할 반입]이 자동으로 정리하지
-                        못한 실패·완료·취소 잡도 사용자가 직접 목록에서 지울 수 있다. */}
-                    {dismissible && (
-                      <button
-                        type="button"
-                        onClick={() => requestDismiss(item.job_id)}
-                        disabled={dismissMutation.isPending}
-                        className="rounded border border-border px-2.5 py-1 text-xs text-primary hover:bg-bg disabled:opacity-50"
-                      >
-                        목록에서 지우기
-                      </button>
-                    )}
-                  </div>
-                </li>
-              )
-            })}
+            {groupJobsByRun(items).map((entry) =>
+              entry.type === 'single' ? (
+                renderRow(entry.item, false)
+              ) : (
+                <JobCenterRunGroup
+                  key={`run-${entry.runId}`}
+                  runId={entry.runId}
+                  label={entry.label}
+                  items={entry.items}
+                  collapsed={collapsedRuns.has(entry.runId)}
+                  onToggle={() => toggleRun(entry.runId)}
+                  onClose={onClose}
+                  busy={batchBusy}
+                  onCancelAll={requestCancelAll}
+                  onDismissAll={dismissAll}
+                >
+                  {entry.items.map((it) => renderRow(it, true))}
+                </JobCenterRunGroup>
+              ),
+            )}
           </ul>
 
           {actionError && <p className="mt-3 text-sm text-wrong">{actionError}</p>}
@@ -242,15 +332,18 @@ export default function JobCenterPanel({ open, onClose }: JobCenterPanelProps) {
 
       {/* ConfirmDialog는 배경 오버레이 div의 자식이 아닌 형제로 둔다 — 안에 두면 확인 다이얼로그의
           배경 클릭이 이벤트 버블링으로 이 패널까지 함께 닫혀 버린다(별개의 오버레이여야 함). */}
-      {confirmTarget && (
+      {(confirmTarget || confirmBatch) && (
         <ConfirmDialog
           title="작업 취소"
           message="실행 중 취소는 이미 처리된 토큰만큼 요금이 발생할 수 있습니다."
           confirmLabel="취소하기"
           danger
           submitting={cancelMutation.isPending}
-          onConfirm={confirmCancel}
-          onClose={() => setConfirmTarget(null)}
+          onConfirm={confirmBatch ? confirmCancelAll : confirmCancel}
+          onClose={() => {
+            setConfirmTarget(null)
+            setConfirmBatch(null)
+          }}
         />
       )}
     </>
