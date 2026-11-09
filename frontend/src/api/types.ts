@@ -1639,6 +1639,7 @@ export interface LlmJobItem {
   error_info?: LlmErrorInfo | null
   ref: LlmJobRef
   run_id?: number // stage-56 가산(API §4.34 ②) — 반입 건에 속한 잡이면 id
+  run_label?: string | null // stage-57 가산(API §4.24) — 반입 건 라벨(시작 시점 스냅숏) · 비반입·레거시 잡 = null
 }
 
 export interface LlmJobQueueInfo {
@@ -1879,6 +1880,8 @@ export interface ImportRun {
   updated_at: string
   committed_at: string | null
   last_event?: ImportRunLastEvent | null
+  // stage-57 가산(API §4.34 ④) — review_ready(답지 제외) run만 true/false · 그 외·구 서버 = null/없음
+  preview_available?: boolean | null
 }
 
 export interface ImportRunEvent {

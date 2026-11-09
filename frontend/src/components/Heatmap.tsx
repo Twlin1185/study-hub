@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { HeatmapEntry } from '../api/types'
+import { toLocalDateKey } from '../utils/serverDate'
 
 interface HeatmapProps {
   entries: HeatmapEntry[]
@@ -9,7 +10,7 @@ interface HeatmapProps {
 const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토']
 
 function toDateKey(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  return toLocalDateKey(d)
 }
 
 // 5단계 색은 tailwind.config.js의 heat1~5(토큰 --heat-1~5) 클래스만 사용한다 — 색상 하드코딩 금지.

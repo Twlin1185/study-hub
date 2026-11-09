@@ -501,6 +501,23 @@ def note_split_enqueued(db: Session, run_id: Optional[int], job_ids: Sequence[st
         )
 
     _best_effort(db, "split_enqueued", _do)
+    plant_run_label(db, run_id, job_ids)
+
+
+def plant_run_label(db: Session, run_id: Optional[int], job_ids: Sequence[str]) -> None:
+    """FB-36 — 잡 레코드(인메모리)에 반입 건 라벨을 심는다. run.label 읽기만 · DB 쓰기 0 ·
+    best-effort(예외는 삼키고 경고 — 원 흐름 무영향)."""
+    if run_id is None or not job_ids:
+        return
+    try:
+        run = db.get(models.ImportRun, run_id)
+        if run is None:
+            return
+        from services import convert_service
+
+        convert_service.set_job_run_label(job_ids, run.label)
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning("잡 run_label 심기 실패(원 흐름 영향 없음)", exc_info=True)
 
 
 def note_preview_merged(db: Session, preview_ids: Sequence[str], merged_preview_id: str) -> None:
@@ -554,6 +571,7 @@ def note_job_assigned(db: Session, run_id: Optional[int], job_id: str) -> None:
             _touch(run)
 
     _best_effort(db, "job_assigned", _do)
+    plant_run_label(db, run_id, [job_id])
 
 
 # ---------------------------------------------------------------------------
@@ -843,7 +861,12 @@ def _last_events(db: Session, run_ids: Sequence[int]) -> Dict[int, models.Import
     return out
 
 
-def run_to_dict(run: models.ImportRun, last_event: Optional[models.ImportRunEvent] = None) -> dict:
+def run_to_dict(
+    run: models.ImportRun,
+    last_event: Optional[models.ImportRunEvent] = None,
+    *,
+    preview_available: Optional[bool] = None,
+) -> dict:
     return {
         "id": run.id,
         "kind": run.kind,
@@ -868,6 +891,7 @@ def run_to_dict(run: models.ImportRun, last_event: Optional[models.ImportRunEven
             if last_event is not None
             else None
         ),
+        "preview_available": preview_available,
     }
 
 
@@ -885,7 +909,21 @@ def list_runs(
         .limit(size)
     ).all()
     last = _last_events(db, [r.id for r in runs])
-    return [run_to_dict(r, last.get(r.id)) for r in runs], total
+    return [
+        run_to_dict(
+            r,
+            last.get(r.id),
+            preview_available=(
+                _preview_available(r, load_summary(r)) if _list_checks_preview(r) else None
+            ),
+        )
+        for r in runs
+    ], total
+
+
+def _list_checks_preview(run: models.ImportRun) -> bool:
+    """항목 `preview_available` 계산 대상 = `review_ready` ∧ 답지 아님(그 외 null)."""
+    return run.status == "review_ready" and run.kind != "answer_key"
 
 
 def _get_run_or_404(db: Session, run_id: int) -> models.ImportRun:
@@ -907,6 +945,18 @@ def _preview_exists(preview_id: Optional[str]) -> bool:
     if preview_id in import_service._PREVIEW_CACHE:
         return True
     return preview_store.find(preview_id) is not None
+
+
+def _preview_available(run: models.ImportRun, summary: dict) -> bool:
+    """상세·목록 공용 산출식 — `run.preview_id` 있으면 그것 · 없으면 `summary.previews[]` 중
+    미커밋 조각 any(복구 호출 0)."""
+    if run.preview_id:
+        return _preview_exists(run.preview_id)
+    return any(
+        _preview_exists(p.get("preview_id"))
+        for p in summary["previews"]
+        if isinstance(p, dict) and not p.get("committed_at")
+    )
 
 
 def _failure_cases_for(run: models.ImportRun, document_ids: Sequence[int]) -> List[dict]:
@@ -965,16 +1015,13 @@ def get_detail(db: Session, run_id: int) -> dict:
             documents.append(
                 {"id": doc.id, "doc_no": doc.doc_no, "title": doc.title, "is_active": bool(doc.is_active)}
             )
-    if run.preview_id:
-        preview_available = _preview_exists(run.preview_id)
-    else:
-        preview_available = any(
-            _preview_exists(p.get("preview_id"))
-            for p in summary["previews"]
-            if isinstance(p, dict) and not p.get("committed_at")
-        )
+    preview_available = _preview_available(run, summary)
     return {
-        "run": run_to_dict(run, events[-1] if events else None),
+        "run": run_to_dict(
+            run,
+            events[-1] if events else None,
+            preview_available=preview_available,
+        ),
         "events": [event_to_dict(e) for e in events],
         "documents": documents,
         "failure_cases": _failure_cases_for(run, doc_ids),
@@ -1105,6 +1152,7 @@ def start_with_run(
         from services import convert_service
 
         label = convert_service.job_label(job_id)
+        convert_service.set_job_run_label([job_id], label)  # FB-36 — run 라벨 = 잡 라벨(DB 읽기 0)
 
         def _do() -> None:
             run = db.get(models.ImportRun, run_id)

@@ -6,6 +6,7 @@ import MarkdownView from '../MarkdownView'
 import { useFontScale } from '../../hooks/useFontScale'
 import { resolveDocStyle } from '../../utils/docStyle'
 import { useLeafStudyTracks } from './useLeafStudyTracks'
+import { toLocalDateKey } from '../../utils/serverDate'
 
 interface ConceptPrintViewProps {
   categoryId: number
@@ -42,7 +43,7 @@ export default function ConceptPrintView({ categoryId }: ConceptPrintViewProps) 
   return (
     <div>
       <h1 className="mb-1 text-2xl font-bold text-primary">{rootNode.name} — 개념 정리본</h1>
-      <p className="mb-6 text-xs text-muted">생성일 {new Date().toISOString().slice(0, 10)}</p>
+      <p className="mb-6 text-xs text-muted">생성일 {toLocalDateKey(new Date())}</p>
 
       {/* 목차 */}
       <section className="print-avoid-break mb-8">

@@ -94,9 +94,9 @@ export default function RunCard({
   const previews = run.summary.previews
   const isSplit = run.split_id != null
   const reviewable = run.status === 'review_ready'
-  const previewAvailable = detail ? detail.preview_available : true
+  const previewAvailable = detail ? detail.preview_available : run.preview_available !== false
   const reviewDisabledReason =
-    reviewable && detail && !detail.preview_available ? '보존 만료 — 다시 반입하세요' : null
+    reviewable && run.kind !== 'answer_key' && !previewAvailable ? '보존 만료 — 다시 반입하세요' : null
   const splitTotal = run.summary.chunks_total ?? (detail ? splitTotalFromEvents(detail.events) : null)
   const chunksFailed = run.summary.chunks_failed ?? 0
   const canMerge = reviewable && isSplit && previews.length >= 2 && (splitTotal == null || previews.length + chunksFailed >= splitTotal)
@@ -177,6 +177,8 @@ export default function RunCard({
 
       {cardReviewError && <p className="text-xs text-wrong">{cardReviewError}</p>}
       {localError && <p className="text-xs text-wrong">{localError}</p>}
+
+      {reviewDisabledReason && !expanded && <p className="text-xs text-warning">{reviewDisabledReason}</p>}
 
       <div className="flex flex-wrap gap-2">
         {reviewable && run.kind !== 'answer_key' && mainPreviewId && (

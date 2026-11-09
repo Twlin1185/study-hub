@@ -1,0 +1,1 @@
+function e(e){let t=(e??``).trim();if(!t)return new Date(NaN);let n=/(?:Z|[+-]\d{2}:?\d{2})$/i.test(t);return new Date(n?t:`${t}Z`)}function t(e){return`${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,`0`)}-${String(e.getDate()).padStart(2,`0`)}`}export{t as n,e as t};

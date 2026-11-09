@@ -32,7 +32,7 @@ import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -1673,6 +1673,7 @@ def _job_list_item(job_id: str, job: dict, *, current_job_id: Optional[str]) -> 
         "ref": _job_ref(job),
         # S56(F63, 설계 §4.24 [S56]) — 반입 건 id(시작 API가 심은 값 그대로 · DB 조회 0).
         "run_id": job.get("_run_id"),
+        "run_label": job.get("_run_label"),  # S57(FB-36) — 인메모리 파생 · DB 0
     }
 
 
@@ -2443,6 +2444,7 @@ def _new_job_base(kind: str, *, resolved_engine: str, requested_engine: str, mod
         "_finished_at": None,  # 종료(done·error·cancelled) 확정 시각(목록의 finished_at·정렬 키)
         # S56(F63, 설계 §4.34 ②) — 반입 건(run) id(시작 API·분할 투입이 심는다 · 없으면 훅 생략).
         "_run_id": None,
+        "_run_label": None,  # S57(FB-36) — 반입 건 라벨 스냅숏(plant_run_label이 심는다)
     }
 
 
@@ -2566,6 +2568,18 @@ def job_label(job_id: str) -> Optional[str]:
         return job.get("_label") if job is not None else None
 
 
+def set_job_run_label(job_ids: Sequence[str], label: Optional[str]) -> None:
+    """S57(FB-36) — 존재하는 잡 레코드에 반입 건 라벨(`_run_label`)을 심는다. 인메모리만 ·
+    label이 비면 no-op."""
+    if not label:
+        return
+    with _JOBS_LOCK:
+        for job_id in job_ids:
+            job = _JOBS.get(job_id)
+            if job is not None:
+                job["_run_label"] = label
+
+
 def get_convert_job(job_id: str) -> dict:
     _purge_expired_jobs()
     with _JOBS_LOCK:
@@ -2622,6 +2636,11 @@ def _build_regenerate_prompt(
         lines += ["", "## 원본 출처", source_note]
         if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
             lines.append("원본 파일이 프로젝트 안에 있으면 Read 도구로 직접 읽어 대조하라(R7 — 원본 대조).")
+    if document.type in import_service.QUESTION_TYPES:  # S57(FB-35ⓐ) — 문제 타입만
+        lines += [
+            "",
+            "explanation을 새로 쓰거나 고쳐 쓰는 경우에만 아래 규격을 따른다. 신고 사유가 해설과 무관하면 기존 explanation을 그대로 둔다(규격에 맞추려고 다시 쓰지 않는다).",
+        ] + _explanation_spec_lines(choices)
     lines += [
         "",
         "## 출력 형식(엄수)",
@@ -3102,6 +3121,29 @@ def get_answer_key_job(job_id: str) -> dict:
 # ---------------------------------------------------------------------------
 # LLM 풀이 생성(S18 — F44 ②, 설계 §4.20) — 잡 kind='explain' (F30 재생성 잡 인프라 복제)
 # ---------------------------------------------------------------------------
+def _explanation_spec_lines(choices: Optional[List[str]]) -> List[str]:
+    """S57(FB-35ⓐ) — 해설 작성 규격 블록(줄 목록). 보기 2개 이상 = 객관식 블록 · 그 외 = 단답·서술형.
+    문구는 stage-57 지시서 규약 D 정본 — 임의 수정 금지."""
+    if choices and len(choices) >= 2:
+        return [
+            "## 해설 작성 규격(explanation 필드 — Markdown · 엄수)",
+            "explanation은 아래 세 부분을 이 순서로 쓴다. 각 부분은 굵은 라벨 한 줄로 시작한다(라벨 문구 고정).",
+            "**정답 근거** — 정답 보기가 왜 맞는지를 2~4문장으로: 핵심 개념의 정의 + 이 문제의 조건이 그 정의에 어떻게 대응하는지.",
+            "**오답 보기** — 정답이 아닌 보기를 하나도 빠뜨리지 말고 보기 번호(1부터) 순서의 목록으로 쓴다. 보기마다 1~2문장: 그 보기가 가리키는 개념이 무엇인지 + 왜 이 문제의 답이 아닌지(정답과의 차이). 형식: \"- 1번(보기 내용 요약): 설명\"",
+            "**핵심 개념** — 이 문제에서 외울 포인트 한 줄.",
+            "분량: 전체 400~700자(보기가 5개 이상이면 900자까지). 그보다 짧게 끝내지 말고, 같은 말을 반복해 늘리지도 않는다.",
+            "창작 금지: 교과서·표준 정의 수준의 사실만 쓴다. 확신할 수 없는 보기는 추측하지 말고 \"근거 부족 — 원본 확인 필요\"라고만 적는다. 원본 자료에 해설이 있으면 그 내용을 우선하고 이 규격에 맞게 배열만 한다. 문제·보기에 없는 수치·출처·사례를 만들어 넣지 않는다.",
+        ]
+    return [
+        "## 해설 작성 규격(explanation 필드 — Markdown · 엄수)",
+        "explanation은 아래 두 부분을 이 순서로 쓴다. 각 부분은 굵은 라벨 한 줄로 시작한다(라벨 문구 고정).",
+        "**정답 근거** — 정답이 왜 그렇게 되는지를 3~5문장으로: 핵심 개념의 정의 + 풀이 과정(계산 문제는 단계별 식).",
+        "**핵심 개념** — 이 문제에서 외울 포인트 한 줄.",
+        "분량: 전체 200~400자. 그보다 짧게 끝내지 말고, 같은 말을 반복해 늘리지도 않는다.",
+        "창작 금지: 교과서·표준 정의 수준의 사실만 쓴다. 확신할 수 없는 내용은 추측하지 말고 \"근거 부족 — 원본 확인 필요\"라고만 적는다. 원본 자료에 해설이 있으면 그 내용을 우선하고 이 규격에 맞게 배열만 한다. 문제에 없는 수치·출처·사례를 만들어 넣지 않는다.",
+    ]
+
+
 def _build_explain_prompt(
     document: models.Document,
     choices: Optional[List[str]],
@@ -3124,6 +3166,7 @@ def _build_explain_prompt(
         lines += ["", "## 원본 출처", source_note]
         if engine == llm_engine_service.ENGINE_CLAUDE_CLI:
             lines.append("원본 파일이 프로젝트 안에 있으면 Read 도구로 직접 읽어 대조하라(R7 — 원본 대조).")
+    lines += [""] + _explanation_spec_lines(choices)  # S57(FB-35ⓐ) — 해설 구성·분량 규격
     lines += [
         "",
         "## 출력 형식(엄수)",

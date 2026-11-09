@@ -707,3 +707,75 @@ def test_answer_key_apply_marks_committed_in_same_transaction(Session, monkeypat
         assert _event_types(Session, run_id)[-1] == "answer_key_applied"
     finally:
         answer_key_service._KEYS.pop("akk_t1", None)
+
+
+# ---------------------------------------------------------------------------
+# S57 ⓐ 목록 항목 preview_available (FB-32) — review_ready(답지 제외)만 계산 · 그 외 null
+# ---------------------------------------------------------------------------
+def test_list_item_preview_available_values(client, Session):
+    import datetime as _dt
+
+    cached = _new_run(Session, status="review_ready", preview_id="pv_cached")
+    import_service._PREVIEW_CACHE["pv_cached"] = {}
+    committed = _new_run(Session, status="review_ready", preview_id="pv_done")
+    import_service._PREVIEW_CACHE["pv_done"] = {}
+    import_service._COMMITTED["pv_done"] = _dt.datetime.now()
+    gone = _new_run(Session, status="review_ready", preview_id="pv_gone")
+    queued = _new_run(Session, status="queued")
+    failed = _new_run(Session, status="failed")
+    answer_key = _new_run(Session, kind="answer_key", status="review_ready", preview_id="pv_cached")
+
+    items = {i["id"]: i for i in client.get("/api/import/runs?size=100").json()["items"]}
+    assert items[cached]["preview_available"] is True
+    assert items[committed]["preview_available"] is False
+    assert items[gone]["preview_available"] is False
+    assert items[queued]["preview_available"] is None
+    assert items[failed]["preview_available"] is None
+    assert items[answer_key]["preview_available"] is None
+    _assert_no_answer_keys(items)
+
+
+# ---------------------------------------------------------------------------
+# S57 ⓑ 잡 항목 run_label (FB-36)
+# ---------------------------------------------------------------------------
+def test_job_item_run_label(client, Session, fake_jobs):
+    res = client.post(
+        "/api/convert", files={"file": ("기출.txt", b"1. question", "text/plain")}, data={}
+    )
+    assert res.status_code in (200, 202), res.text
+    run_id = res.json()["run_id"]
+    job_id = res.json()["job_id"]
+    run_label = _run(Session, run_id).label
+    assert run_label  # 둘 다 None이면 아래 비교가 공허해진다(검토 경미 ③)
+    with cs._JOBS_LOCK:
+        job = cs._JOBS[job_id]
+        assert cs._job_list_item(job_id, job, current_job_id=None)["run_label"] == run_label
+
+    # plant_run_label — 분할 조각 2개
+    split_run = _new_run(Session, label="『분할.txt』 변환")
+    ids = []
+    for _ in range(2):
+        jid = f"tst_{uuid.uuid4().hex[:8]}"
+        job = cs._new_job_base("convert", resolved_engine="claude-cli", requested_engine="auto", model=None)
+        job["_run_id"] = split_run
+        with cs._JOBS_LOCK:
+            cs._JOBS[jid] = job
+        ids.append(jid)
+    plain_id = f"tst_{uuid.uuid4().hex[:8]}"
+    with cs._JOBS_LOCK:
+        cs._JOBS[plain_id] = cs._new_job_base(
+            "convert", resolved_engine="claude-cli", requested_engine="auto", model=None
+        )
+    try:
+        with Session() as db:
+            import_run_service.plant_run_label(db, split_run, ids)
+            import_run_service.plant_run_label(db, None, [plain_id])
+            import_run_service.plant_run_label(db, 99999, [plain_id])
+        with cs._JOBS_LOCK:
+            for jid in ids:
+                assert cs._job_list_item(jid, cs._JOBS[jid], current_job_id=None)["run_label"] == "『분할.txt』 변환"
+            assert cs._job_list_item(plain_id, cs._JOBS[plain_id], current_job_id=None)["run_label"] is None
+    finally:
+        with cs._JOBS_LOCK:
+            for jid in [*ids, plain_id]:
+                cs._JOBS.pop(jid, None)
