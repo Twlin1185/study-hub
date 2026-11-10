@@ -79,7 +79,7 @@ npm run build      # 배포 빌드 → FastAPI가 dist를 서빙
 |---|---|
 | `docs/01-plan/study-app.plan.md` | 마스터 계획 — 기능 목록, 스키마 DDL 단일 출처, 로드맵, 리스크 |
 | `docs/02-design/study-app.design.md` | 상세 설계 색인(공통 규약) — §4 API 명세·§5~7 화면은 분할 파일 참조 |
-| `docs/01-plan/stage-*.plan.md` | 단계별 작업 지시서(체크리스트·DoD) — 개발 이력의 단일 출처 |
+| `docs/01-plan/stage-*.plan.md` · `docs/04-archive/stages/` | 단계별 작업 지시서(체크리스트·DoD) — 진행 중은 `01-plan`, 발행 완료분은 `04-archive/stages` · 개발 이력의 단일 출처 |
 | `docs/04-archive/` | 완료 이력 원문 보존 |
 | `docs/manual/user-manual.html` | 사용자 매뉴얼(앱 내 `/manual`로 서빙) |
 

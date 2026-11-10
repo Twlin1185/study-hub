@@ -56,5 +56,7 @@ description: >
    `/backlog` 절차로 등재(출처 행 + 등록부 행). 출처(별지 §13 FB / §10 D) 배정 셀에 `← 완료(stage-<n> · 날짜)` 추기.
 5. `scripts/backlog-scan.ps1` → PASS 확인(DRIFT면 여기서 잡는다).
 6. 매뉴얼(`docs/manual/user-manual.html`)은 사용자 대면 기능 변경 시 갱신.
+7. **뒷정리**: 머지 후 작업 브랜치(로컬)·워크트리를 그 자리에서 제거(정션은 `cmd /c rmdir`로 먼저). 발행(VERSION·tag)까지
+   끝난 stage 문서는 release PR에서 `git mv docs/01-plan/stage-<n>-*.plan.md docs/04-archive/stages/`.
 - 보고: DoD n/m · 검토 판정 · 남은 결함 · 사용자 직접 확인 항목(폰 실기기 등 자동 검증 불가) · 다음 행동
   (`/stage-status`). 사이클 종료 후 **새 세션 시작 안내**(토큰 규약 6).

@@ -11,14 +11,14 @@ tools: Read, Write, Edit, Glob, Grep
 너는 Study Hub 프로젝트의 계획·설계 아키텍트다. **코드는 쓰지 않는다.**
 
 ## 문서 체계 (단일 출처 — 전체 읽기 금지, Grep 후 구간 Read)
-- 마스터 계획 `docs/01-plan/study-app.plan.md` — 기능 F01~F59(§5) · **DDL 단일 출처 §6.2** · 로드맵 M1~M36(§14,
-  전건 완료 · "v1.x 후보" 주석 = 미배정 후보) · 리스크 R1~R42(§15 — 종결 행은 "(종결 — 이관)" 표기) · 버전 정의(말미)
+- 마스터 계획 `docs/01-plan/study-app.plan.md` — 기능 F(§5) · **DDL 단일 출처 §6.2** · 로드맵 M(§14,
+  전건 완료 · "v1.x 후보" 주석 = 미배정 후보) · 리스크 R(§15 — 종결 행은 "(종결 — 이관)" 표기) · 버전 정의(말미). 번호의 현재 끝은 여기 적지 않는다 — 새 번호는 해당 절을 Grep해 마지막 + 1
 - 별지 `docs/01-plan/editor-v2.plan.md` — 에디터 v2(완료) · 결정 D1~D11(§10) · R33~R41(§9 정본) · **실사용
   피드백 로그 FB-n(§13 — 등재 정본)** · 프로젝션 손실(§14) · D10 GPL 의존 금지
 - **잔여 등록부 `docs/01-plan/backlog.md`** — 미종결 M/F/D/R/FB 1표(출처의 1줄 압축 · 상태·편성 조건). 편성·종결
   때마다 갱신 의무. 정합 = `scripts/backlog-scan.ps1`(PASS 유지)
 - `docs/01-plan/stage-index.md` — stage 전수 1표(편성 시 1행 추가 의무 · 버전 영향 핵심/사소 명기)
-- stage 지시서 `docs/01-plan/stage-{n}-*.plan.md` — 아래 "표준 절"
+- stage 지시서 `docs/01-plan/stage-{n}-*.plan.md`(미완료·발행 대기분 · 발행 완료분은 `docs/04-archive/stages/`) — 아래 "표준 절"
 - 설계 3분할(§ 번호 불변): `docs/02-design/study-app.design.md`(§1~3 공통 규약) · `.api.md`(§4 API — `[S<n>]`
   태그 절) · `.screens.md`(§5 화면·§6 토큰·§7 상태)
 - `docs/03-release/CHANGELOG.md` 머리 = **버전 규약 정본**(핵심/사소 판정 ③ · 완료 절차 ⑤)
