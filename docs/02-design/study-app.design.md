@@ -60,7 +60,7 @@ study-hub/
   - **이렇게 정한 이유**(구현 확정 사항의 사후 검토 결과 — 그대로 채택): ① 이 실패를 **"검색 결과 0건"으로 위장시키지 않는 것**이 목적인데(§4.13 S14 — 0건은 "이 종목의 공개문제가 없습니다"라는 **정상 안내**라 뜻이 정반대다), 그 구분은 상태 코드 하나로 충분히 달성된다. ② 프론트는 **`code`로 분기하지 않는다** — `client.ts`가 `code`를 열린 문자열로 두고 화면은 서버가 준 **사람 말 `message`를 그대로 렌더**하므로 새 코드를 만들어도 소비자가 없다(YAGNI). ③ 원인 구분자가 필요하면 이미 `detail.reason`(`quota`|`key`|`token`|`no_key`|`other` — 서버 내부 분류)이 실려 온다.
   - `message`는 항상 **한국어 사람 말 + 다음 행동**이며, **원문 XML/JSON·서비스키 원문은 어떤 필드에도 담지 않는다**(§4.11 원칙 동일).
   - **후속 조건(기록만 — 지금 만들지 않는다)**: `code` 값으로 분기해야 하는 소비자(예: 자동 재시도 클라이언트)가 실제로 생기면, 그때 `UPSTREAM_ERROR`(502)를 계획서에 먼저 확정한 뒤 신설한다. 현재는 코드 신설이 **프론트 유니온 타입 수정만 유발하고 얻는 것이 없다.**
-- **Host/Origin 가드 `[S58]`(편성 2026-11-10 · 착수 전 — 정본 `stage-58-security-integrity.plan.md` §2 C)**: 홈 네트워크 전용 앱의 신뢰 경계(R12가 막지 못하는 DNS 리바인딩·교차 사이트 요청 — R49). `main.py` ASGI 미들웨어 1개가 **모든 HTTP 요청**에 적용한다.
+- **Host/Origin 가드 `[S58]`(구현·검토 2026-11-10 · 실측 확정 — 정본 `stage-58-security-integrity.plan.md` §2 C)**: 홈 네트워크 전용 앱의 신뢰 경계(R12가 막지 못하는 DNS 리바인딩·교차 사이트 요청 — R49). `main.py` ASGI 미들웨어 1개가 **모든 HTTP 요청**에 적용한다.
   - **Host**: 포트를 뗀 호스트가 `localhost` · IP 리터럴(v4·v6) · PC 이름(`socket.gethostname()` — 대소문자 무시 · `.local` 허용) · 환경변수 `STUDY_HUB_ALLOWED_HOSTS`(쉼표 구분 · 기동 시 1회) 중 하나가 아니면 거부. 폰 `http://<PC-IP>:8000`은 IP 리터럴이라 무영향.
   - **Origin**: `/api` 하위 `POST·PUT·PATCH·DELETE`에서 `Origin` 헤더가 있고 그 `host[:port]`가 Host와 다르면 거부(`null` 포함 · 헤더 부재 = 통과 · GET 미검사).
   - **거부 응답 = HTTP `403` + `code:"VALIDATION_ERROR"`** · `detail.reason` = `host_not_allowed` | `origin_mismatch`. **코드 집합은 늘리지 않는다**(위 S14 원칙 그대로 — `VALIDATION_ERROR`가 422 외에 403을 쓰는 예외 1건 · 기존 `http_exception_handler`의 "404 외 = `VALIDATION_ERROR`" 매핑과 같은 선).

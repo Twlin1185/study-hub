@@ -1,6 +1,6 @@
 # Stage 58 — 보안 신뢰 경계 + 데이터 무결성 긴급 묶음 (FB-37 · FB-38) (v2.0.x · 사소)
 
-> 상태: **착수 전**(편성 2026-11-10 · 번호 58 · **사용자 확정 대기 0** — 규약 A~J는 포괄 감사 근거의 권고안 확정 · 이견 시 해당 규약만 교체 · 사용자 지시 = 2026-11-10 "진행시켜! 너말대로 가보자" = 감사 권고 순서 0번 승인).
+> 상태: **구현·검토 완료 — 발행 대기(DoD 6~8 사용자 회신 → VERSION 2.04.3)**(2026-11-10 · 구현 `d6b1817` + 검토 반영 `2b1202c` · Opus 조건부 통과 → 중요 1·경미 2·의심 1 반영 · 자동·메인 세션 DoD 1~5 충족 — §7 · 편성 2026-11-10 · 번호 58 · **사용자 확정 대기 0** — 규약 A~J는 포괄 감사 근거의 권고안 확정 · 이견 시 해당 규약만 교체 · 사용자 지시 = 2026-11-10 "진행시켜! 너말대로 가보자" = 감사 권고 순서 0번 승인).
 > **버전 영향: 사소**(CHANGELOG 머리 규약 ③ — 버그픽스·보안 정비 · 새 화면 0 · 신규 엔드포인트 0 · DDL 0 · 응답 필드 가산 0 · 신규 의존 0) → 규약 ② PP+1 = **v2.04.3 예정**(v2.04.2는 stage-57이 CHANGELOG 항목으로 선점 · 발행 대기 중 — 합류가 아니라 별개 번호 · 발행 순서 판정 = §6 ①).
 > 생성 경위: `backlog.md` §2 **FB-37**(별지 `editor-v2.plan.md` §13 538행 — 신뢰 경계 5건) + **FB-38**(539행 — 학습 기록·잡 유실 5건) 동승 · 2026-11-10 포괄 감사 등재분. **FB-39(540행)는 제외**(§4).
 > 정본 포인터: 색인 §3 `[S58]` Host/Origin 가드(**Design v1.76**) · api §4.3·§4.10·§4.14·§4.21·§4.22·§4.24·§4.25 `[S58]` 1줄 · 마스터 §15 **R49**(신뢰 경계 감시) · R12·R16·R33·R37·R40(D10) · 불변 규칙 2·4·6·8·9.
@@ -73,14 +73,14 @@
 - [x] V-1 자동: `scripts/run-tests.ps1 -Path tests/test_security_guards.py`·`-Path tests/test_integrity_guards.py` + `-Full`(회귀 0 — conftest 도입 후 기존 710건 Host 403 없음 확인) · `scripts/invariant-scan.ps1` PASS(기준선 갱신 0) · `npm run build` 성공 · 엔트리 청크 Δ 기록(R37 — 기준선 1,534,106 B).
 - [x] V-2 편집기 회귀(E): `frontend/scripts/` `s30`·`s32-*`·`s33`·`s34-*`·`s35-*`·`s36`·`s37`·`s40`·`s41-*`·`s47` 중 실행 가능한 것 전부 실행 — 통과/실행 불가(사유)를 §7에 1줄씩.
 - [x] V-3 **메인 세션**: 실 Claude CLI 최소 호출 1회(작은 텍스트 원본 1개 → Read 성공 + 결과 반환 · 권한 거부·대기 멈춤 0) — 실패 시 플래그 재확정 후 재시도 1회까지.
-- [ ] V-4 **메인 세션** 임시 포트 스모크: ⓐ `127.0.0.1:8765`·`localhost:8765` 정상 ⓑ `curl -H "Host: evil.example"` → 403 ⓒ `-H "Origin: http://evil.example"` POST → 403 ⓓ 빈 DB에서 백업 생성 → 복원 1회 **성공**(체크포인트 가드 오탐 0) ⓔ 큐 일시정지 + 대기 잡 1개 상태에서 복원 → 409 → 잡 취소·재개.
+- [x] V-4 **메인 세션** 임시 포트 스모크: ⓐ `127.0.0.1:8765`·`localhost:8765` 정상 ⓑ `curl -H "Host: evil.example"` → 403 ⓒ `-H "Origin: http://evil.example"` POST → 403 ⓓ 빈 DB에서 백업 생성 → 복원 1회 **성공**(체크포인트 가드 오탐 0) ⓔ 큐 일시정지 + 대기 잡 1개 상태에서 복원 → 409 → 잡 취소·재개.
 
 **D. 문서**
-- [ ] D-1 매뉴얼 `docs/manual/user-manual.html` — 접속 주소 절에 "주소는 `localhost`·PC IP·PC 이름만 — 다른 이름으로 접속하려면 환경변수 `STUDY_HUB_ALLOWED_HOSTS`" 1구 · 백업 복원 절에 "진행 중인 작업이 있으면 복원 불가" 1구 · 반입 절에 "파일 50MB 이하" 1구(행 번호는 Grep 재확인).
-- [ ] D-2 설계 — 색인 §3 `[S58]` · api `[S58]` 7곳 "편성" → "구현 실측 확정"(편차 있으면 1구) · 색인 상태 줄 다음 판번.
-- [ ] D-3 CHANGELOG 항목 · `stage-index.md` 58행 · 이 문서 §7 · 체크박스 `[x]`.
-- [ ] D-4 `backlog.md` FB-37·FB-38 §2 → §4 종결 이동 · R49 행 실측 추기 · `scripts/backlog-scan.ps1` PASS.
-- [ ] D-5 출처 추기 — 별지 §13 FB-37·FB-38 `← 완료(stage-58 · 날짜)` · 마스터 §15 R49 `← 실측`.
+- [x] D-1 매뉴얼 `docs/manual/user-manual.html` — 접속 주소 절에 "주소는 `localhost`·PC IP·PC 이름만 — 다른 이름으로 접속하려면 환경변수 `STUDY_HUB_ALLOWED_HOSTS`" 1구 · 백업 복원 절에 "진행 중인 작업이 있으면 복원 불가" 1구 · 반입 절에 "파일 50MB 이하" 1구(행 번호는 Grep 재확인).
+- [x] D-2 설계 — 색인 §3 `[S58]` · api `[S58]` 7곳 "편성" → "구현 실측 확정"(편차 있으면 1구) · 색인 상태 줄 다음 판번.
+- [x] D-3 CHANGELOG 항목 · `stage-index.md` 58행 · 이 문서 §7 · 체크박스 `[x]`.
+- [x] D-4 `backlog.md` FB-37·FB-38 §2 → §4 종결 이동 · R49 행 실측 추기 · `scripts/backlog-scan.ps1` PASS.
+- [x] D-5 출처 추기 — 별지 §13 FB-37·FB-38 `← 완료(stage-58 · 날짜)` · 마스터 §15 R49 `← 실측`.
 
 ## 4. 이 단계에서 하지 않는 것 (불변 규칙 9 — 이 절이 우선)
 
@@ -125,3 +125,8 @@
 ## 7. 완료 기록 (착수 후 추기)
 
 - **편성**(2026-11-10): 지시서 확정 — FB-37 + FB-38 동승 · 사소(v2.04.3 예정) · 규약 A~J · 사용자 확정 대기 0 · 실측 정정 4(§1 말미) · 색인 §3 `[S58]` + api `[S58]` 7곳(Design v1.76 · v1.72 archive 이동) · stage-index 58행 · backlog FB-37·38 상태 + §3 R49 · 별지 §13 편성 추기 · 마스터 §15 R49(Draft v0.65) · 로드맵 M 행 추가 없음(사소).
+- **구현**(2026-11-10 · `d6b1817`): B-1~B-11 · F-1~F-6 전건. 지시서 대비 편차 — ① 경로 id HTTP 테스트에서 `%2F`·`..`은 라우팅 단계에서 걸러져(405) 서비스 직접 호출로 검증 ② `npm audit fix`가 tiptap을 부분 갱신(메뉴 확장만 3.33.0 · peer 불일치) → lock의 `@tiptap/*` 재해결로 **12개 3.33.0 일관**(`@blocknote/*` 허용 범위 `^3.29.2` 안 · `package.json` diff 0) ③ B-1 `BASE_DIR` 밖 원본 경로 없음(`--add-dir` 불요).
+- **확정 CLI 인자**(claude 2.1.322): `-p --output-format stream-json --verbose --tools Read --allowedTools Read --strict-mcp-config`(+`--model`).
+- **V-1**: pytest 755(신규 45 = security 36 · integrity 9) · invariant PASS · tsc 0 · build 성공 · 엔트리 1,528,915 B(Δ −5,191 — vite/rolldown 갱신 유래 추정). **V-2**: s30(365) · s32-normalize · s32-roundtrip-blocks(751) · s33(999) · s34-parity · s34-paste-check(99) · s36(40) · s37(191) · s40(37) · s41-columns-editor(81) · s47(78) 통과 — 갱신 전후 동일 · 실행 불가 5(s32-realdoc-check · s35-doc-roundtrip · s35-realdoc-adapter · s41-columns-roundtrip = 실 DB 필요 / s35-batch-convert = 서버 필요). **V-3**: 실 CLI 1회 — `init.tools = [Read]` · `mcp_servers = []` · Read 성공 · 거부 0 · 5초. **V-4**(격리 워크트리 · 빈 DB · 8765 · 종료 + 8765·8000 리스너 부재 확인): ⓐ 200 ⓑ 403 `host_not_allowed` ⓒ 403 `origin_mismatch`(타 출처·`null`) · 동일 출처 201 ⓓ 복원 200 ⓔ 대기 잡 중 409 → 취소 후 200 · 추가: `..%5C` 복원·improve 삭제 404 · 52.5MB 업로드 422.
+- **Opus 검토**(2026-11-10 · 조건부 통과 → `2b1202c`): 중요 1(경로 가드 테스트 `sandbox`가 `DB_PATH`·`SOURCES_DIR`·`engine` 미격리 — 가드 회귀 시 실 `study.db` 덮어쓰기) 반영 · 경미 2(복원 활성 잡 검사 TOCTOU → 스냅샷 뒤 재확인) 반영 · 경미 3(improve 본문 `case_ids` 형식 불일치 404 → 422 유지) 반영 · 미확인 의심(이탈 새로고침과 이탈 flush 경합 → 1.5초 지연) 반영 · **기록만**: 경미 4(반입 multipart 파싱 오류 400 → 422 + 이미지 문구) · 경미 5(urlencoded 본문은 상한 밖). 범위 밖 발견 → **FB-40**.
+- **잔여 사용자 DoD 6~8** → 회신 후 release PR(`VERSION` 2.04.3 · CLAUDE.md 버전 줄 · tag).
