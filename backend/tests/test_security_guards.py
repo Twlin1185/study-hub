@@ -3,6 +3,7 @@ claude CLI 인자. LLM 0 · 실 study.db/improve/backups 무접촉(임시 디렉
 from __future__ import annotations
 
 import socket
+import sqlite3
 
 import pytest
 from fastapi import FastAPI, Request
@@ -17,6 +18,11 @@ from exceptions import NotFoundError
 from services import backup_service, convert_service, improve_service, split_service, upload_service
 
 client = TestClient(main.app)
+
+
+class _EngineStub:
+    def dispose(self) -> None:
+        pass
 
 _BAD_IDS = [
     "..%5C..%5Cx",
@@ -47,6 +53,16 @@ def sandbox(tmp_path, monkeypatch):
     backups = tmp_path / "backups"
     backups.mkdir()
     monkeypatch.setattr(backup_service, "BACKUPS_DIR", backups)
+    # 가드가 회귀해 복원이 끝까지 진행되더라도 실 study.db·sources/를 건드리지 않게 복원 대상
+    # 전부를 임시 경로로 돌린다(검토 중요 1 — "실 데이터 무접촉"이 가드 정상일 때만 성립하던 문제).
+    sandbox_db = tmp_path / "study.db"
+    conn = sqlite3.connect(str(sandbox_db))
+    conn.execute("CREATE TABLE t (v TEXT)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(backup_service, "DB_PATH", sandbox_db)
+    monkeypatch.setattr(backup_service, "SOURCES_DIR", tmp_path / "sources")
+    monkeypatch.setattr(backup_service, "engine", _EngineStub())
     split_dir = tmp_path / "split"
     split_dir.mkdir()
     monkeypatch.setattr(split_service, "SPLIT_DIR", split_dir)
@@ -79,6 +95,14 @@ def test_improve_case_and_proposal_paths_reject_bad_ids(sandbox, bad):
         assert client.get(f"/api/improve/cases/{bad}").status_code == 404
         assert client.delete(f"/api/improve/cases/{bad}").status_code == 404
         assert client.get(f"/api/improve/proposals/{bad}").status_code == 404
+
+
+def test_improve_require_case_bad_id_stays_422(sandbox):
+    """본문 `case_ids` 경로(gen·regression prepare)는 형식 불일치도 부재와 같은 422(§4.22 ②)."""
+    from exceptions import ValidationAppError
+
+    with pytest.raises(ValidationAppError):
+        improve_service._require_case("../x")
 
 
 def test_improve_valid_ids_still_resolve(sandbox):

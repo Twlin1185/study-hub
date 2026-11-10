@@ -437,9 +437,13 @@ def get_case_or_404(case_id: str) -> dict:
 
 def _require_case(case_id: str) -> dict:
     """gen·regression prepare 전용 — 부재는 422(설계 §4.22 ② "실재 검증(부재 422)")."""
-    path = _case_path(case_id)
+    missing = ValidationAppError("존재하지 않는 실패 사례가 포함되어 있습니다", detail={"case_id": case_id})
+    try:
+        path = _case_path(case_id)
+    except NotFoundError as exc:  # 형식 불일치 id도 본문 경로에서는 "부재"와 같은 422(계약 무변)
+        raise missing from exc
     if not path.exists():
-        raise ValidationAppError("존재하지 않는 실패 사례가 포함되어 있습니다", detail={"case_id": case_id})
+        raise missing
     return _read_json(path)
 
 

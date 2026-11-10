@@ -118,6 +118,12 @@ def restore_backup(backup_id: str, confirm: str) -> Dict:
 
     # 복원 전 자동 스냅샷 1개 생성 — 복원이 잘못됐을 때 되돌릴 수 있게(지시서 요구사항).
     pre_restore = create_backup(label="pre_restore")
+    # 스냅샷(VACUUM INTO + sources zip)은 수 초 걸릴 수 있다 — 그 사이 들어온 잡을 한 번 더 걸러낸다.
+    if convert_service.has_active_jobs():
+        raise ConflictError(
+            "진행 중인 작업이 있어 복원할 수 없습니다 — 작업 센터에서 끝나기를 기다리거나 취소하세요",
+            detail={"reason": "active_jobs"},
+        )
 
     # 남아있는 WAL을 study.db 본문에 반영해 비운다. Windows는 앱(uvicorn)이 열어 둔
     # -wal/-shm 파일을 unlink할 수 없으므로(공유 위반) 삭제 대신 체크포인트로 처리한다.

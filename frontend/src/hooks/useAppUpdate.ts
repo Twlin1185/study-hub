@@ -13,6 +13,7 @@ import { api } from '../api/client'
 //   · 이미 한 번 새로고침했는데도 계속 다르면(비정상) → 무한 새로고침 대신 배너로 알린다.
 const RELOAD_GUARD_KEY = 'study-hub:reloaded-for-asset'
 const POLL_INTERVAL_MS = 60_000
+const RELOAD_AFTER_LEAVE_MS = 1_500
 
 function runningAssetName(): string | null {
   const scripts = Array.from(document.querySelectorAll<HTMLScriptElement>('script[src]'))
@@ -39,12 +40,17 @@ export function useAppUpdate(): { updateAvailable: boolean } {
   const pendingAssetRef = useRef<string | null>(null)
 
   useEffect(() => {
-    const pending = pendingAssetRef.current
-    if (pending && !isReloadDeferredPath(pathname)) {
+    if (!pendingAssetRef.current || isReloadDeferredPath(pathname)) return
+    // 이탈하는 화면이 같은 순간에 보내는 확정 요청(복습 뒤집기 flush·노트 저장)이 언로드에
+    // 잘리지 않게 잠깐 미룬다. 그 사이 다시 보호 라우트로 들어가면 취소되고 보류가 유지된다.
+    const timer = window.setTimeout(() => {
+      const pending = pendingAssetRef.current
+      if (!pending) return
       pendingAssetRef.current = null
       window.sessionStorage.setItem(RELOAD_GUARD_KEY, pending)
       window.location.reload()
-    }
+    }, RELOAD_AFTER_LEAVE_MS)
+    return () => window.clearTimeout(timer)
   }, [pathname])
 
   useEffect(() => {
