@@ -43,7 +43,7 @@ from schemas.applied_exam import (
 )
 from schemas.exam import ExamCut, ExamHistorySubject, ExamSubjectReport, ExamSubmitRequest, ExamTotal
 from services import attempt_service, category_service, exam_scoring, llm_engine_service, settings_service, srs_service
-from services import document_service, source_match, tag_rule_service, tree_utils
+from services import document_service, exam_service, source_match, tag_rule_service, tree_utils
 from services.document_service import _generate_doc_no
 
 # ---------------------------------------------------------------------------
@@ -628,6 +628,7 @@ def _load_basis(db: Session, document_id: int) -> List[AppliedExamBasisRef]:
 def submit_applied_exam(db: Session, payload: ExamSubmitRequest) -> AppliedExamSubmitReport:
     if not payload.answers:
         raise ValidationAppError("제출할 답안이 없습니다")
+    exam_service.assert_no_duplicate_answers(payload)  # stage-58 규약 G
 
     cut = payload.cut or ExamCut()
     applied_ids = applied_subtree_ids(db)

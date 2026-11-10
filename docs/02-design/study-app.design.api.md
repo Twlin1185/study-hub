@@ -56,6 +56,8 @@
 
 ### 4.3 반입 Import (S2 · S6 — convert 연결 · **S13 — F40-① 변환 결과 보존·복구**)
 
+> **[S58](구현·검토 2026-11-10 · 실측 확정 · stage-58 §2 D)**: 파일 업로드 상한 **50MB** — `POST /api/import/preview`(JSON·`source_file`)·`POST /api/import/answer-key` 초과 = **422 `VALIDATION_ERROR`** · `detail.reason:"upload_too_large"`. 계약 그 외 무변 · DDL 0.
+
 > **[S56] 포인터(편성 2026-11-08 · Design v1.72 → 구현 실측 확정 2026-11-08 · Design v1.73 — 시작 API 5곳 `run_id` 가산 실측 · run 선생성 후 잡 등록 · 답지 경로 표기 `/api/import/answer-key`로 정정 ⓚ · 편차 = §4.34 말미 ⓐ~ⓛ)**: 이 절의 시작 API(`POST /api/import/preview` — 사용자 JSON 업로드)와 §4.10 `POST /api/convert` · §4.13 `POST /api/fetch/import` · §4.25 `POST /api/import/split` · §4.20 `POST /api/import/answer-key`(구 표기 `/api/imports/` 정정) 응답에 **`run_id`(int)가 순수 가산**되고, `commit`·`preview/merge`·preview 복구는 **서버 내부 훅**이 반입 건(run) 상태를 전이시킨다(클라이언트 요청 계약 무변 · `commit`은 같은 트랜잭션). 반입 건 계약 전체 = **§4.34**. 이 절의 preview TTL·`import/auto/` 보존(R18)·복구 규칙은 무변.
 
 | 메서드/경로 | 설명 | 단계 |
@@ -204,6 +206,8 @@
   - 규칙 삭제 시 해당 `suggestions.tag_rule_id`·`category_documents.linked_rule_id`는 SET NULL(연결·이력은 유지).
 
 ### 4.10 설정·변환·백업
+
+> **[S58](구현·검토 2026-11-10 · 실측 확정 · stage-58 §2 A·B·D·J)**: ⓐ `POST /api/convert` 파일 50MB 초과 = **422 `VALIDATION_ERROR`**(`detail.reason:"upload_too_large"` — 변환 잡 `error_kind:"too_large"`와 별개) ⓑ `POST /api/backups/{id}/restore` — `id`가 `^[A-Za-z0-9_-]{1,64}$` 불일치·`backups/` 밖 = **404 `NOT_FOUND`** · 대기·실행 중 LLM 잡 존재 = **409 `CONFLICT`** · WAL 체크포인트 busy = **409 `CONFLICT`**(덮어쓰기 미실행) ⓒ Claude CLI 엔진은 Read 도구만 허용해 실행(권한 우회 플래그 제거 — 응답 계약 무변). DDL 0.
 
 | 메서드/경로 | 설명 | 단계 |
 |---|---|---|
@@ -373,6 +377,8 @@ backend/services/fetchers/
 - **스트릭은 목표와 무관**(활동 기준) — 목표 변경이 과거 스트릭을 재해석하지 않는다. 반면 heatmap `goal_met`은 **현재 목표로 과거를 재평가**하는 파생값(목표 이력 저장 안 함 — YAGNI).
 
 ### 4.14 시험 직전 도구 (S11 — F25 실전 모의고사 + F16 D-Day 복습 강도 조절)
+
+> **[S58](구현·검토 2026-11-10 · 실측 확정 · stage-58 §2 G)**: `POST /api/exam/session` — 한 문서가 여러 선택 과목에 속하면 **첫 과목에만 출제**(과목 간 `document_id` 중복 0 · 뒤 과목은 남은 문항으로 `count` 충원) · `POST /api/exam/submit` — `answers[]`에 같은 `document_id` 중복 = **422 `VALIDATION_ERROR`**(`detail.document_id` · 채점·기록 0). DDL 0.
 
 **원칙(강제)**: **새 테이블·컬럼 없음** — 모의고사 리포트·이력은 전부 **attempts 파생**(mode=`'exam'` + 배치 공통 `answered_at` = 런 키), D-Day 강도 조절은 SRS **큐 구성 계층**만 손댄다(`services/sm2.py` 알고리즘·`srs_cards` 저장값(EF·interval·due_date)은 불변). 근거는 계획서 §14 F25·F16 명세.
 
@@ -829,6 +835,8 @@ backend/services/fetchers/
 
 ### 4.21 응용 모의고사 — 범위 기반 LLM 응용 문항 생성·응시 (S19 — F45. **계약 확정 2026-08-02, stage-19 착수 전 결정 ①~⑦ 해소분**)
 
+> **[S58](구현·검토 2026-11-10 · 실측 확정 · stage-58 §2 G)**: 응용 모의고사 제출도 `answers[]` `document_id` 중복 = **422 `VALIDATION_ERROR`**(§4.14 `[S58]`과 같은 검사 함수 · 채점·기록 0). DDL 0.
+
 > 근거: 계획서 §14 F45(단일 출처 — 배경·①②③·R22). 이 절은 착수 전 결정 ①~⑦의 확정 계약이며, 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-19 DoD).
 > 원칙 재확인: **채점은 서버에서만(불변 규칙 1)** — 응시 구성은 기존 `POST /api/exam/session` 재사용이라 응시 응답에 정답·해설이 **스키마 수준으로 부재**하다(QuizQuestionOut — 필터링이 아니라 부재, 계약 불변). **이 기능은 사전 미리보기 승인이 원리상 불가능하다**(시험 문제를 미리 보면 무의미 — R7 최종 방어선 사용 불가) → **방어선은 사후 검토로 이동**(제출 후 리포트의 문항별 근거 문서 링크 + F30 오류 신고·재생성 — R22 ②)하고, 생성물은 **격리 분류에만 저장**해 문서고 본류·일반 퀴즈·SRS를 오염시키지 않는다(R22 ③). 실행 전 LLM 사용량 안내(F35 원칙) · 오류 원문 노출 금지(§4.11 `error_info`) · 에러 규약 §3.
 
@@ -897,6 +905,8 @@ backend/services/fetchers/
 - 구현 앵커: `applied_exam_service`(프롬프트 출력 스키마·검증·저장 분기·scan 호출) · `tag_rule_service.scan_document`(suggested 강제 옵션 — 호출부 플래그, 규칙 의미론 자체는 무변경) · `AppliedExamPanel`(모드 선택 UI) · 작업 지시서 = `stage-24-applied-exam-mode.plan.md`.
 
 ### 4.22 반입 자기 개선 루프 — 실패 사례·개선 제안·회귀 재검증 (S20 — F46. **계약 확정 2026-08-02, stage-20 착수 전 결정 ①~⑦ 해소분**)
+
+> **[S58](구현·검토 2026-11-10 · 실측 확정 · stage-58 §2 B)**: 경로 파라미터 `case_id`·`proposal_id`가 `^[A-Za-z0-9_-]{1,64}$` 불일치이거나 `improve/cases`·`improve/proposals` 밖으로 풀리면 **404 `NOT_FOUND`**(파일 접근 0 · R16 규약 적용). DDL 0.
 
 > 근거: 계획서 §14 F46(단일 출처 — 배경·수집·채널 3계층·제안함·회귀·R23). 이 절은 착수 전 결정 ①~⑦의 확정 계약이며, 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-20 DoD).
 > 원칙 재확인: **완전 자동 수정 배제·자동 반영 금지**(모든 반영은 제안함 승인 경유 — R8 제안-승인 철학. 파일 쓰기는 아래 apply 1개 엔드포인트뿐) · **코드 자기 수정 금지**(자기 개선 상한 = 데이터(사례집)·프롬프트 층 — 코드 결함은 재현 패키지 인계) · 실행 전 LLM 사용량 안내(F35 원칙 — 수집은 비용 0이라 자동, **개선·회귀는 전부 수동 + estimate 확인 스텝**) · 오류 원문 API 미노출(§4.11 — 파일 저장은 로그 전용 관례) · 에러 규약 §3. **이 기능은 DB에 아무것도 쓰지 않는다**(저장은 전부 파일·인메모리 — 말미 재확인).
@@ -1039,6 +1049,8 @@ backend/services/fetchers/
 
 ### 4.24 LLM 작업 센터 — 전역 잡 목록·취소·대기열 일시정지·요청 단위 모델 (S22 — F48. **계약 확정 2026-08-03, stage-22 착수 전 결정 ①~⑥ 해소분**)
 
+> **[S58](구현·검토 2026-11-10 · 실측 확정 · stage-58 §2 F)**: 잡 TTL(1h — 값 무변) 삭제 대상 = **종료 잡(`done`·`error`·`cancelled`)만**, 기준 시각 = 종료 시각(없으면 생성 시각). 대기·실행 중 잡은 TTL로 사라지지 않는다. 응답 계약 무변 · DDL 0.
+
 > 근거: 계획서 §14 F48(단일 출처 — 배경(2026-08-03 사용자 요청 4건)·ⓐⓑⓒⓓ·순서 관계). 구현 중 이 계약과 어긋나는 필요(특히 DDL·잡 영속화)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-22 DoD).
 > 원칙 재확인: **잡 큐의 정본은 §4.10·§4.11** — 인메모리 잡 레코드(`convert_service._JOBS`·TTL)·convert 잡 큐 **동시 1개**는 불변이고, 이 절은 그 위에 **조회·제어 계층**을 얹는다(잡 실행·진행 계약(§4.11 `progress`·`error_info`) 무변경). 전 잡 kind 8종(convert(파일·URL)·fetch·regenerate·answer_key·explain·applied_exam·improve_proposal·improve_regression)이 **같은 잡 큐·레코드를 공유**하므로 목록 1개가 전 kind를 덮는다(현행 실측). 서버 완성 문장·원문 노출 금지(§4.11) · 에러 규약 §3 · **이 절의 신규 엔드포인트는 전부 LLM 호출 0·DB 쓰기 0**(인메모리 조회·플래그 — 비용 0).
 
@@ -1133,6 +1145,8 @@ backend/services/fetchers/
 - ⓓ 표 `convert` ref += `split_id?`(조각 잡이면 출발 split — 순수 추가).
 
 ### 4.25 대용량 원본 LLM 분할 반입 — 구조 분석·분할안 확인·조각 투입 (S23 — F49. **계약 확정 2026-08-04, 착수 전 결정 전건(컨셉 + ㉮~㉳) 해소분**)
+
+> **[S58](구현·검토 2026-11-10 · 실측 확정 · stage-58 §2 B·D)**: `split_id`가 `^[A-Za-z0-9_-]{1,64}$` 불일치·분할 상태 폴더 밖 = **404 `NOT_FOUND`**(디스크 복구 경로 포함) · `POST /api/import/split` 파일 50MB 초과 = **422 `VALIDATION_ERROR`**(`detail.reason:"upload_too_large"`). DDL 0.
 
 > 근거: 계획서 §14 F49(단일 출처 — 배경 실사례(98.9만 자 URL `too_large`)·확정 컨셉 5단계·결정 ㉮~㉳·R25). 구현 중 이 계약과 어긋나는 필요(특히 DDL)가 발견되면 임의 확정 없이 착수 중단 후 보고한다(stage-23 DoD).
 > 원칙 재확인: **다단계 + 사용자 개입형이 컨셉의 정체성**(2026-08-04 사용자 확정 — "링크만 주면 전자동" 명시 배제): 분할안 확인(2단계)과 조각별 미리보기 승인(4단계 — R7)은 생략 불가. 실행 전 사용량 안내(F35 — 휴리스틱은 무비용, LLM 개입 지점은 전부 확인 스텝 뒤) · `sources/` 원본 불변(조각은 파생물) · 오류 원문 노출 금지·서버 완성 문장(§4.11) · 에러 규약 §3 · **조각 = 원문 연속 부분 문자열(서버 결정론 절단 — LLM은 경계 오프셋·라벨만 산출, 본문 재작성 경로 0)**. 판별·추출은 §4.18 계층 그대로(이 절은 그 뒤에 얹는 분기 — 20만 자 이하 원본의 계약은 완전 불변).

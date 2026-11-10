@@ -107,6 +107,8 @@ export default function QuizRunPage() {
   // 정답 자동 다음 카운트다운(남은 ms). null이면 비활성. 아무 키/탭으로 즉시 진행 (F36-⑥).
   const [autoRemain, setAutoRemain] = useState<number | null>(null)
   const autoActiveRef = useRef(false)
+  // 제출 in-flight 가드(FB-38ⓒ) — 키보드 핸들러의 stale closure와 무관하게 중복 제출을 막는다.
+  const submittingRef = useRef(false)
 
   // 새로고침/닫기 시 세션 종료 확인 (설계 §5.6 — 진행 중인 세션 이탈은 브라우저 경고)
   useEffect(() => {
@@ -236,9 +238,10 @@ export default function QuizRunPage() {
   const elapsed = formatElapsed(now - (startedAt ?? now))
 
   function handleSelect(choiceIndex: number) {
-    if (answered) return
+    if (answered || submittingRef.current) return
     const timeSpent = cardShownAt ? Math.max(0, Math.round((Date.now() - cardShownAt) / 1000)) : 0
     const myAnswer = String(choiceIndex + 1)
+    submittingRef.current = true
     submitAttempt.mutate(
       {
         document_id: question.document_id,
@@ -250,6 +253,9 @@ export default function QuizRunPage() {
       {
         onSuccess: (result) => {
           recordAnswer(question.document_id, myAnswer, timeSpent, result)
+        },
+        onSettled: () => {
+          submittingRef.current = false
         },
       },
     )

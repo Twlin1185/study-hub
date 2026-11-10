@@ -17,7 +17,7 @@ from starlette import status
 from database import get_db
 from exceptions import ValidationAppError
 from schemas.convert import ConvertJobStart, ConvertJobStatus
-from services import convert_service, import_run_service, llm_engine_service
+from services import convert_service, import_run_service, llm_engine_service, upload_service
 
 router = APIRouter(prefix="/api/convert", tags=["convert"])
 
@@ -42,7 +42,7 @@ async def start_convert(request: Request, db: Session = Depends(get_db)) -> Conv
     if content_type.startswith("multipart/form-data") or content_type.startswith(
         "application/x-www-form-urlencoded"
     ):
-        form = await request.form()
+        form = await upload_service.parse_form_limited(request, convert_service.MAX_DOWNLOAD_BYTES)
         engine = str(form.get("engine") or "auto")
         raw_model = form.get("model")
         model = raw_model if isinstance(raw_model, str) and raw_model.strip() else None

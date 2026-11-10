@@ -370,6 +370,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
         <li>PC: 브라우저에서 <code>http://localhost:8000</code></li>
         <li>폰·태블릿: <strong>같은 와이파이</strong>에서 <code>http://&lt;PC의 IP&gt;:8000</code>
           — PC의 IP는 명령창에서 <code>ipconfig</code>를 쳐서 "IPv4 주소"(예: 192.168.0.15)를 확인</li>
+        <li>접속 주소는 <code>localhost</code>·PC의 IP·PC 이름만 받습니다(보안 — 다른 이름으로 들어오면 "허용되지 않은 접속 주소"로 거부). 별도 이름을 써야 하면 서버를 띄우기 전에 환경변수 <code>STUDY_HUB_ALLOWED_HOSTS</code>에 그 이름을 <strong>포트 없이</strong> 쉼표로 적어 두세요.</li>
       </ul>
     </li>
   </ol>
@@ -903,7 +904,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     </li>
     <li>
       <strong>반입 화면에서 파일 선택</strong>
-      <p><span class="path">/import</span>에서 생성된 JSON을 선택합니다. 원본 PDF도 함께 첨부하면 <code>sources/</code>에 보관됩니다.</p>
+      <p><span class="path">/import</span>에서 생성된 JSON을 선택합니다. 원본 PDF도 함께 첨부하면 <code>sources/</code>에 보관됩니다. 반입·변환에 올리는 파일은 <strong>한 개당 50MB 이하</strong>만 받습니다.</p>
     </li>
     <li>
       <strong>미리보기에서 확인</strong>
@@ -1883,7 +1884,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
     <li><strong>백업 만들기</strong> — 설정 화면의 [백업 생성]. DB 스냅샷과 원본 파일(<code>sources/</code>)이
       <code>backups/</code> 폴더에 시각과 함께 저장됩니다.</li>
     <li><strong>자동 백업</strong> — 설정에서 켜면, 마지막 백업 후 24시간이 지난 채로 서버가 켜질 때 자동 실행됩니다.</li>
-    <li><strong>복원</strong> — 백업 목록에서 선택 후, 실수 방지를 위해 <strong>확인 문구를 직접 타이핑</strong>해야 진행됩니다.
+    <li><strong>복원</strong> — 백업 목록에서 선택 후, 실수 방지를 위해 <strong>확인 문구를 직접 타이핑</strong>해야 진행됩니다. <strong>진행 중이거나 대기 중인 작업(변환·반입 등)이 있으면 복원할 수 없습니다</strong> — 작업 센터에서 끝나기를 기다리거나 취소한 뒤 다시 시도하세요.
       복원 직전 상태도 자동 스냅샷으로 한 벌 남깁니다.</li>
     <li><strong>복원 후 새로 불러오기</strong> <span class="badge new">v1.x</span> — 복원이 끝나면
       "복원 완료 — 앱을 다시 불러옵니다" 모달이 뜨고, 확인하면 화면 전체가 새로고침되어 복원된 데이터로 이어집니다
