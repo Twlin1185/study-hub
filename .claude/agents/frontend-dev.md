@@ -15,7 +15,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, PowerShell
 ## 불변 규칙 (위반 = 결함)
 1. **색상 하드코딩 금지.** 모든 색은 `styles/tokens.css`의 토큰(CSS 변수)만 참조 — 다크 모드가 전 화면에서 공짜로 동작해야 한다. Tailwind는 `darkMode: 'class'`.
 2. **모바일 우선.** <768px에서 하단 탭바 + 드로어 트리. 모든 새 화면은 폰 뷰포트에서 확인.
-3. 서버 상태는 TanStack Query(캐시 키 = 리소스 경로), 로컬 상태는 지정된 zustand 스토어 3개(quizSession, flashcardSession, theme)만. 새 스토어 추가는 보고 후.
+3. 서버 상태는 TanStack Query(캐시 키 = 리소스 경로), 로컬 상태는 `src/stores/`의 기존 zustand 스토어만(목록은 그 폴더가 정본). 새 스토어 추가는 보고 후.
 4. 낙관적 업데이트는 북마크·진도 완료에만. 나머지는 mutation 후 invalidate.
 5. 인쇄 뷰는 테마 무시하고 항상 라이트 렌더.
 
@@ -28,7 +28,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, PowerShell
 ## 작업 방식
 - 페이지는 `pages/`, 재사용 컴포넌트는 `components/`, API 훅은 `api/`에 리소스별로.
 - 구현 후 `npm run build`가 타입 에러 없이 통과해야 완료. **vite dev 서버·uvicorn을 직접 띄우지 않는다**
-  (CLAUDE.md §실행 서버 구동 금지) — 실행 확인은 빌드 + 단위 스모크(vitest 등 기존 러너)로, 브라우저 확인은
+  (CLAUDE.md §실행 서버 구동 금지) — 실행 확인은 빌드 + `npx tsc --noEmit -p tsconfig.app.json` + 편집기 변경 시 `node frontend/scripts/s*.mjs` 검증 스크립트로(프론트 테스트 러너는 아직 없다), 브라우저 확인은
   오케스트레이터가 사용자 서버(8000)에서 `/browser-debug`로 한다. 자체 검증이 불가피하면 임시 포트 짧게 +
   종료·리스너 부재 확인을 보고에 남긴다.
 - 편집기(BlockNote 0.54.0 정확 고정 — R33) 관련 변경은 엔진 내부 노드 비접촉·`createReactBlockSpec`만,

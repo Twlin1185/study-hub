@@ -4,7 +4,7 @@
 (FastAPI + SQLite + React). 개인용, 홈 네트워크 전용.
 
 **현재 버전 v2.04.1** (2026-11-09 발행) — 버전 단일 출처 = 루트 `VERSION` · 규약·이력 =
-`docs/03-release/CHANGELOG.md`. **다음**: stage-54 캡처 1단계(편성 · 사용자 확정 대기 — `capture.plan.md`) — 잔여 할 일은 `docs/01-plan/backlog.md`(후보를 여기
+`docs/03-release/CHANGELOG.md`. **다음**: V3 계획(`v3.plan.md`) P1 안전망 — V3-01 테스트 기반 → V3-02 CI. v2.04.2·v2.04.3은 발행 대기(사용자 회신). 잔여 할 일은 `docs/01-plan/backlog.md`(후보를 여기
 나열하지 않는다). 진척·경위는 stage-index·stage 문서에만.
 
 ## 작업 사이클 (stage는 "할 일을 정한 뒤" 쓰는 산출물)
@@ -18,14 +18,15 @@
 
 | 문서 | 역할 |
 |---|---|
-| `docs/01-plan/study-app.plan.md` | 마스터 계획 — F01~F59(§5) · **DDL 단일 출처(§6.2)** · 로드맵 M1~M36 §14(+"v1.x 후보" 주석) · 리스크 R §15 · 버전 정의(말미) |
+| `docs/01-plan/study-app.plan.md` | 마스터 계획 — 기능 F(§5) · **DDL 단일 출처(§6.2)** · 로드맵 M §14(+"v1.x 후보" 주석) · 리스크 R §15 · 버전 정의(말미) |
 | `docs/01-plan/editor-v2.plan.md` | 에디터 v2(완료) 별지 — 결정 D1~D11(§10) · R33~R41(§9) · **피드백 로그 FB-n(§13 — 등재 정본)** · §14 프로젝션 손실(정본) · **GPL 의존 금지(D10 — 저장소 public)** |
+| `docs/01-plan/v3.plan.md` | **V3 계획서**(2026-11-10 감사 기반) — 영역별 판정 · 게이트 G1~G5 · 단계 V3-01~19(범위·순서·DoD) · 결정 대기 D-V1~6 · 리팩토링 stage는 여기서 골라 편성 |
 | `docs/01-plan/backlog.md` | **잔여 등록부** — 미종결 M/F/D/R/FB 1표(상태·편성 조건) · 다음 stage는 여기서 고른다 · 정합 = `scripts/backlog-scan.ps1` |
 | `docs/01-plan/stage-index.md` | **stage 전수 인덱스**(상태·산출 버전·경로 1표) — stage 문서는 여기서 찾는다 |
-| `docs/01-plan/stage-{n}-*.plan.md` | 단계 지시서(DoD·제외 범위) — 완료 경위·잔여 정본 = 머리말 "상태" 줄 + "완료 기록" |
+| `docs/01-plan/stage-{n}-*.plan.md` | 단계 지시서(DoD·제외 범위) — **미완료·발행 대기분만 여기** · 완료 경위·잔여 정본 = 머리말 "상태" 줄 + "완료 기록" · 발행 완료분은 `docs/04-archive/stages/`(release PR에서 `git mv`) |
 | `docs/02-design/study-app.design*.md` | 설계 3분할(§ 번호 불변) — 색인 `.design.md`(§1~3 공통 규약·분할 지도) / `.api.md`(§4) / `.screens.md`(§5 화면·§6 토큰·§7 상태) |
 | `docs/03-release/` | 패치노트 — `CHANGELOG.md`(v2 정본 · 머리 = **버전 규약 정본**) · `CHANGELOG-v1.md`(동결) |
-| `docs/04-archive/` | 완료 이력 원문 — **평소 읽지 않는다** |
+| `docs/04-archive/` | 완료 이력 원문 + `stages/`(발행 완료 stage 문서) — **평소 읽지 않는다**(필요 시 stage-index로 번호를 찾아 해당 문서만) |
 | `docs/manual/user-manual.html` | 사용자 매뉴얼 — 기능 변경 시 함께 갱신 |
 
 답은 대부분 설계 문서에 있다 — 추정 전에 읽을 것 · 문서-코드 불일치는 임의 수정 말고 보고.

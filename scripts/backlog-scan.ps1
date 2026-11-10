@@ -73,7 +73,9 @@ if (-not $registryMissing) {
 function RegClosed([string]$id) { return $closedByRegistry.Contains($id) }
 
 # ---------------------------------------------------------------- 1. stages
-$stageFiles = Get-ChildItem -LiteralPath $planDir -Filter 'stage-*.plan.md' |
+# Active stage docs live in docs/01-plan; published ones are moved (git mv) to docs/04-archive/stages.
+$stageDirs = @($planDir, (Join-Path $root 'docs\04-archive\stages')) | Where-Object { Test-Path -LiteralPath $_ }
+$stageFiles = $stageDirs | ForEach-Object { Get-ChildItem -LiteralPath $_ -Filter 'stage-*.plan.md' } |
     Sort-Object { [int]([regex]::Match($_.Name, 'stage-(\d+)').Groups[1].Value) }
 $done = 0; $inProgress = @(); $notStarted = @()
 foreach ($f in $stageFiles) {
