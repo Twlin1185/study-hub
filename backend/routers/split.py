@@ -21,7 +21,7 @@ from schemas.split import (
     SplitStartResult,
     SplitStateResponse,
 )
-from services import convert_service, import_run_service, split_service
+from services import convert_service, import_run_service, split_service, upload_service
 
 router = APIRouter(prefix="/api/import/split", tags=["import-split"])
 
@@ -46,7 +46,7 @@ async def start_split(
     if content_type.startswith("multipart/form-data") or content_type.startswith(
         "application/x-www-form-urlencoded"
     ):
-        form = await request.form()
+        form = await upload_service.parse_form_limited(request, convert_service.MAX_DOWNLOAD_BYTES)
         raw_url = form.get("url")
         url = raw_url if isinstance(raw_url, str) and raw_url.strip() else None
         file_field = form.get("file")

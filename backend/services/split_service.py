@@ -56,6 +56,8 @@ SPLIT_DIR = BASE_DIR / "import" / "split"
 KEEP_MAX = 20  # R18 관례 — 초과 시 오래된 것부터 삭제(git·백업 제외)
 STATE_TTL = dt.timedelta(hours=1)  # 인메모리 TTL — 만료 후 GET은 디스크 복구(F40-① 전례)
 
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")  # stage-58 규약 B
+
 _STATE: Dict[str, dict] = {}
 _STATE_LOCK = threading.Lock()
 
@@ -110,7 +112,15 @@ def _prune_split_files(keep: int = KEEP_MAX) -> None:
 
 
 def _load_state_from_disk(split_id: str) -> Optional[dict]:
+    # stage-58 규약 B — id 화이트리스트 + 루트 종속 이중 가드(불일치 → None → 기존 404).
+    if not isinstance(split_id, str) or not _SAFE_ID_RE.fullmatch(split_id):
+        return None
     path = SPLIT_DIR / f"{split_id}.json"
+    try:
+        if not path.resolve().is_relative_to(SPLIT_DIR.resolve()):
+            return None
+    except (OSError, ValueError):
+        return None
     if not path.exists():
         return None
     try:

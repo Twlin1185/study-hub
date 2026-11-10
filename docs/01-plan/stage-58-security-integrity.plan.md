@@ -47,32 +47,32 @@
 ## 3. 체크리스트
 
 **B. 백엔드 (`backend/`)**
-- [ ] B-1 (A) `services/convert_service.py` — `_claude_cli_args(exe, model)` 추출 · `bypassPermissions` 제거 · Read 전용 플래그(`claude --help` 실측 — 플래그·CLI 버전을 §7에 기록) · 원본이 `BASE_DIR` 밖에 놓이는 경로 유무 Grep 확인(있으면 읽기 허용 인자). **CLI 실호출 금지**(V-3은 메인).
-- [ ] B-2 (B) `services/improve_service.py` 경로 헬퍼 3개에 이중 가드(불일치 `NotFoundError`) · `services/backup_service.py` `restore_backup` 진입 가드 · `services/split_service.py` `_load_state_from_disk` 머리 가드(`None` 반환). 정규식은 모듈별 상수 또는 공용 1곳(구현 재량 · 문자 집합은 규약 B 고정).
-- [ ] B-3 (C) `main.py` — ASGI 미들웨어(Host ① · Origin ② · 403 응답 ③) · 허용 호스트 집합은 기동 시 1회 계산 · `scope["type"] != "http"` 통과.
-- [ ] B-4 (C ⑤) `tests/conftest.py` 신설(환경변수 1줄 — 다른 픽스처 추가 0).
-- [ ] B-5 (D ①) `services/upload_service.py` — 공용 `parse_form_limited` 노출(기존 이미지 경로는 그것을 호출 · 동작 diff 0) · `routers/convert.py:45` · `routers/split.py`의 `request.form()` 교체 · 초과 = 422 `upload_too_large`.
-- [ ] B-6 (D ②) `routers/imports.py:38·42·109` — `.read()` 전 크기 검사(공용 헬퍼 1개).
-- [ ] B-7 (F) `convert_service._purge_expired_jobs` — 종료 3상태 한정 + `_finished_at` 기준(폴백 `created_at`).
-- [ ] B-8 (G) `services/exam_service.py` — 세션 dedupe(`seen`) + 중복 검사 함수 · `submit_exam`·`applied_exam_service.submit_applied_exam` 양쪽 호출(채점 루프 앞).
-- [ ] B-9 (J) `convert_service.has_active_jobs()` 신설 · `backup_service.restore_backup` — 활성 잡 409 · 체크포인트 결과 행 검사 · `sqlite3.Error` 409 · `except: pass` 제거.
-- [ ] B-10 테스트(LLM 0 · 신규 파일 2):
+- [x] B-1 (A) `services/convert_service.py` — `_claude_cli_args(exe, model)` 추출 · `bypassPermissions` 제거 · Read 전용 플래그(`claude --help` 실측 — 플래그·CLI 버전을 §7에 기록) · 원본이 `BASE_DIR` 밖에 놓이는 경로 유무 Grep 확인(있으면 읽기 허용 인자). **CLI 실호출 금지**(V-3은 메인).
+- [x] B-2 (B) `services/improve_service.py` 경로 헬퍼 3개에 이중 가드(불일치 `NotFoundError`) · `services/backup_service.py` `restore_backup` 진입 가드 · `services/split_service.py` `_load_state_from_disk` 머리 가드(`None` 반환). 정규식은 모듈별 상수 또는 공용 1곳(구현 재량 · 문자 집합은 규약 B 고정).
+- [x] B-3 (C) `main.py` — ASGI 미들웨어(Host ① · Origin ② · 403 응답 ③) · 허용 호스트 집합은 기동 시 1회 계산 · `scope["type"] != "http"` 통과.
+- [x] B-4 (C ⑤) `tests/conftest.py` 신설(환경변수 1줄 — 다른 픽스처 추가 0).
+- [x] B-5 (D ①) `services/upload_service.py` — 공용 `parse_form_limited` 노출(기존 이미지 경로는 그것을 호출 · 동작 diff 0) · `routers/convert.py:45` · `routers/split.py`의 `request.form()` 교체 · 초과 = 422 `upload_too_large`.
+- [x] B-6 (D ②) `routers/imports.py:38·42·109` — `.read()` 전 크기 검사(공용 헬퍼 1개).
+- [x] B-7 (F) `convert_service._purge_expired_jobs` — 종료 3상태 한정 + `_finished_at` 기준(폴백 `created_at`).
+- [x] B-8 (G) `services/exam_service.py` — 세션 dedupe(`seen`) + 중복 검사 함수 · `submit_exam`·`applied_exam_service.submit_applied_exam` 양쪽 호출(채점 루프 앞).
+- [x] B-9 (J) `convert_service.has_active_jobs()` 신설 · `backup_service.restore_backup` — 활성 잡 409 · 체크포인트 결과 행 검사 · `sqlite3.Error` 409 · `except: pass` 제거.
+- [x] B-10 테스트(LLM 0 · 신규 파일 2):
   - `tests/test_security_guards.py` — ⓐ 경로 탈출: improve case·proposal · backup restore · split 각각에 `..%5C..%5Cx` · `%2E%2E%2Fx` · 절대경로(`C:%5CWindows%5Cwin`) · `..` → **404** + 대상 디렉터리 밖 파일 무접촉(임시 디렉터리 monkeypatch) ⓑ Host 허용 4종(`localhost:8000` · `192.168.0.5:8000` · `[::1]:8000` · `socket.gethostname()`(+`.local`)) → 200 · 환경변수 추가분(`testserver`) → 200 ⓒ Host 거부(`evil.example`) → 403 `host_not_allowed` ⓓ Origin 거부 2(다른 호스트 · `null`) → 403 `origin_mismatch` · 같은 host:port Origin·Origin 부재·GET은 통과 ⓔ 업로드 상한: `MAX_DOWNLOAD_BYTES`를 작은 값으로 monkeypatch → convert·split·imports 3경로 422 `upload_too_large` · 상한 이하 통과 ⓕ `_claude_cli_args` — `bypassPermissions` 미포함 · Read 전용 플래그 포함 · `model` 유무 분기.
   - `tests/test_integrity_guards.py` — ⓖ 잡 TTL: `created_at` 2시간 전 대기 잡(내부 `running`) 보존 · `_finished_at` 2시간 전 종료 잡 삭제 · `_finished_at` 10분 전(생성 2시간 전) 종료 잡 보존 ⓗ 시험: 한 문서가 두 과목에 연결 → 세션 응답에 그 `document_id` 1회 · 제출 중복 → 422(attempts 0행) · 응용 모의고사 제출 중복 → 422 ⓘ 복원: 활성 잡 있음 → 409(`study.db` 대상 파일 mtime 무변 — 임시 경로 monkeypatch) · 체크포인트 busy 모의 → 409 · 정상 경로 통과.
-- [ ] B-11 DDL 0 확인 — `git diff --stat -- backend/models.py backend/alembic` 빈 출력 · 신규 라우트 0.
+- [x] B-11 DDL 0 확인 — `git diff --stat -- backend/models.py backend/alembic` 빈 출력 · 신규 라우트 0.
 
 **F. 프론트 (`frontend/`)**
-- [ ] F-1 (H) `src/pages/QuizRun.tsx` — `submittingRef` 가드(`handleSelect` 1곳 · `onSettled` 해제).
-- [ ] F-2 (H) `src/pages/ExamRun.tsx` — `doSubmit` 재진입 차단 ref(`onError` 해제).
-- [ ] F-3 (I) `src/hooks/useAppUpdate.ts` — `isReloadDeferredPath` + 보류·이탈 시 새로고침(`useLocation`) · `Layout.tsx` 배너 마크업 diff 0.
-- [ ] F-4 (C ④) `vite.config.ts` `changeOrigin` 제거.
-- [ ] F-5 (E) `npm audit fix`(비파괴) → `package.json` 고정 7줄(`@blocknote/*` 5+1 · `@mantine/*` 2) diff 0 확인 · 갱신 패키지 목록·라이선스·`npm audit --omit=dev` 잔여를 §7에 기록.
-- [ ] F-6 `npx tsc --noEmit` 통과 · 새 색 리터럴 0(불변 규칙 5 — UI 추가 0).
+- [x] F-1 (H) `src/pages/QuizRun.tsx` — `submittingRef` 가드(`handleSelect` 1곳 · `onSettled` 해제).
+- [x] F-2 (H) `src/pages/ExamRun.tsx` — `doSubmit` 재진입 차단 ref(`onError` 해제).
+- [x] F-3 (I) `src/hooks/useAppUpdate.ts` — `isReloadDeferredPath` + 보류·이탈 시 새로고침(`useLocation`) · `Layout.tsx` 배너 마크업 diff 0.
+- [x] F-4 (C ④) `vite.config.ts` `changeOrigin` 제거.
+- [x] F-5 (E) `npm audit fix`(비파괴) → `package.json` 고정 7줄(`@blocknote/*` 5+1 · `@mantine/*` 2) diff 0 확인 · 갱신 패키지 목록·라이선스·`npm audit --omit=dev` 잔여를 §7에 기록.
+- [x] F-6 `npx tsc --noEmit` 통과 · 새 색 리터럴 0(불변 규칙 5 — UI 추가 0).
 
 **V. 검증 (서버 구동 금지 — 임시 포트 8765만 · 종료 + 리스너 부재 확인 · 빈 DB · 실 데이터 무접촉)**
-- [ ] V-1 자동: `scripts/run-tests.ps1 -Path tests/test_security_guards.py`·`-Path tests/test_integrity_guards.py` + `-Full`(회귀 0 — conftest 도입 후 기존 710건 Host 403 없음 확인) · `scripts/invariant-scan.ps1` PASS(기준선 갱신 0) · `npm run build` 성공 · 엔트리 청크 Δ 기록(R37 — 기준선 1,534,106 B).
-- [ ] V-2 편집기 회귀(E): `frontend/scripts/` `s30`·`s32-*`·`s33`·`s34-*`·`s35-*`·`s36`·`s37`·`s40`·`s41-*`·`s47` 중 실행 가능한 것 전부 실행 — 통과/실행 불가(사유)를 §7에 1줄씩.
-- [ ] V-3 **메인 세션**: 실 Claude CLI 최소 호출 1회(작은 텍스트 원본 1개 → Read 성공 + 결과 반환 · 권한 거부·대기 멈춤 0) — 실패 시 플래그 재확정 후 재시도 1회까지.
+- [x] V-1 자동: `scripts/run-tests.ps1 -Path tests/test_security_guards.py`·`-Path tests/test_integrity_guards.py` + `-Full`(회귀 0 — conftest 도입 후 기존 710건 Host 403 없음 확인) · `scripts/invariant-scan.ps1` PASS(기준선 갱신 0) · `npm run build` 성공 · 엔트리 청크 Δ 기록(R37 — 기준선 1,534,106 B).
+- [x] V-2 편집기 회귀(E): `frontend/scripts/` `s30`·`s32-*`·`s33`·`s34-*`·`s35-*`·`s36`·`s37`·`s40`·`s41-*`·`s47` 중 실행 가능한 것 전부 실행 — 통과/실행 불가(사유)를 §7에 1줄씩.
+- [x] V-3 **메인 세션**: 실 Claude CLI 최소 호출 1회(작은 텍스트 원본 1개 → Read 성공 + 결과 반환 · 권한 거부·대기 멈춤 0) — 실패 시 플래그 재확정 후 재시도 1회까지.
 - [ ] V-4 **메인 세션** 임시 포트 스모크: ⓐ `127.0.0.1:8765`·`localhost:8765` 정상 ⓑ `curl -H "Host: evil.example"` → 403 ⓒ `-H "Origin: http://evil.example"` POST → 403 ⓓ 빈 DB에서 백업 생성 → 복원 1회 **성공**(체크포인트 가드 오탐 0) ⓔ 큐 일시정지 + 대기 잡 1개 상태에서 복원 → 409 → 잡 취소·재개.
 
 **D. 문서**

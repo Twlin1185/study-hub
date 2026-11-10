@@ -569,6 +569,27 @@ def _find_claude_executable() -> str:
     )
 
 
+def _claude_cli_args(exe: str, model: Optional[str] = None) -> List[str]:
+    """claude CLI 인자 조립(stage-58 규약 A) — `bypassPermissions`를 쓰지 않고 가용 도구 집합
+    자체를 Read로 좁힌다(`--tools Read` + `--allowedTools Read`) · MCP 서버 로드 0
+    (`--strict-mcp-config`, `--mcp-config` 없이). `--permission-mode`는 넘기지 않는다."""
+    args = [
+        exe,
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--tools",
+        "Read",
+        "--allowedTools",
+        "Read",
+        "--strict-mcp-config",
+    ]
+    if model:
+        args.extend(["--model", model])
+    return args
+
+
 def _run_claude_cli_streaming(
     prompt: str, *, timeout_seconds: int, job_id: str, model: Optional[str] = None
 ) -> str:
@@ -578,9 +599,7 @@ def _run_claude_cli_streaming(
     `model`(설계 §4.23 ⓑ) — `None`이면 `--model` 플래그를 전달하지 않는다(사용자 CLI
     구성 기본값 — 무설정 시 동작 불변)."""
     exe = _find_claude_executable()
-    args = [exe, "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions"]
-    if model:
-        args.extend(["--model", model])
+    args = _claude_cli_args(exe, model)
     try:
         proc = subprocess.Popen(
             args,
@@ -1235,12 +1254,28 @@ def _fallback_error_info(exc: Exception, *, job_kind: str = "convert") -> dict:
 # ---------------------------------------------------------------------------
 # 잡 큐 (convert·regenerate 공용, 동시 1개)
 # ---------------------------------------------------------------------------
+_TERMINAL_JOB_STATES = ("done", "error", "cancelled")
+
+
 def _purge_expired_jobs() -> None:
+    """stage-58 규약 F — 종료 3상태 잡만 삭제(내부 `running`=대기·실행 중은 TTL 무관 보존).
+    기준 시각 = `_finished_at`(없으면 `created_at`)."""
     now = dt.datetime.now()
     with _JOBS_LOCK:
-        stale = [jid for jid, job in _JOBS.items() if now - job["created_at"] > JOB_TTL]
+        stale = [
+            jid
+            for jid, job in _JOBS.items()
+            if job.get("status") in _TERMINAL_JOB_STATES
+            and now - (job.get("_finished_at") or job["created_at"]) > JOB_TTL
+        ]
         for jid in stale:
             _JOBS.pop(jid, None)
+
+
+def has_active_jobs() -> bool:
+    """종료 3상태가 아닌 잡(대기·실행 중)이 하나라도 있으면 True(stage-58 규약 J)."""
+    with _JOBS_LOCK:
+        return any(job.get("status") not in _TERMINAL_JOB_STATES for job in _JOBS.values())
 
 
 def _ensure_worker() -> None:

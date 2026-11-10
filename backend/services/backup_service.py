@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 import shutil
 import sqlite3
 import zipfile
@@ -15,6 +16,9 @@ from sqlalchemy import text
 
 from database import BASE_DIR, DB_PATH, engine
 from exceptions import ConflictError, NotFoundError, ValidationAppError
+from services import convert_service
+
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")  # stage-58 규약 B
 
 BACKUPS_DIR = BASE_DIR / "backups"
 SOURCES_DIR = BASE_DIR / "sources"
@@ -95,21 +99,43 @@ def restore_backup(backup_id: str, confirm: str) -> Dict:
             f"확인 문구가 올바르지 않습니다. '{RESTORE_CONFIRM_PHRASE}'를 정확히 입력하세요",
             detail={"expected": RESTORE_CONFIRM_PHRASE},
         )
+    # stage-58 규약 B — id 화이트리스트 + 루트 종속 이중 가드(불일치 = 404).
+    not_found = NotFoundError("백업을 찾을 수 없습니다", detail={"backup_id": backup_id})
+    if not isinstance(backup_id, str) or not _SAFE_ID_RE.fullmatch(backup_id):
+        raise not_found
     db_backup = _db_backup_path(backup_id)
+    if not db_backup.resolve().is_relative_to(BACKUPS_DIR.resolve()):
+        raise not_found
     if not db_backup.exists():
-        raise NotFoundError("백업을 찾을 수 없습니다", detail={"backup_id": backup_id})
+        raise not_found
+
+    # stage-58 규약 J — 활성 잡(대기·실행 중)이 있으면 복원 거부.
+    if convert_service.has_active_jobs():
+        raise ConflictError(
+            "진행 중인 작업이 있어 복원할 수 없습니다 — 작업 센터에서 끝나기를 기다리거나 취소하세요",
+            detail={"reason": "active_jobs"},
+        )
 
     # 복원 전 자동 스냅샷 1개 생성 — 복원이 잘못됐을 때 되돌릴 수 있게(지시서 요구사항).
     pre_restore = create_backup(label="pre_restore")
 
     # 남아있는 WAL을 study.db 본문에 반영해 비운다. Windows는 앱(uvicorn)이 열어 둔
     # -wal/-shm 파일을 unlink할 수 없으므로(공유 위반) 삭제 대신 체크포인트로 처리한다.
+    # stage-58 규약 J — busy(다른 연결이 쥐고 있어 비우지 못함)나 오류면 덮어쓰지 않고 409.
+    busy_error = ConflictError(
+        "데이터베이스가 사용 중이라 복원하지 못했습니다. 잠시 후 다시 시도하세요",
+        detail={"reason": "checkpoint_busy"},
+    )
     try:
         wal_conn = sqlite3.connect(str(DB_PATH))
-        wal_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        wal_conn.close()
-    except sqlite3.Error:
-        pass
+        try:
+            row = wal_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        finally:
+            wal_conn.close()
+    except sqlite3.Error as exc:
+        raise busy_error from exc
+    if row is None or row[0] != 0:
+        raise busy_error
 
     try:
         shutil.copyfile(db_backup, DB_PATH)

@@ -74,6 +74,8 @@ export default function ExamRunPage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [leaveTarget, setLeaveTarget] = useState<string | 'back' | null>(null)
   const autoSubmittedRef = useRef(false)
+  // doSubmit 재진입 차단(FB-38ⓒ) — onError에서만 해제(성공 = 화면 전환). 자동 제출도 doSubmit 경유.
+  const submittingRef = useRef(false)
   const allowLeaveRef = useRef(false)
 
   // 검토 지적(확인 요청) — allowLeaveRef가 true인 동안(명시적 "나가기" 확정 처리 중)에는 이 효과가
@@ -175,6 +177,8 @@ export default function ExamRunPage() {
   }
 
   function doSubmit() {
+    if (submittingRef.current) return
+    submittingRef.current = true
     setSubmitError(null)
     const elapsedSeconds = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 1000)) : 0
     const body = buildSubmitBody(elapsedSeconds)
@@ -183,7 +187,10 @@ export default function ExamRunPage() {
     const mutation = applied ? submitAppliedExam : submitExam
     mutation.mutate(body, {
       onSuccess: (data) => submitted(data),
-      onError: (e) => setSubmitError(errMsg(e, '제출에 실패했습니다.')),
+      onError: (e) => {
+        submittingRef.current = false
+        setSubmitError(errMsg(e, '제출에 실패했습니다.'))
+      },
     })
   }
 

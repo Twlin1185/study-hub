@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import ipaddress
+import os
 import re
+import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -119,6 +122,100 @@ app.include_router(web_embed.router)
 
 def _error_body(code: str, message: str, detail: object | None = None) -> dict:
     return {"error": {"code": code, "message": message, "detail": detail}}
+
+
+# --- Host/Origin 가드 (stage-58 FB-37ⓒ, 설계 §3 [S58]) ---
+# DNS 리바인딩·교차 사이트 요청 차단. 허용 Host = localhost · IP 리터럴 · PC 이름(+.local) ·
+# 환경변수 STUDY_HUB_ALLOWED_HOSTS(쉼표 구분, 기동 시 1회). 상태 변경 메서드의 /api 요청은
+# Origin이 있으면 Host와 같아야 한다. 거부 = 403 + VALIDATION_ERROR(코드 신설 0 · detail.reason).
+_GUARDED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _load_extra_allowed_hosts() -> set[str]:
+    raw = os.environ.get("STUDY_HUB_ALLOWED_HOSTS", "")
+    return {h.strip().lower() for h in raw.split(",") if h.strip()}
+
+
+# 테스트가 monkeypatch할 수 있는 모듈 수준 값(앱 import 시 1회 계산).
+_EXTRA_ALLOWED_HOSTS: set[str] = _load_extra_allowed_hosts()
+_PC_HOSTNAME: str = socket.gethostname().lower()
+
+
+def _split_host(host_header: str) -> str:
+    """Host 헤더에서 포트를 뗀 호스트(소문자). `[v6]:port`·`v4:port`·포트 없음 모두 처리."""
+    value = host_header.strip().lower()
+    if value.startswith("["):
+        end = value.find("]")
+        return value[1:end] if end != -1 else value
+    if value.count(":") == 1:
+        return value.rsplit(":", 1)[0]
+    return value
+
+
+def _is_host_allowed(host_header: str | None) -> bool:
+    if not host_header or not host_header.strip():
+        return False
+    host = _split_host(host_header)
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    if host == _PC_HOSTNAME or host == f"{_PC_HOSTNAME}.local":
+        return True
+    return host in _EXTRA_ALLOWED_HOSTS
+
+
+class HostOriginGuardMiddleware:
+    """순수 ASGI 미들웨어 — `scope["type"] == "http"`만 검사한다."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers: dict[str, str] = {}
+        for key, value in scope.get("headers", []):
+            name = key.decode("latin-1").lower()
+            if name not in headers:
+                headers[name] = value.decode("latin-1")
+
+        reason: str | None = None
+        host_header = headers.get("host")
+        if not _is_host_allowed(host_header):
+            reason = "host_not_allowed"
+        elif (
+            scope.get("method", "").upper() in _GUARDED_METHODS
+            and scope.get("path", "").startswith("/api")
+            and "origin" in headers
+        ):
+            origin = headers["origin"].strip().lower()
+            origin_host = origin.split("://", 1)[1] if "://" in origin else origin
+            if origin == "null" or origin_host.rstrip("/") != (host_header or "").strip().lower():
+                reason = "origin_mismatch"
+
+        if reason is None:
+            await self.app(scope, receive, send)
+            return
+        message = (
+            "허용되지 않은 접속 주소입니다"
+            if reason == "host_not_allowed"
+            else "요청 출처가 접속 주소와 일치하지 않습니다"
+        )
+        response = JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content=_error_body("VALIDATION_ERROR", message, {"reason": reason}),
+        )
+        await response(scope, receive, send)
+
+
+app.add_middleware(HostOriginGuardMiddleware)
 
 
 @app.exception_handler(AppError)

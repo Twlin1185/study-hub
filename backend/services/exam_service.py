@@ -72,6 +72,7 @@ def build_exam_session(db: Session, payload: ExamSessionRequest) -> ExamSessionR
     warnings: List[str] = []
     subjects_out: List[ExamSubjectOut] = []
     total_count = 0
+    seen: set[int] = set()
 
     for subject in payload.subjects:
         category = category_service.get_category_or_404(db, subject.category_id)
@@ -90,9 +91,12 @@ def build_exam_session(db: Session, payload: ExamSessionRequest) -> ExamSessionR
         else:
             doc_ids = quiz_service.sequential_order(db, doc_ids, category_ids)
 
+        # stage-58 규약 G — 과목 간 중복 문항 제거(첫 과목 귀속 · cap 절단 앞).
+        doc_ids = [i for i in doc_ids if i not in seen]
         cap = subject.count if subject.count is not None else len(doc_ids)
         cap = min(cap, SUBJECT_UPPER_BOUND)
         doc_ids = doc_ids[:cap]
+        seen.update(doc_ids)
 
         if not doc_ids:
             warnings.append(f"'{category.name}'에 출제 가능한 문항이 없어 제외되었습니다")
@@ -130,10 +134,22 @@ def build_exam_session(db: Session, payload: ExamSessionRequest) -> ExamSessionR
     )
 
 
+def assert_no_duplicate_answers(payload: ExamSubmitRequest) -> None:
+    """stage-58 규약 G — 같은 document_id가 2회 이상이면 422(채점·DB 쓰기 전). 실전·응용 공용."""
+    seen: set[int] = set()
+    for ans in payload.answers:
+        if ans.document_id in seen:
+            raise ValidationAppError(
+                "같은 문항이 중복 제출되었습니다", detail={"document_id": ans.document_id}
+            )
+        seen.add(ans.document_id)
+
+
 def submit_exam(db: Session, payload: ExamSubmitRequest) -> ExamSubmitReport:
     """일괄 제출 채점 — 배치 전체가 한 트랜잭션(불변 규칙 2). 미응답(null)=오답."""
     if not payload.answers:
         raise ValidationAppError("제출할 답안이 없습니다")
+    assert_no_duplicate_answers(payload)
 
     cut = payload.cut or ExamCut()
 

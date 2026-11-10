@@ -101,16 +101,29 @@ def _ensure_dirs() -> None:
     PROPOSALS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")  # stage-58 규약 B(preview_store 전례와 동일 문자 집합)
+
+
+def _safe_path(base: Path, raw_id: str, suffix: str) -> Path:
+    """id 화이트리스트 + 루트 종속 이중 가드(stage-58 규약 B). 불일치는 404."""
+    if not isinstance(raw_id, str) or not _SAFE_ID_RE.fullmatch(raw_id):
+        raise NotFoundError("항목을 찾을 수 없습니다", detail={"id": raw_id})
+    path = base / f"{raw_id}{suffix}"
+    if not path.resolve().is_relative_to(base.resolve()):
+        raise NotFoundError("항목을 찾을 수 없습니다", detail={"id": raw_id})
+    return path
+
+
 def _case_path(case_id: str) -> Path:
-    return CASES_DIR / f"{case_id}.json"
+    return _safe_path(CASES_DIR, case_id, ".json")
 
 
 def _case_output_path(case_id: str) -> Path:
-    return CASES_DIR / f"{case_id}.output.txt"
+    return _safe_path(CASES_DIR, case_id, ".output.txt")
 
 
 def _proposal_path(proposal_id: str) -> Path:
-    return PROPOSALS_DIR / f"{proposal_id}.json"
+    return _safe_path(PROPOSALS_DIR, proposal_id, ".json")
 
 
 def _write_json(path: Path, data: dict) -> None:

@@ -72,6 +72,63 @@ def _check_content_length_header(request: Request) -> None:
         raise _too_large_error()
 
 
+_UPLOAD_TOO_LARGE_MESSAGE = "파일이 너무 큽니다(50MB 이하만 올릴 수 있습니다)"
+
+
+def upload_too_large_error() -> ValidationAppError:
+    """stage-58 규약 D — 반입 업로드 상한 초과(422 · reason `upload_too_large`)."""
+    return ValidationAppError(_UPLOAD_TOO_LARGE_MESSAGE, detail={"reason": "upload_too_large"})
+
+
+async def parse_form_limited(request: Request, file_size_limit: int):
+    """`request.form()` 대체 — multipart면 파일 파트 누적 바이트에 상한을 걸어 스트리밍 중 조기
+    차단(+ Content-Length 1차 차단)한다. 초과 = 422 `upload_too_large`. 그 외 형식은
+    `request.form()` 그대로."""
+    content_type = request.headers.get("content-type", "")
+    if not content_type.startswith("multipart/form-data"):
+        return await request.form()
+
+    header = request.headers.get("content-length")
+    if header is not None:
+        try:
+            declared = int(header)
+        except ValueError:
+            declared = None
+        if declared is not None and declared > file_size_limit + _ENVELOPE_OVERHEAD_SLACK:
+            raise upload_too_large_error()
+
+    parser = _SizeLimitedMultiPartParser(
+        request.headers, request.stream(), file_size_limit=file_size_limit
+    )
+    try:
+        return await parser.parse()
+    except _FilePartTooLarge as exc:
+        raise upload_too_large_error() from exc
+    except MultiPartException as exc:
+        raise ValidationAppError(_BAD_FORMAT_MESSAGE, detail={"content_type": None}) from exc
+
+
+async def read_upload_limited(upload, file_size_limit: int) -> bytes:
+    """FastAPI `UploadFile`을 `.read()` 전에 크기 검사한다(규약 D ②). `size`가 없으면 상한+1
+    바이트까지만 청크로 읽어 초과를 판정한다."""
+    size = getattr(upload, "size", None)
+    if size is not None:
+        if size > file_size_limit:
+            raise upload_too_large_error()
+        return await upload.read()
+    chunks = []
+    total = 0
+    while True:
+        chunk = await upload.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > file_size_limit:
+            raise upload_too_large_error()
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def _read_single_file_field(request: Request) -> bytes:
     """multipart 본문을 청크로 스트리밍 파싱하며 `file` 필드 바이트만 뽑아낸다."""
     parser = _SizeLimitedMultiPartParser(

@@ -22,7 +22,14 @@ from schemas.import_schema import (
     PreviewMergeRequest,
     PreviewResponse,
 )
-from services import answer_key_service, import_run_service, import_service, tree_utils
+from services import (
+    answer_key_service,
+    convert_service,
+    import_run_service,
+    import_service,
+    tree_utils,
+    upload_service,
+)
 
 router = APIRouter(prefix="/api/import", tags=["import"])
 
@@ -35,11 +42,13 @@ async def preview(
     ),
     db: Session = Depends(get_db),
 ) -> PreviewResponse:
-    json_bytes = await file.read()
+    json_bytes = await upload_service.read_upload_limited(file, convert_service.MAX_DOWNLOAD_BYTES)
     source_bytes: Optional[bytes] = None
     source_filename: Optional[str] = None
     if source_file is not None and source_file.filename:
-        source_bytes = await source_file.read()
+        source_bytes = await upload_service.read_upload_limited(
+            source_file, convert_service.MAX_DOWNLOAD_BYTES
+        )
         source_filename = source_file.filename
     response = import_service.create_preview(
         db,
@@ -106,7 +115,7 @@ async def upload_answer_key(
     db: Session = Depends(get_db),
 ) -> AnswerKeyUploadResult:
     """판별·추출만 수행(LLM 호출 0·비용 0). C군·판별 불가는 §3 에러(422)로 즉시 반환."""
-    data = await file.read()
+    data = await upload_service.read_upload_limited(file, convert_service.MAX_DOWNLOAD_BYTES)
     filename = file.filename or "answer_key"
     result = answer_key_service.upload_answer_key(
         db, filename=filename, data=data, category_id=category_id
